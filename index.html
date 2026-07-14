@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>bardak's kampüs</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<meta name="theme-color" content="#FAF4E3">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="bardak's">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;--metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--gri);color:var(--metin);font-size:15px;padding-bottom:70px}
+.gizli{display:none!important}
+/* GİRİŞ */
+#girisEkran{max-width:380px;margin:7vh auto;padding:24px}
+.logoDaire{width:180px;height:180px;border:2.5px solid var(--ana);border-radius:50%;margin:0 auto 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:transparent}
+.logoYazi{font-weight:900;font-size:34px;color:var(--ana);letter-spacing:-1px;line-height:1}
+.logoAltCizgi{width:110px;height:2.5px;background:var(--ana);margin:7px 0 6px}
+.logoScript{font-family:'Caveat',cursive;color:var(--ana);font-size:17px;font-weight:600}
+#girisEkran .alt{text-align:center;color:var(--ana);opacity:.75;margin:10px 0 24px;font-size:12px;font-weight:800;letter-spacing:3px}
+.susSvg{display:block;margin:18px auto 0;opacity:.85}
+/* GENEL */
+.kart{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:16px;margin-bottom:12px}
+.kbaslik{font-weight:700;margin-bottom:10px;font-size:15px}
+label{display:block;font-size:12.5px;color:var(--soluk);font-weight:700;margin:10px 0 4px}
+input,select,textarea{width:100%;padding:11px 12px;border:1.5px solid var(--cizgi);border-radius:9px;font-size:15px;background:#fff;color:var(--metin);font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--ana);border-color:var(--ana)}
+button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:800;font-family:inherit}
+.btn{width:100%;padding:13px;background:var(--ana);color:#fff;margin-top:14px}
+.btn:disabled{background:#9AAECE;cursor:wait}
+.btn2{padding:8px 14px;background:var(--acik);color:var(--ana);font-size:13px}
+.btn-kirmizi{padding:8px 14px;background:#fdeceb;color:var(--hata);font-size:13px}
+.hata-msg{background:#fdeceb;color:var(--hata);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none}
+.ok-msg{background:#eafaf1;color:var(--ok);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none}
+.satir{display:flex;gap:8px}.satir>*{flex:1}
+.rozet{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:700}
+.rz-uyari{background:#F8EEDD;color:var(--uyari)}.rz-ok{background:#E5F2E9;color:var(--ok)}.rz-hata{background:#F9E7E3;color:var(--hata)}.rz-gri{background:var(--acik);color:var(--ana)}
+/* ÜST BAR */
+#ustBar{background:var(--kart);color:var(--ana);padding:11px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:50;border-bottom:1.5px solid var(--cizgi)}
+#ustBar .ad{font-weight:900;font-size:18px;letter-spacing:-0.5px;line-height:1.1}
+#ustBar .ad .kmp{font-family:'Caveat',cursive;font-weight:600;font-size:15px;letter-spacing:0;margin-left:4px}
+#ustBar .kim{font-size:11.5px;color:var(--soluk);font-weight:600}
+#cikisBtn{background:var(--acik);color:var(--ana);padding:7px 12px;font-size:12.5px}
+/* SEKMELER */
+#sekmeBar{position:fixed;bottom:0;left:0;right:0;background:var(--kart);border-top:1.5px solid var(--cizgi);display:flex;z-index:50;overflow-x:auto}
+#sekmeBar button{flex:1;min-width:62px;padding:8px 2px 7px;background:none;color:var(--soluk);font-size:10.5px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:3px;border-top:2.5px solid transparent}
+#sekmeBar button.aktif{color:var(--ana);border-top-color:var(--ana)}
+#sekmeBar .iko{width:21px;height:21px}
+#sekmeBar .iko svg{width:100%;height:100%}
+main{padding:14px;max-width:640px;margin:0 auto}
+/* LİSTE */
+.liste-satir{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #F2ECD9;font-size:14px;gap:8px}
+.liste-satir:last-child{border-bottom:none}
+.l-sol .b{font-weight:700}.l-sol .k{font-size:12px;color:var(--soluk)}
+.l-sag{text-align:right;font-weight:800;white-space:nowrap}
+.ozet-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.ozet-kut{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:14px}
+.ozet-kut .e{font-size:11px;color:var(--soluk);font-weight:800;letter-spacing:.5px}
+.ozet-kut .d{font-size:19px;font-weight:900;margin-top:3px;color:var(--ana)}
+.kdv-satir{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+.kdv-satir select{width:82px;flex:none}
+.kdv-satir .sil{background:#fdeceb;color:var(--hata);padding:9px 11px;flex:none}
+.kalem-satir{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+.kalem-satir .sil{background:#fdeceb;color:var(--hata);padding:9px 11px;flex:none}
+.bilgi-not{font-size:12.5px;color:var(--soluk);background:var(--acik);padding:8px 10px;border-radius:8px;margin-top:8px}
+h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
+.foto-onizle{max-width:80px;max-height:80px;border-radius:8px;border:1px solid var(--cizgi);margin-top:6px}
+</style>
+</head>
+<body>
+
+<!-- ================= GİRİŞ ================= -->
+<div id="girisEkran">
+  <div class="logoDaire">
+    <div class="logoYazi">bardak's</div>
+    <div class="logoAltCizgi"></div>
+    <div class="logoScript">"iz bırakan tatlar"</div>
+  </div>
+  <div class="alt">KAMPÜS PANELİ</div>
+  <div class="kart">
+    <label>E-posta</label>
+    <input type="email" id="girisEmail" autocomplete="username" inputmode="email">
+    <label>Şifre</label>
+    <input type="password" id="girisSifre" autocomplete="current-password">
+    <button class="btn" id="girisBtn" onclick="girisYap()">Giriş Yap</button>
+    <div class="hata-msg" id="girisHata"></div>
+  </div>
+  <svg class="susSvg" width="72" height="82" viewBox="0 0 72 82" fill="none" stroke="#2456A0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 22l3-9c.2-.7 1-1.3 1.8-1.3l34.4-1.5c.9 0 1.7.6 1.9 1.4L58 22"/>
+    <path d="M11 22h50v5H11z"/>
+    <path d="M13 27l4.5 50c.1.9.9 1.7 1.8 1.7h33.4c.9 0 1.7-.8 1.8-1.7L59 27"/>
+    <path d="M15 38h42M17.5 62h37"/>
+    <g transform="rotate(-22 30 50)"><ellipse cx="30" cy="50" rx="3.6" ry="5.2"/><path d="M30 45.5c-1.2 1.5-1.2 7.5 0 9"/></g>
+    <g transform="rotate(18 42 51)"><ellipse cx="42" cy="51" rx="3.6" ry="5.2"/><path d="M42 46.5c1.2 1.5 1.2 7.5 0 9"/></g>
+  </svg>
+</div>
+
+<!-- ================= UYGULAMA ================= -->
+<div id="uygulama" class="gizli">
+  <div id="ustBar">
+    <div><div class="ad">bardak's<span class="kmp">kampüs</span></div><div class="kim" id="kimBilgi"></div></div>
+    <button id="cikisBtn" onclick="cikisYap()">Çıkış</button>
+  </div>
+  <main id="icerik"></main>
+  <nav id="sekmeBar"></nav>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* ================== AYAR ================== */
+const SB_URL = 'https://gbheqnxmwvabwuimzskv.supabase.co';
+const SB_KEY = 'sb_publishable_qtiCjExLIte6WJcbdB5jNg_fUJDYnxF';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+let PROFIL = null;   // {id, ad, rol, sube_id}
+let KATALOG = { kategoriler: [], tedarikciler: [], urunler: [] };
+let AKTIF_SEKME = null;
+
+const bugun = () => new Date().toISOString().slice(0,10);
+const tl = n => (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
+const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const idem = () => crypto.randomUUID();
+
+/* ================== GİRİŞ / OTURUM ================== */
+async function girisYap(){
+  const btn = document.getElementById('girisBtn'), h = document.getElementById('girisHata');
+  h.style.display='none'; btn.disabled=true; btn.textContent='Giriş yapılıyor...';
+  const { error } = await sb.auth.signInWithPassword({
+    email: document.getElementById('girisEmail').value.trim(),
+    password: document.getElementById('girisSifre').value
+  });
+  btn.disabled=false; btn.textContent='Giriş Yap';
+  if (error){ h.textContent = 'Giriş başarısız: e-posta veya şifre hatalı.'; h.style.display='block'; return; }
+  await baslat();
+}
+async function cikisYap(){ await sb.auth.signOut(); location.reload(); }
+
+async function baslat(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session){ document.getElementById('girisEkran').classList.remove('gizli'); return; }
+  const { data: p, error } = await sb.from('profil').select('*').eq('id', session.user.id).single();
+  if (error || !p || !p.aktif){
+    alert('Hesabınız sisteme tanımlı değil. Yöneticiyle görüşün.');
+    await sb.auth.signOut(); location.reload(); return;
+  }
+  PROFIL = p;
+  document.getElementById('girisEkran').classList.add('gizli');
+  document.getElementById('uygulama').classList.remove('gizli');
+  document.getElementById('kimBilgi').textContent = p.ad + ' · ' + (p.rol==='owner'?'Yönetici':'Personel');
+  await katalogYukle();
+  sekmeleriKur();
+  sekmeAc(PROFIL.rol==='owner' ? 'ozet' : 'gunsonu');
+}
+
+async function katalogYukle(){
+  const [k, t, u] = await Promise.all([
+    sb.from('gider_kategori').select('id,ad').eq('aktif',true).eq('is_deleted',false).order('ad'),
+    sb.from('tedarikci').select('id,ad').eq('aktif',true).eq('is_deleted',false).order('ad'),
+    sb.from('urun').select('id,ad,birim').eq('aktif',true).eq('is_deleted',false).order('ad')
+  ]);
+  KATALOG.kategoriler = k.data||[]; KATALOG.tedarikciler = t.data||[]; KATALOG.urunler = u.data||[];
+}
+
+/* ================== SEKMELER ================== */
+const _svg = ic => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ic}</svg>`;
+const IKON = {
+  ozet:    _svg('<path d="M4 20V11M10 20V4M16 20v-6M21 20H3"/>'),
+  gunsonu: _svg('<path d="M6 3h12v18l-2-1.6L14 21l-2-1.6L10 21l-2-1.6L6 21zM9 8h6M9 12h6M9 16h3"/>'),
+  gider:   _svg('<rect x="2.5" y="6.5" width="19" height="11" rx="1.5"/><circle cx="12" cy="12" r="2.6"/><path d="M6 10v4M18 10v4"/>'),
+  alis:    _svg('<path d="M12 3l8.5 4.7v8.6L12 21l-8.5-4.7V7.7z"/><path d="M3.5 7.7L12 12.4l8.5-4.7M12 12.4V21"/>'),
+  stok:    _svg('<rect x="5" y="4.5" width="14" height="17" rx="1.5"/><path d="M9 4.5V3h6v1.5M9 10h6M9 14h6M9 18h3"/>'),
+  tedarikci:_svg('<path d="M2.5 6h11v10h-11zM13.5 9.5H18l3 3.5v3h-7.5"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>'),
+  talep:   _svg('<path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 5 2 6 2 6h-15s2-1 2-6A5.5 5.5 0 0 1 12 4zM10 19a2.2 2.2 0 0 0 4 0"/>'),
+  yonetim: _svg('<path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h10M18 17h2"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="17" r="2"/>')
+};
+const SEKMELER_OWNER = [
+  {id:'ozet',    ad:'Özet'},
+  {id:'gunsonu', ad:'Gün Sonu'},
+  {id:'gider',   ad:'Giderler'},
+  {id:'alis',    ad:'Alışlar'},
+  {id:'stok',    ad:'Stok'},
+  {id:'tedarikci',ad:'Tedarikçi'},
+  {id:'talep',   ad:'Talepler'},
+  {id:'yonetim', ad:'Yönetim'}
+];
+const SEKMELER_PERSONEL = [
+  {id:'gunsonu', ad:'Gün Sonu'},
+  {id:'gider',   ad:'Giderler'},
+  {id:'alis',    ad:'Alışlar'},
+  {id:'stok',    ad:'Stok'},
+  {id:'tedarikci',ad:'Tedarikçi'},
+  {id:'talep',   ad:'Talep'}
+];
+function sekmeleriKur(){
+  const liste = PROFIL.rol==='owner' ? SEKMELER_OWNER : SEKMELER_PERSONEL;
+  document.getElementById('sekmeBar').innerHTML = liste.map(s =>
+    `<button id="sk_${s.id}" onclick="sekmeAc('${s.id}')"><span class="iko">${IKON[s.id]}</span>${s.ad}</button>`).join('');
+}
+function sekmeAc(id){
+  AKTIF_SEKME = id;
+  document.querySelectorAll('#sekmeBar button').forEach(b=>b.classList.remove('aktif'));
+  const sk = document.getElementById('sk_'+id); if (sk) sk.classList.add('aktif');
+  ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, alis:vAlis, stok:vStok, tedarikci:vTedarikci, talep:vTalep, yonetim:vYonetim})[id]();
+}
+
+/* ================== YARDIMCILAR ================== */
+function mesaj(elId, tip, txt){
+  const el = document.getElementById(elId); if(!el) return;
+  el.className = tip==='ok' ? 'ok-msg' : 'hata-msg';
+  el.textContent = txt; el.style.display='block';
+  if (tip==='ok') setTimeout(()=>{ el.style.display='none'; }, 5000);
+}
+async function fotoYukle(inputId, klasor){
+  const inp = document.getElementById(inputId);
+  if (!inp || !inp.files || !inp.files[0]) return null;
+  const f = inp.files[0];
+  const uzanti = (f.name.split('.').pop()||'jpg').toLowerCase();
+  const yol = `${klasor}/${bugun()}_${crypto.randomUUID()}.${uzanti}`;
+  const { error } = await sb.storage.from('belgeler').upload(yol, f, { upsert:false });
+  if (error) throw new Error('Fotoğraf yüklenemedi: ' + error.message);
+  return yol;
+}
+async function rpcCagir(fn, params, btnId, msgId, basariTxt){
+  const btn = document.getElementById(btnId);
+  btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Kaydediliyor...';
+  try{
+    const { data, error } = await sb.rpc(fn, params);
+    if (error) throw new Error(hataTr(error.message));
+    mesaj(msgId, 'ok', basariTxt);
+    return data;
+  }catch(e){
+    mesaj(msgId, 'hata', e.message + ' — Verileriniz formda duruyor, tekrar deneyin.');
+    return null;
+  }finally{
+    btn.disabled = false; btn.textContent = eski;
+  }
+}
+function hataTr(m){
+  if (m.includes('GUN_ZATEN_GIRILMIS')) return 'Bu günün kaydı zaten girilmiş. Düzeltme gerekiyorsa talep açın.';
+  if (m.includes('AY_KAPALI')) return 'Bu ay kapatılmış — geçmişe kayıt için yöneticiye başvurun.';
+  if (m.includes('YETKI_YOK')) return 'Bu işlem için yetkiniz yok.';
+  if (m.includes('SUBE_UYUSMUYOR')) return 'Şube uyuşmazlığı.';
+  if (m.includes('NEDEN_ZORUNLU')) return 'Neden yazmak zorunlu.';
+  if (m.includes('Failed to fetch')) return 'İnternet bağlantısı sorunu.';
+  return m;
+}
+function tarihSecici(id, deger){
+  return `<label>Tarih</label><input type="date" id="${id}" value="${deger||bugun()}" max="${bugun()}">`;
+}
+
+/* ================== ÖZET (OWNER) ================== */
+async function vOzet(){
+  const el = document.getElementById('icerik');
+  el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
+  const ay = bugun().slice(0,7);
+  const [gs, kdv, ozet, uyari] = await Promise.all([
+    sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
+    sb.from('v_kdv_ay').select('*').eq('donem', ay),
+    sb.from('v_aylik_ozet').select('*').eq('donem', ay),
+    sb.from('v_uyarilar').select('*').order('tarih')
+  ]);
+  const g = gs.data, k = (kdv.data||[])[0], o = (ozet.data||[])[0], u = uyari.data||[];
+  el.innerHTML = `
+    <h2 class="bolum">Özet — ${new Date().toLocaleDateString('tr-TR')}</h2>
+    <div class="ozet-grid">
+      <div class="ozet-kut"><div class="e">BUGÜNKÜ CİRO</div><div class="d">${g?tl(g.toplam):'—'}</div>
+        <div class="k" style="font-size:12px;color:var(--soluk)">${g?('Kart '+tl(g.kart_toplam)+' · Nakit '+tl(g.nakit_toplam)):'Gün sonu girilmedi'}</div></div>
+      <div class="ozet-kut"><div class="e">AY CİROSU (${o?o.gun_sayisi:0} gün)</div><div class="d">${o?tl(o.ciro):'—'}</div></div>
+      <div class="ozet-kut"><div class="e">AY KDV TAHMİNİ</div><div class="d">${k?tl(k.odenecek_kdv_tahmini):'—'}</div>
+        <div style="font-size:12px;color:var(--soluk)">${k?('Satış '+tl(k.satis_kdv)+' − İnd. '+tl(k.indirilecek_kdv)):''}</div></div>
+      <div class="ozet-kut"><div class="e">AY BRÜT KÂR TAHMİNİ</div><div class="d">${o?tl(o.brut_kar_tahmini):'—'}</div></div>
+    </div>
+    <div class="kart"><div class="kbaslik" style="color:var(--ana)">Uyarılar (${u.length})</div>
+      ${u.length===0?'<div class="bilgi-not">Uyarı yok.</div>':u.map(x=>`
+        <div class="liste-satir"><div class="l-sol"><span class="rozet ${x.tip==='stok'?'rz-hata':x.tip==='eksik_gun'?'rz-uyari':'rz-uyari'}">${x.tip==='vade'?'VADE':x.tip==='stok'?'STOK':'EKSİK GÜN'}</span> ${esc(x.mesaj)}</div></div>`).join('')}
+    </div>
+    ${o?`<div class="kart"><div class="kbaslik">Bu Ay (${ay})</div>
+      <div class="liste-satir"><div>Net satış (KDV hariç)</div><div class="l-sag">${tl(o.net_satis_kdv_haric)}</div></div>
+      <div class="liste-satir"><div>Mal alışları</div><div class="l-sag">−${tl(o.alis_toplam)}</div></div>
+      <div class="liste-satir"><div>Giderler</div><div class="l-sag">−${tl(o.gider_toplam)}</div></div>
+      <div class="liste-satir"><div>Personel</div><div class="l-sag">−${tl(o.personel_toplam)}</div></div>
+      <div class="liste-satir"><div>Fiş iptalleri</div><div class="l-sag">${tl(o.iptal_tutar)}</div></div>
+      <div class="liste-satir"><div style="font-weight:800">BRÜT KÂR TAHMİNİ</div><div class="l-sag" style="color:var(--ana)">${tl(o.brut_kar_tahmini)}</div></div>
+    </div>`:''}`;
+}
+
+/* ================== GÜN SONU ================== */
+let KDV_SAYAC = 0;
+function kdvSatirEkle(oran, satis, kdv){
+  KDV_SAYAC++;
+  const div = document.createElement('div');
+  div.className='kdv-satir'; div.id='kdvS_'+KDV_SAYAC;
+  div.innerHTML = `
+    <select id="kdvO_${KDV_SAYAC}"><option value="1"${oran==1?' selected':''}>%1</option><option value="10"${(oran==10||!oran)?' selected':''}>%10</option><option value="20"${oran==20?' selected':''}>%20</option></select>
+    <input type="number" step="0.01" inputmode="decimal" id="kdvT_${KDV_SAYAC}" placeholder="Oran toplam satış" value="${satis||''}">
+    <input type="number" step="0.01" inputmode="decimal" id="kdvV_${KDV_SAYAC}" placeholder="KDV tutarı" value="${kdv||''}">
+    <button class="sil" onclick="document.getElementById('kdvS_${KDV_SAYAC}').remove()">✕</button>`;
+  document.getElementById('kdvSatirlari').appendChild(div);
+}
+function kdvOku(){
+  const sonuc = [];
+  document.querySelectorAll('#kdvSatirlari .kdv-satir').forEach(d=>{
+    const n = d.id.split('_')[1];
+    const o = document.getElementById('kdvO_'+n).value;
+    const t = document.getElementById('kdvT_'+n).value;
+    const v = document.getElementById('kdvV_'+n).value;
+    if (t!=='' || v!=='') sonuc.push({ oran:+o, satis_toplam:+t||0, kdv_tutar:+v||0 });
+  });
+  return sonuc;
+}
+async function vGunSonu(){
+  const el = document.getElementById('icerik');
+  el.innerHTML = `
+    <h2 class="bolum">Gün Sonu Girişi</h2>
+    <div class="kart">
+      ${tarihSecici('gsTarih')}
+      <div class="satir">
+        <div><label>Kart Toplam</label><input type="number" step="0.01" inputmode="decimal" id="gsKart" placeholder="0,00"></div>
+        <div><label>Nakit Toplam</label><input type="number" step="0.01" inputmode="decimal" id="gsNakit" placeholder="0,00"></div>
+      </div>
+      <label>Genel Toplam</label><input type="number" step="0.01" inputmode="decimal" id="gsToplam" placeholder="0,00">
+      <div class="satir">
+        <div><label>Fiş İptal Adedi</label><input type="number" inputmode="numeric" id="gsIptalA" placeholder="0"></div>
+        <div><label>Fiş İptal Tutarı</label><input type="number" step="0.01" inputmode="decimal" id="gsIptalT" placeholder="0,00"></div>
+      </div>
+      <label>Z No</label><input type="text" inputmode="numeric" id="gsZNo" placeholder="Z raporundaki Z NO">
+      <label>KDV Dökümü (Z raporundaki VERGİ DÖKÜMÜ satırları)</label>
+      <div id="kdvSatirlari"></div>
+      <button class="btn2" onclick="kdvSatirEkle()">+ KDV Oranı Ekle</button>
+      <label>Z Raporu Fotoğrafı</label><input type="file" id="gsZFoto" accept="image/*" capture="environment">
+      <label>POS Gün Sonu Slip Fotoğrafı</label><input type="file" id="gsSlipFoto" accept="image/*" capture="environment">
+      <label>Not (isteğe bağlı)</label><textarea id="gsNot" rows="2"></textarea>
+      <button class="btn" id="gsKaydet" onclick="gunSonuKaydet()">Gün Sonunu Kaydet</button>
+      <div class="hata-msg" id="gsMsg"></div>
+      <div class="bilgi-not">Kayıt sonrası gün kilitlenir. Hata olursa "${PROFIL.rol==='owner'?'listeden düzeltirsin':'Talep sekmesinden düzeltme talebi aç'}".</div>
+    </div>
+    ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : ''}`;
+  kdvSatirEkle();
+  if (PROFIL.rol==='owner') gunSonuListe();
+}
+async function gunSonuKaydet(){
+  const kart = +document.getElementById('gsKart').value||0;
+  const nakit = +document.getElementById('gsNakit').value||0;
+  const toplam = +document.getElementById('gsToplam').value||0;
+  const kdv = kdvOku();
+  if (toplam === 0){ mesaj('gsMsg','hata','Genel toplam boş olamaz.'); return; }
+  if (Math.abs((kart+nakit)-toplam) > 0.01 &&
+      !confirm(`DİKKAT: Kart (${tl(kart)}) + Nakit (${tl(nakit)}) = ${tl(kart+nakit)}, ama Genel Toplam ${tl(toplam)} girdiniz. Fark var. Yine de kaydedilsin mi?`)) return;
+  if (kdv.length === 0 &&
+      !confirm('KDV dökümü BOŞ. Z raporundaki VERGİ DÖKÜMÜ girilmedi — KDV tahmini bu gün için eksik kalır. Yine de kaydedilsin mi?')) return;
+  const btn = document.getElementById('gsKaydet');
+  btn.disabled = true; btn.textContent = 'Fotoğraflar yükleniyor...';
+  let zFoto=null, slipFoto=null;
+  try{
+    zFoto = await fotoYukle('gsZFoto','z');
+    slipFoto = await fotoYukle('gsSlipFoto','slip');
+  }catch(e){ mesaj('gsMsg','hata', e.message); btn.disabled=false; btn.textContent='Gün Sonunu Kaydet'; return; }
+  const data = await rpcCagir('rpc_gun_sonu_kaydet', {
+    p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: document.getElementById('gsTarih').value,
+    p_kart: kart, p_nakit: nakit, p_toplam: toplam,
+    p_iptal_adet: +document.getElementById('gsIptalA').value||0,
+    p_iptal_tutar: +document.getElementById('gsIptalT').value||0,
+    p_z_no: document.getElementById('gsZNo').value.trim()||null,
+    p_kdv: kdv, p_z_foto: zFoto, p_slip_foto: slipFoto,
+    p_not: document.getElementById('gsNot').value.trim()||null
+  }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
+  if (data && data.ok){ vGunSonu(); mesaj('gsMsg','ok','Gün sonu kaydedildi ✓'); }
+}
+async function gunSonuListe(){
+  const { data } = await sb.from('gun_sonu').select('*').eq('is_deleted',false)
+    .order('tarih',{ascending:false}).limit(14);
+  const el = document.getElementById('gsListe'); if(!el) return;
+  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Günler</div>
+    ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(g=>`
+      <div class="liste-satir">
+        <div class="l-sol"><div class="b">${new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')} ${g.kilitli?'🔒':'🔓'}</div>
+          <div class="k">Kart ${tl(g.kart_toplam)} · Nakit ${tl(g.nakit_toplam)} · Z:${esc(g.z_no||'—')}</div></div>
+        <div class="l-sag">${tl(g.toplam)}<br>
+          <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil & Yeniden Gir</button></div>
+      </div>`).join('')}</div>`;
+}
+async function gunSil(id, tarih){
+  const neden = prompt(`${tarih} günü SİLİNECEK (soft-delete, kayıt audit'te kalır) ve yeniden girilebilir olacak. Neden?`);
+  if (!neden || !neden.trim()) return;
+  const { error } = await sb.from('gun_sonu').update({ is_deleted:true, kilit_acma_nedeni: neden.trim() }).eq('id', id);
+  if (error){ alert('Silinemedi: '+error.message); return; }
+  await sb.from('gun_sonu_kdv').update({ is_deleted:true }).eq('gun_sonu_id', id);
+  gunSonuListe();
+}
+
+/* ================== GİDER ================== */
+async function vGider(){
+  const el = document.getElementById('icerik');
+  el.innerHTML = `
+    <h2 class="bolum">Giderler</h2>
+    <div class="kart">
+      <div class="kbaslik">Yeni Gider</div>
+      ${tarihSecici('gdTarih')}
+      <label>Kategori</label>
+      <select id="gdKategori">${KATALOG.kategoriler.map(k=>`<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select>
+      <label>Tutar (KDV dahil)</label><input type="number" step="0.01" inputmode="decimal" id="gdTutar" placeholder="0,00">
+      <div class="satir">
+        <div><label>KDV Oranı</label><select id="gdKdvOran"><option value="">Yok/Bilmiyorum</option><option value="1">%1</option><option value="10">%10</option><option value="20">%20</option></select></div>
+        <div><label>KDV Tutarı</label><input type="number" step="0.01" inputmode="decimal" id="gdKdvTutar" placeholder="0,00"></div>
+      </div>
+      <label>Açıklama</label><input type="text" id="gdAciklama" placeholder="örn: Temmuz elektrik faturası">
+      <label>Belge Fotoğrafı</label><input type="file" id="gdFoto" accept="image/*" capture="environment">
+      <button class="btn" id="gdKaydet" onclick="giderKaydet()">Gideri Kaydet</button>
+      <div class="hata-msg" id="gdMsg"></div>
+    </div>
+    <div id="gdListe"></div>`;
+  document.getElementById('gdKdvOran').addEventListener('change', e=>{
+    const t = +document.getElementById('gdTutar').value||0, o = +e.target.value||0;
+    if (t>0 && o>0) document.getElementById('gdKdvTutar').value = (t - t/(1+o/100)).toFixed(2);
+  });
+  giderListe();
+}
+async function giderKaydet(){
+  const tutar = +document.getElementById('gdTutar').value||0;
+  const kdvT = +document.getElementById('gdKdvTutar').value||0;
+  const oran = document.getElementById('gdKdvOran').value;
+  if (tutar===0){ mesaj('gdMsg','hata','Tutar boş olamaz.'); return; }
+  if (kdvT===0 && !confirm('KDV tutarı BOŞ — bu gider indirilecek KDV hesabına girmeyecek. Faturasız/KDV\'siz gider mi? Yine de kaydedilsin mi?')) return;
+  const btn = document.getElementById('gdKaydet');
+  btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
+  let foto=null;
+  try{ foto = await fotoYukle('gdFoto','fatura'); }
+  catch(e){ mesaj('gdMsg','hata',e.message); btn.disabled=false; btn.textContent='Gideri Kaydet'; return; }
+  const data = await rpcCagir('rpc_gider_kaydet',{
+    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_tarih: document.getElementById('gdTarih').value,
+    p_kategori: document.getElementById('gdKategori').value,
+    p_aciklama: document.getElementById('gdAciklama').value.trim()||null,
+    p_tutar: tutar, p_kdv_orani: oran===''?null:+oran, p_kdv_tutar: kdvT, p_foto: foto
+  },'gdKaydet','gdMsg','Gider kaydedildi ✓');
+  if (data && data.ok){ ['gdTutar','gdKdvTutar','gdAciklama'].forEach(i=>document.getElementById(i).value=''); document.getElementById('gdFoto').value=''; giderListe(); }
+}
+async function giderListe(){
+  const { data } = await sb.from('gider').select('*, gider_kategori(ad)').eq('is_deleted',false)
+    .order('tarih',{ascending:false}).limit(30);
+  const el = document.getElementById('gdListe'); if(!el) return;
+  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Giderler</div>
+    ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(g=>`
+      <div class="liste-satir">
+        <div class="l-sol"><div class="b">${esc(g.gider_kategori?.ad||'—')}</div>
+          <div class="k">${new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')} · ${esc(g.aciklama||'')}</div></div>
+        <div class="l-sag">${tl(g.tutar)}</div>
+      </div>`).join('')}</div>`;
+}
+
+/* ================== ALIŞ ================== */
+let KALEM_SAYAC = 0;
+function kalemEkle(){
+  KALEM_SAYAC++;
+  const div = document.createElement('div');
+  div.className='kalem-satir'; div.id='klm_'+KALEM_SAYAC;
+  div.innerHTML = `
+    <select id="klmU_${KALEM_SAYAC}" style="flex:2">${KATALOG.urunler.map(u=>`<option value="${u.id}">${esc(u.ad)} (${esc(u.birim)})</option>`).join('')}</select>
+    <input type="number" step="0.001" inputmode="decimal" id="klmM_${KALEM_SAYAC}" placeholder="Miktar" style="flex:1">
+    <input type="number" step="0.01" inputmode="decimal" id="klmF_${KALEM_SAYAC}" placeholder="Birim ₺" style="flex:1">
+    <button class="sil" onclick="document.getElementById('klm_${KALEM_SAYAC}').remove()">✕</button>`;
+  document.getElementById('kalemSatirlari').appendChild(div);
+}
+function kalemOku(){
+  const sonuc=[];
+  document.querySelectorAll('#kalemSatirlari .kalem-satir').forEach(d=>{
+    const n=d.id.split('_')[1];
+    const u=document.getElementById('klmU_'+n).value, m=+document.getElementById('klmM_'+n).value||0, f=+document.getElementById('klmF_'+n).value||0;
+    if (u && m>0) sonuc.push({urun_id:u, miktar:m, birim_fiyat:f});
+  });
+  return sonuc;
+}
+async function vAlis(){
+  const el = document.getElementById('icerik');
+  el.innerHTML = `
+    <h2 class="bolum">Alışlar (Tedarikçiden Gelen)</h2>
+    <div class="kart">
+      <div class="kbaslik">Yeni Alış Kaydı</div>
+      <label>Tedarikçi</label>
+      <select id="alTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
+      ${KATALOG.tedarikciler.length===0?'<div class="bilgi-not">Tedarikçi yok — yönetici "Yönetim" sekmesinden ekler.</div>':''}
+      ${tarihSecici('alTarih')}
+      <label>Belge Türü</label>
+      <select id="alTur"><option value="fatura">Fatura</option><option value="irsaliye">İrsaliye</option><option value="bilgi_fisi">Bilgi Fişi</option></select>
+      <div class="satir">
+        <div><label>Belge No</label><input type="text" id="alBelgeNo"></div>
+        <div><label>Fiş No</label><input type="text" id="alFisNo"></div>
+      </div>
+      <label>Toplam Tutar (KDV dahil)</label><input type="number" step="0.01" inputmode="decimal" id="alToplam" placeholder="0,00">
+      <div class="satir">
+        <div><label>KDV Oranı</label><select id="alKdvOran"><option value="">Yok</option><option value="1">%1</option><option value="10">%10</option><option value="20">%20</option></select></div>
+        <div><label>KDV Tutarı</label><input type="number" step="0.01" inputmode="decimal" id="alKdvTutar" placeholder="0,00"></div>
+      </div>
+      <label>Kalemler (stoğa otomatik işlenir)</label>
+      <div id="kalemSatirlari"></div>
+      <button class="btn2" onclick="kalemEkle()">+ Kalem Ekle</button>
+      <label>Belge Fotoğrafı</label><input type="file" id="alFoto" accept="image/*" capture="environment">
+      <label>Not</label><input type="text" id="alNot">
+      <button class="btn" id="alKaydet" onclick="alisKaydet()">Alışı Kaydet</button>
+      <div class="hata-msg" id="alMsg"></div>
+    </div>
+    <div id="alListe"></div>`;
+  document.getElementById('alKdvOran').addEventListener('change', e=>{
+    const t = +document.getElementById('alToplam').value||0, o = +e.target.value||0;
+    if (t>0 && o>0) document.getElementById('alKdvTutar').value = (t - t/(1+o/100)).toFixed(2);
+  });
+  if (KATALOG.urunler.length>0) kalemEkle();
+  alisListe();
+}
+async function alisKaydet(){
+  const toplam = +document.getElementById('alToplam').value||0;
+  const kdvT = +document.getElementById('alKdvTutar').value||0;
+  if (!document.getElementById('alTedarikci').value){ mesaj('alMsg','hata','Tedarikçi seçilmedi.'); return; }
+  if (toplam===0){ mesaj('alMsg','hata','Toplam tutar boş olamaz.'); return; }
+  if (kdvT===0 && !confirm('KDV tutarı BOŞ — bu alış indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
+  const btn = document.getElementById('alKaydet');
+  btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
+  let foto=null;
+  try{ foto = await fotoYukle('alFoto','fatura'); }
+  catch(e){ mesaj('alMsg','hata',e.message); btn.disabled=false; btn.textContent='Alışı Kaydet'; return; }
+  const data = await rpcCagir('rpc_alis_kaydet',{
+    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_tedarikci: document.getElementById('alTedarikci').value,
+    p_tarih: document.getElementById('alTarih').value,
+    p_tur: document.getElementById('alTur').value,
+    p_belge_no: document.getElementById('alBelgeNo').value.trim()||null,
+    p_fis_no: document.getElementById('alFisNo').value.trim()||null,
+    p_toplam: toplam,
+    p_kdv_orani: document.getElementById('alKdvOran').value===''?null:+document.getElementById('alKdvOran').value,
+    p_kdv_tutar: kdvT, p_foto: foto,
+    p_not: document.getElementById('alNot').value.trim()||null,
+    p_kalemler: kalemOku()
+  },'alKaydet','alMsg','Alış kaydedildi ✓ (stok güncellendi)');
+  if (data && data.ok) vAlis();
+}
+async function alisListe(){
+  const { data } = await sb.from('alis').select('*, tedarikci(ad)').eq('is_deleted',false)
+    .order('tarih',{ascending:false}).limit(30);
+  const el = document.getElementById('alListe'); if(!el) return;
+  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Alışlar</div>
+    ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(a=>`
+      <div class="liste-satir">
+        <div class="l-sol"><div class="b">${esc(a.tedarikci?.ad||'—')}</div>
+          <div class="k">${new Date(a.tarih+'T00:00').toLocaleDateString('tr-TR')} · ${esc(a.tur)} · Belge:${esc(a.belge_no||'—')} Fiş:${esc(a.fis_no||'—')}</div></div>
+        <div class="l-sag">${tl(a.toplam)}</div>
+      </div>`).join('')}</div>`;
+}
+
+/* ================== STOK ================== */
+async function vStok(){
+  const el = document.getElementById('icerik');
+  const { data: stok } = await sb.from('v_stok_durum').select('*').order('ad');
+  el.innerHTML = `
+    <h2 class="bolum">Stok Durumu</h2>
+    <div class="kart">
+      ${(stok||[]).length===0?'<div class="bilgi-not">Ürün tanımlı değil — yönetici "Yönetim" sekmesinden ekler.</div>':(stok||[]).map(s=>`
+        <div class="liste-satir">
+          <div class="l-sol"><div class="b">${esc(s.ad)}</div><div class="k">Kritik seviye: ${s.kritik_seviye} ${esc(s.birim)}</div></div>
+          <div class="l-sag">${s.mevcut} ${esc(s.birim)}<br>${s.kritik?'<span class="rozet rz-hata">KRİTİK</span>':'<span class="rozet rz-ok">Yeterli</span>'}</div>
+        </div>`).join('')}
+    </div>
+    <div class="kart">
+      <div class="kbaslik">Stok Hareketi (tüketim / sayım düzeltme)</div>
+      <label>Ürün</label>
+      <select id="shUrun">${KATALOG.urunler.map(u=>`<option value="${u.id}">${esc(u.ad)} (${esc(u.birim)})</option>`).join('')}</select>
+      ${tarihSecici('shTarih')}
+      <label>Hareket Türü</label>
+      <select id="shTur"><option value="tuketim">Tüketim (stoktan düş)</option><option value="sayim_duzeltme">Sayım Düzeltme (+/−)</option></select>
+      <label>Miktar (tüketimde otomatik eksiye çevrilir; sayımda + veya − yazın)</label>
+      <input type="number" step="0.001" inputmode="decimal" id="shMiktar" placeholder="0">
+      <label>Not</label><input type="text" id="shNot">
+      <button class="btn" id="shKaydet" onclick="stokHareketKaydet()">Hareketi Kaydet</button>
+      <div class="hata-msg" id="shMsg"></div>
+    </div>`;
+}
+async function stokHareketKaydet(){
+  let miktar = +document.getElementById('shMiktar').value||0;
+  const tur = document.getElementById('shTur').value;
+  if (miktar===0){ mesaj('shMsg','hata','Miktar boş olamaz.'); return; }
+  if (tur==='tuketim' && miktar>0) miktar = -miktar;
+  const data = await rpcCagir('rpc_stok_hareket_kaydet',{
+    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_urun: document.getElementById('shUrun').value,
+    p_tarih: document.getElementById('shTarih').value,
+    p_tur: tur, p_miktar: miktar,
+    p_not: document.getElementById('shNot').value.trim()||null
+  },'shKaydet','shMsg','Hareket kaydedildi ✓');
+  if (data && data.ok) vStok();
+}
+
+/* ================== TEDARİKÇİ ================== */
+async function vTedarikci(){
+  const el = document.getElementById('icerik');
+  const { data: bakiye } = await sb.from('v_tedarikci_bakiye').select('*').order('ad');
+  el.innerHTML = `
+    <h2 class="bolum">Tedarikçiler</h2>
+    <div class="kart">
+      ${(bakiye||[]).length===0?'<div class="bilgi-not">Tedarikçi yok.</div>':(bakiye||[]).map(t=>`
+        <div class="liste-satir">
+          <div class="l-sol"><div class="b">${esc(t.ad)}</div>
+            <div class="k">Alış ${tl(t.toplam_alis)} · Ödeme ${tl(t.toplam_odeme)}</div></div>
+          <div class="l-sag" style="color:${t.bakiye>0?'var(--hata)':'var(--ok)'}">${tl(t.bakiye)}<br><span class="rozet rz-gri">bakiye</span></div>
+        </div>`).join('')}
+    </div>
+    <div class="kart">
+      <div class="kbaslik">Ödeme Kaydet (şirket kartı/havale)</div>
+      <label>Tedarikçi</label>
+      <select id="toTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
+      ${tarihSecici('toTarih')}
+      <label>Tutar</label><input type="number" step="0.01" inputmode="decimal" id="toTutar" placeholder="0,00">
+      <label>Açıklama</label><input type="text" id="toAciklama" placeholder="örn: kart ile ödendi">
+      <button class="btn" id="toKaydet" onclick="odemeKaydet()">Ödemeyi Kaydet</button>
+      <div class="hata-msg" id="toMsg"></div>
+    </div>
+    <div class="kart">
+      <div class="kbaslik">İhtilaf Dökümü</div>
+      <label>Tedarikçi</label>
+      <select id="dkTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
+      <button class="btn2" style="margin-top:10px" onclick="dokumGoster()">Bu zamana kadar gelenleri listele</button>
+      <div id="dokumAlan"></div>
+    </div>`;
+}
+async function odemeKaydet(){
+  const tutar = +document.getElementById('toTutar').value||0;
+  if (tutar===0){ mesaj('toMsg','hata','Tutar boş olamaz.'); return; }
+  const data = await rpcCagir('rpc_tedarikci_odeme_kaydet',{
+    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_tedarikci: document.getElementById('toTedarikci').value,
+    p_tarih: document.getElementById('toTarih').value,
+    p_tutar: tutar,
+    p_aciklama: document.getElementById('toAciklama').value.trim()||null
+  },'toKaydet','toMsg','Ödeme kaydedildi ✓');
+  if (data && data.ok) vTedarikci();
+}
+async function dokumGoster(){
+  const tid = document.getElementById('dkTedarikci').value;
+  const { data } = await sb.from('alis').select('*').eq('tedarikci_id',tid).eq('is_deleted',false).order('tarih');
+  document.getElementById('dokumAlan').innerHTML = `
+    ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(a=>`
+      <div class="liste-satir">
+        <div class="l-sol"><div class="b">${new Date(a.tarih+'T00:00').toLocaleDateString('tr-TR')} · ${esc(a.tur)}</div>
+          <div class="k">Belge:${esc(a.belge_no||'—')} · Fiş:${esc(a.fis_no||'—')}</div></div>
+        <div class="l-sag">${tl(a.toplam)}</div>
+      </div>`).join('')}`;
+}
+
+/* ================== TALEPLER ================== */
+async function vTalep(){
+  const el = document.getElementById('icerik');
+  el.innerHTML = `
+    <h2 class="bolum">${PROFIL.rol==='owner'?'Düzeltme Talepleri':'Düzeltme Talebi'}</h2>
+    ${PROFIL.rol==='personel'?`
+    <div class="kart">
+      <div class="kbaslik">Yeni Talep</div>
+      <div class="bilgi-not">Yanlış girdiğiniz bir kayıt varsa buradan bildirin — düzeltmeyi yönetici yapar.</div>
+      <label>Mesaj (hangi gün, hangi kayıt, ne yanlış?)</label>
+      <textarea id="tlMesaj" rows="3" placeholder="örn: 13.07 gün sonunda nakiti 115 yerine 150 girdim"></textarea>
+      <button class="btn" id="tlKaydet" onclick="talepKaydet()">Talebi Gönder</button>
+      <div class="hata-msg" id="tlMsg"></div>
+    </div>`:''}
+    <div id="tlListe"></div>`;
+  talepListe();
+}
+async function talepKaydet(){
+  const m = document.getElementById('tlMesaj').value.trim();
+  if (!m){ mesaj('tlMsg','hata','Mesaj boş olamaz.'); return; }
+  const data = await rpcCagir('rpc_duzeltme_talebi_ac',{
+    p_idem: idem(), p_sube: PROFIL.sube_id, p_hedef_tablo:null, p_hedef_id:null, p_mesaj:m
+  },'tlKaydet','tlMsg','Talep gönderildi ✓');
+  if (data && data.ok){ document.getElementById('tlMesaj').value=''; talepListe(); }
+}
+async function talepListe(){
+  const { data } = await sb.from('duzeltme_talebi').select('*').eq('is_deleted',false)
+    .order('created_at',{ascending:false}).limit(30);
+  const el = document.getElementById('tlListe'); if(!el) return;
+  el.innerHTML = `<div class="kart"><div class="kbaslik">Talepler</div>
+    ${(data||[]).length===0?'<div class="bilgi-not">Talep yok.</div>':(data||[]).map(t=>`
+      <div class="liste-satir">
+        <div class="l-sol"><div class="b">${esc(t.mesaj)}</div>
+          <div class="k">${new Date(t.created_at).toLocaleString('tr-TR')} ${t.cozum_notu?'· Çözüm: '+esc(t.cozum_notu):''}</div></div>
+        <div class="l-sag">${t.durum==='acik'
+          ? (PROFIL.rol==='owner'?`<button class="btn2" onclick="talepCoz('${t.id}')">Çözüldü İşaretle</button>`:'<span class="rozet rz-uyari">Açık</span>')
+          : '<span class="rozet rz-ok">Çözüldü</span>'}</div>
+      </div>`).join('')}</div>`;
+}
+async function talepCoz(id){
+  const not = prompt('Çözüm notu (ne düzeltildi?):');
+  if (not===null) return;
+  const { error } = await sb.from('duzeltme_talebi').update({ durum:'cozuldu', cozum_notu: not.trim()||null }).eq('id', id);
+  if (error){ alert('Güncellenemedi: '+error.message); return; }
+  talepListe();
+}
+
+/* ================== YÖNETİM (OWNER) ================== */
+async function vYonetim(){
+  const el = document.getElementById('icerik');
+  el.innerHTML = `
+    <h2 class="bolum">Yönetim</h2>
+    <div class="kart">
+      <div class="kbaslik">Yeni Ürün (stok kartı)</div>
+      <label>Ürün Adı</label><input type="text" id="ynUrunAd">
+      <div class="satir">
+        <div><label>Birim</label><select id="ynUrunBirim"><option>adet</option><option>koli</option><option>kg</option><option>lt</option><option>paket</option></select></div>
+        <div><label>Kritik Seviye</label><input type="number" step="0.001" inputmode="decimal" id="ynUrunKritik" placeholder="örn: 5"></div>
+      </div>
+      <button class="btn" id="ynUrunBtn" onclick="urunEkle()">Ürünü Ekle</button>
+      <div class="hata-msg" id="ynUrunMsg"></div>
+    </div>
+    <div class="kart">
+      <div class="kbaslik">Yeni Tedarikçi</div>
+      <label>Firma Adı</label><input type="text" id="ynTedAd">
+      <label>Telefon</label><input type="tel" id="ynTedTel">
+      <button class="btn" id="ynTedBtn" onclick="tedarikciEkle()">Tedarikçiyi Ekle</button>
+      <div class="hata-msg" id="ynTedMsg"></div>
+    </div>
+    <div class="kart">
+      <div class="kbaslik">Yeni Gider Kategorisi</div>
+      <label>Kategori Adı</label><input type="text" id="ynKatAd">
+      <button class="btn" id="ynKatBtn" onclick="kategoriEkle()">Kategoriyi Ekle</button>
+      <div class="hata-msg" id="ynKatMsg"></div>
+    </div>
+    <div class="bilgi-not">Ay kapatma, banka mutabakatı, vergi bölümü ve PDF raporlar sonraki fazda bu sekmeye eklenecek.</div>`;
+}
+async function urunEkle(){
+  const ad = document.getElementById('ynUrunAd').value.trim();
+  if (!ad){ mesaj('ynUrunMsg','hata','Ürün adı boş.'); return; }
+  const { error } = await sb.from('urun').insert({ ad, birim: document.getElementById('ynUrunBirim').value,
+    kritik_seviye: +document.getElementById('ynUrunKritik').value||0 });
+  if (error){ mesaj('ynUrunMsg','hata',error.message); return; }
+  mesaj('ynUrunMsg','ok','Ürün eklendi ✓'); document.getElementById('ynUrunAd').value='';
+  await katalogYukle();
+}
+async function tedarikciEkle(){
+  const ad = document.getElementById('ynTedAd').value.trim();
+  if (!ad){ mesaj('ynTedMsg','hata','Firma adı boş.'); return; }
+  const { error } = await sb.from('tedarikci').insert({ ad, telefon: document.getElementById('ynTedTel').value.trim()||null });
+  if (error){ mesaj('ynTedMsg','hata',error.message); return; }
+  mesaj('ynTedMsg','ok','Tedarikçi eklendi ✓'); document.getElementById('ynTedAd').value='';
+  await katalogYukle();
+}
+async function kategoriEkle(){
+  const ad = document.getElementById('ynKatAd').value.trim();
+  if (!ad){ mesaj('ynKatMsg','hata','Kategori adı boş.'); return; }
+  const { error } = await sb.from('gider_kategori').insert({ ad });
+  if (error){ mesaj('ynKatMsg','hata',error.message); return; }
+  mesaj('ynKatMsg','ok','Kategori eklendi ✓'); document.getElementById('ynKatAd').value='';
+  await katalogYukle();
+}
+
+/* ================== BAŞLAT ================== */
+baslat();
+</script>
+</body>
+</html>
