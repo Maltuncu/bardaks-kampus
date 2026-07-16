@@ -194,7 +194,7 @@ async function baslat(){
 async function katalogYukle(){
   const [k, t, u] = await Promise.all([
     sb.from('gider_kategori').select('id,ad').eq('aktif',true).eq('is_deleted',false).order('ad'),
-    sb.from('tedarikci').select('id,ad,yetkili_ad,telefon,telefon2,email,adres').eq('aktif',true).eq('is_deleted',false).order('ad'),
+    sb.from('tedarikci').select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres').eq('aktif',true).eq('is_deleted',false).order('ad'),
     sb.from('urun').select('id,ad,birim').eq('aktif',true).eq('is_deleted',false).order('ad')
   ]);
   KATALOG.kategoriler = k.data||[]; KATALOG.tedarikciler = t.data||[]; KATALOG.urunler = u.data||[];
@@ -644,8 +644,9 @@ function kalemOku(){
 function firmaBilgiGoster(){
   const t = KATALOG.tedarikciler.find(x => x.id === document.getElementById('alTedarikci').value);
   document.getElementById('firmaBilgi').innerHTML = t ? `<div class="bilgi-not" style="margin-top:6px">
-    <b>${esc(t.ad)}</b>${t.yetkili_ad ? ' · Sorumlu: ' + esc(t.yetkili_ad) : ''}
+    <b>${esc(t.unvan || t.ad)}</b>${t.yetkili_ad ? ' · Sorumlu: ' + esc(t.yetkili_ad) : ''}
     ${t.telefon ? ' · <a href="tel:'+esc(t.telefon)+'" style="color:var(--ana);font-weight:800;text-decoration:none">📞 ARA</a>' : ''}
+    ${t.vergi_no ? '<br>VKN: ' + esc(t.vergi_no) + (t.vergi_dairesi ? ' · ' + esc(t.vergi_dairesi) + ' V.D.' : '') : ''}
     ${t.adres ? '<br>' + esc(t.adres) : ''}</div>` : '';
 }
 function gdFatura(){
@@ -836,7 +837,12 @@ async function vTedarikci(){
     </div>
     <div class="kart">
       <div class="kbaslik" id="tdFormBaslik">Yeni Firma Ekle</div>
-      <label>Firma Adı *</label><input type="text" id="tdYeniAd">
+      <label>Firma Adı (bilinen adı) *</label><input type="text" id="tdYeniAd">
+      <label>Resmi Ünvan (faturadaki tam yazım — farklıysa)</label><input type="text" id="tdYeniUnvan" placeholder="örn: XYZ Gıda San. ve Tic. Ltd. Şti.">
+      <div class="satir">
+        <div><label>Vergi Kimlik No</label><input type="text" inputmode="numeric" id="tdYeniVergiNo"></div>
+        <div><label>Vergi Dairesi</label><input type="text" id="tdYeniVergiDairesi"></div>
+      </div>
       <label>Firmadaki Sorumlu Kişi</label><input type="text" id="tdYeniYetkili">
       <div class="satir">
         <div><label>Telefon</label><input type="tel" id="tdYeniTel"></div>
@@ -872,6 +878,9 @@ function tedarikciDuzenle(id){
   TD_DUZENLENEN = id;
   document.getElementById('tdFormBaslik').textContent = 'Firmayı Düzenle: ' + t.ad;
   document.getElementById('tdYeniAd').value = t.ad||'';
+  document.getElementById('tdYeniUnvan').value = t.unvan||'';
+  document.getElementById('tdYeniVergiNo').value = t.vergi_no||'';
+  document.getElementById('tdYeniVergiDairesi').value = t.vergi_dairesi||'';
   document.getElementById('tdYeniYetkili').value = t.yetkili_ad||'';
   document.getElementById('tdYeniTel').value = t.telefon||'';
   document.getElementById('tdYeniTel2').value = t.telefon2||'';
@@ -884,6 +893,9 @@ async function tedarikciEkleHizli(){
   if (!ad){ mesaj('tdYeniMsg','hata','Firma adı boş.'); return; }
   const kayit = {
     ad,
+    unvan: document.getElementById('tdYeniUnvan').value.trim()||null,
+    vergi_no: document.getElementById('tdYeniVergiNo').value.trim()||null,
+    vergi_dairesi: document.getElementById('tdYeniVergiDairesi').value.trim()||null,
     yetkili_ad: document.getElementById('tdYeniYetkili').value.trim()||null,
     telefon: document.getElementById('tdYeniTel').value.trim()||null,
     telefon2: document.getElementById('tdYeniTel2').value.trim()||null,
