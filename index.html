@@ -936,6 +936,9 @@ async function dokumGoster(){
 
 /* ================== PERSONEL (SADECE OWNER) ================== */
 let PG_DONEM = null;
+// Asgari ücret yasal SGK yükü: net (hesaba yatan) → brüt = net/0,85 (asgari ücret GV+damga istisnası)
+// → işveren SGK yükü = brüt × 0,375 (işçi payı %15 + işveren primi %22,5). Teşvikliyse elle düşürülür.
+function sgkHesapla(net){ return net>0 ? +((net/0.85)*0.375).toFixed(2) : 0; }
 async function vPersonel(){
   const el = document.getElementById('icerik');
   if (PROFIL.rol !== 'owner'){ el.innerHTML = '<div class="bilgi-not">Bu ekran yöneticiye özeldir.</div>'; return; }
@@ -944,43 +947,62 @@ async function vPersonel(){
   const { data } = await sb.from('personel_gider').select('*').eq('donem', donem)
     .eq('is_deleted', false).order('personel_adi');
   const kayitlar = data||[];
-  const toplam = kayitlar.reduce((a,x)=>a + (+x.maas)+(+x.sgk)+(+x.prim)+(+x.yemek)+(+x.avans), 0);
+  const T = {maas:0,sgk:0,prim:0,yemek:0,maliyet:0};
+  kayitlar.forEach(p=>{ const mal=(+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek);
+    T.maas+=+p.maas; T.sgk+=+p.sgk; T.prim+=+p.prim; T.yemek+=+p.yemek; T.maliyet+=mal; });
+  const satir = (ad, maas, sgk, prim, yemek, maliyet, silId, kalin) =>
+    `<tr style="${kalin?'font-weight:800;background:var(--acik)':''}">
+      <td style="padding:8px 6px;text-align:left">${ad}</td>
+      <td style="padding:8px 6px;text-align:right">${tl(maas)}</td>
+      <td style="padding:8px 6px;text-align:right;color:var(--soluk)">${tl(sgk)}</td>
+      <td style="padding:8px 6px;text-align:right">${tl(prim)}</td>
+      <td style="padding:8px 6px;text-align:right">${tl(yemek)}</td>
+      <td style="padding:8px 6px;text-align:right;color:var(--ana);font-weight:800">${tl(maliyet)}</td>
+      <td style="padding:8px 2px;text-align:center">${silId?`<button class="btn-kirmizi" style="padding:4px 8px" onclick="pgSil('${silId}','${ad}')">✕</button>`:''}</td>
+    </tr>`;
   el.innerHTML = `
     <h2 class="bolum">Personel Giderleri</h2>
     <div class="kart">
       <label>Dönem</label>
       <input type="month" id="pgDonem" value="${donem}" onchange="PG_DONEM=this.value; vPersonel()">
       ${kayitlar.length===0 ? `<div class="bilgi-not">Bu ay kayıt yok.
-        <button class="btn2" style="margin-left:8px" onclick="pgOncekiAydanKopyala()">Önceki aydan kopyala</button></div>` : ''}
-      ${kayitlar.map(p=>`
-        <div class="liste-satir">
-          <div class="l-sol"><div class="b">${esc(p.personel_adi)}</div>
-            <div class="k">Maaş ${tl(p.maas)} · SGK ${tl(p.sgk)} · Prim ${tl(p.prim)} · Yemek ${tl(p.yemek)}${+p.avans>0?' · Avans '+tl(p.avans):''}</div></div>
-          <div class="l-sag">${tl((+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek)+(+p.avans))}<br>
-            <button class="btn-kirmizi" style="margin-top:4px" onclick="pgSil('${p.id}','${esc(p.personel_adi)}')">Çıkar</button></div>
-        </div>`).join('')}
-      ${kayitlar.length>0?`<div class="liste-satir"><div style="font-weight:800">AY TOPLAMI</div>
-        <div class="l-sag" style="color:var(--ana)">${tl(toplam)}</div></div>`:''}
+        <button class="btn2" style="margin-left:8px" onclick="pgOncekiAydanKopyala()">Önceki aydan kopyala</button></div>` : `
+      <div style="overflow-x:auto;margin-top:10px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">
+          <thead><tr style="border-bottom:2px solid var(--cizgi);font-size:11px;color:var(--soluk)">
+            <th style="padding:6px;text-align:left">PERSONEL</th>
+            <th style="padding:6px;text-align:right">MAAŞ (yatan)</th>
+            <th style="padding:6px;text-align:right">SGK</th>
+            <th style="padding:6px;text-align:right">PRİM</th>
+            <th style="padding:6px;text-align:right">YEMEK</th>
+            <th style="padding:6px;text-align:right">MALİYET</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            ${kayitlar.map(p=>satir(esc(p.personel_adi), p.maas, p.sgk, p.prim, p.yemek,
+              (+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek), p.id)).join('')}
+            ${satir('AY TOPLAMI', T.maas, T.sgk, T.prim, T.yemek, T.maliyet, null, true)}
+          </tbody>
+        </table>
+      </div>`}
     </div>
     <div class="kart">
-      <div class="kbaslik">Personel Ekle (${donem})</div>
+      <div class="kbaslik">Personel Satırı Ekle (${donem})</div>
       <label>Ad Soyad</label><input type="text" id="pgAd">
       <div class="satir">
-        <div><label>Maaş (brüt)</label><input type="number" step="0.01" inputmode="decimal" id="pgMaas" placeholder="0,00"></div>
-        <div><label>SGK (işveren payı)</label><input type="number" step="0.01" inputmode="decimal" id="pgSgk" placeholder="otomatik"></div>
+        <div><label>Maaş (hesaba yatan / net)</label><input type="number" step="0.01" inputmode="decimal" id="pgMaas" placeholder="0,00"></div>
+        <div><label>SGK (yasal — otomatik)</label><input type="number" step="0.01" inputmode="decimal" id="pgSgk" placeholder="otomatik"></div>
       </div>
-      <div class="bilgi-not" style="margin:4px 0 0">SGK, maaş yazılınca otomatik hesaplanır (işveren payı ~%22,75). Muhasebecinin verdiği kesin rakam farklıysa üzerine yaz.</div>
+      <div class="bilgi-not" style="margin:4px 0 0">Net maaşı yaz → SGK yasal olarak hesaplanır (asgari ücret: işçi+işveren toplam yükü). 5 puanlık teşvik alıyorsan SGK'yı elle düşür. Asgari ücret ÜSTÜ maaşta SGK'yı bordrodan elle yaz.</div>
       <div class="satir">
         <div><label>Prim</label><input type="number" step="0.01" inputmode="decimal" id="pgPrim" placeholder="0,00"></div>
         <div><label>Yemek</label><input type="number" step="0.01" inputmode="decimal" id="pgYemek" placeholder="0,00"></div>
       </div>
-      <label>Avans (verildiyse)</label><input type="number" step="0.01" inputmode="decimal" id="pgAvans" placeholder="0,00">
-      <button class="btn" id="pgKaydet" onclick="pgEkle()">Personeli Ekle</button>
+      <button class="btn" id="pgKaydet" onclick="pgEkle()">Satırı Ekle</button>
       <div class="hata-msg" id="pgMsg"></div>
     </div>`;
   document.getElementById('pgMaas').addEventListener('input', e=>{
-    const m = +e.target.value||0;
-    document.getElementById('pgSgk').value = m>0 ? (m*0.2275).toFixed(2) : '';
+    document.getElementById('pgSgk').value = sgkHesapla(+e.target.value||0) || '';
   });
 }
 async function pgEkle(){
@@ -993,7 +1015,7 @@ async function pgEkle(){
     maas, sgk: +document.getElementById('pgSgk').value||0,
     prim: +document.getElementById('pgPrim').value||0,
     yemek: +document.getElementById('pgYemek').value||0,
-    avans: +document.getElementById('pgAvans').value||0
+    avans: 0
   });
   if (error){ mesaj('pgMsg','hata',error.message); return; }
   vPersonel();
