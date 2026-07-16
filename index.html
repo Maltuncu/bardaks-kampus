@@ -307,6 +307,9 @@ function hataTr(m){
   if (m.includes('YETKI_YOK')) return 'Bu işlem için yetkiniz yok.';
   if (m.includes('SUBE_UYUSMUYOR')) return 'Şube uyuşmazlığı.';
   if (m.includes('NEDEN_ZORUNLU')) return 'Neden yazmak zorunlu.';
+  if (m.includes('ux_alis_belge') || m.includes('duplicate key')) return 'Bu belge numarası bu firma için zaten girilmiş — mükerrer fatura engellendi.';
+  if (m.includes('SADECE_KENDI')) return 'Sadece kendi girdiğiniz kaydı düzeltebilirsiniz.';
+  if (m.includes('SURE_GECTI')) return 'Düzeltme süresi (12 saat) geçmiş — yöneticiye başvurun.';
   if (m.includes('Failed to fetch')) return 'İnternet bağlantısı sorunu.';
   return m;
 }
@@ -433,15 +436,27 @@ async function vGunSonu(){
       <label>Not (isteğe bağlı)</label><textarea id="gsNot" rows="2"></textarea>
       <button class="btn" id="gsKaydet" onclick="gunSonuKaydet()">Gün Sonunu Kaydet</button>
       <div class="hata-msg" id="gsMsg"></div>
-      <div class="bilgi-not">Kayıt sonrası gün kilitlenir. Hata olursa "${PROFIL.rol==='owner'?'listeden düzeltirsin':'Talep sekmesinden düzeltme talebi aç'}".</div>
+      <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.':'Yanlış girersen 12 saat içinde aşağıdan silip yeniden girebilirsin.'}</div>
     </div>
-    ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : ''}`;
+    ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : '<div id="gsSonKayit"></div>'}`;
   kdvSatirEkle(10, null, null, true);
+  if (PROFIL.rol==='personel') personelSonKayit();
+  else if (PROFIL.rol==='owner') gunSonuListe();
   const gsTopla = () => { document.getElementById('gsToplam').value =
     ((+document.getElementById('gsKart').value||0) + (+document.getElementById('gsNakit').value||0)).toFixed(2); };
   document.getElementById('gsKart').addEventListener('input', gsTopla);
   document.getElementById('gsNakit').addEventListener('input', gsTopla);
-  if (PROFIL.rol==='owner') gunSonuListe();
+}
+function personelSonKayit(){
+  const el = document.getElementById('gsSonKayit'); if(!el) return;
+  let s; try{ s = JSON.parse(localStorage.getItem('sonGunSonu')||'null'); }catch(e){ s=null; }
+  // 12 saatlik düzeltme penceresi
+  if (!s || !s.id || Date.now() - s.zaman > 12*3600*1000){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="kart" style="border-color:var(--uyari)">
+    <div class="kbaslik" style="color:var(--uyari)">Az önce girdiğin gün: ${new Date(s.tarih+'T00:00').toLocaleDateString('tr-TR')}</div>
+    <div class="bilgi-not" style="margin:0 0 10px">Yanlış girdiysen 12 saat içinde silip yeniden girebilirsin. Sonrasında düzeltmeyi yönetici yapar.</div>
+    <button class="btn-kirmizi" style="width:100%;padding:11px" onclick="gunSil('${s.id}','${s.tarih}')">Bu Kaydı Sil & Yeniden Gir</button>
+  </div>`;
 }
 async function gunSonuKaydet(){
   const kart = +document.getElementById('gsKart').value||0;
@@ -481,7 +496,10 @@ async function gunSonuKaydet(){
     p_not: document.getElementById('gsNot').value.trim()||null,
     p_kasa: kasa > 0 ? kasa : null
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
-  if (data && data.ok){ vGunSonu(); mesaj('gsMsg','ok','Gün sonu kaydedildi ✓'); }
+  if (data && data.ok){
+    try{ localStorage.setItem('sonGunSonu', JSON.stringify({ id:data.gun_sonu_id, tarih:document.getElementById('gsTarih').value, zaman:Date.now() })); }catch(e){}
+    vGunSonu(); mesaj('gsMsg','ok','Gün sonu kaydedildi ✓');
+  }
 }
 async function gunSonuListe(){
   const { data } = await sb.from('gun_sonu').select('*').eq('is_deleted',false)
@@ -515,12 +533,13 @@ async function gunSonuListe(){
       </div>`;}).join('')}</div>`;
 }
 async function gunSil(id, tarih){
-  const neden = prompt(`${tarih} günü SİLİNECEK (soft-delete, kayıt audit'te kalır) ve yeniden girilebilir olacak. Neden?`);
-  if (!neden || !neden.trim()) return;
-  const { error } = await sb.from('gun_sonu').update({ is_deleted:true, kilit_acma_nedeni: neden.trim() }).eq('id', id);
-  if (error){ alert('Silinemedi: '+error.message); return; }
-  await sb.from('gun_sonu_kdv').update({ is_deleted:true }).eq('gun_sonu_id', id);
-  gunSonuListe();
+  const neden = prompt(`${tarih} günü SİLİNECEK (kayıt audit'te kalır) ve yeniden girilebilir olacak. Neden?`);
+  if (neden===null) return;
+  if (!neden.trim()){ alert('Neden yazmak zorunlu.'); return; }
+  const { error } = await sb.rpc('rpc_gun_sonu_sil', { p_id:id, p_neden:neden.trim() });
+  if (error){ alert('Silinemedi: '+hataTr(error.message)); return; }
+  try{ localStorage.removeItem('sonGunSonu'); }catch(e){}
+  vGunSonu();
 }
 
 /* ================== GİDERLER (3 bölüm: Temel / Fatura / Fiş) ================== */
@@ -699,6 +718,13 @@ async function alisKaydet(){
   const kdvT = +document.getElementById('alKdvTutar').value||0;
   if (!document.getElementById('alTedarikci').value){ mesaj('alMsg','hata','Tedarikçi seçilmedi.'); return; }
   if (toplam===0){ mesaj('alMsg','hata','Toplam tutar boş olamaz.'); return; }
+  // Mükerrer fatura ön kontrolü (belge no doluysa)
+  const belgeNo = document.getElementById('alBelgeNo').value.trim();
+  if (belgeNo){
+    const { data: mv } = await sb.from('alis').select('id').eq('is_deleted',false)
+      .eq('tedarikci_id', document.getElementById('alTedarikci').value).eq('belge_no', belgeNo).limit(1);
+    if (mv && mv.length){ mesaj('alMsg','hata','Bu belge no bu firma için zaten girilmiş — mükerrer fatura. Kontrol edin.'); return; }
+  }
   if (kdvT===0 && !confirm('KDV tutarı BOŞ — bu alış indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
   const btn = document.getElementById('alKaydet');
   btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
@@ -1130,13 +1156,55 @@ async function vYonetim(){
       <div class="hata-msg" id="ynKatMsg"></div>
     </div>
     <div class="kart">
+      <div class="kbaslik">Ay Kapatma</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Ay kapatınca o aya personel hiçbir kayıt (geçmiş tarih dahil) giremez. Beyan/mutabakat sonrası kapatın. Gerekirse nedenle açarsınız.</div>
+      <label>Dönem</label><input type="month" id="akDonem" value="${bugun().slice(0,7)}" onchange="akDurumGoster()">
+      <div id="akDurum"></div>
+      <div class="satir">
+        <button class="btn" id="akKapatBtn" style="margin-top:10px" onclick="ayKapat()">Ayı Kapat</button>
+        <button class="btn2" id="akAcBtn" style="margin-top:10px" onclick="ayAc()">Ayı Aç</button>
+      </div>
+      <div class="hata-msg" id="akMsg"></div>
+    </div>
+    <div class="kart">
       <div class="kbaslik">Aylık Arşiv (PDF)</div>
       <div class="bilgi-not" style="margin:0 0 8px">Seçilen ayın tüm Z raporları + POS slipleri + alış/gider belgeleri tarih etiketiyle tek PDF'te birleşir — muhasebeciye/ERP'ye tek dosya.</div>
       <label>Ay</label><input type="month" id="arsivAy" value="${bugun().slice(0,7)}">
       <button class="btn" id="arsivBtn" onclick="arsivPdf()">PDF Oluştur ve İndir</button>
       <div class="hata-msg" id="arsivMsg"></div>
     </div>
-    <div class="bilgi-not">Ay kapatma, banka mutabakatı ve vergi bölümü sonraki fazda bu sekmeye eklenecek.</div>`;
+    <div class="bilgi-not">Banka mutabakatı ve vergi bölümü sonraki fazda eklenecek.</div>`;
+  akDurumGoster();
+}
+async function ayKapat(){
+  const donem = document.getElementById('akDonem').value;
+  if (!donem){ mesaj('akMsg','hata','Dönem seçilmedi.'); return; }
+  // O ayın KDV tahminini çek, kapanışa snapshot yaz
+  const { data: k } = await sb.from('v_kdv_ay').select('odenecek_kdv_tahmini').eq('donem', donem).maybeSingle();
+  const kdvTahmini = k ? k.odenecek_kdv_tahmini : 0;
+  const { data, error } = await sb.rpc('rpc_ay_kapat', { p_sube: PROFIL.sube_id, p_donem: donem, p_kdv_tahmini: kdvTahmini });
+  if (error){ mesaj('akMsg','hata', hataTr(error.message)); return; }
+  mesaj('akMsg','ok', `${donem} kapatıldı ✓${data && data.eksik_gun>0 ? ' — DİKKAT: '+data.eksik_gun+' gün girilmemiş!' : ''}`);
+  vYonetim();
+}
+async function ayAc(){
+  const donem = document.getElementById('akDonem').value;
+  if (!donem){ mesaj('akMsg','hata','Dönem seçilmedi.'); return; }
+  const neden = prompt(`${donem} ayı yeniden AÇILACAK (personel tekrar giriş yapabilir). Neden?`);
+  if (neden===null) return;
+  if (!neden.trim()){ mesaj('akMsg','hata','Neden zorunlu.'); return; }
+  const { error } = await sb.rpc('rpc_ay_ac', { p_sube: PROFIL.sube_id, p_donem: donem, p_neden: neden.trim() });
+  if (error){ mesaj('akMsg','hata', hataTr(error.message)); return; }
+  mesaj('akMsg','ok', `${donem} açıldı ✓`);
+  vYonetim();
+}
+async function akDurumGoster(){
+  const el = document.getElementById('akDurum'); if(!el) return;
+  const donem = document.getElementById('akDonem').value;
+  const { data } = await sb.from('ay_kapanis').select('kapali,eksik_gun_sayisi').eq('sube_id', PROFIL.sube_id).eq('donem', donem).eq('is_deleted',false).maybeSingle();
+  el.innerHTML = data && data.kapali
+    ? `<div class="rozet rz-hata" style="margin-top:8px">🔒 ${donem} KAPALI${data.eksik_gun_sayisi>0?' · '+data.eksik_gun_sayisi+' eksik gün':''}</div>`
+    : `<div class="rozet rz-ok" style="margin-top:8px">🔓 ${donem} açık</div>`;
 }
 function trDuz(s){ // jsPDF standart fontu Türkçe karakter basamıyor — güvenli çevrim
   return String(s||'').replace(/ğ/g,'g').replace(/Ğ/g,'G').replace(/ü/g,'u').replace(/Ü/g,'U')
