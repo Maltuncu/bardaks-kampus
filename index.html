@@ -94,6 +94,10 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
     <input type="password" id="girisSifre" autocomplete="current-password">
     <button class="btn" id="girisBtn" onclick="girisYap()">Giriş Yap</button>
     <div class="hata-msg" id="girisHata"></div>
+    <div style="text-align:center;margin-top:14px">
+      <a href="#" onclick="sifremiUnuttum();return false" style="color:var(--ana);font-size:13px;font-weight:700">Şifremi unuttum</a>
+    </div>
+    <div class="bilgi-not" style="text-align:center">Bir kez giriş yapınca cihaz sizi hatırlar — her seferinde şifre gerekmez.</div>
   </div>
   <svg class="susSvg" width="72" height="82" viewBox="0 0 72 82" fill="none" stroke="#2456A0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 22l3-9c.2-.7 1-1.3 1.8-1.3l34.4-1.5c.9 0 1.7.6 1.9 1.4L58 22"/>
@@ -159,6 +163,16 @@ async function sifreDegistir(){
   const { error } = await sb.auth.updateUser({ password: y1 });
   alert(error ? ('Şifre değiştirilemedi: ' + error.message) : 'Şifreniz değiştirildi ✓ Yeni girişlerde yeni şifreyi kullanın.');
 }
+
+async function sifremiUnuttum(){
+  const email = document.getElementById('girisEmail').value.trim() || prompt('E-posta adresiniz:');
+  if (!email) return;
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  alert(error ? ('Gönderilemedi: ' + error.message)
+    : 'Şifre sıfırlama bağlantısı e-postanıza gönderildi. Maildeki linke tıklayın — uygulamaya dönünce yeni şifrenizi belirleyeceksiniz.');
+}
+// Sıfırlama mailindeki linkle dönüldüğünde yeni şifre iste
+sb.auth.onAuthStateChange((event)=>{ if (event === 'PASSWORD_RECOVERY') setTimeout(sifreDegistir, 400); });
 
 async function baslat(){
   const { data:{ session } } = await sb.auth.getSession();
@@ -553,7 +567,7 @@ async function giderListe(){
   const { data } = await sb.from('gider').select('*, gider_kategori(ad)').eq('is_deleted',false)
     .order('tarih',{ascending:false}).limit(30);
   const el = document.getElementById('gdListe'); if(!el) return;
-  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Giderler</div>
+  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Giderler${PROFIL.rol==='personel'?' (son 7 gün)':''}</div>
     ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(g=>`
       <div class="liste-satir">
         <div class="l-sol"><div class="b">${esc(g.gider_kategori?.ad||'—')} ${g.kasadan?'<span class="rozet rz-uyari">kasadan</span>':''}</div>
@@ -602,8 +616,10 @@ async function vAlis(){
         <div><label>Fiş No</label><input type="text" id="alFisNo"></div>
       </div>
       <label>Toplam Tutar (KDV dahil)</label><input type="number" step="0.01" inputmode="decimal" id="alToplam" placeholder="0,00">
-      <label>KDV Tutarı (belgede yazanı AYNEN yaz; belgede yoksa boş bırak)</label>
-      <input type="number" step="0.01" inputmode="decimal" id="alKdvTutar" placeholder="0,00">
+      <div class="satir">
+        <div><label>KDV Oranı</label><select id="alKdvOran"><option value="">Yok</option><option value="1">%1</option><option value="10">%10</option><option value="20">%20</option></select></div>
+        <div><label>KDV Tutarı (belgedekini aynen yaz)</label><input type="number" step="0.01" inputmode="decimal" id="alKdvTutar" placeholder="0,00"></div>
+      </div>
       <label>Kalemler (stoğa otomatik işlenir)</label>
       <div id="kalemSatirlari"></div>
       <button class="btn2" onclick="kalemEkle()">+ Kalem Ekle</button>
@@ -613,6 +629,10 @@ async function vAlis(){
       <div class="hata-msg" id="alMsg"></div>
     </div>
     <div id="alListe"></div>`;
+  document.getElementById('alKdvOran').addEventListener('change', e=>{
+    const t = +document.getElementById('alToplam').value||0, o = +e.target.value||0;
+    if (t>0 && o>0) document.getElementById('alKdvTutar').value = (t - t/(1+o/100)).toFixed(2);
+  });
   if (KATALOG.urunler.length>0) kalemEkle();
   alisListe();
 }
@@ -635,7 +655,7 @@ async function alisKaydet(){
     p_belge_no: document.getElementById('alBelgeNo').value.trim()||null,
     p_fis_no: document.getElementById('alFisNo').value.trim()||null,
     p_toplam: toplam,
-    p_kdv_orani: null,
+    p_kdv_orani: document.getElementById('alKdvOran').value===''?null:+document.getElementById('alKdvOran').value,
     p_kdv_tutar: kdvT, p_foto: foto,
     p_not: document.getElementById('alNot').value.trim()||null,
     p_kalemler: kalemOku()
@@ -646,7 +666,7 @@ async function alisListe(){
   const { data } = await sb.from('alis').select('*, tedarikci(ad)').eq('is_deleted',false)
     .order('tarih',{ascending:false}).limit(30);
   const el = document.getElementById('alListe'); if(!el) return;
-  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Alışlar</div>
+  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Alışlar${PROFIL.rol==='personel'?' (son 7 gün)':''}</div>
     ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(a=>`
       <div class="liste-satir">
         <div class="l-sol"><div class="b">${esc(a.tedarikci?.ad||'—')}</div>
@@ -734,16 +754,24 @@ async function stokHareketKaydet(){
 /* ================== TEDARİKÇİ ================== */
 async function vTedarikci(){
   const el = document.getElementById('icerik');
-  const { data: bakiye } = await sb.from('v_tedarikci_bakiye').select('*').order('ad');
+  const owner = PROFIL.rol === 'owner';
+  const { data: bakiye } = owner ? await sb.from('v_tedarikci_bakiye').select('*').order('ad') : { data: null };
   el.innerHTML = `
     <h2 class="bolum">Tedarikçiler</h2>
-    <div class="kart">
+    ${owner ? `<div class="kart">
       ${(bakiye||[]).length===0?'<div class="bilgi-not">Tedarikçi yok.</div>':(bakiye||[]).map(t=>`
         <div class="liste-satir">
           <div class="l-sol"><div class="b">${esc(t.ad)}</div>
             <div class="k">Alış ${tl(t.toplam_alis)} · Ödeme ${tl(t.toplam_odeme)}</div></div>
           <div class="l-sag" style="color:${t.bakiye>0?'var(--hata)':'var(--ok)'}">${tl(t.bakiye)}<br><span class="rozet rz-gri">bakiye</span></div>
         </div>`).join('')}
+    </div>` : ''}
+    <div class="kart">
+      <div class="kbaslik">Yeni Tedarikçi Ekle</div>
+      <label>Firma Adı</label><input type="text" id="tdYeniAd">
+      <label>Telefon</label><input type="tel" id="tdYeniTel">
+      <button class="btn" id="tdYeniBtn" onclick="tedarikciEkleHizli()">Tedarikçiyi Ekle</button>
+      <div class="hata-msg" id="tdYeniMsg"></div>
     </div>
     <div class="kart">
       <div class="kbaslik">Ödeme Kaydet (şirket kartı/havale)</div>
@@ -755,13 +783,21 @@ async function vTedarikci(){
       <button class="btn" id="toKaydet" onclick="odemeKaydet()">Ödemeyi Kaydet</button>
       <div class="hata-msg" id="toMsg"></div>
     </div>
-    <div class="kart">
+    ${owner ? `<div class="kart">
       <div class="kbaslik">İhtilaf Dökümü</div>
       <label>Tedarikçi</label>
       <select id="dkTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
       <button class="btn2" style="margin-top:10px" onclick="dokumGoster()">Bu zamana kadar gelenleri listele</button>
       <div id="dokumAlan"></div>
-    </div>`;
+    </div>` : ''}`;
+}
+async function tedarikciEkleHizli(){
+  const ad = document.getElementById('tdYeniAd').value.trim();
+  if (!ad){ mesaj('tdYeniMsg','hata','Firma adı boş.'); return; }
+  const { error } = await sb.from('tedarikci').insert({ ad, telefon: document.getElementById('tdYeniTel').value.trim()||null });
+  if (error){ mesaj('tdYeniMsg','hata',error.message); return; }
+  mesaj('tdYeniMsg','ok','Tedarikçi eklendi ✓');
+  await katalogYukle(); vTedarikci();
 }
 async function odemeKaydet(){
   const tutar = +document.getElementById('toTutar').value||0;
