@@ -220,7 +220,7 @@ const SEKMELER_OWNER = [
   {id:'stok',    ad:'Stok'},
   {id:'tedarikci',ad:'Tedarikçi'},
   {id:'personel',ad:'Personel'},
-  {id:'talep',   ad:'Talepler'},
+  {id:'talep',   ad:'Yapılacaklar'},
   {id:'yonetim', ad:'Yönetim'}
 ];
 const SEKMELER_PERSONEL = [
@@ -228,7 +228,7 @@ const SEKMELER_PERSONEL = [
   {id:'gider',   ad:'Giderler'},
   {id:'stok',    ad:'Stok'},
   {id:'tedarikci',ad:'Tedarikçi'},
-  {id:'talep',   ad:'Talep'}
+  {id:'talep',   ad:'Yapılacaklar'}
 ];
 function sekmeleriKur(){
   const liste = PROFIL.rol==='owner' ? SEKMELER_OWNER : SEKMELER_PERSONEL;
@@ -237,15 +237,14 @@ function sekmeleriKur(){
   talepRozet();
 }
 async function talepRozet(){
-  // Açık talep varsa Talepler sekmesine kırmızı rozet (owner: tümü; personel: kendi çözülenleri görsün diye kendi açıkları)
+  // Bekleyen madde sayısı Yapılacaklar sekmesinde rozet (herkese)
   try{
     const { count } = await sb.from('duzeltme_talebi')
       .select('id', { count:'exact', head:true }).eq('durum','acik').eq('is_deleted',false);
     const sk = document.getElementById('sk_talep');
     if (!sk) return;
     const eski = sk.querySelector('.tbadge'); if (eski) eski.remove();
-    if (PROFIL.rol==='owner' && count > 0)
-      sk.insertAdjacentHTML('beforeend', `<span class="tbadge">${count}</span>`);
+    if (count > 0) sk.insertAdjacentHTML('beforeend', `<span class="tbadge">${count}</span>`);
   }catch(e){}
 }
 function sekmeAc(id){
@@ -345,7 +344,7 @@ async function vOzet(){
   const acikTalep = talep.data||[];
   if (acikTalep.length > 0){
     const gunFarki = Math.floor((Date.now() - new Date(acikTalep[0].created_at).getTime()) / 86400000);
-    u.unshift({ tip:'talep', mesaj: acikTalep.length + ' açık düzeltme talebi bekliyor' + (gunFarki >= 1 ? ` (en eskisi ${gunFarki} gündür)` : ''), tarih: acikTalep[0].created_at });
+    u.unshift({ tip:'talep', mesaj: acikTalep.length + ' bekleyen yapılacak/alınacak' + (gunFarki >= 1 ? ` (en eskisi ${gunFarki} gündür)` : ''), tarih: acikTalep[0].created_at });
   }
   el.innerHTML = `
     <h2 class="bolum">Özet — ${new Date().toLocaleDateString('tr-TR')}</h2>
@@ -1040,50 +1039,65 @@ async function pgOncekiAydanKopyala(){
   vPersonel();
 }
 
-/* ================== TALEPLER ================== */
+/* ================== YAPILACAKLAR / ALINACAKLAR ================== */
 async function vTalep(){
   const el = document.getElementById('icerik');
   el.innerHTML = `
-    <h2 class="bolum">${PROFIL.rol==='owner'?'Düzeltme Talepleri':'Düzeltme Talebi'}</h2>
-    ${PROFIL.rol==='personel'?`
+    <h2 class="bolum">Yapılacaklar / Alınacaklar</h2>
     <div class="kart">
-      <div class="kbaslik">Yeni Talep</div>
-      <div class="bilgi-not">Yanlış girdiğiniz bir kayıt varsa buradan bildirin — düzeltmeyi yönetici yapar.</div>
-      <label>Mesaj (hangi gün, hangi kayıt, ne yanlış?)</label>
-      <textarea id="tlMesaj" rows="3" placeholder="örn: 13.07 gün sonunda nakiti 115 yerine 150 girdim"></textarea>
-      <button class="btn" id="tlKaydet" onclick="talepKaydet()">Talebi Gönder</button>
+      <div class="kbaslik">Yeni Madde Ekle</div>
+      <div class="bilgi-not">Alınacak/yapılacak bir şey mi var? Yaz — herkes görsün, yapan işaretlesin.</div>
+      <textarea id="tlMesaj" rows="2" placeholder="örn: 50 kg şeker, peçete, bardak alınacak / arıtma bakımı yapılacak"></textarea>
+      <button class="btn" id="tlKaydet" onclick="talepKaydet()">Listeye Ekle</button>
       <div class="hata-msg" id="tlMsg"></div>
-    </div>`:''}
+    </div>
     <div id="tlListe"></div>`;
   talepListe();
 }
 async function talepKaydet(){
   const m = document.getElementById('tlMesaj').value.trim();
-  if (!m){ mesaj('tlMsg','hata','Mesaj boş olamaz.'); return; }
+  if (!m){ mesaj('tlMsg','hata','Boş madde eklenemez.'); return; }
   const data = await rpcCagir('rpc_duzeltme_talebi_ac',{
     p_idem: idem(), p_sube: PROFIL.sube_id, p_hedef_tablo:null, p_hedef_id:null, p_mesaj:m
-  },'tlKaydet','tlMsg','Talep gönderildi ✓');
-  if (data && data.ok){ document.getElementById('tlMesaj').value=''; talepListe(); }
+  },'tlKaydet','tlMsg','Listeye eklendi ✓');
+  if (data && data.ok){ document.getElementById('tlMesaj').value=''; talepListe(); talepRozet(); }
 }
 async function talepListe(){
-  const { data } = await sb.from('duzeltme_talebi').select('*').eq('is_deleted',false)
-    .order('created_at',{ascending:false}).limit(30);
+  const { data } = await sb.from('duzeltme_talebi')
+    .select('*, olusturan:olusturan_id(ad), cozen:cozen_id(ad)')
+    .eq('is_deleted',false).order('durum').order('created_at',{ascending:false}).limit(50);
   const el = document.getElementById('tlListe'); if(!el) return;
-  el.innerHTML = `<div class="kart"><div class="kbaslik">Talepler</div>
-    ${(data||[]).length===0?'<div class="bilgi-not">Talep yok.</div>':(data||[]).map(t=>`
-      <div class="liste-satir">
-        <div class="l-sol"><div class="b">${esc(t.mesaj)}</div>
-          <div class="k">${new Date(t.created_at).toLocaleString('tr-TR')} ${t.cozum_notu?'· Çözüm: '+esc(t.cozum_notu):''}</div></div>
-        <div class="l-sag">${t.durum==='acik'
-          ? (PROFIL.rol==='owner'?`<button class="btn2" onclick="talepCoz('${t.id}')">Çözüldü İşaretle</button>`:'<span class="rozet rz-uyari">Açık</span>')
-          : '<span class="rozet rz-ok">Çözüldü</span>'}</div>
-      </div>`).join('')}</div>`;
+  const acik = (data||[]).filter(t=>t.durum==='acik');
+  const bitti = (data||[]).filter(t=>t.durum!=='acik');
+  const kart = (t) => `
+    <div class="liste-satir">
+      <div class="l-sol" style="flex:1">
+        <div class="b" style="${t.durum!=='acik'?'text-decoration:line-through;color:var(--soluk)':''}">${esc(t.mesaj)}</div>
+        <div class="k">Ekleyen: ${esc(t.olusturan?.ad||'—')} · ${new Date(t.created_at).toLocaleDateString('tr-TR')}
+          ${t.durum!=='acik'?`<br><span style="color:var(--ok);font-weight:700">✓ ${esc(t.cozen?.ad||'')} yaptı · ${t.cozum_tarihi?new Date(t.cozum_tarihi).toLocaleDateString('tr-TR'):''}</span>`:''}</div>
+      </div>
+      <div class="l-sag" style="white-space:normal">
+        ${t.durum==='acik'
+          ? `<button class="btn2" onclick="yapildiIsaretle('${t.id}',false)">✓ Yaptım</button>`
+          : `<button class="btn2" style="background:var(--gri);color:var(--soluk)" onclick="yapildiIsaretle('${t.id}',true)">Geri Al</button>`}
+        <button class="btn-kirmizi" style="margin-top:4px" onclick="maddeSil('${t.id}')">Sil</button>
+      </div>
+    </div>`;
+  el.innerHTML = `
+    <div class="kart"><div class="kbaslik">Bekleyenler (${acik.length})</div>
+      ${acik.length===0?'<div class="bilgi-not">Bekleyen madde yok.</div>':acik.map(kart).join('')}</div>
+    ${bitti.length>0?`<div class="kart"><div class="kbaslik" style="color:var(--soluk)">Tamamlananlar (${bitti.length})</div>
+      ${bitti.map(kart).join('')}</div>`:''}`;
 }
-async function talepCoz(id){
-  const not = prompt('Çözüm notu (ne düzeltildi?):');
-  if (not===null) return;
-  const { error } = await sb.from('duzeltme_talebi').update({ durum:'cozuldu', cozum_notu: not.trim()||null }).eq('id', id);
-  if (error){ alert('Güncellenemedi: '+error.message); return; }
+async function yapildiIsaretle(id, geri){
+  const { error } = await sb.rpc('rpc_yapildi_isaretle', { p_id:id, p_geri:geri });
+  if (error){ alert('Güncellenemedi: '+hataTr(error.message)); return; }
+  talepListe(); talepRozet();
+}
+async function maddeSil(id){
+  if (!confirm('Bu madde silinsin mi?')) return;
+  const { error } = await sb.rpc('rpc_madde_sil', { p_id:id });
+  if (error){ alert('Silinemedi: '+hataTr(error.message)); return; }
   talepListe(); talepRozet();
 }
 
