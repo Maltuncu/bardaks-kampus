@@ -124,6 +124,7 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script>
 /* ================== AYAR ================== */
 const SB_URL = 'https://gbheqnxmwvabwuimzskv.supabase.co';
@@ -290,10 +291,19 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
   const btn = document.getElementById(btnId);
   btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Kaydediliyor...';
   try{
-    const { data, error } = await sb.rpc(fn, params);
-    if (error) throw new Error(hataTr(error.message));
+    // Aynı idem anahtarıyla otomatik 2 deneme: bağlantı koparsa (commit olmuş olabilir)
+    // aynı anahtar _idem_kontrol'e takılır, mükerrer kayıt OLMAZ.
+    let son;
+    for (let deneme = 0; deneme < 2; deneme++){
+      son = await sb.rpc(fn, params);
+      if (!son.error) break;
+      if (!/Failed to fetch|NetworkError|timeout/i.test(son.error.message)) break; // sadece ağ hatasında retry
+      btn.textContent = 'Bağlantı koptu, tekrar deneniyor...';
+      await new Promise(r=>setTimeout(r, 1200));
+    }
+    if (son.error) throw new Error(hataTr(son.error.message));
     mesaj(msgId, 'ok', basariTxt);
-    return data;
+    return son.data;
   }catch(e){
     mesaj(msgId, 'hata', e.message + ' — Verileriniz formda duruyor, tekrar deneyin.');
     return null;
@@ -362,7 +372,7 @@ async function vOzet(){
     </div>
     <div class="kart"><div class="kbaslik" style="color:var(--ana)">Uyarılar (${u.length})</div>
       ${u.length===0?'<div class="bilgi-not">Uyarı yok.</div>':u.map(x=>`
-        <div class="liste-satir"><div class="l-sol"><span class="rozet ${x.tip==='stok'||x.tip==='talep'?'rz-hata':'rz-uyari'}">${x.tip==='vade'?'VADE':x.tip==='stok'?'STOK':x.tip==='talep'?'TALEP':'EKSİK GÜN'}</span> ${esc(x.mesaj)}</div></div>`).join('')}
+        <div class="liste-satir"><div class="l-sol"><span class="rozet ${x.tip==='stok'||x.tip==='talep'||x.tip==='fatura'||x.tip==='cek'?'rz-hata':'rz-uyari'}">${({vade:'VADE',stok:'STOK',talep:'TALEP',eksik_gun:'EKSİK GÜN',fatura:'FATURA',cek:'ÇEK'})[x.tip]||'UYARI'}</span> ${esc(x.mesaj)}</div></div>`).join('')}
     </div>
     ${o?`<div class="kart"><div class="kbaslik">Bu Ay (${ay})</div>
       <div class="liste-satir"><div>Net satış (KDV hariç)</div><div class="l-sag">${tl(o.net_satis_kdv_haric)}</div></div>
@@ -678,7 +688,8 @@ function gdFatura(){
       <div id="firmaBilgi"></div>
       ${tarihSecici('alTarih')}
       <label>Belge Türü</label>
-      <select id="alTur"><option value="fatura">Fatura</option><option value="irsaliye">İrsaliye</option><option value="bilgi_fisi">Bilgi Fişi</option></select>
+      <select id="alTur" onchange="alTurNot()"><option value="fatura">Fatura</option><option value="irsaliye">İrsaliye (mal geldi, faturası sonra)</option><option value="bilgi_fisi">Bilgi Fişi</option></select>
+      <div id="alTurNot"></div>
       <div class="satir">
         <div><label>Belge No</label><input type="text" id="alBelgeNo"></div>
         <div><label>Fiş No</label><input type="text" id="alFisNo"></div>
@@ -694,13 +705,23 @@ function gdFatura(){
       <label>Belge Fotoğrafı</label><input type="file" id="alFoto" accept="image/*" capture="environment">
       <label>Not</label><input type="text" id="alNot">
       <label>Ödeme Durumu</label>
-      <select id="alOdendi" onchange="document.getElementById('alYontemSatir').style.display = this.value==='1' ? 'block' : 'none'">
+      <select id="alOdendi" onchange="alOdemeDurum()">
         <option value="0">ÖDENMEDİ — firmaya borç yazılsın</option>
         <option value="1">ÖDENDİ</option>
       </select>
+      <div id="alVadeSatir">
+        <label>Ödeme Vadesi (ne zaman ödenecek?)</label>
+        <input type="date" id="alVade">
+      </div>
       <div id="alYontemSatir" style="display:none">
         <label>Neyle ödendi?</label>
-        <select id="alYontem"><option value="kart">Kart</option><option value="nakit">Nakit</option><option value="havale">Havale/EFT</option><option value="cek">Çek</option></select>
+        <select id="alYontem" onchange="alCekAlan()"><option value="kart">Kart</option><option value="nakit">Nakit</option><option value="havale">Havale/EFT</option><option value="cek">Çek</option></select>
+        <div id="alCekSatir" style="display:none">
+          <div class="satir">
+            <div><label>Çek No</label><input type="text" id="alCekNo"></div>
+            <div><label>Çek Vadesi</label><input type="date" id="alCekVade"></div>
+          </div>
+        </div>
       </div>
       <button class="btn" id="alKaydet" onclick="alisKaydet()">Faturayı Kaydet</button>
       <div class="hata-msg" id="alMsg"></div>
@@ -709,9 +730,25 @@ function gdFatura(){
     const t = +document.getElementById('alToplam').value||0, o = +e.target.value||0;
     if (t>0 && o>0) document.getElementById('alKdvTutar').value = (t - t/(1+o/100)).toFixed(2);
   });
-  firmaBilgiGoster();
+  firmaBilgiGoster(); alTurNot(); alOdemeDurum();
   if (KATALOG.urunler.length>0) kalemEkle();
   alisListe();
+}
+function alTurNot(){
+  const tur = document.getElementById('alTur').value;
+  document.getElementById('alTurNot').innerHTML = tur==='irsaliye'
+    ? '<div class="bilgi-not" style="margin-top:6px">İrsaliye: mal girişi ve stok artışı için. <b>Borç/KDV yazılmaz</b> — ürün kalemlerini gir. Faturası gelince FATURA olarak tutar+KDV gir, kalem girme (stok tekrar artmasın).</div>'
+    : '';
+}
+function alOdemeDurum(){
+  const odendi = document.getElementById('alOdendi').value==='1';
+  document.getElementById('alYontemSatir').style.display = odendi ? 'block' : 'none';
+  document.getElementById('alVadeSatir').style.display = odendi ? 'none' : 'block';
+  if (odendi) alCekAlan();
+}
+function alCekAlan(){
+  const cek = document.getElementById('alYontem').value==='cek';
+  document.getElementById('alCekSatir').style.display = cek ? 'block' : 'none';
 }
 async function alisKaydet(){
   const toplam = +document.getElementById('alToplam').value||0;
@@ -725,7 +762,8 @@ async function alisKaydet(){
       .eq('tedarikci_id', document.getElementById('alTedarikci').value).eq('belge_no', belgeNo).limit(1);
     if (mv && mv.length){ mesaj('alMsg','hata','Bu belge no bu firma için zaten girilmiş — mükerrer fatura. Kontrol edin.'); return; }
   }
-  if (kdvT===0 && !confirm('KDV tutarı BOŞ — bu alış indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
+  const alTurDeger = document.getElementById('alTur').value;
+  if (alTurDeger==='fatura' && kdvT===0 && !confirm('KDV tutarı BOŞ — bu fatura indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
   const btn = document.getElementById('alKaydet');
   btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
   let foto=null;
@@ -744,7 +782,10 @@ async function alisKaydet(){
     p_not: document.getElementById('alNot').value.trim()||null,
     p_kalemler: kalemOku(),
     p_odendi: document.getElementById('alOdendi').value === '1',
-    p_odeme_yontem: document.getElementById('alOdendi').value === '1' ? document.getElementById('alYontem').value : null
+    p_odeme_yontem: document.getElementById('alOdendi').value === '1' ? document.getElementById('alYontem').value : null,
+    p_vade: document.getElementById('alOdendi').value === '0' ? (document.getElementById('alVade').value||null) : null,
+    p_cek_no: (document.getElementById('alOdendi').value==='1' && document.getElementById('alYontem').value==='cek') ? (document.getElementById('alCekNo').value.trim()||null) : null,
+    p_cek_vade: (document.getElementById('alOdendi').value==='1' && document.getElementById('alYontem').value==='cek') ? (document.getElementById('alCekVade').value||null) : null
   },'alKaydet','alMsg','Fatura kaydedildi ✓');
   if (data && data.ok) vGider();
 }
@@ -765,14 +806,17 @@ async function alisListe(){
 async function vStok(){
   const el = document.getElementById('icerik');
   const { data: stok } = await sb.from('v_stok_durum').select('*').order('ad');
+  const owner = PROFIL.rol === 'owner';
+  const toplamDeger = (stok||[]).reduce((a,s)=>a + (+s.stok_degeri||0), 0);
   el.innerHTML = `
     <h2 class="bolum">Stok Durumu</h2>
     <div class="kart">
       ${(stok||[]).length===0?'<div class="bilgi-not">Ürün tanımlı değil — yönetici "Yönetim" sekmesinden ekler.</div>':(stok||[]).map(s=>`
         <div class="liste-satir">
-          <div class="l-sol"><div class="b">${esc(s.ad)}</div><div class="k">Kritik seviye: ${s.kritik_seviye} ${esc(s.birim)}</div></div>
-          <div class="l-sag">${s.mevcut} ${esc(s.birim)}<br>${s.kritik?'<span class="rozet rz-hata">KRİTİK</span>':'<span class="rozet rz-ok">Yeterli</span>'}</div>
+          <div class="l-sol"><div class="b">${esc(s.ad)}</div><div class="k">Kritik seviye: ${s.kritik_seviye} ${esc(s.birim)}${owner && +s.ort_maliyet>0?' · Ort. maliyet: '+tl(s.ort_maliyet):''}</div></div>
+          <div class="l-sag">${s.mevcut} ${esc(s.birim)}<br>${s.kritik?'<span class="rozet rz-hata">KRİTİK</span>':'<span class="rozet rz-ok">Yeterli</span>'}${owner && +s.stok_degeri>0?'<br><span class="k">'+tl(s.stok_degeri)+'</span>':''}</div>
         </div>`).join('')}
+      ${owner && toplamDeger>0?`<div class="liste-satir"><div style="font-weight:800">TOPLAM STOK DEĞERİ</div><div class="l-sag" style="color:var(--ana)">${tl(toplamDeger)}</div></div>`:''}
     </div>
     <div class="kart">
       <div class="kbaslik">Sayım Modu (haftalık — rafı say, yaz, tek tuşla kaydet)</div>
@@ -808,19 +852,11 @@ async function sayimKaydet(urunler){
     if (Math.abs(fark) > 0.0001) degisenler.push({ urun:u.id, fark });
   }
   if (degisenler.length === 0){ mesaj('syMsg','hata','Hiç sayım girilmedi (veya hepsi sistemle aynı).'); return; }
-  const btn = document.getElementById('syKaydet');
-  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
-  let ok = 0, hata = 0;
-  for (const d of degisenler){
-    const { error } = await sb.rpc('rpc_stok_hareket_kaydet', {
-      p_idem: idem(), p_sube: PROFIL.sube_id, p_urun: d.urun,
-      p_tarih: bugun(), p_tur: 'sayim_duzeltme', p_miktar: d.fark, p_not: 'sayım modu'
-    });
-    if (error) hata++; else ok++;
-  }
-  btn.disabled = false; btn.textContent = 'Sayımı Kaydet';
-  if (hata > 0){ mesaj('syMsg','hata', `${ok} ürün kaydedildi, ${hata} ürün HATA aldı — listeyi yenileyip eksikleri tekrar girin.`); }
-  else { mesaj('syMsg','ok', `Sayım tamam: ${ok} ürün güncellendi ✓`); setTimeout(vStok, 1200); }
+  const data = await rpcCagir('rpc_sayim_toplu', {
+    p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: bugun(),
+    p_kalemler: degisenler.map(d=>({ urun:d.urun, fark:d.fark }))
+  }, 'syKaydet','syMsg', `Sayım tamam: ${degisenler.length} ürün güncellendi ✓`);
+  if (data && data.ok) setTimeout(vStok, 1200);
 }
 async function stokHareketKaydet(){
   let miktar = +document.getElementById('shMiktar').value||0;
@@ -885,18 +921,83 @@ async function vTedarikci(){
       ${tarihSecici('toTarih')}
       <label>Tutar</label><input type="number" step="0.01" inputmode="decimal" id="toTutar" placeholder="0,00">
       <label>Neyle ödendi?</label>
-      <select id="toYontem"><option value="kart">Kart</option><option value="nakit">Nakit</option><option value="havale">Havale/EFT</option><option value="cek">Çek</option></select>
+      <select id="toYontem" onchange="document.getElementById('toCekSatir').style.display=this.value==='cek'?'block':'none'"><option value="kart">Kart</option><option value="nakit">Nakit</option><option value="havale">Havale/EFT</option><option value="cek">Çek</option></select>
+      <div id="toCekSatir" style="display:none">
+        <div class="satir">
+          <div><label>Çek No</label><input type="text" id="toCekNo"></div>
+          <div><label>Çek Vadesi</label><input type="date" id="toCekVade"></div>
+        </div>
+      </div>
       <label>Açıklama</label><input type="text" id="toAciklama">
       <button class="btn" id="toKaydet" onclick="odemeKaydet()">Ödemeyi Kaydet</button>
       <div class="hata-msg" id="toMsg"></div>
     </div>
-    ${owner ? `<div class="kart">
+    ${owner ? `
+    <div class="kart">
+      <div class="kbaslik">Açılış Bakiyesi Gir</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Sisteme geçmeden önce firmaya olan mevcut borcun varsa buraya gir — bakiye doğru başlasın.</div>
+      <label>Firma</label>
+      <select id="abTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
+      <label>Mevcut Borç (açılış)</label><input type="number" step="0.01" inputmode="decimal" id="abTutar" placeholder="0,00">
+      <label>Not</label><input type="text" id="abNot" placeholder="örn: Haziran devri">
+      <button class="btn" id="abKaydet" onclick="acilisBakiyeKaydet()">Açılış Bakiyesi Ekle</button>
+      <div class="hata-msg" id="abMsg"></div>
+    </div>
+    <div class="kart"><div class="kbaslik">Açık Faturalar (ödenmemiş)</div><div id="acikFaturaListe">Yükleniyor...</div></div>
+    <div class="kart"><div class="kbaslik">Portföydeki Çekler</div><div id="acikCekListe">Yükleniyor...</div></div>
+    <div class="kart">
       <div class="kbaslik">İhtilaf Dökümü</div>
       <label>Tedarikçi</label>
       <select id="dkTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
       <button class="btn2" style="margin-top:10px" onclick="dokumGoster()">Bu zamana kadar gelenleri listele</button>
       <div id="dokumAlan"></div>
     </div>` : ''}`;
+  if (owner){ acikFaturaYukle(); acikCekYukle(); }
+}
+async function acilisBakiyeKaydet(){
+  const tutar = +document.getElementById('abTutar').value||0;
+  if (tutar===0){ mesaj('abMsg','hata','Tutar boş olamaz.'); return; }
+  const data = await rpcCagir('rpc_acilis_bakiye',{
+    p_sube: PROFIL.sube_id, p_tedarikci: document.getElementById('abTedarikci').value,
+    p_tutar: tutar, p_not: document.getElementById('abNot').value.trim()||null
+  },'abKaydet','abMsg','Açılış bakiyesi eklendi ✓');
+  if (data && data.ok) vTedarikci();
+}
+async function acikFaturaYukle(){
+  const { data } = await sb.from('v_acik_fatura').select('*').order('vade_tarihi',{nullsFirst:false});
+  const el = document.getElementById('acikFaturaListe'); if(!el) return;
+  el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Açık fatura yok.</div>' : (data||[]).map(f=>`
+    <div class="liste-satir">
+      <div class="l-sol"><div class="b">${esc(f.tedarikci_ad)} ${f.gecikti?'<span class="rozet rz-hata">GECİKTİ</span>':''}</div>
+        <div class="k">${new Date(f.tarih+'T00:00').toLocaleDateString('tr-TR')} · Belge:${esc(f.belge_no||'—')}${f.vade_tarihi?' · Vade: '+new Date(f.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}</div></div>
+      <div class="l-sag">${tl(f.toplam)}<br><button class="btn2" style="margin-top:4px" onclick="faturaOdendi('${f.id}')">Ödendi ✓</button></div>
+    </div>`).join('');
+}
+async function faturaOdendi(id){
+  if (!confirm('Fatura ödendi olarak işaretlensin mi? (Takip listesinden çıkar. Ödemeyi ayrıca "Ödeme Kaydet"ten girin ki bakiye düşsün.)')) return;
+  const { error } = await sb.from('alis').update({ odendi:true }).eq('id', id);
+  if (error){ alert('Güncellenemedi: '+error.message); return; }
+  acikFaturaYukle();
+}
+async function acikCekYukle(){
+  const { data } = await sb.from('v_acik_cek').select('*').order('cek_vade',{nullsFirst:false});
+  const el = document.getElementById('acikCekListe'); if(!el) return;
+  el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Portföyde çek yok.</div>' : (data||[]).map(c=>`
+    <div class="liste-satir">
+      <div class="l-sol"><div class="b">${esc(c.tedarikci_ad)} ${c.gecikti?'<span class="rozet rz-hata">VADESİ GEÇTİ</span>':''}</div>
+        <div class="k">Çek No:${esc(c.cek_no||'—')}${c.cek_vade?' · Vade: '+new Date(c.cek_vade+'T00:00').toLocaleDateString('tr-TR'):''} · ${tl(c.tutar)}</div></div>
+      <div class="l-sag" style="white-space:normal">
+        <button class="btn2" onclick="cekDurum('${c.id}','tahsil')">Tahsil</button>
+        <button class="btn-kirmizi" style="margin-top:4px" onclick="cekDurum('${c.id}','karsiliksiz')">Karşılıksız</button>
+      </div>
+    </div>`).join('');
+}
+async function cekDurum(id, durum){
+  const msg = durum==='karsiliksiz' ? 'Çek KARŞILIKSIZ işaretlenecek — ödeme iptal olur, borç geri gelir. Emin misin?' : 'Çek tahsil edildi olarak işaretlensin mi?';
+  if (!confirm(msg)) return;
+  const { error } = await sb.rpc('rpc_cek_durum', { p_id:id, p_durum:durum });
+  if (error){ alert('Güncellenemedi: '+hataTr(error.message)); return; }
+  vTedarikci();
 }
 function tedarikciDuzenle(id){
   const t = KATALOG.tedarikciler.find(x=>x.id===id); if (!t) return;
@@ -927,23 +1028,28 @@ async function tedarikciEkleHizli(){
     email: document.getElementById('tdYeniEmail').value.trim()||null,
     adres: document.getElementById('tdYeniAdres').value.trim()||null
   };
-  const { error } = TD_DUZENLENEN
-    ? await sb.from('tedarikci').update(kayit).eq('id', TD_DUZENLENEN)
-    : await sb.from('tedarikci').insert(kayit);
-  if (error){ mesaj('tdYeniMsg','hata',error.message); return; }
+  const { data, error } = await sb.rpc('rpc_tedarikci_kaydet', {
+    p_id: TD_DUZENLENEN, p_ad: kayit.ad, p_unvan: kayit.unvan, p_vergi_no: kayit.vergi_no,
+    p_vergi_dairesi: kayit.vergi_dairesi, p_yetkili: kayit.yetkili_ad, p_tel: kayit.telefon,
+    p_tel2: kayit.telefon2, p_email: kayit.email, p_adres: kayit.adres
+  });
+  if (error){ mesaj('tdYeniMsg','hata',hataTr(error.message)); return; }
   TD_DUZENLENEN = null;
   await katalogYukle(); vTedarikci();
 }
 async function odemeKaydet(){
   const tutar = +document.getElementById('toTutar').value||0;
   if (tutar===0){ mesaj('toMsg','hata','Tutar boş olamaz.'); return; }
+  const toCek = document.getElementById('toYontem').value==='cek';
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet',{
     p_idem: idem(), p_sube: PROFIL.sube_id,
     p_tedarikci: document.getElementById('toTedarikci').value,
     p_tarih: document.getElementById('toTarih').value,
     p_tutar: tutar,
     p_aciklama: document.getElementById('toAciklama').value.trim()||null,
-    p_yontem: document.getElementById('toYontem').value
+    p_yontem: document.getElementById('toYontem').value,
+    p_cek_no: toCek ? (document.getElementById('toCekNo').value.trim()||null) : null,
+    p_cek_vade: toCek ? (document.getElementById('toCekVade').value||null) : null
   },'toKaydet','toMsg','Ödeme kaydedildi ✓');
   if (data && data.ok) vTedarikci();
 }
@@ -1156,6 +1262,29 @@ async function vYonetim(){
       <div class="hata-msg" id="ynKatMsg"></div>
     </div>
     <div class="kart">
+      <div class="kbaslik">Vergi & Resmi Ödeme Takvimi</div>
+      <div id="vergiVadeler">Yükleniyor...</div>
+    </div>
+    <div class="kart">
+      <div class="kbaslik">Vergi/Resmi Ödeme Kaydet</div>
+      <label>Dönem</label><input type="month" id="voDonem" value="${bugun().slice(0,7)}">
+      <label>Tür</label>
+      <select id="voTur">
+        <option value="kdv">KDV</option><option value="bagkur">Bağkur (4B)</option>
+        <option value="sgk">SGK Primi</option><option value="muhsgk">MUHSGK (stopaj+SGK)</option>
+        <option value="gecici_vergi">Geçici Vergi</option><option value="gelir_vergisi">Gelir Vergisi</option>
+        <option value="stopaj">Stopaj</option><option value="muhasebeci">Muhasebeci Ücreti</option>
+        <option value="diger">Diğer</option>
+      </select>
+      <label>Tutar</label><input type="number" step="0.01" inputmode="decimal" id="voTutar" placeholder="0,00">
+      <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
+      <label>Belge Fotoğrafı</label><input type="file" id="voFoto" accept="image/*" capture="environment">
+      <label>Not</label><input type="text" id="voNot">
+      <button class="btn" id="voKaydet" onclick="vergiOdemeKaydet()">Ödemeyi Kaydet</button>
+      <div class="hata-msg" id="voMsg"></div>
+    </div>
+    <div class="kart"><div class="kbaslik">Ödenen Vergiler</div><div id="voListe">Yükleniyor...</div></div>
+    <div class="kart">
       <div class="kbaslik">Ay Kapatma</div>
       <div class="bilgi-not" style="margin:0 0 8px">Ay kapatınca o aya personel hiçbir kayıt (geçmiş tarih dahil) giremez. Beyan/mutabakat sonrası kapatın. Gerekirse nedenle açarsınız.</div>
       <label>Dönem</label><input type="month" id="akDonem" value="${bugun().slice(0,7)}" onchange="akDurumGoster()">
@@ -1173,8 +1302,149 @@ async function vYonetim(){
       <button class="btn" id="arsivBtn" onclick="arsivPdf()">PDF Oluştur ve İndir</button>
       <div class="hata-msg" id="arsivMsg"></div>
     </div>
-    <div class="bilgi-not">Banka mutabakatı ve vergi bölümü sonraki fazda eklenecek.</div>`;
-  akDurumGoster();
+    <div id="bankaMutabakatKart"></div>`;
+  akDurumGoster(); vergiVadeYukle(); vergiOdenenYukle(); bankaMutabakatKart();
+}
+const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',diger:'Diğer'};
+async function vergiVadeYukle(){
+  const el = document.getElementById('vergiVadeler'); if(!el) return;
+  const { data } = await sb.from('vade').select('*').eq('is_deleted',false).order('vade_tarihi');
+  const bugunT = bugun();
+  el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Vade kaydı yok.</div>' : (data||[]).map(v=>{
+    const odendi = v.odendi_gider_id !== null;
+    const gecti = !odendi && v.vade_tarihi < bugunT;
+    const yakin = !odendi && !gecti && v.vade_tarihi <= new Date(Date.now()+7*864e5).toISOString().slice(0,10);
+    return `<div class="liste-satir">
+      <div class="l-sol"><div class="b">${esc(v.aciklama)} ${gecti?'<span class="rozet rz-hata">GEÇTİ</span>':yakin?'<span class="rozet rz-uyari">YAKLAŞTI</span>':''}</div>
+        <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${v.tutar?' · '+tl(v.tutar):''}</div></div>
+      <div class="l-sag">${odendi?'<span class="rozet rz-ok">Ödendi</span>':`<button class="btn2" onclick="vadeOdendi('${v.id}')">Ödendi</button>`}</div>
+    </div>`;
+  }).join('');
+}
+async function vadeOdendi(id){
+  const { error } = await sb.rpc('rpc_vade_odendi', { p_id:id });
+  if (error){ alert('Güncellenemedi: '+hataTr(error.message)); return; }
+  vergiVadeYukle();
+}
+async function vergiOdemeKaydet(){
+  const tutar = +document.getElementById('voTutar').value||0;
+  if (tutar===0){ mesaj('voMsg','hata','Tutar boş olamaz.'); return; }
+  const btn = document.getElementById('voKaydet');
+  btn.disabled=true; btn.textContent='Yükleniyor...';
+  let foto=null;
+  try{ foto = await fotoYukle('voFoto','vergi'); }
+  catch(e){ mesaj('voMsg','hata',e.message); btn.disabled=false; btn.textContent='Ödemeyi Kaydet'; return; }
+  const data = await rpcCagir('rpc_vergi_odeme_kaydet',{
+    p_donem: document.getElementById('voDonem').value, p_tur: document.getElementById('voTur').value,
+    p_tutar: tutar, p_odeme_tarihi: document.getElementById('voTarih').value,
+    p_foto: foto, p_not: document.getElementById('voNot').value.trim()||null
+  },'voKaydet','voMsg','Vergi ödemesi kaydedildi ✓');
+  if (data && data.ok){ document.getElementById('voTutar').value=''; document.getElementById('voNot').value=''; document.getElementById('voFoto').value=''; vergiOdenenYukle(); }
+}
+/* ---- Banka POS Mutabakatı (PDF parse) ---- */
+function bankaMutabakatKart(){
+  const el = document.getElementById('bankaMutabakatKart'); if(!el) return;
+  el.innerHTML = `
+    <div class="kart">
+      <div class="kbaslik">Banka POS Mutabakatı</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Bankanın aylık "Üye İşyeri Hesap Özeti" PDF'ini yükle — sistem toplam satış, komisyon, ÖKC ve net hesaba geçişi okuyup senin kart cironla karşılaştırır.</div>
+      <label>Dönem</label><input type="month" id="bmDonem" value="${bugun().slice(0,7)}">
+      <label>Banka PDF'i</label><input type="file" id="bmPdf" accept="application/pdf">
+      <button class="btn" id="bmAnaliz" onclick="bankaPdfAnaliz()">PDF'i Analiz Et</button>
+      <div class="hata-msg" id="bmMsg"></div>
+      <div id="bmSonuc"></div>
+    </div>`;
+}
+function trSayi(s){ // "1.658.776,00" → 1658776.00 ; "-24.688,65" → -24688.65
+  if (s==null) return null;
+  const m = String(s).replace(/[^\d.,-]/g,'').replace(/\./g,'').replace(',','.');
+  const n = parseFloat(m); return isNaN(n) ? null : n;
+}
+async function bankaPdfAnaliz(){
+  const inp = document.getElementById('bmPdf');
+  if (!inp.files || !inp.files[0]){ mesaj('bmMsg','hata','PDF seçilmedi.'); return; }
+  const btn = document.getElementById('bmAnaliz'); btn.disabled=true; btn.textContent='Okunuyor...';
+  try{
+    const buf = await inp.files[0].arrayBuffer();
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+    let metin = '';
+    for (let i=1; i<=pdf.numPages; i++){
+      const pg = await pdf.getPage(i);
+      const tc = await pg.getTextContent();
+      metin += tc.items.map(x=>x.str).join(' ') + '\n';
+    }
+    const bul = (etiket) => {
+      const re = new RegExp(etiket.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '[^\\d-]*(-?[\\d.]+,\\d{2})');
+      const m = metin.match(re); return m ? trSayi(m[1]) : null;
+    };
+    const veri = {
+      toplam_satis: bul('Toplam Satış'),
+      komisyon: bul('İşyeri Ücreti Pşn\\(Tutar\\)'),
+      maxipuan: bul('Maxipuan Katkı Payı'),
+      okc_ucret: bul('ÖKC\\)') || bul('Bakım Ücreti'),
+      kesinti_toplam: bul('Kesintiler Toplamı'),
+      net_hesaba_gecis: bul('Dönem İçi Toplam Hesaba') || bul('Dönem İçi Peşin Hesaba'),
+      bekleyen_alacak: bul('Toplam Alacak Tutarı')
+    };
+    if (veri.toplam_satis === null){ mesaj('bmMsg','hata','PDF tanınamadı — bu İş Bankası üye işyeri özeti mi? Alanlar okunamadı.'); btn.disabled=false; btn.textContent="PDF'i Analiz Et"; return; }
+    // O ayın kart cirosu ile karşılaştır
+    const donem = document.getElementById('bmDonem').value;
+    const { data: gs } = await sb.from('gun_sonu').select('kart_toplam').gte('tarih',donem+'-01').lte('tarih',donem+'-31').eq('is_deleted',false);
+    const bizimKart = (gs||[]).reduce((a,x)=>a+ +x.kart_toplam,0);
+    const fark = veri.toplam_satis - bizimKart;
+    const uyumlu = Math.abs(fark) < 1;
+    document.getElementById('bmSonuc').innerHTML = `
+      <div style="margin-top:12px">
+        <div class="liste-satir"><div>Banka toplam satış</div><div class="l-sag">${tl(veri.toplam_satis)}</div></div>
+        <div class="liste-satir"><div>Bizim kart cirosu (${(gs||[]).length} gün)</div><div class="l-sag">${tl(bizimKart)}</div></div>
+        <div class="liste-satir"><div style="font-weight:800">FARK</div><div class="l-sag" style="color:${uyumlu?'var(--ok)':'var(--hata)'}">${uyumlu?'✓ Tutuyor':tl(fark)}</div></div>
+        <div class="liste-satir"><div>Komisyon</div><div class="l-sag">${tl(veri.komisyon||0)}</div></div>
+        <div class="liste-satir"><div>ÖKC/bakım ücreti</div><div class="l-sag">${tl(veri.okc_ucret||0)}</div></div>
+        <div class="liste-satir"><div>Kesinti toplamı</div><div class="l-sag">${tl(veri.kesinti_toplam||0)}</div></div>
+        <div class="liste-satir"><div>Net hesaba geçiş</div><div class="l-sag">${tl(veri.net_hesaba_gecis||0)}</div></div>
+        <div class="liste-satir"><div>Bekleyen alacak</div><div class="l-sag">${tl(veri.bekleyen_alacak||0)}</div></div>
+      </div>
+      <button class="btn" onclick='bankaMutabakatKaydet(${JSON.stringify(veri).replace(/'/g,"&#39;")}, "${donem}", ${uyumlu})'>Mutabakatı Kaydet</button>`;
+    mesaj('bmMsg','ok','PDF okundu — kontrol edip kaydedin.');
+  }catch(e){
+    mesaj('bmMsg','hata','PDF okunamadı: '+e.message);
+  }finally{
+    btn.disabled=false; btn.textContent="PDF'i Analiz Et";
+  }
+}
+async function bankaMutabakatKaydet(veri, donem, uyumlu){
+  const kesinti = (veri.komisyon||0)+(veri.maxipuan||0)+(veri.okc_ucret||0);
+  const { error } = await sb.from('banka_mutabakat').insert({
+    sube_id: PROFIL.sube_id, donem, toplam_satis: veri.toplam_satis,
+    komisyon: veri.komisyon, maxipuan: veri.maxipuan, okc_ucret: veri.okc_ucret,
+    kesinti_toplam: veri.kesinti_toplam, net_hesaba_gecis: veri.net_hesaba_gecis,
+    bekleyen_alacak: veri.bekleyen_alacak, durum: uyumlu?'uyumlu':'farkli'
+  });
+  if (error){ alert('Kaydedilemedi: '+error.message); return; }
+  // Komisyon + ÖKC otomatik gider olarak yazılsın mı
+  if (confirm('Komisyon + ÖKC ücretini bu ayın gideri olarak da kaydedeyim mi? ('+tl(Math.abs((veri.komisyon||0)+(veri.okc_ucret||0)))+')')){
+    const kat = KATALOG.kategoriler.find(k=>k.ad==='POS Komisyon') || KATALOG.kategoriler.find(k=>k.ad==='Diğer');
+    if (kat){
+      await sb.rpc('rpc_gider_kaydet',{ p_idem:idem(), p_sube:PROFIL.sube_id, p_tarih:donem+'-28',
+        p_kategori:kat.id, p_aciklama:'Banka komisyon+ÖKC ('+donem+')', p_tutar:Math.abs((veri.komisyon||0)+(veri.okc_ucret||0)),
+        p_kdv_orani:null, p_kdv_tutar:0, p_foto:null, p_kasadan:false, p_tedarikci:null });
+    }
+  }
+  mesaj('bmMsg','ok','Mutabakat kaydedildi ✓');
+}
+async function vergiOdenenYukle(){
+  const el = document.getElementById('voListe'); if(!el) return;
+  const yil = bugun().slice(0,4);
+  const { data } = await sb.from('vergi_odeme').select('*').eq('is_deleted',false)
+    .gte('donem', yil+'-01').order('odeme_tarihi',{ascending:false}).limit(40);
+  const toplam = (data||[]).reduce((a,x)=>a+ +x.tutar,0);
+  el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Bu yıl vergi ödemesi kaydı yok.</div>' :
+    (data||[]).map(v=>`<div class="liste-satir">
+      <div class="l-sol"><div class="b">${VERGI_AD[v.tur]||esc(v.tur)}</div>
+        <div class="k">${esc(v.donem)}${v.odeme_tarihi?' · '+new Date(v.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}${v.notlar?' · '+esc(v.notlar):''}</div></div>
+      <div class="l-sag">${tl(v.tutar)}</div>
+    </div>`).join('') + `<div class="liste-satir"><div style="font-weight:800">${yil} YILI TOPLAM</div><div class="l-sag" style="color:var(--ana)">${tl(toplam)}</div></div>`;
 }
 async function ayKapat(){
   const donem = document.getElementById('akDonem').value;
