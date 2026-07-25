@@ -437,17 +437,18 @@ function kdvSatirEkle(oran, satis, kdv, sabit){
     : `<select id="kdvO_${n}"><option value="1"${oran==1?' selected':''}>%1</option><option value="10"${(oran==10||!oran)?' selected':''}>%10</option><option value="20"${oran==20?' selected':''}>%20</option></select>`;
   div.innerHTML = `
     ${oranKutu}
-    <input type="number" step="0.01" inputmode="decimal" id="kdvT_${n}" placeholder="Z'deki %${oran||10} TOPLAM" value="${satis||''}">
-    <input type="number" step="0.01" inputmode="decimal" id="kdvV_${n}" placeholder="KDV (sistem hesaplar)" value="${kdv||''}">
+    <input type="text" inputmode="decimal" autocomplete="off" id="kdvT_${n}" placeholder="Z'deki %${oran||10} TOPLAM" value="${satis||''}">
+    <input type="text" inputmode="decimal" autocomplete="off" id="kdvV_${n}" placeholder="KDV (sistem hesaplar)" value="${kdv||''}">
     ${sabit?'':`<button class="sil" onclick="document.getElementById('kdvS_${n}').remove()">✕</button>`}`;
   document.getElementById('kdvSatirlari').appendChild(div);
   // Oran toplam satış yazılınca KDV'yi sistem hesaplar (Z'deki TOPKDV farklıysa üzerine yazılabilir)
   const hesapla = () => {
-    const t = +document.getElementById('kdvT_'+n).value || 0;
+    const t = paraOku(document.getElementById('kdvT_'+n)).deger;
     const o = +document.getElementById('kdvO_'+n).value || 0;
     document.getElementById('kdvV_'+n).value = t > 0 ? (t - t/(1+o/100)).toFixed(2) : '';
   };
-  document.getElementById('kdvT_'+n).addEventListener('input', hesapla);
+  paraBagla(document.getElementById('kdvT_'+n), hesapla);
+  paraBagla(document.getElementById('kdvV_'+n));
   const oranEl = document.getElementById('kdvO_'+n);
   if (oranEl.tagName === 'SELECT') oranEl.addEventListener('change', hesapla);
 }
@@ -456,11 +457,43 @@ function kdvOku(){
   document.querySelectorAll('#kdvSatirlari .kdv-satir').forEach(d=>{
     const n = d.id.split('_')[1];
     const o = document.getElementById('kdvO_'+n).value;
-    const t = document.getElementById('kdvT_'+n).value;
-    const v = document.getElementById('kdvV_'+n).value;
-    if (t!=='' || v!=='') sonuc.push({ oran:+o, satis_toplam:+t||0, kdv_tutar:+v||0 });
+    const tEl = document.getElementById('kdvT_'+n), vEl = document.getElementById('kdvV_'+n);
+    const pt = paraOku(tEl), pv = paraOku(vEl);
+    if (!pt.ok || !pv.ok) throw new Error('KDV satırında geçersiz tutar var — örnek: 15710 veya 15710,50');
+    if (tEl.value.trim()!=='' || vEl.value.trim()!=='')
+      sonuc.push({ oran:+o, satis_toplam:pt.deger, kdv_tutar:pv.deger });
   });
   return sonuc;
+}
+/* ===== PARA GİRİŞ KATMANI — virgül/nokta güvenli, sessiz sıfır YOK ===== */
+function paraTemizle(el){
+  if(!el) return;
+  const t = el.value;
+  let s = t.replace(/[^\d.,]/g,'');              // eksi dahil geçersiz karakterleri at
+  const i = s.search(/[.,]/);
+  if (i > -1){                                    // tek ayraç + en fazla 2 ondalık
+    const ayrac = s[i];
+    const tam = s.slice(0, i);
+    const ond = s.slice(i+1).replace(/[.,]/g,'').slice(0,2);
+    s = tam + ayrac + ond;
+  }
+  if (s !== t) el.value = s;
+}
+function paraOku(el){
+  if(!el) return { ok:true, deger:0 };
+  const ham = (el.value||'').trim();
+  if (ham === '') return { ok:true, deger:0 };    // boş = 0
+  const s = ham.replace(',', '.');
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) return { ok:false, deger:0, hata:'geçersiz tutar' };
+  const d = parseFloat(s);
+  if (!isFinite(d) || d < 0) return { ok:false, deger:0, hata:'geçersiz tutar' };
+  return { ok:true, deger:+d.toFixed(2) };
+}
+function paraBagla(el, sonra){
+  if(!el) return;
+  const f = () => { paraTemizle(el); if(sonra) sonra(); };
+  el.addEventListener('input', f);
+  el.addEventListener('blur', f);
 }
 function kasaPanelHtml(n){
   return `
@@ -469,8 +502,8 @@ function kasaPanelHtml(n){
       <label>Z No <b style="color:var(--hata)">*</b></label>
       <input type="text" inputmode="numeric" id="gsZNo${n}" placeholder="Z raporundaki Z NO">
       <div class="satir">
-        <div><label>Kart Toplamı</label><input type="number" step="0.01" inputmode="decimal" id="gsKart${n}" placeholder="0,00"></div>
-        <div><label>Nakit Toplamı</label><input type="number" step="0.01" inputmode="decimal" id="gsNakit${n}" placeholder="0,00"></div>
+        <div><label>Kart Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsKart${n}" placeholder="0,00"></div>
+        <div><label>Nakit Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsNakit${n}" placeholder="0,00"></div>
       </div>
       <div class="kp-ara"><span>Ara Toplam — Z'deki NET SATIŞ ile aynı olmalı</span><b id="gsAra${n}">0,00 ₺</b></div>
       <label>Z Raporu Fotoğrafı <b style="color:var(--hata)">*</b></label>
@@ -489,17 +522,19 @@ function kasaSec(n){
 }
 function kasaDurum(n){
   const zno=(document.getElementById('gsZNo'+n)?.value||'').trim();
-  const kart=+(document.getElementById('gsKart'+n)?.value)||0;
-  const nakit=+(document.getElementById('gsNakit'+n)?.value)||0;
+  const pk=paraOku(document.getElementById('gsKart'+n));
+  const pn=paraOku(document.getElementById('gsNakit'+n));
+  const kart=pk.deger, nakit=pn.deger;
   const zf=document.getElementById('gsZFoto'+n), sf=document.getElementById('gsSlipFoto'+n);
   const zfVar=!!(zf&&zf.files&&zf.files[0]), sfVar=!!(sf&&sf.files&&sf.files[0]);
   const eksik=[];
   if(!zno) eksik.push('Z No');
+  if(!pk.ok) eksik.push('Kart tutarı geçersiz');
+  if(!pn.ok) eksik.push('Nakit tutarı geçersiz');
   if(!zfVar) eksik.push('Z fotoğrafı');
   if(!sfVar) eksik.push('POS slip');
-  if(kart<0||nakit<0) eksik.push('negatif tutar');
-  const bos=!zno && !kart && !nakit && !zfVar && !sfVar;
-  return { zno, kart, nakit, ara:+(kart+nakit).toFixed(2), eksik, bos };
+  const bos=!zno && !kart && !nakit && !zfVar && !sfVar && pk.ok && pn.ok;
+  return { zno, kart, nakit, ara:+(kart+nakit).toFixed(2), eksik, bos, gecerli: pk.ok && pn.ok };
 }
 function kasaHesapla(){
   let tk=0, tn=0; const eksikler=[];
@@ -516,7 +551,9 @@ function kasaHesapla(){
     if(ks) ks.textContent=sembol;
     d.eksik.forEach(e=>eksikler.push('KASA '+n+' — '+e));
   });
-  const zDisi=+(document.getElementById('gsKasa')?.value)||0;
+  const pz=paraOku(document.getElementById('gsKasa'));
+  const zDisi=pz.deger;
+  if(!pz.ok) eksikler.push('Z DIŞI KASA — tutar geçersiz');
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('gsTKart', tl(tk)); set('gsTNakit', tl(tn)); set('gsTGenel', tl(+(tk+tn).toFixed(2))); set('gsZDisi', tl(zDisi));
   const btn=document.getElementById('gsKaydet'), ek=document.getElementById('gsEksik');
@@ -541,7 +578,7 @@ async function vGunSonu(){
       </div>
       <div class="kasa-grid">${kasaPanelHtml(1)}<div class="kasa-ayirici"></div>${kasaPanelHtml(2)}</div>
       <label>Kasadaki Para (günün nakiti — bırakılan bozukluk HARİÇ say)</label>
-      <input type="number" step="0.01" inputmode="decimal" id="gsKasa" placeholder="0,00">
+      <input type="text" inputmode="decimal" autocomplete="off" id="gsKasa" placeholder="0,00">
       <label>KDV (Z'lerdeki VERGİ DÖKÜMÜ — iki kasanın toplamı)</label>
       <div class="bilgi-not" style="margin:0 0 8px">Z kağıdındaki <b>"%10 TOPLAM"</b> satırını ilk kutuya yaz — KDV'yi sistem hesaplar
         (Z'deki TOPKDV birkaç kuruş farklıysa Z'dekini yaz). ⚠️ "KÜM. TOPLAM" satırını KULLANMA.</div>
@@ -567,11 +604,15 @@ async function vGunSonu(){
   kdvSatirEkle(10, null, null, true);
   if (PROFIL.rol==='personel') personelSonKayit();
   else if (PROFIL.rol==='owner') gunSonuListe();
-  [1,2].forEach(n=>['gsZNo','gsKart','gsNakit','gsZFoto','gsSlipFoto'].forEach(p=>{
-    const e=document.getElementById(p+n);
-    if(e){ e.addEventListener('input', kasaHesapla); e.addEventListener('change', kasaHesapla); }
-  }));
-  const kk=document.getElementById('gsKasa'); if(kk) kk.addEventListener('input', kasaHesapla);
+  [1,2].forEach(n=>{
+    ['gsZNo','gsZFoto','gsSlipFoto'].forEach(p=>{
+      const e=document.getElementById(p+n);
+      if(e){ e.addEventListener('input', kasaHesapla); e.addEventListener('change', kasaHesapla); }
+    });
+    paraBagla(document.getElementById('gsKart'+n),  kasaHesapla);
+    paraBagla(document.getElementById('gsNakit'+n), kasaHesapla);
+  });
+  paraBagla(document.getElementById('gsKasa'), kasaHesapla);
   kasaHesapla();
 }
 function personelSonKayit(){
@@ -605,7 +646,9 @@ async function gunSonuKaydet(){
   const kart = +(kasalar.reduce((a,k)=>a+k.kart,0)).toFixed(2);
   const nakit = +(kasalar.reduce((a,k)=>a+k.nakit,0)).toFixed(2);
   const toplam = +(kart + nakit).toFixed(2);
-  const kdv = kdvOku();
+  let kdv;
+  try { kdv = kdvOku(); }
+  catch(e){ mesaj('gsMsg','hata', e.message); return; }
   if (toplam === 0){ mesaj('gsMsg','hata','İki kasanın toplamı 0 — kayıt yapılamaz.'); return; }
   if (kdv.length === 0 &&
       !confirm('KDV dökümü BOŞ. Z raporundaki VERGİ DÖKÜMÜ girilmedi — KDV tahmini bu gün için eksik kalır. Yine de kaydedilsin mi?')) return;
@@ -620,7 +663,9 @@ async function gunSonuKaydet(){
     if (x.satis_toplam > 0 && Math.abs(x.kdv_tutar - beklenen) > Math.max(5, beklenen*0.15) &&
         !confirm(`KDV kontrolü: %${x.oran} için ${tl(x.satis_toplam)} satışın KDV'si yaklaşık ${tl(beklenen)} olmalı, siz ${tl(x.kdv_tutar)} girdiniz.\nZ kağıdındaki TOPKDV satırıyla karşılaştırın. Yine de kaydedilsin mi?`)) return;
   }
-  const kasa = +document.getElementById('gsKasa').value||0;
+  const pKasa = paraOku(document.getElementById('gsKasa'));
+  if (!pKasa.ok){ mesaj('gsMsg','hata','Kasadaki Para alanı geçersiz — örnek: 4400 veya 4400,50'); return; }
+  const kasa = pKasa.deger;
   if (kasa === 0 &&
       !confirm('Kasadaki Para girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
   const ozet = kasalar.map(k=>`Kasa ${k.n} (Z ${k.zno}): ${tl(k.ara!==undefined?k.ara:k.kart+k.nakit)}`).join('\n');
