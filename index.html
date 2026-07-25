@@ -17,6 +17,38 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
 <style>
 :root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;--metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
+/* ===== Gün Sonu — iki kasa (Mission Control) ===== */
+.kasa-grid{display:grid;grid-template-columns:1fr 1px 1fr;margin:12px 0}
+.kasa-panel{min-width:0}
+.kasa-panel.sol{padding-right:18px}
+.kasa-panel.sag{padding-left:18px}
+.kasa-ayirici{background:var(--cizgi);width:1px}
+.kp-bas{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:2px solid var(--ana);padding-bottom:6px;margin-bottom:10px}
+.kp-ad{font-weight:800;font-size:13px;letter-spacing:.6px;text-transform:uppercase;color:var(--ana)}
+.kp-drm{font-size:11px;font-weight:700;text-align:right}
+.kp-drm.bos{color:var(--soluk)}.kp-drm.eksik{color:var(--uyari)}.kp-drm.tam{color:var(--ok)}
+.kp-ara{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--cizgi);border-bottom:1px solid var(--cizgi);padding:8px 0;margin:12px 0}
+.kp-ara span{font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--soluk)}
+.kp-ara b{font-size:18px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kasa-sekme{display:none;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.ks-btn{border:1px solid var(--cizgi);background:var(--kart);padding:9px 6px;font-family:inherit;color:var(--metin);cursor:pointer;text-align:center}
+.ks-btn.aktif{border-bottom:3px solid var(--ana);background:var(--acik)}
+.ks-btn .ks-ad{font-size:12px;font-weight:800;letter-spacing:.5px}
+.ks-btn .ks-tut{font-size:13px;font-variant-numeric:tabular-nums;margin-top:2px}
+.gs-bant{border-top:2px solid var(--ana);margin-top:14px;padding-top:10px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.gs-bant .kalem{flex:1;min-width:105px}
+.gs-et{font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--soluk);text-transform:uppercase}
+.gs-bant .dg{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.gs-bant .buyuk .dg{font-size:26px;font-weight:800;color:var(--ana)}
+.gs-zdisi{border-top:1px solid var(--cizgi);margin-top:10px;padding-top:8px}
+.gs-eksik{font-size:12px;margin-top:10px;line-height:1.7;color:var(--uyari)}
+@media(max-width:760px){
+  .kasa-grid{grid-template-columns:1fr}
+  .kasa-ayirici{display:none}
+  .kasa-panel{display:none;padding:0}
+  .kasa-panel.aktif{display:block}
+  .kasa-sekme{display:grid}
+}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--gri);color:var(--metin);font-size:15px;padding-bottom:70px}
 .gizli{display:none!important}
@@ -301,7 +333,7 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
       btn.textContent = 'Bağlantı koptu, tekrar deneniyor...';
       await new Promise(r=>setTimeout(r, 1200));
     }
-    if (son.error) throw new Error(hataTr(son.error.message));
+    if (son.error){ window.__sonRpcHataHam = son.error.message; throw new Error(hataTr(son.error.message)); }
     mesaj(msgId, 'ok', basariTxt);
     return son.data;
   }catch(e){
@@ -320,6 +352,15 @@ function hataTr(m){
   if (m.includes('ux_alis_belge') || m.includes('duplicate key')) return 'Bu belge numarası bu firma için zaten girilmiş — mükerrer fatura engellendi.';
   if (m.includes('SADECE_KENDI')) return 'Sadece kendi girdiğiniz kaydı düzeltebilirsiniz.';
   if (m.includes('SURE_GECTI')) return 'Düzeltme süresi (12 saat) geçmiş — yöneticiye başvurun.';
+  if (m.includes('KASA_ADET_HATASI')) return 'İki kasa da girilmelidir (tam olarak 2 kasa).';
+  if (m.includes('KASA_NO_HATASI')) return 'Kasa numaraları 1 ve 2 olmalı ve tekrar etmemeli.';
+  if (m.includes('KASA_TIP_HATASI')) return 'Kasa verisi biçimi hatalı — sayfayı yenileyip tekrar deneyin.';
+  if (m.includes('KASA_Z_NO_ZORUNLU')) return 'Her kasa için Z No zorunludur.';
+  if (m.includes('KASA_Z_FOTO_ZORUNLU')) return 'Her kasa için Z raporu fotoğrafı zorunludur.';
+  if (m.includes('KASA_SLIP_FOTO_ZORUNLU')) return 'Her kasa için POS slip fotoğrafı zorunludur.';
+  if (m.includes('KASA_NEGATIF_TUTAR')) return 'Kasa tutarları negatif olamaz.';
+  if (m.includes('TOPLAM_SIFIR')) return 'Toplam 0 olamaz — kart/nakit girin.';
+  if (m.includes('KDV_TUTARSIZ')) return 'KDV dökümü günün cirosuyla tutarsız — "KÜM. TOPLAM" satırını girmiş olabilirsiniz.';
   if (m.includes('Failed to fetch')) return 'İnternet bağlantısı sorunu.';
   return m;
 }
@@ -421,29 +462,103 @@ function kdvOku(){
   });
   return sonuc;
 }
+function kasaPanelHtml(n){
+  return `
+    <div class="kasa-panel ${n===1?'sol aktif':'sag'}" id="kasaPanel${n}">
+      <div class="kp-bas"><span class="kp-ad">Kasa ${n}</span><span class="kp-drm bos" id="kpDrm${n}">○ Başlanmadı</span></div>
+      <label>Z No <b style="color:var(--hata)">*</b></label>
+      <input type="text" inputmode="numeric" id="gsZNo${n}" placeholder="Z raporundaki Z NO">
+      <div class="satir">
+        <div><label>Kart Toplamı</label><input type="number" step="0.01" inputmode="decimal" id="gsKart${n}" placeholder="0,00"></div>
+        <div><label>Nakit Toplamı</label><input type="number" step="0.01" inputmode="decimal" id="gsNakit${n}" placeholder="0,00"></div>
+      </div>
+      <div class="kp-ara"><span>Ara Toplam — Z'deki NET SATIŞ ile aynı olmalı</span><b id="gsAra${n}">0,00 ₺</b></div>
+      <label>Z Raporu Fotoğrafı <b style="color:var(--hata)">*</b></label>
+      <input type="file" id="gsZFoto${n}" accept="image/*" capture="environment">
+      <label>POS Slip Fotoğrafı <b style="color:var(--hata)">*</b></label>
+      <input type="file" id="gsSlipFoto${n}" accept="image/*" capture="environment">
+      <label>Kasa Notu (isteğe bağlı)</label><input type="text" id="gsKNot${n}">
+    </div>`;
+}
+function kasaSec(n){
+  [1,2].forEach(i=>{
+    const p=document.getElementById('kasaPanel'+i), b=document.getElementById('ksBtn'+i);
+    if(p) p.classList.toggle('aktif', i===n);
+    if(b) b.classList.toggle('aktif', i===n);
+  });
+}
+function kasaDurum(n){
+  const zno=(document.getElementById('gsZNo'+n)?.value||'').trim();
+  const kart=+(document.getElementById('gsKart'+n)?.value)||0;
+  const nakit=+(document.getElementById('gsNakit'+n)?.value)||0;
+  const zf=document.getElementById('gsZFoto'+n), sf=document.getElementById('gsSlipFoto'+n);
+  const zfVar=!!(zf&&zf.files&&zf.files[0]), sfVar=!!(sf&&sf.files&&sf.files[0]);
+  const eksik=[];
+  if(!zno) eksik.push('Z No');
+  if(!zfVar) eksik.push('Z fotoğrafı');
+  if(!sfVar) eksik.push('POS slip');
+  if(kart<0||nakit<0) eksik.push('negatif tutar');
+  const bos=!zno && !kart && !nakit && !zfVar && !sfVar;
+  return { zno, kart, nakit, ara:+(kart+nakit).toFixed(2), eksik, bos };
+}
+function kasaHesapla(){
+  let tk=0, tn=0; const eksikler=[];
+  [1,2].forEach(n=>{
+    const d=kasaDurum(n); tk+=d.kart; tn+=d.nakit;
+    const ara=document.getElementById('gsAra'+n); if(ara) ara.textContent=tl(d.ara);
+    const kt=document.getElementById('ksTut'+n); if(kt) kt.textContent=tl(d.ara);
+    const drm=document.getElementById('kpDrm'+n), ks=document.getElementById('ksDrm'+n);
+    let sinif, metin, sembol;
+    if(d.bos){ sinif='bos'; metin='○ Başlanmadı'; sembol='○'; }
+    else if(d.eksik.length===0){ sinif='tam'; metin='✓ Tamamlandı'; sembol='✓'; }
+    else { sinif='eksik'; metin='● '+d.eksik.length+' eksik: '+d.eksik.join(', '); sembol='●'; }
+    if(drm){ drm.className='kp-drm '+sinif; drm.textContent=metin; }
+    if(ks) ks.textContent=sembol;
+    d.eksik.forEach(e=>eksikler.push('KASA '+n+' — '+e));
+  });
+  const zDisi=+(document.getElementById('gsKasa')?.value)||0;
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('gsTKart', tl(tk)); set('gsTNakit', tl(tn)); set('gsTGenel', tl(+(tk+tn).toFixed(2))); set('gsZDisi', tl(zDisi));
+  const btn=document.getElementById('gsKaydet'), ek=document.getElementById('gsEksik');
+  const hazir = eksikler.length===0 && (tk+tn)>0;
+  if(btn){ btn.disabled=!hazir; btn.style.opacity=hazir?'1':'.5'; }
+  if(ek){
+    ek.style.color = hazir ? 'var(--ok)' : 'var(--uyari)';
+    ek.innerHTML = hazir ? '✓ Gün sonu kaydedilebilir'
+      : (eksikler.length ? 'Bekleyen: '+eksikler.map(esc).join(' · ') : 'Bekleyen: tutar girilmedi');
+  }
+}
 async function vGunSonu(){
   const el = document.getElementById('icerik');
   el.innerHTML = `
     <h2 class="bolum">Gün Sonu Girişi</h2>
     <div class="kart">
       ${tarihSecici('gsTarih')}
-      <div class="satir">
-        <div><label>Kart Toplam (Z'deki K.KARTI)</label><input type="number" step="0.01" inputmode="decimal" id="gsKart" placeholder="0,00"></div>
-        <div><label>Nakit (Z'deki NAKİT)</label><input type="number" step="0.01" inputmode="decimal" id="gsNakit" placeholder="0,00"></div>
+      <div class="bilgi-not" style="margin:0 0 8px">İki yazarkasa da girilir. Her kasa için <b>Z No + Z fotoğrafı + POS slip fotoğrafı zorunludur</b>.</div>
+      <div class="kasa-sekme" id="kasaSekme">
+        <button type="button" class="ks-btn aktif" id="ksBtn1" onclick="kasaSec(1)"><div class="ks-ad">KASA 1 <span id="ksDrm1">○</span></div><div class="ks-tut" id="ksTut1">0,00 ₺</div></button>
+        <button type="button" class="ks-btn" id="ksBtn2" onclick="kasaSec(2)"><div class="ks-ad">KASA 2 <span id="ksDrm2">○</span></div><div class="ks-tut" id="ksTut2">0,00 ₺</div></button>
       </div>
-      <label>Günün Toplamı (sistem toplar — Z'deki NET SATIŞ ile aynı olmalı)</label>
-      <input type="number" id="gsToplam" readonly tabindex="-1" style="background:var(--acik);font-weight:800;color:var(--ana)" placeholder="0,00">
+      <div class="kasa-grid">${kasaPanelHtml(1)}<div class="kasa-ayirici"></div>${kasaPanelHtml(2)}</div>
       <label>Kasadaki Para (günün nakiti — bırakılan bozukluk HARİÇ say)</label>
       <input type="number" step="0.01" inputmode="decimal" id="gsKasa" placeholder="0,00">
-      <label>Z No</label><input type="text" inputmode="numeric" id="gsZNo" placeholder="Z raporundaki Z NO">
-      <label>KDV (Z'deki VERGİ DÖKÜMÜ bölümünden)</label>
+      <label>KDV (Z'lerdeki VERGİ DÖKÜMÜ — iki kasanın toplamı)</label>
       <div class="bilgi-not" style="margin:0 0 8px">Z kağıdındaki <b>"%10 TOPLAM"</b> satırını ilk kutuya yaz — KDV'yi sistem hesaplar
         (Z'deki TOPKDV birkaç kuruş farklıysa Z'dekini yaz). ⚠️ "KÜM. TOPLAM" satırını KULLANMA.</div>
       <div id="kdvSatirlari"></div>
       <button class="btn2" onclick="kdvSatirEkle()">+ farklı oran ekle (Z'de %10 dışında satır varsa)</button>
-      <label>Z Raporu Fotoğrafı</label><input type="file" id="gsZFoto" accept="image/*" capture="environment">
-      <label>POS Gün Sonu Slip Fotoğrafı</label><input type="file" id="gsSlipFoto" accept="image/*" capture="environment">
-      <label>Not (isteğe bağlı)</label><textarea id="gsNot" rows="2"></textarea>
+      <label>Gün Notu (isteğe bağlı)</label><textarea id="gsNot" rows="2"></textarea>
+      <div class="gs-bant">
+        <div class="kalem"><div class="gs-et">Toplam Kart</div><div class="dg" id="gsTKart">0,00 ₺</div></div>
+        <div class="kalem"><div class="gs-et">Toplam Nakit</div><div class="dg" id="gsTNakit">0,00 ₺</div></div>
+        <div class="kalem buyuk"><div class="gs-et">Gün Sonu Toplamı</div><div class="dg" id="gsTGenel">0,00 ₺</div></div>
+      </div>
+      <div class="gs-zdisi">
+        <div class="gs-et">Z Dışı Kasa Nakdi</div>
+        <div style="font-size:15px;font-weight:700;font-variant-numeric:tabular-nums" id="gsZDisi">0,00 ₺</div>
+        <div class="bilgi-not" style="margin:4px 0 0">Z raporu toplamına dahil değildir.</div>
+      </div>
+      <div class="gs-eksik" id="gsEksik"></div>
       <button class="btn" id="gsKaydet" onclick="gunSonuKaydet()">Gün Sonunu Kaydet</button>
       <div class="hata-msg" id="gsMsg"></div>
       <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.':'Yanlış girersen 12 saat içinde aşağıdan silip yeniden girebilirsin.'}</div>
@@ -452,10 +567,12 @@ async function vGunSonu(){
   kdvSatirEkle(10, null, null, true);
   if (PROFIL.rol==='personel') personelSonKayit();
   else if (PROFIL.rol==='owner') gunSonuListe();
-  const gsTopla = () => { document.getElementById('gsToplam').value =
-    ((+document.getElementById('gsKart').value||0) + (+document.getElementById('gsNakit').value||0)).toFixed(2); };
-  document.getElementById('gsKart').addEventListener('input', gsTopla);
-  document.getElementById('gsNakit').addEventListener('input', gsTopla);
+  [1,2].forEach(n=>['gsZNo','gsKart','gsNakit','gsZFoto','gsSlipFoto'].forEach(p=>{
+    const e=document.getElementById(p+n);
+    if(e){ e.addEventListener('input', kasaHesapla); e.addEventListener('change', kasaHesapla); }
+  }));
+  const kk=document.getElementById('gsKasa'); if(kk) kk.addEventListener('input', kasaHesapla);
+  kasaHesapla();
 }
 function personelSonKayit(){
   const el = document.getElementById('gsSonKayit'); if(!el) return;
@@ -468,12 +585,28 @@ function personelSonKayit(){
     <button class="btn-kirmizi" style="width:100%;padding:11px" onclick="gunSil('${s.id}','${s.tarih}')">Bu Kaydı Sil & Yeniden Gir</button>
   </div>`;
 }
+async function fotoTemizle(yollar){
+  const kalan = [];
+  for (const y of yollar){
+    if (!y) continue;
+    try{ const { error } = await sb.storage.from('belgeler').remove([y]); if (error) kalan.push(y); }
+    catch(e){ kalan.push(y); }
+  }
+  return kalan;
+}
 async function gunSonuKaydet(){
-  const kart = +document.getElementById('gsKart').value||0;
-  const nakit = +document.getElementById('gsNakit').value||0;
+  const kasalar = [];
+  for (const n of [1,2]){
+    const d = kasaDurum(n);
+    if (d.eksik.length){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} eksik: ${d.eksik.join(', ')}`); return; }
+    kasalar.push({ n, zno:d.zno, kart:d.kart, nakit:d.nakit,
+      knot:(document.getElementById('gsKNot'+n)?.value||'').trim()||null });
+  }
+  const kart = +(kasalar.reduce((a,k)=>a+k.kart,0)).toFixed(2);
+  const nakit = +(kasalar.reduce((a,k)=>a+k.nakit,0)).toFixed(2);
   const toplam = +(kart + nakit).toFixed(2);
   const kdv = kdvOku();
-  if (toplam === 0){ mesaj('gsMsg','hata','Kart ve nakit boş — genel toplam 0 olamaz.'); return; }
+  if (toplam === 0){ mesaj('gsMsg','hata','İki kasanın toplamı 0 — kayıt yapılamaz.'); return; }
   if (kdv.length === 0 &&
       !confirm('KDV dökümü BOŞ. Z raporundaki VERGİ DÖKÜMÜ girilmedi — KDV tahmini bu gün için eksik kalır. Yine de kaydedilsin mi?')) return;
   // AKIL KONTROLLERİ (KÜM. TOPLAM tuzağı + KDV tutarlılığı)
@@ -490,30 +623,55 @@ async function gunSonuKaydet(){
   const kasa = +document.getElementById('gsKasa').value||0;
   if (kasa === 0 &&
       !confirm('Kasadaki Para girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
+  const ozet = kasalar.map(k=>`Kasa ${k.n} (Z ${k.zno}): ${tl(k.ara!==undefined?k.ara:k.kart+k.nakit)}`).join('\n');
+  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nZ dışı kasa nakdi: ${tl(kasa)} (toplama dahil değil)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
+
   const btn = document.getElementById('gsKaydet');
-  btn.disabled = true; btn.textContent = 'Fotoğraflar yükleniyor...';
-  let zFoto=null, slipFoto=null;
+  btn.disabled = true;
+  const yuklenen = [];
   try{
-    zFoto = await fotoYukle('gsZFoto','z');
-    slipFoto = await fotoYukle('gsSlipFoto','slip');
-  }catch(e){ mesaj('gsMsg','hata', e.message); btn.disabled=false; btn.textContent='Gün Sonunu Kaydet'; return; }
+    for (const k of kasalar){
+      btn.textContent = `Kasa ${k.n} fotoğrafları yükleniyor...`;
+      k.zf = await fotoYukle('gsZFoto'+k.n, 'z');   yuklenen.push(k.zf);
+      k.sf = await fotoYukle('gsSlipFoto'+k.n, 'slip'); yuklenen.push(k.sf);
+    }
+  }catch(e){
+    const kalan = await fotoTemizle(yuklenen);
+    if (kalan.length) console.warn('YETİM DOSYA (temizlenemedi):', kalan);
+    mesaj('gsMsg','hata', e.message + (kalan.length ? ` — ${kalan.length} dosya temizlenemedi (yönetici bilgilendirilmeli)` : ' — yüklenenler temizlendi'));
+    btn.disabled=false; btn.textContent='Gün Sonunu Kaydet'; return;
+  }
+  btn.textContent = 'Gün Sonunu Kaydet';
+  window.__sonRpcHataHam = '';
   const data = await rpcCagir('rpc_gun_sonu_kaydet', {
     p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: document.getElementById('gsTarih').value,
     p_kart: kart, p_nakit: nakit, p_toplam: toplam,
     p_iptal_adet: 0, p_iptal_tutar: 0,
-    p_z_no: document.getElementById('gsZNo').value.trim()||null,
-    p_kdv: kdv, p_z_foto: zFoto, p_slip_foto: slipFoto,
+    p_z_no: null, p_kdv: kdv, p_z_foto: null, p_slip_foto: null,
     p_not: document.getElementById('gsNot').value.trim()||null,
-    p_kasa: kasa > 0 ? kasa : null
+    p_kasa: kasa > 0 ? kasa : null,
+    p_kasalar: kasalar.map(k=>({ kasa_no:k.n, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
+      z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot }))
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
   if (data && data.ok){
     try{ localStorage.setItem('sonGunSonu', JSON.stringify({ id:data.gun_sonu_id, tarih:document.getElementById('gsTarih').value, zaman:Date.now() })); }catch(e){}
-    vGunSonu(); mesaj('gsMsg','ok','Gün sonu kaydedildi ✓');
+    vGunSonu(); mesaj('gsMsg','ok','Gün sonu kaydedildi ✓ (2 kasa)');
+  } else {
+    // Ağ belirsizse kayıt gitmiş OLABİLİR -> fotoğrafları SİLME. Kesin hatada temizle.
+    const belirsiz = /Failed to fetch|NetworkError|timeout|bağlantı/i.test(window.__sonRpcHataHam||'');
+    if (belirsiz){
+      console.warn('BELİRSİZ SONUÇ — fotoğraflar korundu:', yuklenen);
+      mesaj('gsMsg','hata','Bağlantı belirsiz — kayıt gitmiş olabilir. Fotoğraflar silinmedi. Tekrar denemeden önce listeyi kontrol edin.');
+    } else {
+      const kalan = await fotoTemizle(yuklenen);
+      if (kalan.length) console.warn('YETİM DOSYA (temizlenemedi):', kalan);
+    }
   }
 }
 async function gunSonuListe(){
-  const { data } = await sb.from('gun_sonu').select('*').eq('is_deleted',false)
-    .order('tarih',{ascending:false}).limit(14);
+  const { data } = await sb.from('gun_sonu')
+    .select('*, gun_sonu_kasa(kasa_no,z_no,kart_toplam,nakit_toplam,toplam,is_deleted)')
+    .eq('is_deleted',false).order('tarih',{ascending:false}).limit(14);
   const gunler = data||[];
   // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
   const kasadanMap = {};
@@ -535,7 +693,11 @@ async function gunSonuListe(){
       return `
       <div class="liste-satir">
         <div class="l-sol"><div class="b">${new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')} ${g.kilitli?'🔒':'🔓'}</div>
-          <div class="k">Kart ${tl(g.kart_toplam)} · Z nakit ${tl(g.nakit_toplam)} · Z:${esc(g.z_no||'—')}
+          <div class="k">Kart ${tl(g.kart_toplam)} · Z nakit ${tl(g.nakit_toplam)}${(()=>{
+            const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
+            return ks.length ? '<br>'+ks.map(k=>`<b>K${k.kasa_no}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; ')
+                             : ' · Z:'+esc(g.z_no||'—');
+          })()}
           ${gercek!==null?`<br>Gerçek: <b>${tl(gercek)}</b> · Z-dışı nakit: <b>${fark>=0?'+':''}${tl(fark)}</b>${kasadan>0?' · kasadan ödenen: '+tl(kasadan):''}`:''}
           ${g.notlar?'<br>'+esc(g.notlar):''}</div></div>
         <div class="l-sag">${tl(g.toplam)}<br>
@@ -1489,14 +1651,22 @@ async function arsivPdf(){
   try{
     const bas = ayS + '-01', son = ayS + '-31';
     const [gs, al, gd] = await Promise.all([
-      sb.from('gun_sonu').select('tarih,z_no,z_foto_path,pos_slip_foto_path').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih'),
+      sb.from('gun_sonu').select('tarih,z_no,z_foto_path,pos_slip_foto_path,gun_sonu_kasa(kasa_no,z_no,z_foto_path,pos_slip_foto_path,is_deleted)').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih'),
       sb.from('alis').select('tarih,toplam,foto_path,tedarikci(ad)').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih'),
       sb.from('gider').select('tarih,tutar,foto_path,gider_kategori(ad)').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih')
     ]);
     const ogeler = [];
     for (const g of (gs.data||[])){
-      if (g.z_foto_path) ogeler.push({ b:`Z RAPORU — ${g.tarih}${g.z_no?' — Z No: '+g.z_no:''}`, p:g.z_foto_path });
-      if (g.pos_slip_foto_path) ogeler.push({ b:`POS SLIP — ${g.tarih}`, p:g.pos_slip_foto_path });
+      const ks = (g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
+      if (ks.length){
+        for (const k of ks){
+          if (k.z_foto_path) ogeler.push({ b:`Z RAPORU — ${g.tarih} — KASA ${k.kasa_no}${k.z_no?' — Z No: '+k.z_no:''}`, p:k.z_foto_path });
+          if (k.pos_slip_foto_path) ogeler.push({ b:`POS SLIP — ${g.tarih} — KASA ${k.kasa_no}`, p:k.pos_slip_foto_path });
+        }
+      } else { // eski tek kasalı kayıtlar
+        if (g.z_foto_path) ogeler.push({ b:`Z RAPORU — ${g.tarih}${g.z_no?' — Z No: '+g.z_no:''}`, p:g.z_foto_path });
+        if (g.pos_slip_foto_path) ogeler.push({ b:`POS SLIP — ${g.tarih}`, p:g.pos_slip_foto_path });
+      }
     }
     for (const a of (al.data||[])) if (a.foto_path)
       ogeler.push({ b:`ALIS — ${a.tarih} — ${a.tedarikci?.ad||''} — ${tl(a.toplam)}`, p:a.foto_path });
