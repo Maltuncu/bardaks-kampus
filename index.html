@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-1">
+<meta name="surum" content="2026-07-28-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1717,17 +1717,68 @@ async function alisKaydet(){
   },'alKaydet','alMsg','Fatura kaydedildi ✓');
   if (data && data.ok) vGider();
 }
+let AL_AY = null;
+function alAyDegisti(){ AL_AY = document.getElementById('alListeAy').value; alisListe(); }
 async function alisListe(){
-  const { data } = await sb.from('alis').select('*, tedarikci(ad)').eq('is_deleted',false)
-    .order('tarih',{ascending:false}).limit(30);
   const el = document.getElementById('gdListe'); if(!el) return;
-  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Faturalar${PROFIL.rol==='personel'?' (son 7 gün)':''}</div>
-    ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(a=>`
-      <div class="liste-satir">
-        <div class="l-sol"><div class="b">${esc(a.tedarikci?.ad||'—')}</div>
-          <div class="k">${new Date(a.tarih+'T00:00').toLocaleDateString('tr-TR')} · ${esc(a.tur)} · Belge:${esc(a.belge_no||'—')} Fiş:${esc(a.fis_no||'—')}</div></div>
+  const ay  = AL_AY || bugun().slice(0,7);
+  const bas = ay + '-01';
+  const sonGun = new Date(+ay.slice(0,4), +ay.slice(5,7), 0).getDate();
+  const son = ay + '-' + String(sonGun).padStart(2,'0');
+  // AY BAZLI: limit yok — ayın tamamı gelir
+  const { data, error } = await sb.from('alis')
+    .select('*, tedarikci(ad), alis_kdv(oran,matrah,kdv_tutar,is_deleted)')
+    .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
+    .order('tarih',{ascending:false});
+  const fat = data||[];
+  const kdvOf = a => (a.alis_kdv||[]).filter(x=>!x.is_deleted).reduce((s,x)=>s+ +x.kdv_tutar,0) || +a.kdv_tutar || 0;
+
+  // bilgi_fisi = bedelsiz mal gelisi: borc/gider yaratmaz, toplamlara katilmaz
+  const mali  = fat.filter(a=>a.tur !== 'bilgi_fisi');
+  const tTop  = mali.reduce((s,a)=>s+ +a.toplam,0);
+  const tKdv  = mali.reduce((s,a)=>s+ kdvOf(a),0);
+  const acik  = mali.filter(a=>!a.odendi);
+  const tAcik = acik.reduce((s,a)=>s+ +a.toplam,0);
+  const bugunS = bugun();
+  const gecmis = acik.filter(a=>a.vade_tarihi && a.vade_tarihi < bugunS);
+  const belgesiz = fat.filter(a=>!a.foto_path);
+  const kdvsiz = mali.filter(a=>a.tur==='fatura' && kdvOf(a)===0);
+  const ayAdi = new Date(bas+'T00:00').toLocaleDateString('tr-TR',{month:'long',year:'numeric'});
+
+  el.innerHTML = `<div class="kart">
+    <div class="kbaslik">Faturalar${PROFIL.rol==='personel'?' (son 7 gün)':''}</div>
+    ${PROFIL.rol==='owner' ? `<label>Ay</label>
+      <input type="month" id="alListeAy" value="${ay}" onchange="alAyDegisti()">` : ''}
+    ${error?`<div class="bilgi-not" style="color:var(--hata)">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`:''}
+    <div class="gs-bant" style="margin:12px 0">
+      <div class="kalem buyuk"><div class="gs-et">${esc(ayAdi)} alış toplamı</div><div class="dg">${tl(tTop)}</div></div>
+      <div class="kalem"><div class="gs-et">İndirilecek KDV</div><div class="dg">${tl(tKdv)}</div></div>
+      <div class="kalem"><div class="gs-et">Ödenmemiş</div><div class="dg">${tl(tAcik)}</div></div>
+    </div>
+    <div class="bilgi-not" style="margin:0 0 10px">
+      <b>${mali.length}</b> fatura${fat.length>mali.length?` · ${fat.length-mali.length} bedelsiz mal gelişi (tutara katılmaz)`:''}
+      ${acik.length?` · ${acik.length} tanesi ödenmedi`:''}
+      ${gecmis.length?`<br><span style="color:var(--hata)">⚠ Vadesi geçmiş ${gecmis.length} fatura: ${tl(gecmis.reduce((s,a)=>s+ +a.toplam,0))}</span>`:''}
+      ${kdvsiz.length?`<br><span style="color:var(--uyari)">⚠ ${kdvsiz.length} faturada KDV dökümü yok — indirilecek KDV eksik kalır</span>`:''}
+      ${belgesiz.length?`<br><span style="color:var(--uyari)">⚠ ${belgesiz.length} belgenin fotoğrafı yok — ay sonu arşivinde eksik olur</span>`:''}
+    </div>
+    ${fat.length===0?'<div class="bilgi-not">Bu ayda fatura yok.</div>':fat.map(a=>{
+      const t = new Date(a.tarih+'T00:00').toLocaleDateString('tr-TR');
+      const k = kdvOf(a);
+      const kir = (a.alis_kdv||[]).filter(x=>!x.is_deleted).sort((x,y)=>x.oran-y.oran);
+      const vadeGecti = !a.odendi && a.vade_tarihi && a.vade_tarihi < bugunS;
+      return `<div class="liste-satir">
+        <div class="l-sol"><div class="b">${t} · ${esc(a.tedarikci?.ad||'—')}</div>
+          <div class="k">
+            ${a.tur!=='fatura'?esc(a.tur==='bilgi_fisi'?'bedelsiz mal gelişi':a.tur)+' · ':''}Belge: ${esc(a.belge_no||'—')}
+            ${k>0?`<br>KDV: <b>${tl(k)}</b>${kir.length>1?' ('+kir.map(x=>'%'+x.oran+' '+tl(x.kdv_tutar)).join(' + ')+')':''}`
+                 :(a.tur==='fatura'?'<br><span style="color:var(--uyari)">⚠ KDV dökümü yok</span>':'')}
+            <br>${a.odendi?'<span style="color:var(--ok)">✓ Ödendi</span>'
+                 :`<span style="color:${vadeGecti?'var(--hata)':'var(--uyari)'}">${vadeGecti?'⚠ VADESİ GEÇTİ':'Ödenmedi'}${a.vade_tarihi?' · vade '+new Date(a.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}</span>`}
+            <div style="margin-top:6px">${belgeBtn(a.foto_path,'Belge',`${t} — ${a.tedarikci?.ad||''} ${a.belge_no||''}`)}</div>
+          </div></div>
         <div class="l-sag">${tl(a.toplam)}</div>
-      </div>`).join('')}</div>`;
+      </div>`;}).join('')}</div>`;
 }
 
 /* ================== STOK ================== */
@@ -1817,7 +1868,13 @@ async function vTedarikci(){
         <div class="liste-satir">
           <div class="l-sol"><div class="b">${esc(t.ad)}</div>
             <div class="k">${t.yetkili_ad?'Sorumlu: '+esc(t.yetkili_ad):''}${t.telefon?' · '+esc(t.telefon):''}</div>
-            ${owner && bakiyeMap[t.id] !== undefined ? `<div class="k" style="color:${bakiyeMap[t.id]>0?'var(--hata)':'var(--ok)'};font-weight:800">Borç: ${tl(bakiyeMap[t.id])}</div>` : ''}</div>
+            ${owner && bakiyeMap[t.id] !== undefined ? (()=>{
+              // Negatif bakiye = pesin odenmis, mal tedarikcide bekliyor -> BORC degil ALACAK
+              const b = +bakiyeMap[t.id];
+              if (b > 0)  return `<div class="k" style="color:var(--hata);font-weight:800">Borç: ${tl(b)}</div>`;
+              if (b < 0)  return `<div class="k" style="color:var(--ok);font-weight:800">İçeride alacağın: ${tl(-b)}</div>`;
+              return `<div class="k" style="color:var(--soluk);font-weight:800">Bakiye kapalı</div>`;
+            })() : ''}</div>
           <div class="l-sag">
             ${t.telefon?`<a href="tel:${esc(t.telefon)}" class="btn2" style="text-decoration:none;display:inline-block">📞 ARA</a>`:''}
             <button class="btn2" style="margin-left:4px" onclick="tedarikciDuzenle('${t.id}')">Düzenle</button>
