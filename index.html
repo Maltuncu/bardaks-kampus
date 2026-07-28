@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
+     eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
+<meta name="surum" content="2026-07-28-1">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -54,6 +59,12 @@
 .oku-durum.ok{color:var(--ok)}
 .oku-durum.uyari{color:var(--uyari)}
 .oku-dolu{background:#F2F8F4!important;border-color:var(--ok)!important}
+/* ===== Sürüm uyarı çubuğu ===== */
+#surumBar{position:fixed;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;
+  justify-content:space-between;gap:12px;padding:12px 14px;background:var(--uyari);color:#fff;
+  font-size:13px;font-weight:700;line-height:1.4;box-shadow:0 -3px 14px rgba(0,0,0,.18)}
+#surumBar button{flex:none;background:#fff;color:var(--uyari);border:none;border-radius:8px;
+  padding:9px 16px;font-size:13px;font-weight:900;cursor:pointer}
 /* ===== Çoklu Z raporu (cihaz arızasında aynı kasa 2+ Z basar) ===== */
 .z-blok + .z-blok{margin-top:16px;padding-top:16px;border-top:2px dashed var(--cizgi)}
 .zb-bas{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 8px}
@@ -233,6 +244,8 @@ async function sifremiUnuttum(){
 sb.auth.onAuthStateChange((event)=>{ if (event === 'PASSWORD_RECOVERY') setTimeout(sifreDegistir, 400); });
 
 async function baslat(){
+  surumKontrol();                                    // arka planda, açılışı bekletmez
+  setInterval(surumKontrol, 30*60*1000);             // uzun açık kalan telefon için 30 dk'da bir
   const { data:{ session } } = await sb.auth.getSession();
   if (!session){ document.getElementById('girisEkran').classList.remove('gizli'); return; }
   const { data: p, error } = await sb.from('profil').select('*').eq('id', session.user.id).single();
@@ -456,6 +469,36 @@ async function vOzet(){
       <div class="liste-satir"><div>Fiş iptalleri</div><div class="l-sag">${tl(o.iptal_tutar)}</div></div>
       <div class="liste-satir"><div style="font-weight:800">BRÜT KÂR TAHMİNİ</div><div class="l-sag" style="color:var(--ana)">${tl(o.brut_kar_tahmini)}</div></div>
     </div>`:''}`;
+}
+
+/* ===== SÜRÜM KONTROLÜ — telefon eski sürümde kalmasın =====
+   GitHub Pages 10 dk önbellek veriyor; ana ekrana eklenmiş uygulamada
+   çok daha uzun kalabiliyor. Personel eski kurallarla çalışmasın diye
+   uygulama sunucudaki sürümü sorup fark varsa uyarır. */
+const SURUM = (document.querySelector('meta[name="surum"]')?.content || '?');
+async function surumKontrol(){
+  try{
+    // Yalnız dosyanın başını çek (sürüm etiketi ilk 3000 baytta)
+    const y = await fetch(location.pathname + '?s=' + Date.now(), {
+      cache: 'no-store', headers: { 'Range': 'bytes=0-3000' }
+    });
+    if (!y.ok && y.status !== 206) return;
+    const t = await y.text();
+    const m = t.match(/name="surum"\s+content="([^"]+)"/);
+    if (m && m[1] !== SURUM) surumUyari(m[1]);
+  }catch(e){ /* ağ yoksa sessiz kal — çalışmayı engelleme */ }
+}
+function surumUyari(yeni){
+  if (document.getElementById('surumBar')) return;
+  const d = document.createElement('div');
+  d.id = 'surumBar';
+  d.innerHTML = `<span>Yeni sürüm var (${esc(yeni)}). Eski sürümde yanlış kayıt yapabilirsin.</span>
+    <button onclick="surumYenile()">YENİLE</button>`;
+  document.body.appendChild(d);
+}
+function surumYenile(){
+  // Sorgu ekleyerek önbelleği atla — ana ekrana eklenmiş uygulamada da çalışır
+  location.replace(location.pathname + '?v=' + Date.now());
 }
 
 /* ================== GÜN SONU ==================
