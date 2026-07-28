@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-9">
+<meta name="surum" content="2026-07-28-11">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1871,32 +1871,39 @@ function alSatirDenetim(){
 }
 let AL_SATIR_TUTUYOR = true;
 /* Yeni ürünleri oluştur, eşleşmeyi hafızaya yaz, kalem listesini döndür */
+let YENI_URUN_UYARI = [];   // personelin açtığı, yöneticinin gözden geçireceği ürünler
 async function alSatirKaydet(tedarikciId){
+  YENI_URUN_UYARI = [];
   const kalan = AL_SATIRLAR.filter(s=>s.karar!=='atla');
   if (!kalan.length || !AL_SATIR_TUTUYOR) return [];
   const kalemler = [];
   for (const s of kalan){
     let urunId = s.urun_id;
     let carpan = s.carpan;
+    let ad = null, birim = 'adet';
     if (s.karar === 'yeni'){
-      const ad = (document.getElementById('fsAd_'+s.i)?.value||s.ham_ad).trim();
-      const birim = document.getElementById('fsBirim_'+s.i)?.value || 'adet';
+      ad = (document.getElementById('fsAd_'+s.i)?.value||s.ham_ad).trim();
+      birim = document.getElementById('fsBirim_'+s.i)?.value || 'adet';
       const pk = paraOku(document.getElementById('fsPaket_'+s.i));
       carpan = pk.deger > 0 ? pk.deger : 1;
       if (!ad) throw new Error('Yeni ürünün adı boş olamaz.');
-      const { data:u, error:ue } = await sb.from('urun')
-        .insert({ ad, birim, paket_ici_adet: carpan>1?carpan:null }).select('id,ad,kod').single();
-      if (ue) throw new Error('Ürün oluşturulamadı: ' + hataTr(ue.message));
-      urunId = u.id;
-      KATALOG.urunler.push(u);                       // listeye hemen gelsin
     }
-    // Eşleşmeyi hafızaya yaz — bir dahaki faturada otomatik tanınsın
-    if (tedarikciId && urunId){
-      const { error: ae } = await sb.from('urun_alias').upsert({
-        tedarikci_id: tedarikciId, tedarikci_kodu: s.ham_kod, ham_ad: s.ham_ad,
-        urun_id: urunId, birim_carpani: carpan, birim_ad: s.birim, son_gorulme: bugun()
-      }, { onConflict: s.ham_kod ? 'tedarikci_id,tedarikci_kodu' : undefined, ignoreDuplicates: true });
-      if (ae) console.warn('Eşleşme kaydedilemedi (kayıt yine de sürüyor):', ae.message);
+    // Ürün + eşleşme TEK fonksiyonda. Personel tabloya doğrudan yazamaz (RLS),
+    // bu fonksiyon üzerinden tanımlayabilir; açtığı ürün yöneticinin onayına düşer.
+    const { data:r, error:re } = await sb.rpc('rpc_urun_tanimla', {
+      p_ad: ad, p_birim: birim,
+      p_paket_ici: carpan > 1 ? carpan : null,
+      p_kategori: null,
+      p_tedarikci: tedarikciId || null,
+      p_ham_kod: s.ham_kod, p_ham_ad: s.ham_ad,
+      p_carpan: carpan, p_birim_ad: s.birim,
+      p_urun_id: s.karar === 'yeni' ? null : urunId
+    });
+    if (re) throw new Error('Ürün tanımlanamadı: ' + hataTr(re.message));
+    urunId = r.urun_id;
+    if (s.karar === 'yeni' && r.yeni){
+      KATALOG.urunler.push({ id:r.urun_id, ad, birim, kod:r.kod, paket_ici_adet: carpan>1?carpan:null });
+      YENI_URUN_UYARI.push(`${r.kod} ${ad}`);
     }
     kalemler.push({ urun_id:urunId, miktar:s.miktar, birim_fiyat:s.birim_fiyat,
       ham_ad:s.ham_ad, ham_kod:s.ham_kod, birim_ad:s.birim, birim_carpani:carpan,
@@ -2017,7 +2024,12 @@ async function alisKaydet(){
     p_cek_no: (document.getElementById('alOdendi').value==='1' && document.getElementById('alYontem').value==='cek') ? (document.getElementById('alCekNo').value.trim()||null) : null,
     p_cek_vade: (document.getElementById('alOdendi').value==='1' && document.getElementById('alYontem').value==='cek') ? (document.getElementById('alCekVade').value||null) : null
   },'alKaydet','alMsg','Fatura kaydedildi ✓');
-  if (data && data.ok) vGider();
+  if (data && data.ok){
+    const yeni = YENI_URUN_UYARI.slice();
+    vGider();
+    if (yeni.length) mesaj('alMsg','ok',
+      `Fatura kaydedildi ✓ · ${yeni.length} yeni ürün stok kartı açıldı: ${yeni.join(', ')}`);
+  }
 }
 let AL_AY = null;
 function alAyDegisti(){ AL_AY = document.getElementById('alListeAy').value; alisListe(); }
@@ -2080,7 +2092,7 @@ async function alisListe(){
             <div style="margin-top:6px">${belgeBtn(a.foto_path,'Belge',`${t} — ${a.tedarikci?.ad||''} ${a.belge_no||''}`)}</div>
           </div></div>
         <div class="l-sag">${tl(a.toplam)}
-          ${PROFIL.rol==='owner'?`<br><button class="btn2" style="margin-top:4px" onclick="alisDuzenle('${a.id}')">Düzenle</button>`:''}
+          <br><button class="btn2" style="margin-top:4px" onclick="alisDuzenle('${a.id}')">Düzenle</button>
         </div>
       </div>`;}).join('')}</div>`;
 }
@@ -2088,8 +2100,8 @@ async function alisListe(){
 /* ================== STOK ================== */
 async function vStok(){
   const el = document.getElementById('icerik');
-  const { data: stok } = await sb.from('v_stok_durum').select('*').order('ad');
   const owner = PROFIL.rol === 'owner';
+  const { data: stok } = await sb.from('v_stok_durum').select('*').order('ad');
   const toplamDeger = (stok||[]).reduce((a,s)=>a + (+s.stok_degeri||0), 0);
   el.innerHTML = `
     <h2 class="bolum">Stok Durumu</h2>
@@ -2963,19 +2975,24 @@ async function urunEkle(){
   if (!ad){ mesaj('ynUrunMsg','hata','Ürün adı boş.'); return; }
   const pp = paraOku(g('ynUrunPaket')), pk = paraOku(g('ynUrunKritik'));
   if (!pp.ok || !pk.ok){ mesaj('ynUrunMsg','hata','Geçersiz sayı — örnek: 80 veya 2,5'); return; }
-  // Aynı isimde ürün varsa uyar (katalog çöplüğe dönmesin)
+  // Aynı isimde ürün varsa uyar (katalog çöplüğe dönmesin — sunucu tarafı da ayrıca engelliyor)
   const varOlan = (KATALOG.urunler||[]).find(u => (u.ad||'').toLowerCase().trim() === ad.toLowerCase());
-  if (varOlan && !confirm(`"${varOlan.ad}" adında bir ürün zaten var (kod ${varOlan.kod||'—'}).\n\nYine de ikincisi eklensin mi?`)) return;
+  if (varOlan){ mesaj('ynUrunMsg','hata',`"${varOlan.ad}" zaten var (kod ${varOlan.kod||'—'}). Aynı ürünü ikinci kez açma.`); return; }
   const btn = g('ynUrunBtn'); btn.disabled = true;
-  const { data, error } = await sb.from('urun').insert({
-    ad, birim: g('ynUrunBirim').value,
-    paket_ici_adet: pp.deger > 0 ? pp.deger : null,
-    kategori: g('ynUrunKategori').value.trim() || null,
-    kritik_seviye: pk.deger || 0
-  }).select('id,ad,kod').single();
+  const { data, error } = await sb.rpc('rpc_urun_tanimla', {
+    p_ad: ad, p_birim: g('ynUrunBirim').value,
+    p_paket_ici: pp.deger > 0 ? pp.deger : null,
+    p_kategori: g('ynUrunKategori').value.trim() || null,
+    p_tedarikci: null, p_ham_kod: null, p_ham_ad: null,
+    p_carpan: pp.deger > 0 ? pp.deger : 1, p_birim_ad: null, p_urun_id: null
+  });
+  // Kritik seviye ayrı: fonksiyon 0 ile açar, owner burada belirliyor
+  if (!error && data?.urun_id && pk.deger > 0)
+    await sb.from('urun').update({ kritik_seviye: pk.deger }).eq('id', data.urun_id);
   btn.disabled = false;
   if (error){ mesaj('ynUrunMsg','hata', hataTr(error.message)); return; }
-  mesaj('ynUrunMsg','ok', `Ürün eklendi ✓  stok kodu: ${data?.kod || '—'}`);
+  mesaj('ynUrunMsg','ok', data?.yeni ? `Ürün eklendi ✓  stok kodu: ${data.kod}`
+                                     : `Bu ürün zaten kayıtlı (kod ${data?.kod || '—'}).`);
   ['ynUrunAd','ynUrunKategori','ynUrunPaket','ynUrunKritik'].forEach(i=>{ const e=g(i); if(e) e.value=''; });
   await katalogYukle();
 }
