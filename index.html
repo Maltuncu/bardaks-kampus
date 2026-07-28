@@ -54,6 +54,12 @@
 .oku-durum.ok{color:var(--ok)}
 .oku-durum.uyari{color:var(--uyari)}
 .oku-dolu{background:#F2F8F4!important;border-color:var(--ok)!important}
+/* ===== Çoklu Z raporu (cihaz arızasında aynı kasa 2+ Z basar) ===== */
+.z-blok + .z-blok{margin-top:16px;padding-top:16px;border-top:2px dashed var(--cizgi)}
+.zb-bas{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 8px}
+.zb-ad{font-size:11px;font-weight:800;letter-spacing:.6px;color:var(--ana)}
+.zb-sil{background:none;border:none;padding:0;font-size:11px;font-weight:700;color:var(--hata);cursor:pointer}
+.z-ekle{width:100%;margin-top:12px}
 /* ===== Belge görüntüleyici ===== */
 .bo-btn{display:inline-block;border:1px solid var(--cizgi);background:var(--kart);color:var(--ana);
   font:inherit;font-size:11px;font-weight:700;padding:5px 9px;margin:3px 4px 0 0;cursor:pointer;white-space:nowrap}
@@ -376,7 +382,10 @@ function hataTr(m){
   if (m.includes('KASA_TIP_HATASI')) return 'Kasa verisi biçimi hatalı — sayfayı yenileyip tekrar deneyin.';
   if (m.includes('KASA_Z_NO_ZORUNLU')) return 'Her kasa için Z No zorunludur.';
   if (m.includes('KASA_Z_FOTO_ZORUNLU')) return 'Her kasa için Z raporu fotoğrafı zorunludur.';
-  if (m.includes('KASA_SLIP_FOTO_ZORUNLU')) return 'Her kasa için POS slip fotoğrafı zorunludur.';
+  if (m.includes('KASA_SLIP_FOTO_ZORUNLU')) return 'POS slip fotoğrafı zorunlu değil — sayfayı yenileyin.';
+  if (m.includes('KASA_SIRA_TEKRAR'))       return 'Aynı kasada aynı Z sırası iki kez gönderildi.';
+  if (m.includes('KASA_SIRA_HATASI'))       return 'Geçersiz Z sırası (1-9 arası olmalı).';
+  if (m.includes('KASA_EKSIK'))             return 'Her iki kasadan da en az bir Z raporu girilmelidir.';
   if (m.includes('KASA_NEGATIF_TUTAR')) return 'Kasa tutarları negatif olamaz.';
   if (m.includes('TOPLAM_SIFIR')) return 'Toplam 0 olamaz — kart/nakit girin.';
   if (m.includes('KDV_TUTARSIZ')) return 'KDV dökümü günün cirosuyla tutarsız — "KÜM. TOPLAM" satırını girmiş olabilirsiniz.';
@@ -444,12 +453,18 @@ async function vOzet(){
     </div>`:''}`;
 }
 
-/* ================== GÜN SONU ================== */
+/* ================== GÜN SONU ==================
+   Bir kasa aynı gün BİRDEN FAZLA Z basabilir (cihaz arızası).
+   Her Z = kendi bloğu: kendi Z No'su, tutarı, KDV'si, fotoğrafı.
+   Blok anahtarı: "kasa_sıra" → 1_1, 1_2, 2_1 ...                          */
+let ZLISTE = { 1:[1], 2:[1] };                     // her kasada hangi Z sıraları açık
+function zAnahtarlar(){ return [1,2].flatMap(n => ZLISTE[n].map(s => ({ n, s, k:n+'_'+s }))); }
+
 let KDV_SAYAC = 0;
-function kdvSatirEkle(kasaNo, oran, satis, kdv, sabit){
+function kdvSatirEkle(k, oran, satis, kdv, sabit){
   KDV_SAYAC++;
   const n = KDV_SAYAC;
-  const kap = document.getElementById('kdvSatirlari'+kasaNo);
+  const kap = document.getElementById('kdvSatirlari_'+k);
   if(!kap) return;
   const div = document.createElement('div');
   div.className='kdv-satir'; div.id='kdvS_'+n;
@@ -480,9 +495,9 @@ function kdvSatirEkle(kasaNo, oran, satis, kdv, sabit){
   const oranEl = document.getElementById('kdvO_'+n);
   if (oranEl.tagName === 'SELECT') oranEl.addEventListener('change', hesapla);
 }
-function kdvOku(kasaNo){
+function kdvOku(k){
   const sonuc = [];
-  document.querySelectorAll('#kdvSatirlari'+kasaNo+' .kdv-satir').forEach(d=>{
+  document.querySelectorAll('#kdvSatirlari_'+k+' .kdv-satir').forEach(d=>{
     const n = d.id.split('_')[1];
     const o = document.getElementById('kdvO_'+n).value;
     const tEl = document.getElementById('kdvT_'+n), vEl = document.getElementById('kdvV_'+n);
@@ -531,6 +546,10 @@ function belgeBtn(yol, etiket, baslik){
   if(!yol) return `<span class="bo-btn yok">${etiket} yok</span>`;
   return `<button type="button" class="bo-btn" onclick="belgeAc('${yol}','${(baslik||'').replace(/'/g,'')}')">${etiket}</button>`;
 }
+// POS slip artık toplanmıyor: yoksa hiç gösterme (eski kayıtlarda varsa açılabilir kalsın)
+function slipBtn(yol, etiket, baslik){ return yol ? belgeBtn(yol, etiket, baslik) : ''; }
+// Bir kasadan o gün birden fazla Z var mı (etikette sıra gösterilsin mi)
+function zCok(satirlar, kasaNo){ return satirlar.filter(x=>x.kasa_no===kasaNo).length > 1; }
 /* ===== PARA GİRİŞ KATMANI — virgül/nokta güvenli, sessiz sıfır YOK ===== */
 function paraTemizle(el){
   if(!el) return;
@@ -562,14 +581,14 @@ function paraBagla(el, sonra){
   el.addEventListener('blur', f);
 }
 /* ===== Z RAPORU OKUMA — sistem doldurur, PERSONEL DOĞRULAR ===== */
-async function zRaporuOku(n){
-  const inp = document.getElementById('gsZFoto'+n);
-  const drm = document.getElementById('gsOkuDurum'+n);
-  const btn = document.getElementById('gsOku'+n);
+async function zRaporuOku(k){
+  const inp = document.getElementById('gsZFoto_'+k);
+  const drm = document.getElementById('gsOkuDurum_'+k);
+  const btn = document.getElementById('gsOku_'+k);
   const yaz = (t, sinif) => { if(drm){ drm.className = 'oku-durum '+(sinif||''); drm.textContent = t; } };
 
   const dosyaVar = !!(inp && inp.files && inp.files[0]);
-  const mevcutYol = (DUZENLE && DUZENLE.foto[n] && DUZENLE.foto[n].z) || null;
+  const mevcutYol = (DUZENLE && DUZENLE.foto[k] && DUZENLE.foto[k].z) || null;
   if (!dosyaVar && !mevcutYol){ yaz('Önce Z raporu fotoğrafını seç.', 'uyari'); return; }
 
   btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
@@ -608,15 +627,15 @@ async function zRaporuOku(n){
       e.dispatchEvent(new Event('input', { bubbles:true }));
       e.classList.add('oku-dolu'); dolduruldu.push(etiket);
     };
-    koy('gsZNo'+n,   v.z_no,          'Z No');
-    koy('gsKart'+n,  v.kart_toplam,   'Kart');
-    koy('gsNakit'+n, v.nakit_toplam,  'Nakit');
+    koy('gsZNo_'+k,   v.z_no,          'Z No');
+    koy('gsKart_'+k,  v.kart_toplam,   'Kart');
+    koy('gsNakit_'+k, v.nakit_toplam,  'Nakit');
 
     // KDV satırları: fişteki TOPKDV esas (sistem hesabı ezilmez)
-    const kap = document.getElementById('kdvSatirlari'+n);
+    const kap = document.getElementById('kdvSatirlari_'+k);
     if (kap && Array.isArray(v.kdv) && v.kdv.length){
       kap.innerHTML = '';
-      v.kdv.forEach(x => kdvSatirEkle(n, x.oran, x.satis_toplam, x.kdv_tutar, false));
+      v.kdv.forEach(x => kdvSatirEkle(k, x.oran, x.satis_toplam, x.kdv_tutar, false));
       dolduruldu.push('KDV');
     }
     kasaHesapla();
@@ -640,35 +659,42 @@ function duzenlemeIptal(){
 }
 async function gunSonuDuzenle(id){
   const { data, error } = await sb.from('gun_sonu')
-    .select('*, gun_sonu_kasa(kasa_no,z_no,kart_toplam,nakit_toplam,z_foto_path,pos_slip_foto_path,notlar,is_deleted), gun_sonu_kdv(kasa_no,oran,satis_toplam,kdv_tutar,is_deleted)')
+    .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,z_foto_path,pos_slip_foto_path,notlar,is_deleted), gun_sonu_kdv(kasa_no,sira,oran,satis_toplam,kdv_tutar,is_deleted)')
     .eq('id', id).maybeSingle();
   if (error || !data){ alert('Kayıt yüklenemedi: ' + hataTr(error?.message || 'bulunamadı')); return; }
+  const ks = (data.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
+  const kd = (data.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
+  // Kayıtta bir kasadan kaç Z varsa o kadar blok aç
+  const zl = {};
+  [1,2].forEach(n=>{
+    const sr = ks.filter(x=>x.kasa_no===n).map(x=>x.sira||1).sort((a,b)=>a-b);
+    zl[n] = sr.length ? sr : [1];
+  });
   DUZENLE = null;
-  await vGunSonu();                                   // formu temiz kur
+  await vGunSonu(zl);                                 // formu kayıttaki Z sayısıyla kur
   DUZENLE = { id: data.id, tarih: data.tarih, foto: {} };
   const tar = document.getElementById('gsTarih');
   tar.value = data.tarih; tar.disabled = true;
   document.getElementById('gsKasa').value = (data.kasa_nakit ?? '');
   document.getElementById('gsNot').value  = data.notlar || '';
-  const ks = (data.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
-  const kd = (data.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
-  [1,2].forEach(n=>{
-    const k = ks.find(x=>x.kasa_no===n);
-    DUZENLE.foto[n] = { z:(k&&k.z_foto_path)||null, s:(k&&k.pos_slip_foto_path)||null };
+  [1,2].forEach(n=>zl[n].forEach(s=>{
+    const key = n+'_'+s;
+    const k = ks.find(x=>x.kasa_no===n && (x.sira||1)===s);
+    DUZENLE.foto[key] = { z:(k&&k.z_foto_path)||null, s:(k&&k.pos_slip_foto_path)||null };
     if (k){
-      document.getElementById('gsZNo'+n).value   = k.z_no || '';
-      document.getElementById('gsKart'+n).value  = k.kart_toplam;
-      document.getElementById('gsNakit'+n).value = k.nakit_toplam;
-      const kn = document.getElementById('gsKNot'+n); if(kn) kn.value = k.notlar || '';
+      document.getElementById('gsZNo_'+key).value   = k.z_no || '';
+      document.getElementById('gsKart_'+key).value  = k.kart_toplam;
+      document.getElementById('gsNakit_'+key).value = k.nakit_toplam;
+      const kn = document.getElementById('gsKNot_'+key); if(kn) kn.value = k.notlar || '';
     }
-    const kap = document.getElementById('kdvSatirlari'+n);
+    const kap = document.getElementById('kdvSatirlari_'+key);
     if (kap){
       kap.innerHTML = '';
-      const sat = kd.filter(x=>x.kasa_no===n);
-      if (sat.length) sat.forEach(x=>kdvSatirEkle(n, x.oran, x.satis_toplam, x.kdv_tutar, false));
-      else kdvSatirEkle(n, 10, null, null, true);
+      const sat = kd.filter(x=>x.kasa_no===n && (x.sira||1)===s);
+      if (sat.length) sat.forEach(x=>kdvSatirEkle(key, x.oran, x.satis_toplam, x.kdv_tutar, false));
+      else kdvSatirEkle(key, 10, null, null, true);
     }
-  });
+  }));
   const bar = document.getElementById('gsDuzenleBar');
   if (bar) bar.innerHTML = `<div class="kart" style="border-color:var(--uyari);background:#FFF8EC">
     <div class="kbaslik" style="color:var(--uyari)">DÜZENLEME MODU — ${new Date(data.tarih+'T00:00').toLocaleDateString('tr-TR')}</div>
@@ -680,33 +706,108 @@ async function gunSonuDuzenle(id){
   kasaHesapla();
   window.scrollTo(0,0);
 }
+function zBlokHtml(n, s){
+  const k = n+'_'+s;
+  const cok = ZLISTE[n].length > 1;
+  return `
+    <div class="z-blok" id="zBlok_${k}">
+      ${cok ? `<div class="zb-bas"><span class="zb-ad">${s}. Z RAPORU</span>
+        ${s>1?`<button type="button" class="zb-sil" onclick="zBlokSil(${n},${s})">✕ bu Z'yi kaldır</button>`:''}</div>` : ''}
+      <label>Z No <b style="color:var(--hata)">*</b></label>
+      <input type="text" inputmode="numeric" id="gsZNo_${k}" placeholder="Z raporundaki Z NO">
+      <div class="satir">
+        <div><label>Kart Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsKart_${k}" placeholder="0,00"></div>
+        <div><label>Nakit Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsNakit_${k}" placeholder="0,00"></div>
+      </div>
+      <div class="kp-ara"><span>Bu Z'nin toplamı — Z'deki NET SATIŞ ile aynı olmalı</span><b id="gsZAra_${k}">0,00 ₺</b></div>
+      <label>KDV — bu Z'nin VERGİ DÖKÜMÜ</label>
+      <div class="bilgi-not" style="margin:0 0 6px">Z'deki <b>"%10 TOPLAM"</b> satırını yaz; KDV'yi sistem hesaplar.
+        Z'deki <b>TOPKDV</b> birkaç kuruş farklıysa <b>Z'dekini</b> yaz — sistem üzerine yazmaz.
+        ⚠️ "KÜM. TOPLAM" satırını KULLANMA.</div>
+      <div id="kdvSatirlari_${k}"></div>
+      <button type="button" class="btn2" onclick="kdvSatirEkle('${k}')">+ farklı oran ekle</button>
+      <label>Z Raporu Fotoğrafı <b style="color:var(--hata)">*</b></label>
+      <input type="file" id="gsZFoto_${k}" accept="image/*" capture="environment">
+      <button type="button" class="btn2" id="gsOku_${k}" onclick="zRaporuOku('${k}')" style="width:100%">
+        📄 Z raporunu oku — alanları doldur</button>
+      <div class="oku-durum" id="gsOkuDurum_${k}"></div>
+      <label>Bu Z için not (isteğe bağlı)</label><input type="text" id="gsKNot_${k}">
+    </div>`;
+}
 function kasaPanelHtml(n){
   return `
     <div class="kasa-panel ${n===1?'sol aktif':'sag'}" id="kasaPanel${n}">
       <div class="kp-bas"><span class="kp-ad">Kasa ${n}</span><span class="kp-drm bos" id="kpDrm${n}">○ Başlanmadı</span></div>
-      <label>Z No <b style="color:var(--hata)">*</b></label>
-      <input type="text" inputmode="numeric" id="gsZNo${n}" placeholder="Z raporundaki Z NO">
-      <div class="satir">
-        <div><label>Kart Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsKart${n}" placeholder="0,00"></div>
-        <div><label>Nakit Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsNakit${n}" placeholder="0,00"></div>
-      </div>
-      <div class="kp-ara"><span>Ara Toplam — Z'deki NET SATIŞ ile aynı olmalı</span><b id="gsAra${n}">0,00 ₺</b></div>
-      <label>KDV — bu kasanın Z'sindeki VERGİ DÖKÜMÜ</label>
-      <div class="bilgi-not" style="margin:0 0 6px">Z'deki <b>"%10 TOPLAM"</b> satırını yaz; KDV'yi sistem hesaplar.
-        Z'deki <b>TOPKDV</b> birkaç kuruş farklıysa <b>Z'dekini</b> yaz — sistem üzerine yazmaz.
-        ⚠️ "KÜM. TOPLAM" satırını KULLANMA.</div>
-      <div id="kdvSatirlari${n}"></div>
-      <button type="button" class="btn2" onclick="kdvSatirEkle(${n})">+ farklı oran ekle</button>
+      <div id="gsZBloklar${n}">${ZLISTE[n].map(s=>zBlokHtml(n,s)).join('')}</div>
+      <button type="button" class="btn2 z-ekle" onclick="zBlokEkle(${n})">+ Bu kasa bugün 2. Z bastıysa ekle</button>
+      <div class="kp-ara"><span>Kasa ${n} toplamı</span><b id="gsAra${n}">0,00 ₺</b></div>
       <div class="kp-ara"><span>Kasa ${n} KDV</span><b id="gsKdv${n}">0,00 ₺</b></div>
-      <label>Z Raporu Fotoğrafı <b style="color:var(--hata)">*</b></label>
-      <input type="file" id="gsZFoto${n}" accept="image/*" capture="environment">
-      <button type="button" class="btn2" id="gsOku${n}" onclick="zRaporuOku(${n})" style="width:100%">
-        📄 Z raporunu oku — alanları doldur</button>
-      <div class="oku-durum" id="gsOkuDurum${n}"></div>
-      <label>POS Slip Fotoğrafı <b style="color:var(--hata)">*</b></label>
-      <input type="file" id="gsSlipFoto${n}" accept="image/*" capture="environment">
-      <label>Kasa Notu (isteğe bağlı)</label><input type="text" id="gsKNot${n}">
     </div>`;
+}
+/* Aynı kasaya ikinci/üçüncü Z — cihaz arızasında gün kaydedilebilsin diye */
+function zBlokEkle(n){
+  if (ZLISTE[n].length >= 9){ alert('Bir kasaya en fazla 9 Z raporu girilebilir.'); return; }
+  const s = Math.max(...ZLISTE[n]) + 1;
+  const eski = {};
+  ZLISTE[n].forEach(x=>{ eski[x] = zBlokTopla(n, x); });   // yeniden çizmeden ÖNCE yedekle
+  const secilenFoto = {};
+  ZLISTE[n].forEach(x=>{ const f=document.getElementById('gsZFoto_'+n+'_'+x); secilenFoto[x] = !!(f&&f.files&&f.files[0]); });
+  ZLISTE[n].push(s);
+  const kap = document.getElementById('gsZBloklar'+n);
+  // ilk blok tek başınayken başlıksız duruyordu; artık çoklu → başlıklarla yeniden kur
+  kap.innerHTML = ZLISTE[n].map(x=>zBlokHtml(n,x)).join('');
+  ZLISTE[n].forEach(x=>{ zBlokKur(n, x); if (x !== s) zBlokDoldur(n, x, eski[x]); });
+  // Dosya seçimi HTML yeniden çizilince kaybolur — kullanıcıya açıkça söyle
+  const kaybolan = ZLISTE[n].filter(x=>x!==s && secilenFoto[x]);
+  if (kaybolan.length) alert(`Kasa ${n}: Z fotoğrafı seçimi sıfırlandı (${kaybolan.map(x=>x+'. Z').join(', ')}).\nTutarlar korundu; fotoğrafı yeniden seç.`);
+  kasaHesapla();
+  document.getElementById('zBlok_'+n+'_'+s).scrollIntoView({behavior:'smooth', block:'center'});
+}
+function zBlokSil(n, s){
+  if (s === 1) return;
+  if (!confirm(`Kasa ${n} — ${s}. Z raporu kaldırılacak. Girdiğin bilgiler silinir. Devam?`)) return;
+  const kalan = {};
+  ZLISTE[n].filter(x=>x!==s).forEach(x=>{ kalan[x] = zBlokTopla(n, x); });  // silmeden ÖNCE yedekle
+  ZLISTE[n] = ZLISTE[n].filter(x=>x!==s);
+  const kap = document.getElementById('gsZBloklar'+n);
+  kap.innerHTML = ZLISTE[n].map(x=>zBlokHtml(n,x)).join('');
+  ZLISTE[n].forEach(x=>{ zBlokKur(n, x); zBlokDoldur(n, x, kalan[x]); });
+  kasaHesapla();
+}
+/* Blok yeniden çizildiğinde girilen değerleri koru */
+function zBlokTopla(n, s){
+  const k = n+'_'+s, al = id => (document.getElementById(id)?.value ?? '');
+  return { zno:al('gsZNo_'+k), kart:al('gsKart_'+k), nakit:al('gsNakit_'+k),
+           not:al('gsKNot_'+k), kdv:kdvHam(k), durum:document.getElementById('gsOkuDurum_'+k)?.textContent||'' };
+}
+function kdvHam(k){
+  const c=[];
+  document.querySelectorAll('#kdvSatirlari_'+k+' .kdv-satir').forEach(d=>{
+    const i=d.id.split('_')[1];
+    c.push({ oran:+document.getElementById('kdvO_'+i).value,
+             t:document.getElementById('kdvT_'+i).value, v:document.getElementById('kdvV_'+i).value });
+  });
+  return c;
+}
+function zBlokDoldur(n, s, v){
+  if(!v) return;
+  const k = n+'_'+s, yaz=(id,d)=>{ const e=document.getElementById(id); if(e) e.value=d; };
+  yaz('gsZNo_'+k, v.zno); yaz('gsKart_'+k, v.kart); yaz('gsNakit_'+k, v.nakit); yaz('gsKNot_'+k, v.not);
+  const kap=document.getElementById('kdvSatirlari_'+k);
+  if (kap && v.kdv && v.kdv.length){ kap.innerHTML=''; v.kdv.forEach(x=>kdvSatirEkle(k, x.oran, x.t, x.v, false)); }
+  const d=document.getElementById('gsOkuDurum_'+k); if(d && v.durum) d.textContent=v.durum;
+}
+/* Blok DOM'a girdikten sonra olay bağları + varsayılan KDV satırı */
+function zBlokKur(n, s){
+  const k = n+'_'+s;
+  const kap = document.getElementById('kdvSatirlari_'+k);
+  if (kap && !kap.children.length) kdvSatirEkle(k, 10, null, null, true);
+  ['gsZNo_','gsZFoto_'].forEach(p=>{
+    const e=document.getElementById(p+k);
+    if(e){ e.addEventListener('input', kasaHesapla); e.addEventListener('change', kasaHesapla); }
+  });
+  paraBagla(document.getElementById('gsKart_'+k),  kasaHesapla);
+  paraBagla(document.getElementById('gsNakit_'+k), kasaHesapla);
 }
 function kasaSec(n){
   [1,2].forEach(i=>{
@@ -715,28 +816,41 @@ function kasaSec(n){
     if(b) b.classList.toggle('aktif', i===n);
   });
 }
-function kasaDurum(n){
-  const zno=(document.getElementById('gsZNo'+n)?.value||'').trim();
-  const pk=paraOku(document.getElementById('gsKart'+n));
-  const pn=paraOku(document.getElementById('gsNakit'+n));
+function zDurum(n, s){
+  const k = n+'_'+s;
+  const zno=(document.getElementById('gsZNo_'+k)?.value||'').trim();
+  const pk=paraOku(document.getElementById('gsKart_'+k));
+  const pn=paraOku(document.getElementById('gsNakit_'+k));
   const kart=pk.deger, nakit=pn.deger;
-  const zf=document.getElementById('gsZFoto'+n), sf=document.getElementById('gsSlipFoto'+n);
+  const zf=document.getElementById('gsZFoto_'+k);
   // Düzenleme modunda mevcut fotoğraf zorunluluğu karşılar (yenisi seçilmezse korunur)
-  const mev = (DUZENLE && DUZENLE.foto && DUZENLE.foto[n]) || {};
+  const mev = (DUZENLE && DUZENLE.foto && DUZENLE.foto[k]) || {};
   const zfVar=!!(zf&&zf.files&&zf.files[0]) || !!mev.z;
-  const sfVar=!!(sf&&sf.files&&sf.files[0]) || !!mev.s;
+  const on = ZLISTE[n].length>1 ? s+'. Z — ' : '';
   const eksik=[];
-  if(!zno) eksik.push('Z No');
-  if(!pk.ok) eksik.push('Kart tutarı geçersiz');
-  if(!pn.ok) eksik.push('Nakit tutarı geçersiz');
-  if(!zfVar) eksik.push('Z fotoğrafı');
-  if(!sfVar) eksik.push('POS slip');
-  const bos=!zno && !kart && !nakit && !zfVar && !sfVar && pk.ok && pn.ok;
-  return { zno, kart, nakit, ara:+(kart+nakit).toFixed(2), eksik, bos, gecerli: pk.ok && pn.ok };
+  if(!zno) eksik.push(on+'Z No');
+  if(!pk.ok) eksik.push(on+'Kart tutarı geçersiz');
+  if(!pn.ok) eksik.push(on+'Nakit tutarı geçersiz');
+  if(!zfVar) eksik.push(on+'Z fotoğrafı');
+  const bos=!zno && !kart && !nakit && !zfVar && pk.ok && pn.ok;
+  return { k, n, s, zno, kart, nakit, ara:+(kart+nakit).toFixed(2), kdv:kdvToplam(k),
+           eksik, bos, gecerli: pk.ok && pn.ok };
 }
-function kdvToplam(kasaNo){
+function kasaDurum(n){
+  const bloklar = ZLISTE[n].map(s=>zDurum(n,s));
+  return {
+    bloklar,
+    kart : +bloklar.reduce((a,b)=>a+b.kart ,0).toFixed(2),
+    nakit: +bloklar.reduce((a,b)=>a+b.nakit,0).toFixed(2),
+    ara  : +bloklar.reduce((a,b)=>a+b.ara  ,0).toFixed(2),
+    kdv  : +bloklar.reduce((a,b)=>a+b.kdv  ,0).toFixed(2),
+    eksik: bloklar.flatMap(b=>b.eksik),
+    bos  : bloklar.every(b=>b.bos)
+  };
+}
+function kdvToplam(k){
   let t=0;
-  document.querySelectorAll('#kdvSatirlari'+kasaNo+' .kdv-satir').forEach(d=>{
+  document.querySelectorAll('#kdvSatirlari_'+k+' .kdv-satir').forEach(d=>{
     const n=d.id.split('_')[1];
     t += paraOku(document.getElementById('kdvV_'+n)).deger;
   });
@@ -745,19 +859,27 @@ function kdvToplam(kasaNo){
 function kasaHesapla(){
   let tk=0, tn=0, tkdv=0; const eksikler=[];
   [1,2].forEach(n=>{
-    const d=kasaDurum(n); tk+=d.kart; tn+=d.nakit;
-    const kv=kdvToplam(n); tkdv+=kv;
-    const kdvEl=document.getElementById('gsKdv'+n); if(kdvEl) kdvEl.textContent=tl(kv);
+    const d=kasaDurum(n); tk+=d.kart; tn+=d.nakit; tkdv+=d.kdv;
+    d.bloklar.forEach(b=>{
+      const za=document.getElementById('gsZAra_'+b.k); if(za) za.textContent=tl(b.ara);
+    });
+    const kdvEl=document.getElementById('gsKdv'+n); if(kdvEl) kdvEl.textContent=tl(d.kdv);
     const ara=document.getElementById('gsAra'+n); if(ara) ara.textContent=tl(d.ara);
     const kt=document.getElementById('ksTut'+n); if(kt) kt.textContent=tl(d.ara);
     const drm=document.getElementById('kpDrm'+n), ks=document.getElementById('ksDrm'+n);
+    const zEk = ZLISTE[n].length>1 ? ` · ${ZLISTE[n].length} Z` : '';
     let sinif, metin, sembol;
     if(d.bos){ sinif='bos'; metin='○ Başlanmadı'; sembol='○'; }
-    else if(d.eksik.length===0){ sinif='tam'; metin='✓ Tamamlandı'; sembol='✓'; }
+    else if(d.eksik.length===0){ sinif='tam'; metin='✓ Tamamlandı'+zEk; sembol='✓'; }
     else { sinif='eksik'; metin='● '+d.eksik.length+' eksik: '+d.eksik.join(', '); sembol='●'; }
     if(drm){ drm.className='kp-drm '+sinif; drm.textContent=metin; }
     if(ks) ks.textContent=sembol;
     d.eksik.forEach(e=>eksikler.push('KASA '+n+' — '+e));
+  });
+  // Aynı kasada aynı Z No iki kez girilmiş mi (arıza gününde kopyala-yapıştır hatası)
+  [1,2].forEach(n=>{
+    const nolar = ZLISTE[n].map(s=>(document.getElementById('gsZNo_'+n+'_'+s)?.value||'').trim()).filter(Boolean);
+    if (new Set(nolar).size !== nolar.length) eksikler.push('KASA '+n+' — aynı Z No iki kez girilmiş');
   });
   const pz=paraOku(document.getElementById('gsKasa'));
   const zDisi=pz.deger;
@@ -774,14 +896,17 @@ function kasaHesapla(){
       : (eksikler.length ? 'Bekleyen: '+eksikler.map(esc).join(' · ') : 'Bekleyen: tutar girilmedi');
   }
 }
-async function vGunSonu(){
+async function vGunSonu(zListe){
+  // Düzenlemede kayıttaki Z sayısıyla kurulur; normalde her kasada tek Z ile başlar
+  ZLISTE = zListe ? { 1:zListe[1].slice(), 2:zListe[2].slice() } : { 1:[1], 2:[1] };
   const el = document.getElementById('icerik');
   el.innerHTML = `
     <h2 class="bolum">Gün Sonu Girişi</h2>
     <div id="gsDuzenleBar"></div>
     <div class="kart">
       ${tarihSecici('gsTarih')}
-      <div class="bilgi-not" style="margin:0 0 8px">İki yazarkasa da girilir. Her kasa için <b>Z No + Z fotoğrafı + POS slip fotoğrafı zorunludur</b>.</div>
+      <div class="bilgi-not" style="margin:0 0 8px">İki yazarkasa da girilir. Her Z raporu için <b>Z No + Z fotoğrafı zorunludur</b>.
+        Bir kasa o gün <b>ikinci bir Z bastıysa</b> (cihaz arızası) panelden ekle — ikisi de ayrı kaydedilir.</div>
       <div class="kasa-sekme" id="kasaSekme">
         <button type="button" class="ks-btn aktif" id="ksBtn1" onclick="kasaSec(1)"><div class="ks-ad">KASA 1 <span id="ksDrm1">○</span></div><div class="ks-tut" id="ksTut1">0,00 ₺</div></button>
         <button type="button" class="ks-btn" id="ksBtn2" onclick="kasaSec(2)"><div class="ks-ad">KASA 2 <span id="ksDrm2">○</span></div><div class="ks-tut" id="ksTut2">0,00 ₺</div></button>
@@ -807,18 +932,9 @@ async function vGunSonu(){
       <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.':'Yanlış girersen 12 saat içinde aşağıdan silip yeniden girebilirsin.'}</div>
     </div>
     ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : '<div id="gsSonKayit"></div>'}`;
-  kdvSatirEkle(1, 10, null, null, true);
-  kdvSatirEkle(2, 10, null, null, true);
   if (PROFIL.rol==='personel') personelSonKayit();
   else if (PROFIL.rol==='owner') gunSonuListe();
-  [1,2].forEach(n=>{
-    ['gsZNo','gsZFoto','gsSlipFoto'].forEach(p=>{
-      const e=document.getElementById(p+n);
-      if(e){ e.addEventListener('input', kasaHesapla); e.addEventListener('change', kasaHesapla); }
-    });
-    paraBagla(document.getElementById('gsKart'+n),  kasaHesapla);
-    paraBagla(document.getElementById('gsNakit'+n), kasaHesapla);
-  });
+  [1,2].forEach(n=>ZLISTE[n].forEach(s=>zBlokKur(n,s)));
   paraBagla(document.getElementById('gsKasa'), kasaHesapla);
   kasaHesapla();
 }
@@ -826,7 +942,7 @@ async function personelSonKayit(){
   const el = document.getElementById('gsSonKayit'); if(!el) return;
   // RLS zaten sınırlıyor: yalnız KENDİ girdiği, son 3 gün. Ekstra filtre gerekmez.
   const { data, error } = await sb.from('gun_sonu')
-    .select('id,tarih,kart_toplam,nakit_toplam,toplam,kasa_nakit,created_at, gun_sonu_kasa(kasa_no,z_no,toplam,z_foto_path,pos_slip_foto_path,is_deleted)')
+    .select('id,tarih,kart_toplam,nakit_toplam,toplam,kasa_nakit,created_at, gun_sonu_kasa(kasa_no,sira,z_no,toplam,z_foto_path,pos_slip_foto_path,is_deleted)')
     .eq('is_deleted',false).order('created_at',{ascending:false});
   if (error){ el.innerHTML = `<div class="bilgi-not">Son kayıtlar yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
   const gunler = data||[];
@@ -836,16 +952,18 @@ async function personelSonKayit(){
     <div class="kbaslik">Son Girdiğin Günler (3 gün)</div>
     <div class="bilgi-not" style="margin:0 0 10px">Yanlış girdiysen <b>3 gün içinde</b> silip yeniden girebilirsin. Sonrasında düzeltmeyi yönetici yapar.</div>
     ${gunler.map(g=>{
-      const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
+      const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted)
+        .sort((a,b)=>a.kasa_no-b.kasa_no || (a.sira||1)-(b.sira||1));
       const t=new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR');
+      const et=k=>`K${k.kasa_no}${zCok(ks,k.kasa_no)?'/'+(k.sira||1):''}`;
       return `<div class="liste-satir">
         <div class="l-sol"><div class="b">${t}</div>
           <div class="k">Kart ${tl(g.kart_toplam)} · Nakit ${tl(g.nakit_toplam)}
-          ${ks.length?'<br>'+ks.map(k=>`<b>K${k.kasa_no}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; '):''}
+          ${ks.length?'<br>'+ks.map(k=>`<b>${et(k)}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; '):''}
           ${g.kasa_nakit!==null?'<br>Z dışı kasa: '+tl(g.kasa_nakit):''}
           <div style="margin-top:6px">${ks.map(k=>
-            belgeBtn(k.z_foto_path,`K${k.kasa_no} Z`,`${t} — Kasa ${k.kasa_no} Z Raporu`)+
-            belgeBtn(k.pos_slip_foto_path,`K${k.kasa_no} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')}</div>
+            belgeBtn(k.z_foto_path,`${et(k)} Z`,`${t} — Kasa ${k.kasa_no} ${zCok(ks,k.kasa_no)?(k.sira||1)+'. Z':'Z'} Raporu`)+
+            slipBtn(k.pos_slip_foto_path,`${et(k)} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')}</div>
           </div></div>
         <div class="l-sag">${tl(g.toplam)}<br>
           <button class="btn2" style="margin-top:4px" onclick="gunSonuDuzenle('${g.id}')">Düzelt</button>
@@ -867,11 +985,13 @@ async function gunSonuKaydet(){
   for (const n of [1,2]){
     const d = kasaDurum(n);
     if (d.eksik.length){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} eksik: ${d.eksik.join(', ')}`); return; }
-    let kdvSatir;
-    try { kdvSatir = kdvOku(n); }
-    catch(e){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n}: `+e.message); return; }
-    kasalar.push({ n, zno:d.zno, kart:d.kart, nakit:d.nakit, kdv:kdvSatir,
-      knot:(document.getElementById('gsKNot'+n)?.value||'').trim()||null });
+    for (const b of d.bloklar){
+      let kdvSatir;
+      try { kdvSatir = kdvOku(b.k); }
+      catch(e){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} / ${b.s}. Z: `+e.message); return; }
+      kasalar.push({ n, s:b.s, k:b.k, zno:b.zno, kart:b.kart, nakit:b.nakit, kdv:kdvSatir,
+        knot:(document.getElementById('gsKNot_'+b.k)?.value||'').trim()||null });
+    }
   }
   const kart = +(kasalar.reduce((a,k)=>a+k.kart,0)).toFixed(2);
   const nakit = +(kasalar.reduce((a,k)=>a+k.nakit,0)).toFixed(2);
@@ -881,8 +1001,9 @@ async function gunSonuKaydet(){
   const kdvToplamTutar = +(kdv.reduce((a,x)=>a+x.kdv_tutar,0)).toFixed(2);
   if (toplam === 0){ mesaj('gsMsg','hata','İki kasanın toplamı 0 — kayıt yapılamaz.'); return; }
   for (const k of kasalar){
+    const et = `KASA ${k.n}${ZLISTE[k.n].length>1?' / '+k.s+'. Z':''}`;
     if (k.kdv.length === 0 && (k.kart + k.nakit) > 0 &&
-        !confirm(`KASA ${k.n} için KDV dökümü BOŞ. O kasanın Z raporundaki VERGİ DÖKÜMÜ girilmedi — beyana giden KDV eksik kalır. Yine de kaydedilsin mi?`)) return;
+        !confirm(`${et} için KDV dökümü BOŞ. O Z raporundaki VERGİ DÖKÜMÜ girilmedi — beyana giden KDV eksik kalır. Yine de kaydedilsin mi?`)) return;
   }
   // AKIL KONTROLLERİ (KÜM. TOPLAM tuzağı + KDV tutarlılığı)
   const kdvSatisToplami = kdv.reduce((a,x)=>a+x.satis_toplam,0);
@@ -902,7 +1023,8 @@ async function gunSonuKaydet(){
       !confirm('Kasadaki Para girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
   const ozet = kasalar.map(k=>{
     const kv = k.kdv.reduce((a,x)=>a+x.kdv_tutar,0);
-    return `Kasa ${k.n} (Z ${k.zno}): ${tl(k.kart+k.nakit)}   KDV ${tl(kv)}`;
+    const et = `Kasa ${k.n}${ZLISTE[k.n].length>1?' ('+k.s+'. Z)':''}`;
+    return `${et} — Z ${k.zno}: ${tl(k.kart+k.nakit)}   KDV ${tl(kv)}`;
   }).join('\n');
   if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nZ dışı kasa nakdi: ${tl(kasa)}\n(vergiye DAHİL DEĞİL — gerçek nakit takibi için)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
 
@@ -912,17 +1034,14 @@ async function gunSonuKaydet(){
   const yuklenen = [];
   try{
     for (const k of kasalar){
-      const mev = (DUZENLE && DUZENLE.foto[k.n]) || {};
-      const yeniZ = document.getElementById('gsZFoto'+k.n);
-      const yeniS = document.getElementById('gsSlipFoto'+k.n);
+      const mev = (DUZENLE && DUZENLE.foto[k.k]) || {};
+      const yeniZ = document.getElementById('gsZFoto_'+k.k);
       const zSecili = !!(yeniZ && yeniZ.files && yeniZ.files[0]);
-      const sSecili = !!(yeniS && yeniS.files && yeniS.files[0]);
-      if (zSecili || sSecili) btn.textContent = `Kasa ${k.n} fotoğrafları yükleniyor...`;
+      if (zSecili) btn.textContent = `Kasa ${k.n} Z fotoğrafı yükleniyor...`;
       // Yeni seçildiyse yükle, seçilmediyse MEVCUDU koru
-      k.zf = zSecili ? await fotoYukle('gsZFoto'+k.n, 'z')      : mev.z;
+      k.zf = zSecili ? await fotoYukle('gsZFoto_'+k.k, 'z') : mev.z;
       if (zSecili) yuklenen.push(k.zf);
-      k.sf = sSecili ? await fotoYukle('gsSlipFoto'+k.n, 'slip') : mev.s;
-      if (sSecili) yuklenen.push(k.sf);
+      k.sf = mev.s || null;             // POS slip artık toplanmıyor; eski kayıtta varsa korunur
     }
   }catch(e){
     const kalan = await fotoTemizle(yuklenen);
@@ -938,7 +1057,7 @@ async function gunSonuKaydet(){
       p_idem: idem(), p_id: DUZENLE.id,
       p_not: document.getElementById('gsNot').value.trim()||null,
       p_kasa: kasa > 0 ? kasa : null,
-      p_kasalar: kasalar.map(k=>({ kasa_no:k.n, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
+      p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
         z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
     }, 'gsKaydet','gsMsg','Değişiklikler kaydedildi ✓');
     if (gData && gData.ok){ DUZENLE = null; vGunSonu(); mesaj('gsMsg','ok','Değişiklikler kaydedildi ✓'); }
@@ -957,7 +1076,7 @@ async function gunSonuKaydet(){
     p_z_no: null, p_kdv: null, p_z_foto: null, p_slip_foto: null,
     p_not: document.getElementById('gsNot').value.trim()||null,
     p_kasa: kasa > 0 ? kasa : null,
-    p_kasalar: kasalar.map(k=>({ kasa_no:k.n, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
+    p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
       z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
   if (data && data.ok){
@@ -980,7 +1099,7 @@ async function gunSonuKaydet(){
 }
 async function gunSonuListe(){
   const { data } = await sb.from('gun_sonu')
-    .select('*, gun_sonu_kasa(kasa_no,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,oran,satis_toplam,kdv_tutar,is_deleted)')
+    .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,sira,oran,satis_toplam,kdv_tutar,is_deleted)')
     .eq('is_deleted',false).order('tarih',{ascending:false}).limit(14);
   const gunler = data||[];
   // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
@@ -1004,8 +1123,9 @@ async function gunSonuListe(){
       <div class="liste-satir">
         <div class="l-sol"><div class="b">${new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')} ${g.kilitli?'🔒':'🔓'}</div>
           <div class="k">Kart ${tl(g.kart_toplam)} · Z nakit ${tl(g.nakit_toplam)}${(()=>{
-            const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
-            return ks.length ? '<br>'+ks.map(k=>`<b>K${k.kasa_no}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; ')
+            const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted)
+              .sort((a,b)=>a.kasa_no-b.kasa_no || (a.sira||1)-(b.sira||1));
+            return ks.length ? '<br>'+ks.map(k=>`<b>K${k.kasa_no}${zCok(ks,k.kasa_no)?'/'+(k.sira||1):''}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; ')
                              : ' · Z:'+esc(g.z_no||'—');
           })()}
           ${gercek!==null?`<br>Gerçek: <b>${tl(gercek)}</b> · Z-dışı nakit: <b>${fark>=0?'+':''}${tl(fark)}</b>${kasadan>0?' · kasadan ödenen: '+tl(kasadan):''}`:''}
@@ -1016,13 +1136,15 @@ async function gunSonuListe(){
               return s>0?`K${no} ${tl(s)}`:null;}).filter(Boolean).join(' + ');
             return `<br>KDV: <b>${tl(t)}</b>${par?' ('+par+')':''}`;})()}
           ${g.notlar?'<br>'+esc(g.notlar):''}
-          ${(()=>{const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
+          ${(()=>{const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted)
+              .sort((a,b)=>a.kasa_no-b.kasa_no || (a.sira||1)-(b.sira||1));
             const t=new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR');
-            if(ks.length) return '<div style="margin-top:6px">'+ks.map(k=>
-              belgeBtn(k.z_foto_path,`K${k.kasa_no} Z`,`${t} — Kasa ${k.kasa_no} Z Raporu`)+
-              belgeBtn(k.pos_slip_foto_path,`K${k.kasa_no} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')+'</div>';
+            if(ks.length) return '<div style="margin-top:6px">'+ks.map(k=>{
+              const e=`K${k.kasa_no}${zCok(ks,k.kasa_no)?'/'+(k.sira||1):''}`;
+              return belgeBtn(k.z_foto_path,`${e} Z`,`${t} — Kasa ${k.kasa_no} ${zCok(ks,k.kasa_no)?(k.sira||1)+'. Z':'Z'} Raporu`)+
+                     slipBtn(k.pos_slip_foto_path,`${e} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`);}).join('')+'</div>';
             return '<div style="margin-top:6px">'+belgeBtn(g.z_foto_path,'Z Raporu',`${t} — Z Raporu`)+
-                   belgeBtn(g.pos_slip_foto_path,'POS Slip',`${t} — POS Slip`)+'</div>';
+                   slipBtn(g.pos_slip_foto_path,'POS Slip',`${t} — POS Slip`)+'</div>';
           })()}</div></div>
         <div class="l-sag">${tl(g.toplam)}<br>
           <button class="btn2" style="margin-top:4px" onclick="gunSonuDuzenle('${g.id}')">Düzenle</button>
@@ -1784,7 +1906,8 @@ async function vYonetim(){
     </div>
     <div class="kart">
       <div class="kbaslik">Aylık Arşiv (PDF)</div>
-      <div class="bilgi-not" style="margin:0 0 8px">Seçilen ayın tüm Z raporları + POS slipleri + alış/gider belgeleri tarih etiketiyle tek PDF'te birleşir — muhasebeciye/ERP'ye tek dosya.</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Seçilen ayın tüm Z raporları + alış/gider belgeleri tarih ve kasa etiketiyle tek PDF'te birleşir — muhasebeciye/ERP'ye tek dosya.
+        Bir kasa o gün birden fazla Z bastıysa hepsi ayrı sayfa olarak girer.</div>
       <label>Ay</label><input type="month" id="arsivAy" value="${bugun().slice(0,7)}">
       <button class="btn" id="arsivBtn" onclick="arsivPdf()">PDF Oluştur ve İndir</button>
       <div class="hata-msg" id="arsivMsg"></div>
@@ -1979,17 +2102,20 @@ async function arsivPdf(){
   try{
     const bas = ayS + '-01', son = ayS + '-31';
     const [gs, al, gd] = await Promise.all([
-      sb.from('gun_sonu').select('tarih,z_no,z_foto_path,pos_slip_foto_path,gun_sonu_kasa(kasa_no,z_no,z_foto_path,pos_slip_foto_path,is_deleted)').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih'),
+      sb.from('gun_sonu').select('tarih,z_no,z_foto_path,pos_slip_foto_path,gun_sonu_kasa(kasa_no,sira,z_no,z_foto_path,pos_slip_foto_path,is_deleted)').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih'),
       sb.from('alis').select('tarih,toplam,foto_path,tedarikci(ad)').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih'),
       sb.from('gider').select('tarih,tutar,foto_path,gider_kategori(ad)').gte('tarih',bas).lte('tarih',son).eq('is_deleted',false).order('tarih')
     ]);
     const ogeler = [];
     for (const g of (gs.data||[])){
-      const ks = (g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
+      const ks = (g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted)
+        .sort((a,b)=>a.kasa_no-b.kasa_no || (a.sira||1)-(b.sira||1));
       if (ks.length){
         for (const k of ks){
-          if (k.z_foto_path) ogeler.push({ b:`Z RAPORU — ${g.tarih} — KASA ${k.kasa_no}${k.z_no?' — Z No: '+k.z_no:''}`, p:k.z_foto_path });
-          if (k.pos_slip_foto_path) ogeler.push({ b:`POS SLIP — ${g.tarih} — KASA ${k.kasa_no}`, p:k.pos_slip_foto_path });
+          // Aynı kasadan o gün birden fazla Z varsa sırayı da yaz (muhasebe hangisi olduğunu görsün)
+          const sr = zCok(ks,k.kasa_no) ? ` — ${k.sira||1}. Z` : '';
+          if (k.z_foto_path) ogeler.push({ b:`Z RAPORU — ${g.tarih} — KASA ${k.kasa_no}${sr}${k.z_no?' — Z No: '+k.z_no:''}`, p:k.z_foto_path });
+          if (k.pos_slip_foto_path) ogeler.push({ b:`POS SLIP — ${g.tarih} — KASA ${k.kasa_no}${sr}`, p:k.pos_slip_foto_path });
         }
       } else { // eski tek kasalı kayıtlar
         if (g.z_foto_path) ogeler.push({ b:`Z RAPORU — ${g.tarih}${g.z_no?' — Z No: '+g.z_no:''}`, p:g.z_foto_path });
