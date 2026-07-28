@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-11">
+<meta name="surum" content="2026-07-28-13">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1550,6 +1550,40 @@ function alKdvOku(){
   });
   return sonuc;
 }
+/* KDV dökümünde matrah boş kalmışsa KDV'den geri hesapla.
+   Fatura çoğu zaman KDV tutarını yazar, matrahı ayrı sütunda vermez.
+   Matrah boş kalınca satır karşılaştırması "0'a eşit değil" deyip ürünleri engelliyordu.
+   Kesin dayanak: toplam − KDV toplamı = toplam matrah. Oran bazlı dağıtım kdv/oran ile,
+   yuvarlama farkı en büyük satıra yazılır. */
+function alMatrahTamamla(){
+  const sat = [];
+  document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d=>{
+    const n = d.id.split('_')[1];
+    sat.push({ n, oran:+document.getElementById('alKdvO_'+n).value || 0,
+               mEl:document.getElementById('alKdvM_'+n), tEl:document.getElementById('alKdvT_'+n) });
+  });
+  if (!sat.length) return 0;
+  const kdvOf = s => paraOku(s.tEl).deger;
+  const bos = sat.filter(s => paraOku(s.mEl).deger === 0 && kdvOf(s) > 0 && s.oran > 0);
+  if (!bos.length) return 0;
+  bos.forEach(s => { s.tahmin = +(kdvOf(s) / (s.oran/100)).toFixed(2); });
+  const pT = paraOku(document.getElementById('alToplam'));
+  if (pT.ok && pT.deger > 0){
+    const kdvT = sat.reduce((a,s)=>a+kdvOf(s),0);
+    const dolu = sat.filter(s=>!bos.includes(s)).reduce((a,s)=>a+paraOku(s.mEl).deger,0);
+    const hedef = +(pT.deger - kdvT - dolu).toFixed(2);
+    const tahminT = bos.reduce((a,s)=>a+s.tahmin,0);
+    const fark = +(hedef - tahminT).toFixed(2);
+    // Sadece yuvarlama düzeyindeki farkı kapat; büyük sapmada dokunma (veri yanlıştır)
+    if (hedef > 0 && Math.abs(fark) <= Math.max(1, hedef*0.02)){
+      const enBuyuk = bos.reduce((a,b)=> a.tahmin >= b.tahmin ? a : b);
+      enBuyuk.tahmin = +(enBuyuk.tahmin + fark).toFixed(2);
+    }
+  }
+  bos.forEach(s => { s.mEl.value = String(s.tahmin).replace('.', ','); s.mEl.classList.add('oku-dolu'); });
+  alHesapla();
+  return bos.length;
+}
 function alHesapla(){
   let kdv = 0, matrah = 0, gecerli = true;
   document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d=>{
@@ -1700,8 +1734,12 @@ async function faturaOku(){
     if (s.yedege_dusuldu){
       denetimNot += `<div class="bilgi-not" style="color:var(--uyari)">Not: ana model okuyamadı, yedek modelle okundu — kontrolü daha dikkatli yap.</div>`;
     }
-    if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
     alHesapla();
+    // Matrahı olmayan KDV satırlarını toplamdan geri hesapla (satır karşılaştırması buna dayanıyor)
+    const matrahTamamlanan = alMatrahTamamla();
+    if (matrahTamamlanan) denetimNot += `<div class="bilgi-not" style="color:var(--ok)">
+      ✎ ${matrahTamamlanan} KDV satırında matrah boştu, toplam ve KDV'den hesaplandı — belgeyle karşılaştır.</div>`;
+    if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
     // Faturadaki ürün satırları — tanınanlar otomatik, ilk kez görülenler sorulur
     await alSatirlariKur(v.satirlar, es.t ? es.t.id : null);
 
@@ -1783,6 +1821,18 @@ async function alSatirlariKur(satirlar, tedarikciId){
       karar: es ? 'mevcut' : 'yeni'
     });
   });
+  // Kodsuz tedarikçide (BİM gibi termal fiş) aynı ürün her fişte başka okunuyor.
+  // İlk kez görünen satırlar için benzer ürünleri getir — sistem karar VERMEZ, önerir.
+  const yeniler = AL_SATIRLAR.filter(s => s.karar === 'yeni' && s.ham_ad.length >= 4);
+  if (yeniler.length){
+    await Promise.all(yeniler.map(async s => {
+      try{
+        const { data } = await sb.rpc('rpc_urun_benzer',
+          { p_ham_ad: s.ham_ad, p_tedarikci: tedarikciId || null, p_limit: 4 });
+        s.benzer = Array.isArray(data) ? data : [];
+      }catch(e){ s.benzer = []; }
+    }));
+  }
   alSatirCiz();
 }
 function alSatirCiz(){
@@ -1817,18 +1867,26 @@ function alSatirCiz(){
       <div class="fs-bas">${rozet}<span class="fs-ad">${esc(s.ham_ad||'(adsız)')}</span></div>
       <div class="fs-detay">${s.ham_kod?'kod '+esc(s.ham_kod)+' · ':''}${s.miktar} ${esc(s.birim||'adet')}
         × ${tl(s.birim_fiyat)}${iskNot} = <b>${tl(s.satir_tutar)}</b>${s.kdv_orani!=null?' · %'+s.kdv_orani:''}${carpanNot}${duzNot}${gizliIsk}${paketNot}</div>
+      ${(s.benzer&&s.benzer.length&&s.karar==='yeni') ? `<div class="bilgi-not" style="color:var(--uyari);margin:0 0 6px">
+        ⚠ Bu ürün zaten kayıtlı olabilir — <b>aynıysa aşağıdan seç</b>, yeni açma:
+        ${s.benzer.map(b=>`<br>• <b>${esc(b.kod||'')} ${esc(b.ad)}</b> (%${Math.round(b.skor*100)} benzer)`).join('')}</div>` : ''}
       <select id="fsU_${s.i}" onchange="alSatirKarar(${s.i})">
         <option value="__yeni"${s.karar==='yeni'?' selected':''}>+ Yeni ürün olarak tanımla</option>
-        ${urunler.map(u=>`<option value="${u.id}"${s.urun_id===u.id?' selected':''}>${esc(u.kod?u.kod+' — ':'')}${esc(u.ad)}</option>`).join('')}
+        ${(s.benzer&&s.benzer.length) ? `<optgroup label="Benzer ürünler">
+          ${s.benzer.map(b=>`<option value="${b.urun_id}"${s.urun_id===b.urun_id?' selected':''}>${esc(b.kod||'')} — ${esc(b.ad)} · %${Math.round(b.skor*100)}</option>`).join('')}
+        </optgroup>` : ''}
+        <optgroup label="Tüm ürünler">
+          ${urunler.map(u=>`<option value="${u.id}"${s.urun_id===u.id?' selected':''}>${esc(u.kod?u.kod+' — ':'')}${esc(u.ad)}</option>`).join('')}
+        </optgroup>
         <option value="__atla"${s.karar==='atla'?' selected':''}>Bu satırı kaydetme</option>
       </select>
       ${s.karar==='yeni'?`
         <div class="fs-yeni">
           <input type="text" id="fsAd_${s.i}" value="${esc(s.ham_ad)}" placeholder="ürün adı (kısaltabilirsin)">
           <div class="satir">
-            <div><label>Birim</label>
+            <div><label>Stok birimi</label>
               <select id="fsBirim_${s.i}">
-                ${['adet','kg','lt','koli','paket'].map(b=>`<option value="${b}"${birimNorm(s.birim)===b.toUpperCase()?' selected':''}>${b}</option>`).join('')}
+                ${['adet','kg','lt'].map(b=>`<option value="${b}"${birimNorm(s.birim)===b.toUpperCase()?' selected':''}>${b}</option>`).join('')}
               </select></div>
             <div><label>Paket/koli içi adet</label>
               <input type="text" inputmode="decimal" autocomplete="off" id="fsPaket_${s.i}" value="${s.carpan>1?s.carpan:''}" placeholder="örn 80"></div>
