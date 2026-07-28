@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-8">
+<meta name="surum" content="2026-07-28-9">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1747,13 +1747,38 @@ async function alSatirlariKur(satirlar, tedarikciId){
       es = alias.find(a => birimNorm(a.ham_ad) === birimNorm(s.ad));
       if (es) nasil = 'isim';
     }
+    // İSKONTO DÜZELTMESİ — modelin aritmetiğine güvenme.
+    // Fatura iskonto ORANINI yazıyor; satır tutarına brüt yazılmışsa net'i BİZ hesaplarız.
+    // Uydurma değil: belgede yazan oranı belgede yazan brüte uygularız, sonra matrahla doğrularız.
+    const miktar = +s.miktar||0, liste = +s.birim_fiyat||0;
+    const brut   = +(miktar * liste).toFixed(2);
+    const iskO   = +s.iskonto_orani || 0;
+    let   net    = +s.satir_tutar || 0;
+    let   iskT   = s.iskonto_tutar != null ? +s.iskonto_tutar : null;
+    let   duzeltme = null;
+    if (brut > 0 && Math.abs(net - brut) <= 0.05){          // satır tutarı = brüt (iskonto uygulanmamış)
+      if (iskO > 0){
+        net  = +(brut * (1 - iskO/100)).toFixed(2);
+        iskT = +(brut - net).toFixed(2);
+        duzeltme = `%${iskO} iskonto uygulandı`;
+      } else if (iskT > 0){
+        net  = +(brut - iskT).toFixed(2);
+        duzeltme = `${tl(iskT)} iskonto düşüldü`;
+      }
+    }
+    if (iskT == null && iskO > 0 && brut > net) iskT = +(brut - net).toFixed(2);
+    // Paketleme çakışması: hafızadaki çarpan ile faturadan okunan farklıysa hafıza esas, ama HABER VER
+    const ocrPaket = +s.paket_ici_adet || 0;
+    const carpan   = es ? +es.birim_carpani : (ocrPaket || 1);
+    const paketCakisma = (es && ocrPaket > 0 && Math.abs(ocrPaket - carpan) > 0.001) ? ocrPaket : null;
+
     AL_SATIRLAR.push({
       i, ham_ad:(s.ad||'').toString().trim(), ham_kod:kod||null,
-      miktar:+s.miktar||0, birim:(s.birim||'').toString().trim()||null,
-      birim_fiyat:+s.birim_fiyat||0, satir_tutar:+s.satir_tutar||0,
-      iskonto_orani: s.iskonto_orani ?? null, iskonto_tutar: s.iskonto_tutar ?? null,
+      miktar, birim:(s.birim||'').toString().trim()||null,
+      birim_fiyat:liste, satir_tutar:net, brut,
+      iskonto_orani: iskO || null, iskonto_tutar: iskT,
       kdv_orani:s.kdv_orani ?? null,
-      carpan: es ? +es.birim_carpani : (+s.paket_ici_adet || 1),
+      carpan, paketCakisma, duzeltme,
       urun_id: es ? es.urun_id : null, eslesme: nasil,
       karar: es ? 'mevcut' : 'yeni'
     });
@@ -1771,20 +1796,27 @@ function alSatirCiz(){
                           : `<span class="fs-rozet yeni">? İLK KEZ</span>`);
     const carpanNot = s.carpan > 1 ? ` · <b>${s.miktar} × ${s.carpan} = ${(s.miktar*s.carpan)}</b> adet` : '';
     // İskonto varsa liste fiyatı ile net tutarı AYRI göster — maliyet net tutardır
-    const brut = +(s.miktar * s.birim_fiyat).toFixed(2);
+    const brut = s.brut != null ? s.brut : +(s.miktar * s.birim_fiyat).toFixed(2);
     const iskVar = s.iskonto_orani > 0 || s.iskonto_tutar > 0;
     const iskNot = iskVar
       ? ` <span style="text-decoration:line-through;opacity:.6">${tl(brut)}</span>
           <b style="color:var(--ok)">− ${s.iskonto_orani>0?'%'+s.iskonto_orani:tl(s.iskonto_tutar)} iskonto</b> →`
       : '';
+    // Sistem iskontoyu kendisi uyguladıysa açıkça söyle (sessiz düzeltme olmasın)
+    const duzNot = s.duzeltme
+      ? `<br><span style="color:var(--ok)">✎ Faturadaki ${esc(s.duzeltme)} — satır tutarı ${tl(brut)} yerine <b>${tl(s.satir_tutar)}</b> alındı</span>` : '';
     // İskonto bildirilmemiş ama çarpım net tutardan büyükse: sütun atlanmış olabilir
     const gizliIsk = !iskVar && brut > s.satir_tutar + 0.05
       ? `<br><span style="color:var(--uyari)">⚠ ${s.miktar} × ${tl(s.birim_fiyat)} = ${tl(brut)} ama satır ${tl(s.satir_tutar)} —
          faturada iskonto olabilir, kontrol et</span>` : '';
+    // Faturadan okunan paketleme, ürün kartındakinden farklıysa haber ver (kart esas alınır)
+    const paketNot = s.paketCakisma
+      ? `<br><span style="color:var(--uyari)">⚠ Faturada koli içi ${s.paketCakisma} okundu, ürün kartında ${s.carpan} yazıyor —
+         <b>kart esas alındı</b>. Paketleme gerçekten değiştiyse ürün kartını güncelle.</span>` : '';
     return `<div class="fs-satir" id="fsS_${s.i}">
       <div class="fs-bas">${rozet}<span class="fs-ad">${esc(s.ham_ad||'(adsız)')}</span></div>
       <div class="fs-detay">${s.ham_kod?'kod '+esc(s.ham_kod)+' · ':''}${s.miktar} ${esc(s.birim||'adet')}
-        × ${tl(s.birim_fiyat)}${iskNot} = <b>${tl(s.satir_tutar)}</b>${s.kdv_orani!=null?' · %'+s.kdv_orani:''}${carpanNot}${gizliIsk}</div>
+        × ${tl(s.birim_fiyat)}${iskNot} = <b>${tl(s.satir_tutar)}</b>${s.kdv_orani!=null?' · %'+s.kdv_orani:''}${carpanNot}${duzNot}${gizliIsk}${paketNot}</div>
       <select id="fsU_${s.i}" onchange="alSatirKarar(${s.i})">
         <option value="__yeni"${s.karar==='yeni'?' selected':''}>+ Yeni ürün olarak tanımla</option>
         ${urunler.map(u=>`<option value="${u.id}"${s.urun_id===u.id?' selected':''}>${esc(u.kod?u.kod+' — ':'')}${esc(u.ad)}</option>`).join('')}
