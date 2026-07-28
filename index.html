@@ -49,6 +49,11 @@
   .kasa-panel.aktif{display:block}
   .kasa-sekme{display:grid}
 }
+/* ===== Z raporu okuma durumu ===== */
+.oku-durum{font-size:11.5px;line-height:1.55;margin:6px 0 2px;color:var(--soluk)}
+.oku-durum.ok{color:var(--ok)}
+.oku-durum.uyari{color:var(--uyari)}
+.oku-dolu{background:#F2F8F4!important;border-color:var(--ok)!important}
 /* ===== Belge görüntüleyici ===== */
 .bo-btn{display:inline-block;border:1px solid var(--cizgi);background:var(--kart);color:var(--ana);
   font:inherit;font-size:11px;font-weight:700;padding:5px 9px;margin:3px 4px 0 0;cursor:pointer;white-space:nowrap}
@@ -556,6 +561,77 @@ function paraBagla(el, sonra){
   el.addEventListener('input', f);
   el.addEventListener('blur', f);
 }
+/* ===== Z RAPORU OKUMA — sistem doldurur, PERSONEL DOĞRULAR ===== */
+async function zRaporuOku(n){
+  const inp = document.getElementById('gsZFoto'+n);
+  const drm = document.getElementById('gsOkuDurum'+n);
+  const btn = document.getElementById('gsOku'+n);
+  const yaz = (t, sinif) => { if(drm){ drm.className = 'oku-durum '+(sinif||''); drm.textContent = t; } };
+
+  const dosyaVar = !!(inp && inp.files && inp.files[0]);
+  const mevcutYol = (DUZENLE && DUZENLE.foto[n] && DUZENLE.foto[n].z) || null;
+  if (!dosyaVar && !mevcutYol){ yaz('Önce Z raporu fotoğrafını seç.', 'uyari'); return; }
+
+  btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
+  yaz('Fotoğraf okunuyor, birkaç saniye sürebilir...', '');
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
+
+    let govde;
+    if (dosyaVar){
+      const k = await fotoKucult(inp.files[0]);          // token ve süre tasarrufu
+      const b64 = await new Promise((coz, red)=>{
+        const fr = new FileReader();
+        fr.onload = ()=>coz(fr.result); fr.onerror = ()=>red(new Error('Fotoğraf okunamadı'));
+        fr.readAsDataURL(k.veri);
+      });
+      govde = { gorsel: b64 };
+    } else {
+      govde = { yol: mevcutYol };
+    }
+
+    const y = await fetch(SB_URL + '/functions/v1/z-raporu-oku', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
+      body: JSON.stringify(govde)
+    });
+    const s = await y.json();
+    if (!y.ok || !s.ok) throw new Error(s?.hata || ('Okuma başarısız ('+y.status+')'));
+
+    const v = s.veri || {};
+    const dolduruldu = [];
+    const koy = (id, deger, etiket) => {
+      if (deger === null || deger === undefined || deger === '') return;
+      const e = document.getElementById(id); if(!e) return;
+      e.value = String(deger).replace('.', ',');
+      e.dispatchEvent(new Event('input', { bubbles:true }));
+      e.classList.add('oku-dolu'); dolduruldu.push(etiket);
+    };
+    koy('gsZNo'+n,   v.z_no,          'Z No');
+    koy('gsKart'+n,  v.kart_toplam,   'Kart');
+    koy('gsNakit'+n, v.nakit_toplam,  'Nakit');
+
+    // KDV satırları: fişteki TOPKDV esas (sistem hesabı ezilmez)
+    const kap = document.getElementById('kdvSatirlari'+n);
+    if (kap && Array.isArray(v.kdv) && v.kdv.length){
+      kap.innerHTML = '';
+      v.kdv.forEach(x => kdvSatirEkle(n, x.oran, x.satis_toplam, x.kdv_tutar, false));
+      dolduruldu.push('KDV');
+    }
+    kasaHesapla();
+
+    const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
+    let msj = 'Okundu → ' + (dolduruldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları fişle KARŞILAŞTIR.';
+    if (eksik.length) msj += ' Okunamayan: ' + eksik.join(', ');
+    if (v.uyari) msj += ' (' + v.uyari + ')';
+    yaz(msj, dolduruldu.length ? 'ok' : 'uyari');
+  }catch(e){
+    yaz('Okunamadı: ' + e.message + ' — alanları elle yaz.', 'uyari');
+  }finally{
+    btn.disabled = false; btn.textContent = eski;
+  }
+}
 /* ===== DÜZENLEME MODU — kaydı silmeden güncelle ===== */
 let DUZENLE = null;   // {id, tarih, foto:{1:{z,s},2:{z,s}}}
 function duzenlemeIptal(){
@@ -624,6 +700,9 @@ function kasaPanelHtml(n){
       <div class="kp-ara"><span>Kasa ${n} KDV</span><b id="gsKdv${n}">0,00 ₺</b></div>
       <label>Z Raporu Fotoğrafı <b style="color:var(--hata)">*</b></label>
       <input type="file" id="gsZFoto${n}" accept="image/*" capture="environment">
+      <button type="button" class="btn2" id="gsOku${n}" onclick="zRaporuOku(${n})" style="width:100%">
+        📄 Z raporunu oku — alanları doldur</button>
+      <div class="oku-durum" id="gsOkuDurum${n}"></div>
       <label>POS Slip Fotoğrafı <b style="color:var(--hata)">*</b></label>
       <input type="file" id="gsSlipFoto${n}" accept="image/*" capture="environment">
       <label>Kasa Notu (isteğe bağlı)</label><input type="text" id="gsKNot${n}">
