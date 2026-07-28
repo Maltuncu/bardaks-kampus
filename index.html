@@ -49,6 +49,20 @@
   .kasa-panel.aktif{display:block}
   .kasa-sekme{display:grid}
 }
+/* ===== Belge görüntüleyici ===== */
+.bo-btn{display:inline-block;border:1px solid var(--cizgi);background:var(--kart);color:var(--ana);
+  font:inherit;font-size:11px;font-weight:700;padding:5px 9px;margin:3px 4px 0 0;cursor:pointer;white-space:nowrap}
+.bo-btn:active{background:var(--acik)}
+.bo-btn.yok{color:var(--soluk);border-style:dashed;cursor:default}
+#belgeOverlay{position:fixed;inset:0;background:rgba(20,25,40,.92);z-index:9999;display:none;
+  flex-direction:column;align-items:center;justify-content:flex-start}
+#belgeOverlay .bo-ust{width:100%;display:flex;justify-content:space-between;align-items:center;
+  padding:12px 14px;color:#fff;font-weight:700;font-size:13px;flex:none}
+#belgeOverlay .bo-kapat{background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff;
+  font:inherit;font-size:18px;line-height:1;padding:6px 12px;cursor:pointer}
+#belgeOverlay .bo-govde{flex:1;width:100%;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:0 8px 16px}
+#belgeOverlay img{max-width:100%;height:auto;background:#fff}
+#belgeOverlay .bo-yukleniyor{color:#fff;padding:30px;font-size:13px}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--gri);color:var(--metin);font-size:15px;padding-bottom:70px}
 .gizli{display:none!important}
@@ -427,9 +441,11 @@ async function vOzet(){
 
 /* ================== GÜN SONU ================== */
 let KDV_SAYAC = 0;
-function kdvSatirEkle(oran, satis, kdv, sabit){
+function kdvSatirEkle(kasaNo, oran, satis, kdv, sabit){
   KDV_SAYAC++;
   const n = KDV_SAYAC;
+  const kap = document.getElementById('kdvSatirlari'+kasaNo);
+  if(!kap) return;
   const div = document.createElement('div');
   div.className='kdv-satir'; div.id='kdvS_'+n;
   const oranKutu = sabit
@@ -439,22 +455,29 @@ function kdvSatirEkle(oran, satis, kdv, sabit){
     ${oranKutu}
     <input type="text" inputmode="decimal" autocomplete="off" id="kdvT_${n}" placeholder="Z'deki %${oran||10} TOPLAM" value="${satis||''}">
     <input type="text" inputmode="decimal" autocomplete="off" id="kdvV_${n}" placeholder="KDV (sistem hesaplar)" value="${kdv||''}">
-    ${sabit?'':`<button class="sil" onclick="document.getElementById('kdvS_${n}').remove()">✕</button>`}`;
-  document.getElementById('kdvSatirlari').appendChild(div);
+    ${sabit?'':`<button class="sil" onclick="document.getElementById('kdvS_${n}').remove(); kasaHesapla();">✕</button>`}`;
+  kap.appendChild(div);
   // Oran toplam satış yazılınca KDV'yi sistem hesaplar (Z'deki TOPKDV farklıysa üzerine yazılabilir)
+  // KDV kutusu bir kez ELLE düzeltildiyse sistem bir daha üzerine YAZMAZ.
+  // (Z'deki TOPKDV birkaç kuruş farklı olabilir — beyana giden Z'dekidir.)
   const hesapla = () => {
+    const vEl = document.getElementById('kdvV_'+n);
+    if (vEl.dataset.elle === '1') return;              // kullanıcı yazdıysa dokunma
     const t = paraOku(document.getElementById('kdvT_'+n)).deger;
     const o = +document.getElementById('kdvO_'+n).value || 0;
-    document.getElementById('kdvV_'+n).value = t > 0 ? (t - t/(1+o/100)).toFixed(2) : '';
+    vEl.value = t > 0 ? (t - t/(1+o/100)).toFixed(2) : '';
   };
-  paraBagla(document.getElementById('kdvT_'+n), hesapla);
-  paraBagla(document.getElementById('kdvV_'+n));
+  const vEl0 = document.getElementById('kdvV_'+n);
+  vEl0.addEventListener('input', ()=>{ vEl0.dataset.elle = vEl0.value.trim()==='' ? '' : '1'; });
+  if (kdv) vEl0.dataset.elle = '1';                    // hazır değerle geldiyse elle sayılır
+  paraBagla(document.getElementById('kdvT_'+n), ()=>{ hesapla(); kasaHesapla(); });
+  paraBagla(vEl0, kasaHesapla);
   const oranEl = document.getElementById('kdvO_'+n);
   if (oranEl.tagName === 'SELECT') oranEl.addEventListener('change', hesapla);
 }
-function kdvOku(){
+function kdvOku(kasaNo){
   const sonuc = [];
-  document.querySelectorAll('#kdvSatirlari .kdv-satir').forEach(d=>{
+  document.querySelectorAll('#kdvSatirlari'+kasaNo+' .kdv-satir').forEach(d=>{
     const n = d.id.split('_')[1];
     const o = document.getElementById('kdvO_'+n).value;
     const tEl = document.getElementById('kdvT_'+n), vEl = document.getElementById('kdvV_'+n);
@@ -464,6 +487,44 @@ function kdvOku(){
       sonuc.push({ oran:+o, satis_toplam:pt.deger, kdv_tutar:pv.deger });
   });
   return sonuc;
+}
+/* ===== BELGE GÖRÜNTÜLEYİCİ — yüklenen fotoğrafı tek tıkla aç ===== */
+function belgeKapat(){
+  const ov=document.getElementById('belgeOverlay');
+  if(ov){ ov.style.display='none'; const r=document.getElementById('boResim'); if(r) r.src=''; }
+}
+function belgeKutusu(){
+  let ov=document.getElementById('belgeOverlay');
+  if(!ov){
+    ov=document.createElement('div'); ov.id='belgeOverlay';
+    ov.innerHTML=`<div class="bo-ust"><span id="boBaslik"></span><button class="bo-kapat" onclick="belgeKapat()">✕</button></div>
+                  <div class="bo-govde"><div class="bo-yukleniyor" id="boDurum">Belge açılıyor...</div><img id="boResim" alt="" style="display:none"></div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e=>{ if(e.target===ov || e.target.classList.contains('bo-govde')) belgeKapat(); });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') belgeKapat(); });
+  }
+  return ov;
+}
+async function belgeAc(yol, baslik){
+  if(!yol){ alert('Bu belge yüklenmemiş.'); return; }
+  const ov=belgeKutusu();
+  document.getElementById('boBaslik').textContent = baslik||'Belge';
+  const img=document.getElementById('boResim'), durum=document.getElementById('boDurum');
+  img.style.display='none'; img.src=''; durum.style.display='block'; durum.textContent='Belge açılıyor...';
+  ov.style.display='flex';
+  try{
+    const { data, error } = await sb.storage.from('belgeler').createSignedUrl(yol, 300);
+    if (error || !data || !data.signedUrl) throw new Error(error?.message || 'imzalı bağlantı alınamadı');
+    img.onload = ()=>{ durum.style.display='none'; img.style.display='block'; };
+    img.onerror = ()=>{ durum.textContent='Görsel açılamadı.'; };
+    img.src = data.signedUrl;
+  }catch(e){
+    durum.textContent = 'Belge açılamadı: ' + e.message;
+  }
+}
+function belgeBtn(yol, etiket, baslik){
+  if(!yol) return `<span class="bo-btn yok">${etiket} yok</span>`;
+  return `<button type="button" class="bo-btn" onclick="belgeAc('${yol}','${(baslik||'').replace(/'/g,'')}')">${etiket}</button>`;
 }
 /* ===== PARA GİRİŞ KATMANI — virgül/nokta güvenli, sessiz sıfır YOK ===== */
 function paraTemizle(el){
@@ -506,6 +567,13 @@ function kasaPanelHtml(n){
         <div><label>Nakit Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsNakit${n}" placeholder="0,00"></div>
       </div>
       <div class="kp-ara"><span>Ara Toplam — Z'deki NET SATIŞ ile aynı olmalı</span><b id="gsAra${n}">0,00 ₺</b></div>
+      <label>KDV — bu kasanın Z'sindeki VERGİ DÖKÜMÜ</label>
+      <div class="bilgi-not" style="margin:0 0 6px">Z'deki <b>"%10 TOPLAM"</b> satırını yaz; KDV'yi sistem hesaplar.
+        Z'deki <b>TOPKDV</b> birkaç kuruş farklıysa <b>Z'dekini</b> yaz — sistem üzerine yazmaz.
+        ⚠️ "KÜM. TOPLAM" satırını KULLANMA.</div>
+      <div id="kdvSatirlari${n}"></div>
+      <button type="button" class="btn2" onclick="kdvSatirEkle(${n})">+ farklı oran ekle</button>
+      <div class="kp-ara"><span>Kasa ${n} KDV</span><b id="gsKdv${n}">0,00 ₺</b></div>
       <label>Z Raporu Fotoğrafı <b style="color:var(--hata)">*</b></label>
       <input type="file" id="gsZFoto${n}" accept="image/*" capture="environment">
       <label>POS Slip Fotoğrafı <b style="color:var(--hata)">*</b></label>
@@ -536,10 +604,20 @@ function kasaDurum(n){
   const bos=!zno && !kart && !nakit && !zfVar && !sfVar && pk.ok && pn.ok;
   return { zno, kart, nakit, ara:+(kart+nakit).toFixed(2), eksik, bos, gecerli: pk.ok && pn.ok };
 }
+function kdvToplam(kasaNo){
+  let t=0;
+  document.querySelectorAll('#kdvSatirlari'+kasaNo+' .kdv-satir').forEach(d=>{
+    const n=d.id.split('_')[1];
+    t += paraOku(document.getElementById('kdvV_'+n)).deger;
+  });
+  return +t.toFixed(2);
+}
 function kasaHesapla(){
-  let tk=0, tn=0; const eksikler=[];
+  let tk=0, tn=0, tkdv=0; const eksikler=[];
   [1,2].forEach(n=>{
     const d=kasaDurum(n); tk+=d.kart; tn+=d.nakit;
+    const kv=kdvToplam(n); tkdv+=kv;
+    const kdvEl=document.getElementById('gsKdv'+n); if(kdvEl) kdvEl.textContent=tl(kv);
     const ara=document.getElementById('gsAra'+n); if(ara) ara.textContent=tl(d.ara);
     const kt=document.getElementById('ksTut'+n); if(kt) kt.textContent=tl(d.ara);
     const drm=document.getElementById('kpDrm'+n), ks=document.getElementById('ksDrm'+n);
@@ -555,7 +633,8 @@ function kasaHesapla(){
   const zDisi=pz.deger;
   if(!pz.ok) eksikler.push('Z DIŞI KASA — tutar geçersiz');
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
-  set('gsTKart', tl(tk)); set('gsTNakit', tl(tn)); set('gsTGenel', tl(+(tk+tn).toFixed(2))); set('gsZDisi', tl(zDisi));
+  set('gsTKart', tl(tk)); set('gsTNakit', tl(tn)); set('gsTGenel', tl(+(tk+tn).toFixed(2)));
+  set('gsZDisi', tl(zDisi)); set('gsTKdv', tl(tkdv));
   const btn=document.getElementById('gsKaydet'), ek=document.getElementById('gsEksik');
   const hazir = eksikler.length===0 && (tk+tn)>0;
   if(btn){ btn.disabled=!hazir; btn.style.opacity=hazir?'1':'.5'; }
@@ -579,16 +658,12 @@ async function vGunSonu(){
       <div class="kasa-grid">${kasaPanelHtml(1)}<div class="kasa-ayirici"></div>${kasaPanelHtml(2)}</div>
       <label>Kasadaki Para (günün nakiti — bırakılan bozukluk HARİÇ say)</label>
       <input type="text" inputmode="decimal" autocomplete="off" id="gsKasa" placeholder="0,00">
-      <label>KDV (Z'lerdeki VERGİ DÖKÜMÜ — iki kasanın toplamı)</label>
-      <div class="bilgi-not" style="margin:0 0 8px">Z kağıdındaki <b>"%10 TOPLAM"</b> satırını ilk kutuya yaz — KDV'yi sistem hesaplar
-        (Z'deki TOPKDV birkaç kuruş farklıysa Z'dekini yaz). ⚠️ "KÜM. TOPLAM" satırını KULLANMA.</div>
-      <div id="kdvSatirlari"></div>
-      <button class="btn2" onclick="kdvSatirEkle()">+ farklı oran ekle (Z'de %10 dışında satır varsa)</button>
       <label>Gün Notu (isteğe bağlı)</label><textarea id="gsNot" rows="2"></textarea>
       <div class="gs-bant">
         <div class="kalem"><div class="gs-et">Toplam Kart</div><div class="dg" id="gsTKart">0,00 ₺</div></div>
         <div class="kalem"><div class="gs-et">Toplam Nakit</div><div class="dg" id="gsTNakit">0,00 ₺</div></div>
         <div class="kalem buyuk"><div class="gs-et">Gün Sonu Toplamı</div><div class="dg" id="gsTGenel">0,00 ₺</div></div>
+        <div class="kalem"><div class="gs-et">Toplam KDV (beyana giden)</div><div class="dg" id="gsTKdv">0,00 ₺</div></div>
       </div>
       <div class="gs-zdisi">
         <div class="gs-et">Z Dışı Kasa Nakdi</div>
@@ -601,7 +676,8 @@ async function vGunSonu(){
       <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.':'Yanlış girersen 12 saat içinde aşağıdan silip yeniden girebilirsin.'}</div>
     </div>
     ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : '<div id="gsSonKayit"></div>'}`;
-  kdvSatirEkle(10, null, null, true);
+  kdvSatirEkle(1, 10, null, null, true);
+  kdvSatirEkle(2, 10, null, null, true);
   if (PROFIL.rol==='personel') personelSonKayit();
   else if (PROFIL.rol==='owner') gunSonuListe();
   [1,2].forEach(n=>{
@@ -615,15 +691,34 @@ async function vGunSonu(){
   paraBagla(document.getElementById('gsKasa'), kasaHesapla);
   kasaHesapla();
 }
-function personelSonKayit(){
+async function personelSonKayit(){
   const el = document.getElementById('gsSonKayit'); if(!el) return;
-  let s; try{ s = JSON.parse(localStorage.getItem('sonGunSonu')||'null'); }catch(e){ s=null; }
-  // 12 saatlik düzeltme penceresi
-  if (!s || !s.id || Date.now() - s.zaman > 12*3600*1000){ el.innerHTML=''; return; }
-  el.innerHTML = `<div class="kart" style="border-color:var(--uyari)">
-    <div class="kbaslik" style="color:var(--uyari)">Az önce girdiğin gün: ${new Date(s.tarih+'T00:00').toLocaleDateString('tr-TR')}</div>
-    <div class="bilgi-not" style="margin:0 0 10px">Yanlış girdiysen 12 saat içinde silip yeniden girebilirsin. Sonrasında düzeltmeyi yönetici yapar.</div>
-    <button class="btn-kirmizi" style="width:100%;padding:11px" onclick="gunSil('${s.id}','${s.tarih}')">Bu Kaydı Sil & Yeniden Gir</button>
+  // RLS zaten sınırlıyor: yalnız KENDİ girdiği, son 3 gün. Ekstra filtre gerekmez.
+  const { data, error } = await sb.from('gun_sonu')
+    .select('id,tarih,kart_toplam,nakit_toplam,toplam,kasa_nakit,created_at, gun_sonu_kasa(kasa_no,z_no,toplam,z_foto_path,pos_slip_foto_path,is_deleted)')
+    .eq('is_deleted',false).order('created_at',{ascending:false});
+  if (error){ el.innerHTML = `<div class="bilgi-not">Son kayıtlar yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
+  const gunler = data||[];
+  if (!gunler.length){ el.innerHTML = `<div class="kart"><div class="kbaslik">Son Girdiğin Günler</div>
+    <div class="bilgi-not">Son 3 gün içinde girdiğin kayıt yok.</div></div>`; return; }
+  el.innerHTML = `<div class="kart">
+    <div class="kbaslik">Son Girdiğin Günler (3 gün)</div>
+    <div class="bilgi-not" style="margin:0 0 10px">Yanlış girdiysen <b>3 gün içinde</b> silip yeniden girebilirsin. Sonrasında düzeltmeyi yönetici yapar.</div>
+    ${gunler.map(g=>{
+      const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
+      const t=new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR');
+      return `<div class="liste-satir">
+        <div class="l-sol"><div class="b">${t}</div>
+          <div class="k">Kart ${tl(g.kart_toplam)} · Nakit ${tl(g.nakit_toplam)}
+          ${ks.length?'<br>'+ks.map(k=>`<b>K${k.kasa_no}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; '):''}
+          ${g.kasa_nakit!==null?'<br>Z dışı kasa: '+tl(g.kasa_nakit):''}
+          <div style="margin-top:6px">${ks.map(k=>
+            belgeBtn(k.z_foto_path,`K${k.kasa_no} Z`,`${t} — Kasa ${k.kasa_no} Z Raporu`)+
+            belgeBtn(k.pos_slip_foto_path,`K${k.kasa_no} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')}</div>
+          </div></div>
+        <div class="l-sag">${tl(g.toplam)}<br>
+          <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil & Yeniden Gir</button></div>
+      </div>`; }).join('')}
   </div>`;
 }
 async function fotoTemizle(yollar){
@@ -640,18 +735,23 @@ async function gunSonuKaydet(){
   for (const n of [1,2]){
     const d = kasaDurum(n);
     if (d.eksik.length){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} eksik: ${d.eksik.join(', ')}`); return; }
-    kasalar.push({ n, zno:d.zno, kart:d.kart, nakit:d.nakit,
+    let kdvSatir;
+    try { kdvSatir = kdvOku(n); }
+    catch(e){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n}: `+e.message); return; }
+    kasalar.push({ n, zno:d.zno, kart:d.kart, nakit:d.nakit, kdv:kdvSatir,
       knot:(document.getElementById('gsKNot'+n)?.value||'').trim()||null });
   }
   const kart = +(kasalar.reduce((a,k)=>a+k.kart,0)).toFixed(2);
   const nakit = +(kasalar.reduce((a,k)=>a+k.nakit,0)).toFixed(2);
   const toplam = +(kart + nakit).toFixed(2);
-  let kdv;
-  try { kdv = kdvOku(); }
-  catch(e){ mesaj('gsMsg','hata', e.message); return; }
+  // KDV artık KASA BAZLI: her kasanın kendi Z vergi dökümü
+  const kdv = kasalar.flatMap(k=>k.kdv);
+  const kdvToplamTutar = +(kdv.reduce((a,x)=>a+x.kdv_tutar,0)).toFixed(2);
   if (toplam === 0){ mesaj('gsMsg','hata','İki kasanın toplamı 0 — kayıt yapılamaz.'); return; }
-  if (kdv.length === 0 &&
-      !confirm('KDV dökümü BOŞ. Z raporundaki VERGİ DÖKÜMÜ girilmedi — KDV tahmini bu gün için eksik kalır. Yine de kaydedilsin mi?')) return;
+  for (const k of kasalar){
+    if (k.kdv.length === 0 && (k.kart + k.nakit) > 0 &&
+        !confirm(`KASA ${k.n} için KDV dökümü BOŞ. O kasanın Z raporundaki VERGİ DÖKÜMÜ girilmedi — beyana giden KDV eksik kalır. Yine de kaydedilsin mi?`)) return;
+  }
   // AKIL KONTROLLERİ (KÜM. TOPLAM tuzağı + KDV tutarlılığı)
   const kdvSatisToplami = kdv.reduce((a,x)=>a+x.satis_toplam,0);
   if (kdvSatisToplami > toplam*1.5 + 100){
@@ -668,8 +768,11 @@ async function gunSonuKaydet(){
   const kasa = pKasa.deger;
   if (kasa === 0 &&
       !confirm('Kasadaki Para girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
-  const ozet = kasalar.map(k=>`Kasa ${k.n} (Z ${k.zno}): ${tl(k.ara!==undefined?k.ara:k.kart+k.nakit)}`).join('\n');
-  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nZ dışı kasa nakdi: ${tl(kasa)} (toplama dahil değil)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
+  const ozet = kasalar.map(k=>{
+    const kv = k.kdv.reduce((a,x)=>a+x.kdv_tutar,0);
+    return `Kasa ${k.n} (Z ${k.zno}): ${tl(k.kart+k.nakit)}   KDV ${tl(kv)}`;
+  }).join('\n');
+  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nZ dışı kasa nakdi: ${tl(kasa)}\n(vergiye DAHİL DEĞİL — gerçek nakit takibi için)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
 
   const btn = document.getElementById('gsKaydet');
   btn.disabled = true;
@@ -692,11 +795,11 @@ async function gunSonuKaydet(){
     p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: document.getElementById('gsTarih').value,
     p_kart: kart, p_nakit: nakit, p_toplam: toplam,
     p_iptal_adet: 0, p_iptal_tutar: 0,
-    p_z_no: null, p_kdv: kdv, p_z_foto: null, p_slip_foto: null,
+    p_z_no: null, p_kdv: null, p_z_foto: null, p_slip_foto: null,
     p_not: document.getElementById('gsNot').value.trim()||null,
     p_kasa: kasa > 0 ? kasa : null,
     p_kasalar: kasalar.map(k=>({ kasa_no:k.n, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
-      z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot }))
+      z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
   if (data && data.ok){
     try{ localStorage.setItem('sonGunSonu', JSON.stringify({ id:data.gun_sonu_id, tarih:document.getElementById('gsTarih').value, zaman:Date.now() })); }catch(e){}
@@ -715,7 +818,7 @@ async function gunSonuKaydet(){
 }
 async function gunSonuListe(){
   const { data } = await sb.from('gun_sonu')
-    .select('*, gun_sonu_kasa(kasa_no,z_no,kart_toplam,nakit_toplam,toplam,is_deleted)')
+    .select('*, gun_sonu_kasa(kasa_no,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,oran,satis_toplam,kdv_tutar,is_deleted)')
     .eq('is_deleted',false).order('tarih',{ascending:false}).limit(14);
   const gunler = data||[];
   // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
@@ -744,7 +847,21 @@ async function gunSonuListe(){
                              : ' · Z:'+esc(g.z_no||'—');
           })()}
           ${gercek!==null?`<br>Gerçek: <b>${tl(gercek)}</b> · Z-dışı nakit: <b>${fark>=0?'+':''}${tl(fark)}</b>${kasadan>0?' · kasadan ödenen: '+tl(kasadan):''}`:''}
-          ${g.notlar?'<br>'+esc(g.notlar):''}</div></div>
+          ${(()=>{const kd=(g.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
+            if(!kd.length) return '<br><span style="color:var(--uyari)">⚠ KDV girilmemiş</span>';
+            const t=kd.reduce((a,x)=>a+ +x.kdv_tutar,0);
+            const par=[1,2].map(no=>{const s=kd.filter(x=>x.kasa_no===no).reduce((a,x)=>a+ +x.kdv_tutar,0);
+              return s>0?`K${no} ${tl(s)}`:null;}).filter(Boolean).join(' + ');
+            return `<br>KDV: <b>${tl(t)}</b>${par?' ('+par+')':''}`;})()}
+          ${g.notlar?'<br>'+esc(g.notlar):''}
+          ${(()=>{const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no);
+            const t=new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR');
+            if(ks.length) return '<div style="margin-top:6px">'+ks.map(k=>
+              belgeBtn(k.z_foto_path,`K${k.kasa_no} Z`,`${t} — Kasa ${k.kasa_no} Z Raporu`)+
+              belgeBtn(k.pos_slip_foto_path,`K${k.kasa_no} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')+'</div>';
+            return '<div style="margin-top:6px">'+belgeBtn(g.z_foto_path,'Z Raporu',`${t} — Z Raporu`)+
+                   belgeBtn(g.pos_slip_foto_path,'POS Slip',`${t} — POS Slip`)+'</div>';
+          })()}</div></div>
         <div class="l-sag">${tl(g.toplam)}<br>
           <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil & Yeniden Gir</button></div>
       </div>`;}).join('')}</div>`;
@@ -1483,7 +1600,7 @@ async function vYonetim(){
         <option value="stopaj">Stopaj</option><option value="muhasebeci">Muhasebeci Ücreti</option>
         <option value="diger">Diğer</option>
       </select>
-      <label>Tutar</label><input type="number" step="0.01" inputmode="decimal" id="voTutar" placeholder="0,00">
+      <label>Tutar</label><input type="text" inputmode="decimal" autocomplete="off" id="voTutar" placeholder="0,00">
       <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
       <label>Belge Fotoğrafı</label><input type="file" id="voFoto" accept="image/*" capture="environment">
       <label>Not</label><input type="text" id="voNot">
@@ -1511,6 +1628,7 @@ async function vYonetim(){
     </div>
     <div id="bankaMutabakatKart"></div>`;
   akDurumGoster(); vergiVadeYukle(); vergiOdenenYukle(); bankaMutabakatKart();
+  paraBagla(document.getElementById('voTutar'));
 }
 const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',diger:'Diğer'};
 async function vergiVadeYukle(){
@@ -1534,7 +1652,9 @@ async function vadeOdendi(id){
   vergiVadeYukle();
 }
 async function vergiOdemeKaydet(){
-  const tutar = +document.getElementById('voTutar').value||0;
+  const pv = paraOku(document.getElementById('voTutar'));
+  if (!pv.ok){ mesaj('voMsg','hata','Tutar geçersiz — örnek: 150489,03 veya 150489.03'); return; }
+  const tutar = pv.deger;
   if (tutar===0){ mesaj('voMsg','hata','Tutar boş olamaz.'); return; }
   const btn = document.getElementById('voKaydet');
   btn.disabled=true; btn.textContent='Yükleniyor...';
