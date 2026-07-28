@@ -556,6 +556,54 @@ function paraBagla(el, sonra){
   el.addEventListener('input', f);
   el.addEventListener('blur', f);
 }
+/* ===== DÜZENLEME MODU — kaydı silmeden güncelle ===== */
+let DUZENLE = null;   // {id, tarih, foto:{1:{z,s},2:{z,s}}}
+function duzenlemeIptal(){
+  DUZENLE = null;
+  vGunSonu();
+}
+async function gunSonuDuzenle(id){
+  const { data, error } = await sb.from('gun_sonu')
+    .select('*, gun_sonu_kasa(kasa_no,z_no,kart_toplam,nakit_toplam,z_foto_path,pos_slip_foto_path,notlar,is_deleted), gun_sonu_kdv(kasa_no,oran,satis_toplam,kdv_tutar,is_deleted)')
+    .eq('id', id).maybeSingle();
+  if (error || !data){ alert('Kayıt yüklenemedi: ' + hataTr(error?.message || 'bulunamadı')); return; }
+  DUZENLE = null;
+  await vGunSonu();                                   // formu temiz kur
+  DUZENLE = { id: data.id, tarih: data.tarih, foto: {} };
+  const tar = document.getElementById('gsTarih');
+  tar.value = data.tarih; tar.disabled = true;
+  document.getElementById('gsKasa').value = (data.kasa_nakit ?? '');
+  document.getElementById('gsNot').value  = data.notlar || '';
+  const ks = (data.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
+  const kd = (data.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
+  [1,2].forEach(n=>{
+    const k = ks.find(x=>x.kasa_no===n);
+    DUZENLE.foto[n] = { z:(k&&k.z_foto_path)||null, s:(k&&k.pos_slip_foto_path)||null };
+    if (k){
+      document.getElementById('gsZNo'+n).value   = k.z_no || '';
+      document.getElementById('gsKart'+n).value  = k.kart_toplam;
+      document.getElementById('gsNakit'+n).value = k.nakit_toplam;
+      const kn = document.getElementById('gsKNot'+n); if(kn) kn.value = k.notlar || '';
+    }
+    const kap = document.getElementById('kdvSatirlari'+n);
+    if (kap){
+      kap.innerHTML = '';
+      const sat = kd.filter(x=>x.kasa_no===n);
+      if (sat.length) sat.forEach(x=>kdvSatirEkle(n, x.oran, x.satis_toplam, x.kdv_tutar, false));
+      else kdvSatirEkle(n, 10, null, null, true);
+    }
+  });
+  const bar = document.getElementById('gsDuzenleBar');
+  if (bar) bar.innerHTML = `<div class="kart" style="border-color:var(--uyari);background:#FFF8EC">
+    <div class="kbaslik" style="color:var(--uyari)">DÜZENLEME MODU — ${new Date(data.tarih+'T00:00').toLocaleDateString('tr-TR')}</div>
+    <div class="bilgi-not" style="margin:0 0 8px">Kayıt <b>silinmiyor</b>, üzerine yazılıyor. Fotoğrafları değiştirmek istemiyorsan
+      dokunma — mevcutlar korunur. Tarih değiştirilemez.</div>
+    <button class="btn2" style="width:100%" onclick="duzenlemeIptal()">Vazgeç</button></div>`;
+  const btn = document.getElementById('gsKaydet');
+  if (btn) btn.textContent = 'Değişiklikleri Kaydet';
+  kasaHesapla();
+  window.scrollTo(0,0);
+}
 function kasaPanelHtml(n){
   return `
     <div class="kasa-panel ${n===1?'sol aktif':'sag'}" id="kasaPanel${n}">
@@ -594,7 +642,10 @@ function kasaDurum(n){
   const pn=paraOku(document.getElementById('gsNakit'+n));
   const kart=pk.deger, nakit=pn.deger;
   const zf=document.getElementById('gsZFoto'+n), sf=document.getElementById('gsSlipFoto'+n);
-  const zfVar=!!(zf&&zf.files&&zf.files[0]), sfVar=!!(sf&&sf.files&&sf.files[0]);
+  // Düzenleme modunda mevcut fotoğraf zorunluluğu karşılar (yenisi seçilmezse korunur)
+  const mev = (DUZENLE && DUZENLE.foto && DUZENLE.foto[n]) || {};
+  const zfVar=!!(zf&&zf.files&&zf.files[0]) || !!mev.z;
+  const sfVar=!!(sf&&sf.files&&sf.files[0]) || !!mev.s;
   const eksik=[];
   if(!zno) eksik.push('Z No');
   if(!pk.ok) eksik.push('Kart tutarı geçersiz');
@@ -648,6 +699,7 @@ async function vGunSonu(){
   const el = document.getElementById('icerik');
   el.innerHTML = `
     <h2 class="bolum">Gün Sonu Girişi</h2>
+    <div id="gsDuzenleBar"></div>
     <div class="kart">
       ${tarihSecici('gsTarih')}
       <div class="bilgi-not" style="margin:0 0 8px">İki yazarkasa da girilir. Her kasa için <b>Z No + Z fotoğrafı + POS slip fotoğrafı zorunludur</b>.</div>
@@ -717,7 +769,8 @@ async function personelSonKayit(){
             belgeBtn(k.pos_slip_foto_path,`K${k.kasa_no} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')}</div>
           </div></div>
         <div class="l-sag">${tl(g.toplam)}<br>
-          <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil & Yeniden Gir</button></div>
+          <button class="btn2" style="margin-top:4px" onclick="gunSonuDuzenle('${g.id}')">Düzelt</button>
+          <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil</button></div>
       </div>`; }).join('')}
   </div>`;
 }
@@ -775,13 +828,22 @@ async function gunSonuKaydet(){
   if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nZ dışı kasa nakdi: ${tl(kasa)}\n(vergiye DAHİL DEĞİL — gerçek nakit takibi için)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
 
   const btn = document.getElementById('gsKaydet');
+  const eskiBtnMetin = DUZENLE ? 'Değişiklikleri Kaydet' : 'Gün Sonunu Kaydet';
   btn.disabled = true;
   const yuklenen = [];
   try{
     for (const k of kasalar){
-      btn.textContent = `Kasa ${k.n} fotoğrafları yükleniyor...`;
-      k.zf = await fotoYukle('gsZFoto'+k.n, 'z');   yuklenen.push(k.zf);
-      k.sf = await fotoYukle('gsSlipFoto'+k.n, 'slip'); yuklenen.push(k.sf);
+      const mev = (DUZENLE && DUZENLE.foto[k.n]) || {};
+      const yeniZ = document.getElementById('gsZFoto'+k.n);
+      const yeniS = document.getElementById('gsSlipFoto'+k.n);
+      const zSecili = !!(yeniZ && yeniZ.files && yeniZ.files[0]);
+      const sSecili = !!(yeniS && yeniS.files && yeniS.files[0]);
+      if (zSecili || sSecili) btn.textContent = `Kasa ${k.n} fotoğrafları yükleniyor...`;
+      // Yeni seçildiyse yükle, seçilmediyse MEVCUDU koru
+      k.zf = zSecili ? await fotoYukle('gsZFoto'+k.n, 'z')      : mev.z;
+      if (zSecili) yuklenen.push(k.zf);
+      k.sf = sSecili ? await fotoYukle('gsSlipFoto'+k.n, 'slip') : mev.s;
+      if (sSecili) yuklenen.push(k.sf);
     }
   }catch(e){
     const kalan = await fotoTemizle(yuklenen);
@@ -789,8 +851,26 @@ async function gunSonuKaydet(){
     mesaj('gsMsg','hata', e.message + (kalan.length ? ` — ${kalan.length} dosya temizlenemedi (yönetici bilgilendirilmeli)` : ' — yüklenenler temizlendi'));
     btn.disabled=false; btn.textContent='Gün Sonunu Kaydet'; return;
   }
-  btn.textContent = 'Gün Sonunu Kaydet';
+  btn.textContent = eskiBtnMetin;
   window.__sonRpcHataHam = '';
+  // DÜZENLEME: kaydı silmeden güncelle
+  if (DUZENLE){
+    const gData = await rpcCagir('rpc_gun_sonu_guncelle', {
+      p_idem: idem(), p_id: DUZENLE.id,
+      p_not: document.getElementById('gsNot').value.trim()||null,
+      p_kasa: kasa > 0 ? kasa : null,
+      p_kasalar: kasalar.map(k=>({ kasa_no:k.n, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
+        z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
+    }, 'gsKaydet','gsMsg','Değişiklikler kaydedildi ✓');
+    if (gData && gData.ok){ DUZENLE = null; vGunSonu(); mesaj('gsMsg','ok','Değişiklikler kaydedildi ✓'); }
+    else {
+      btn.textContent = eskiBtnMetin;
+      const bel = /Failed to fetch|NetworkError|timeout|bağlantı/i.test(window.__sonRpcHataHam||'');
+      if (bel) mesaj('gsMsg','hata','Bağlantı belirsiz — değişiklik gitmiş olabilir. Listeyi kontrol edin.');
+      else if (yuklenen.length) await fotoTemizle(yuklenen);
+    }
+    return;
+  }
   const data = await rpcCagir('rpc_gun_sonu_kaydet', {
     p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: document.getElementById('gsTarih').value,
     p_kart: kart, p_nakit: nakit, p_toplam: toplam,
@@ -802,9 +882,12 @@ async function gunSonuKaydet(){
       z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
   if (data && data.ok){
-    try{ localStorage.setItem('sonGunSonu', JSON.stringify({ id:data.gun_sonu_id, tarih:document.getElementById('gsTarih').value, zaman:Date.now() })); }catch(e){}
-    vGunSonu(); mesaj('gsMsg','ok','Gün sonu kaydedildi ✓ (2 kasa)');
+    const duzenlemeydi = !!DUZENLE;
+    DUZENLE = null;
+    vGunSonu();
+    mesaj('gsMsg','ok', duzenlemeydi ? 'Değişiklikler kaydedildi ✓' : 'Gün sonu kaydedildi ✓ (2 kasa)');
   } else {
+    btn.textContent = eskiBtnMetin;
     // Ağ belirsizse kayıt gitmiş OLABİLİR -> fotoğrafları SİLME. Kesin hatada temizle.
     const belirsiz = /Failed to fetch|NetworkError|timeout|bağlantı/i.test(window.__sonRpcHataHam||'');
     if (belirsiz){
@@ -863,7 +946,8 @@ async function gunSonuListe(){
                    belgeBtn(g.pos_slip_foto_path,'POS Slip',`${t} — POS Slip`)+'</div>';
           })()}</div></div>
         <div class="l-sag">${tl(g.toplam)}<br>
-          <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil & Yeniden Gir</button></div>
+          <button class="btn2" style="margin-top:4px" onclick="gunSonuDuzenle('${g.id}')">Düzenle</button>
+          <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil</button></div>
       </div>`;}).join('')}</div>`;
 }
 async function gunSil(id, tarih){
