@@ -319,17 +319,22 @@ function mesaj(elId, tip, txt){
   el.textContent = txt; el.style.display='block';
   if (tip==='ok') setTimeout(()=>{ el.style.display='none'; }, 5000);
 }
-async function fotoKucult(file){
-  // Telefon fotoğrafları 5-10MB olabiliyor: yüklemeden önce ~1600px JPEG'e küçült.
+async function fotoKucult(file, max, kalite){
+  // Telefon fotoğrafları 5-10MB olabiliyor: yüklemeden önce küçült.
+  // Varsayılan (arşiv/yükleme): 1600px @ 0.82 — yer kazandırır.
+  // Okuma için (fatura/Z): 2000px @ 0.92 — A4 faturada ince yazı ve
+  // "paket içi 50 adet" gibi küçük açıklamalar okunabilir kalsın.
+  max = max || 1600; kalite = kalite || 0.82;
   try{
     const img = await createImageBitmap(file);
-    const max = 1600;
     const oran = Math.min(1, max / Math.max(img.width, img.height));
     if (oran === 1 && file.size < 700*1024) return { veri:file, tip:null };
     const c = document.createElement('canvas');
     c.width = Math.round(img.width*oran); c.height = Math.round(img.height*oran);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    const blob = await new Promise(r=>c.toBlob(r,'image/jpeg',0.82));
+    const cx = c.getContext('2d');
+    cx.imageSmoothingQuality = 'high';
+    cx.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise(r=>c.toBlob(r,'image/jpeg',kalite));
     return blob ? { veri:blob, tip:'jpg' } : { veri:file, tip:null };
   }catch(e){ return { veri:file, tip:null }; } // küçültülemezse orijinali yükle
 }
@@ -599,7 +604,7 @@ async function zRaporuOku(k){
 
     let govde;
     if (dosyaVar){
-      const k = await fotoKucult(inp.files[0]);          // token ve süre tasarrufu
+      const k = await fotoKucult(inp.files[0], 2000, 0.92);   // okuma için net kopya
       const b64 = await new Promise((coz, red)=>{
         const fr = new FileReader();
         fr.onload = ()=>coz(fr.result); fr.onerror = ()=>red(new Error('Fotoğraf okunamadı'));
@@ -1097,24 +1102,59 @@ async function gunSonuKaydet(){
     }
   }
 }
+let GS_AY = null;                                    // hangi ay listeleniyor
+function gsAyDegisti(){ GS_AY = document.getElementById('gsListeAy').value; gunSonuListe(); }
 async function gunSonuListe(){
-  const { data } = await sb.from('gun_sonu')
+  const el = document.getElementById('gsListe'); if(!el) return;
+  const ay  = GS_AY || bugun().slice(0,7);
+  const bas = ay + '-01';
+  const sonGun = new Date(+ay.slice(0,4), +ay.slice(5,7), 0).getDate();
+  const son = ay + '-' + String(sonGun).padStart(2,'0');
+  // AY BAZLI: limit yok, o ayın tamamı gelir (eskiden son 14 kayıt geliyordu, ayın başı düşüyordu)
+  const { data, error } = await sb.from('gun_sonu')
     .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,sira,oran,satis_toplam,kdv_tutar,is_deleted)')
-    .eq('is_deleted',false).order('tarih',{ascending:false}).limit(14);
+    .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son).order('tarih',{ascending:false});
   const gunler = data||[];
   // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
   const kasadanMap = {};
-  if (gunler.length){
-    const ilkT = gunler[gunler.length-1].tarih;
-    const [kg, no] = await Promise.all([
-      sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih', ilkT),
-      sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ilkT)
-    ]);
-    [...(kg.data||[]), ...(no.data||[])].forEach(x=>{ kasadanMap[x.tarih] = (kasadanMap[x.tarih]||0) + (+x.tutar); });
+  const [kg, no] = await Promise.all([
+    sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
+    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
+  ]);
+  [...(kg.data||[]), ...(no.data||[])].forEach(x=>{ kasadanMap[x.tarih] = (kasadanMap[x.tarih]||0) + (+x.tutar); });
+
+  // Ay toplamı + girilmeyen günler (bugünden sonrası beklenmez)
+  const tKart  = gunler.reduce((a,g)=>a+ +g.kart_toplam,0);
+  const tNakit = gunler.reduce((a,g)=>a+ +g.nakit_toplam,0);
+  const tKdv   = gunler.reduce((a,g)=>a+(g.gun_sonu_kdv||[]).filter(x=>!x.is_deleted).reduce((b,x)=>b+ +x.kdv_tutar,0),0);
+  const tZDisi = gunler.reduce((a,g)=>a+(g.kasa_nakit===null?0:+g.kasa_nakit),0);
+  const girilen = new Set(gunler.map(g=>g.tarih));
+  const bugunS = bugun();
+  const eksikGunler = [];
+  for (let d=1; d<=sonGun; d++){
+    const t = ay + '-' + String(d).padStart(2,'0');
+    if (t <= bugunS && !girilen.has(t)) eksikGunler.push(d);
   }
-  const el = document.getElementById('gsListe'); if(!el) return;
-  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Günler</div>
-    ${gunler.length===0?'<div class="bilgi-not">Kayıt yok.</div>':gunler.map(g=>{
+  const ayAdi = new Date(bas+'T00:00').toLocaleDateString('tr-TR',{month:'long',year:'numeric'});
+
+  el.innerHTML = `<div class="kart">
+    <div class="kbaslik">Gün Sonları</div>
+    <label>Ay</label>
+    <input type="month" id="gsListeAy" value="${ay}" onchange="gsAyDegisti()">
+    ${error?`<div class="bilgi-not" style="color:var(--hata)">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`:''}
+    <div class="gs-bant" style="margin:12px 0">
+      <div class="kalem"><div class="gs-et">Kart</div><div class="dg">${tl(tKart)}</div></div>
+      <div class="kalem"><div class="gs-et">Z nakit</div><div class="dg">${tl(tNakit)}</div></div>
+      <div class="kalem buyuk"><div class="gs-et">${esc(ayAdi)} toplamı</div><div class="dg">${tl(tKart+tNakit)}</div></div>
+      <div class="kalem"><div class="gs-et">KDV (beyana giden)</div><div class="dg">${tl(tKdv)}</div></div>
+    </div>
+    <div class="bilgi-not" style="margin:0 0 10px">
+      <b>${gunler.length}</b> gün girildi · Z dışı kasa toplamı <b>${tl(tZDisi)}</b>
+      ${eksikGunler.length
+        ? `<br><span style="color:var(--uyari)">⚠ Girilmeyen gün (${eksikGunler.length}): ${eksikGunler.join(', ')}</span>`
+        : '<br><span style="color:var(--ok)">✓ Bugüne kadarki tüm günler girilmiş</span>'}
+    </div>
+    ${gunler.length===0?'<div class="bilgi-not">Bu ayda kayıt yok.</div>':gunler.map(g=>{
       const kasa = g.kasa_nakit===null ? null : +g.kasa_nakit;
       const kasadan = kasadanMap[g.tarih]||0;
       const gercek = kasa===null ? null : +g.kart_toplam + kasa + kasadan;
@@ -1130,11 +1170,18 @@ async function gunSonuListe(){
           })()}
           ${gercek!==null?`<br>Gerçek: <b>${tl(gercek)}</b> · Z-dışı nakit: <b>${fark>=0?'+':''}${tl(fark)}</b>${kasadan>0?' · kasadan ödenen: '+tl(kasadan):''}`:''}
           ${(()=>{const kd=(g.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
+            const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
             if(!kd.length) return '<br><span style="color:var(--uyari)">⚠ KDV girilmemiş</span>';
             const t=kd.reduce((a,x)=>a+ +x.kdv_tutar,0);
             const par=[1,2].map(no=>{const s=kd.filter(x=>x.kasa_no===no).reduce((a,x)=>a+ +x.kdv_tutar,0);
               return s>0?`K${no} ${tl(s)}`:null;}).filter(Boolean).join(' + ');
-            return `<br>KDV: <b>${tl(t)}</b>${par?' ('+par+')':''}`;})()}
+            // Satışı olup KDV'si girilmemiş kasa: beyan eksik kalır, ayrıca uyar
+            const acik=[1,2].filter(no=>{
+              const sat=ks.filter(k=>k.kasa_no===no).reduce((a,k)=>a+ +k.toplam,0);
+              const kdv=kd.filter(x=>x.kasa_no===no).reduce((a,x)=>a+ +x.kdv_tutar,0);
+              return sat>0 && kdv===0; });
+            return `<br>KDV: <b>${tl(t)}</b>${par?' ('+par+')':''}`
+              + (acik.length?`<br><span style="color:var(--uyari)">⚠ Kasa ${acik.join(' ve ')} satış yapmış ama KDV'si girilmemiş</span>`:'');})()}
           ${g.notlar?'<br>'+esc(g.notlar):''}
           ${(()=>{const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted)
               .sort((a,b)=>a.kasa_no-b.kasa_no || (a.sira||1)-(b.sira||1));
@@ -1291,6 +1338,12 @@ function gdFatura(){
     <div class="kart">
       <div class="kbaslik">Fatura (tedarikçiden gelen)</div>
       <div class="bilgi-not" style="margin:0 0 4px">Yoğunsan: şimdilik sadece belgenin FOTOĞRAFINI çek, akşam sakinken buradan gir — geçmiş tarihe kayıt serbest.</div>
+      <label>Belge Fotoğrafı</label>
+      <input type="file" id="alFoto" accept="image/*" capture="environment" onchange="alFotoSecildi()">
+      <button type="button" class="btn2" id="alOku" onclick="faturaOku()" style="width:100%">
+        📄 Faturayı oku — alanları doldur</button>
+      <div class="oku-durum" id="alOkuDurum"></div>
+      <div id="alOkuOzet"></div>
       <label>Firma</label>
       <select id="alTedarikci" onchange="firmaBilgiGoster()">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
       ${KATALOG.tedarikciler.length===0?'<div class="bilgi-not">Firma yok — önce Tedarikçi sekmesinden ekleyin.</div>':''}
@@ -1303,15 +1356,21 @@ function gdFatura(){
         <div><label>Belge No</label><input type="text" id="alBelgeNo"></div>
         <div><label>Fiş No</label><input type="text" id="alFisNo"></div>
       </div>
-      <label>Toplam Tutar (KDV dahil)</label><input type="number" step="0.01" inputmode="decimal" id="alToplam" placeholder="0,00">
-      <div class="satir">
-        <div><label>KDV Oranı</label><select id="alKdvOran"><option value="">Yok</option><option value="1">%1</option><option value="10">%10</option><option value="20">%20</option></select></div>
-        <div><label>KDV Tutarı (belgedekini aynen yaz)</label><input type="number" step="0.01" inputmode="decimal" id="alKdvTutar" placeholder="0,00"></div>
-      </div>
-      <label>Alınan Ürünler (stoğa otomatik işlenir)</label>
+      <label>Ödenecek Tutar (belgenin en alt satırı)</label>
+      <input type="text" inputmode="decimal" autocomplete="off" id="alToplam" placeholder="0,00">
+      <label>KDV Dökümü — belgede yazan oranların hepsi</label>
+      <div class="bilgi-not" style="margin:0 0 6px">Bir belgede birden fazla oran olabilir (%1 + %10 + %20).
+        Hepsini ayrı satır olarak gir; <b>indirilecek KDV</b> bunların toplamıdır.
+        Matrahı yazınca KDV'yi sistem hesaplar; belgedeki farklıysa <b>belgedekini</b> yaz.</div>
+      <div id="alKdvSatirlari"></div>
+      <button type="button" class="btn2" onclick="alKdvSatirEkle()">+ oran ekle</button>
+      <div class="kp-ara"><span>İndirilecek KDV toplamı</span><b id="alKdvToplam">0,00 ₺</b></div>
+      <div id="alTutarlilik"></div>
+      <label>Alınan Ürünler (isteğe bağlı — stok/maliyet takibi için)</label>
+      <div class="bilgi-not" style="margin:0 0 6px">Bu ay için <b>gerekli değil</b>. Tedarikçi borcu, gider ve KDV
+        yukarıdaki alanlardan çıkar. Ürün detayı stok ve zam takibi açıldığında girilecek.</div>
       <div id="kalemSatirlari"></div>
       <button class="btn2" onclick="kalemEkle()">+ Ürün Ekle</button>
-      <label>Belge Fotoğrafı</label><input type="file" id="alFoto" accept="image/*" capture="environment">
       <label>Not</label><input type="text" id="alNot">
       <label>Ödeme Durumu</label>
       <select id="alOdendi" onchange="alOdemeDurum()">
@@ -1335,14 +1394,214 @@ function gdFatura(){
       <button class="btn" id="alKaydet" onclick="alisKaydet()">Faturayı Kaydet</button>
       <div class="hata-msg" id="alMsg"></div>
     </div>`;
-  document.getElementById('alKdvOran').addEventListener('change', e=>{
-    const t = +document.getElementById('alToplam').value||0, o = +e.target.value||0;
-    if (t>0 && o>0) document.getElementById('alKdvTutar').value = (t - t/(1+o/100)).toFixed(2);
-  });
+  paraBagla(document.getElementById('alToplam'), alHesapla);
+  alKdvSatirEkle();
   firmaBilgiGoster(); alTurNot(); alOdemeDurum();
   if (KATALOG.urunler.length>0) kalemEkle();
   alisListe();
 }
+/* ===== FATURA KDV DÖKÜMÜ — bir belgede birden çok oran olabilir ===== */
+let AL_KDV_SAYAC = 0;
+function alKdvSatirEkle(oran, matrah, kdv){
+  AL_KDV_SAYAC++;
+  const n = AL_KDV_SAYAC;
+  const kap = document.getElementById('alKdvSatirlari'); if(!kap) return;
+  const d = document.createElement('div');
+  d.className = 'kdv-satir'; d.id = 'alKdvS_'+n;
+  d.innerHTML = `
+    <select id="alKdvO_${n}">
+      <option value="1"${oran==1?' selected':''}>%1</option>
+      <option value="8"${oran==8?' selected':''}>%8</option>
+      <option value="10"${(oran==10||!oran)?' selected':''}>%10</option>
+      <option value="20"${oran==20?' selected':''}>%20</option>
+      <option value="0"${oran===0?' selected':''}>%0</option>
+    </select>
+    <input type="text" inputmode="decimal" autocomplete="off" id="alKdvM_${n}" placeholder="matrah (KDV hariç)" value="${matrah??''}">
+    <input type="text" inputmode="decimal" autocomplete="off" id="alKdvT_${n}" placeholder="KDV tutarı" value="${kdv??''}">
+    <button class="sil" onclick="document.getElementById('alKdvS_${n}').remove(); alHesapla();">✕</button>`;
+  kap.appendChild(d);
+  const tEl = document.getElementById('alKdvT_'+n);
+  // Matrah yazılınca KDV hesaplanır; kullanıcı/OCR elle yazdıysa BİR DAHA ÜZERİNE YAZILMAZ
+  tEl.addEventListener('input', ()=>{ tEl.dataset.elle = tEl.value.trim()===''?'':'1'; });
+  if (kdv !== undefined && kdv !== null && kdv !== '') tEl.dataset.elle = '1';
+  const hesapla = ()=>{
+    if (tEl.dataset.elle === '1') return;
+    const m = paraOku(document.getElementById('alKdvM_'+n)).deger;
+    const o = +document.getElementById('alKdvO_'+n).value || 0;
+    tEl.value = m > 0 ? (m * o/100).toFixed(2) : '';
+  };
+  paraBagla(document.getElementById('alKdvM_'+n), ()=>{ hesapla(); alHesapla(); });
+  paraBagla(tEl, alHesapla);
+  document.getElementById('alKdvO_'+n).addEventListener('change', ()=>{ hesapla(); alHesapla(); });
+  alHesapla();
+}
+function alKdvOku(){
+  const sonuc = [];
+  document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d=>{
+    const n = d.id.split('_')[1];
+    const pm = paraOku(document.getElementById('alKdvM_'+n));
+    const pt = paraOku(document.getElementById('alKdvT_'+n));
+    if (!pm.ok || !pt.ok) throw new Error('KDV satırında geçersiz tutar var — örnek: 2239,60');
+    if (pm.deger > 0 || pt.deger > 0)
+      sonuc.push({ oran:+document.getElementById('alKdvO_'+n).value, matrah:pm.deger, kdv_tutar:pt.deger });
+  });
+  return sonuc;
+}
+function alHesapla(){
+  let kdv = 0, matrah = 0, gecerli = true;
+  document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d=>{
+    const n = d.id.split('_')[1];
+    const pm = paraOku(document.getElementById('alKdvM_'+n));
+    const pt = paraOku(document.getElementById('alKdvT_'+n));
+    if (!pm.ok || !pt.ok) gecerli = false;
+    matrah += pm.deger; kdv += pt.deger;
+  });
+  kdv = +kdv.toFixed(2); matrah = +matrah.toFixed(2);
+  const el = document.getElementById('alKdvToplam'); if(el) el.textContent = tl(kdv);
+  const pT = paraOku(document.getElementById('alToplam'));
+  const toplam = pT.deger;
+  const tut = document.getElementById('alTutarlilik'); if(!tut) return;
+  if (!gecerli || !pT.ok){
+    tut.innerHTML = `<div class="bilgi-not" style="color:var(--hata)">Geçersiz tutar var — örnek: 3750,00</div>`; return;
+  }
+  if (toplam === 0 || kdv === 0){ tut.innerHTML = ''; return; }
+  // Matrah + KDV = ödenecek tutar mı? (belgenin kendi aritmetiği)
+  const fark = +(matrah + kdv - toplam).toFixed(2);
+  if (Math.abs(fark) <= 0.05){
+    tut.innerHTML = `<div class="bilgi-not" style="color:var(--ok)">✓ Matrah ${tl(matrah)} + KDV ${tl(kdv)} = ${tl(toplam)} — belge tutuyor</div>`;
+  } else {
+    tut.innerHTML = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Matrah ${tl(matrah)} + KDV ${tl(kdv)} = ${tl(matrah+kdv)},
+      ödenecek tutar ${tl(toplam)} — <b>${fark>0?'+':''}${tl(fark)}</b> fark var. Belgeyle karşılaştır.</div>`;
+  }
+}
+/* ===== FATURA OKUMA — sistem doldurur, SEN doğrularsın ===== */
+const KTU_VKN = '20345231280';      // şahıs şirketi. LTD faturası buraya girmemeli.
+function alFotoSecildi(){
+  const d = document.getElementById('alOkuDurum');
+  if (d){ d.className = 'oku-durum'; d.textContent = 'Fotoğraf seçildi — "Faturayı oku"ya basabilirsin.'; }
+}
+function alTedarikciEslestir(ocrAd, ocrVkn){
+  const norm = s => (s||'').toString().toUpperCase()
+    .replace(/[İI]/g,'I').replace(/[ŞS]/g,'S').replace(/[ĞG]/g,'G')
+    .replace(/[ÜU]/g,'U').replace(/[ÖO]/g,'O').replace(/[ÇC]/g,'C')
+    .replace(/[^A-Z0-9]/g,'');
+  const liste = KATALOG.tedarikciler || [];
+  const vkn = (ocrVkn||'').replace(/\D/g,'');
+  if (vkn){
+    const v = liste.find(t => (t.vergi_no||'').replace(/\D/g,'') === vkn);
+    if (v) return { t:v, nasil:'VKN' };
+  }
+  const a = norm(ocrAd);
+  if (a.length >= 4){
+    const t = liste.find(x => { const y = norm(x.unvan||x.ad);
+      return y.length>=4 && (y.startsWith(a.slice(0,8)) || a.startsWith(y.slice(0,8))); });
+    if (t) return { t, nasil:'isim' };
+  }
+  return { t:null, nasil:null };
+}
+async function faturaOku(){
+  const inp = document.getElementById('alFoto');
+  const drm = document.getElementById('alOkuDurum');
+  const ozet = document.getElementById('alOkuOzet');
+  const btn = document.getElementById('alOku');
+  const yaz = (t,s)=>{ if(drm){ drm.className='oku-durum '+(s||''); drm.textContent=t; } };
+  if (!(inp && inp.files && inp.files[0])){ yaz('Önce belgenin fotoğrafını seç.','uyari'); return; }
+
+  btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
+  yaz('Belge okunuyor, 10-20 saniye sürebilir...','');
+  if (ozet) ozet.innerHTML = '';
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
+    const k = await fotoKucult(inp.files[0], 2000, 0.92);
+    const b64 = await new Promise((coz,red)=>{ const fr=new FileReader();
+      fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); });
+
+    const y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
+      body: JSON.stringify({ gorsel: b64 })
+    });
+    const s = await y.json();
+    if (!y.ok || !s.ok) throw new Error(s?.hata || ('Okuma başarısız ('+y.status+')'));
+    OCR_SON = { veri:s.veri, model:s.model };
+
+    const v = s.veri || {}, dn = s.denetim || {};
+    const doldu = [];
+    const koy = (id, deger, etiket) => {
+      if (deger === null || deger === undefined || deger === '') return;
+      const e = document.getElementById(id); if(!e) return;
+      e.value = String(deger).replace('.', ',');
+      e.dispatchEvent(new Event('input',{bubbles:true}));
+      e.classList.add('oku-dolu'); doldu.push(etiket);
+    };
+    // Tarih ve belge no
+    if (v.tarih && /^\d{4}-\d{2}-\d{2}$/.test(v.tarih)){
+      const t = document.getElementById('alTarih'); if(t){ t.value = v.tarih; t.classList.add('oku-dolu'); doldu.push('Tarih'); }
+    }
+    if (v.belge_no){ const b=document.getElementById('alBelgeNo'); if(b){ b.value=v.belge_no; b.classList.add('oku-dolu'); doldu.push('Belge no'); } }
+    // Ödenecek tutar
+    koy('alToplam', v.odenecek ?? v.genel_toplam, 'Toplam');
+    // KDV dökümü
+    if (Array.isArray(v.kdv_kirilim) && v.kdv_kirilim.length){
+      document.getElementById('alKdvSatirlari').innerHTML = '';
+      v.kdv_kirilim.forEach(x => alKdvSatirEkle(x.oran, x.matrah, x.kdv_tutar));
+      doldu.push('KDV dökümü');
+    } else if (v.kdv_toplam){
+      document.getElementById('alKdvSatirlari').innerHTML = '';
+      const oran = (v.satirlar||[]).map(r=>r.kdv_orani).filter(Boolean)[0] || 20;
+      const mat = (v.mal_hizmet_toplam ?? null);
+      alKdvSatirEkle(oran, mat, v.kdv_toplam);
+      doldu.push('KDV (tek oran)');
+    }
+    // Belge türü
+    if (v.belge_turu === 'irsaliye'){ const e=document.getElementById('alTur'); if(e){ e.value='irsaliye'; alTurNot(); } }
+    // Tedarikçi
+    const es = alTedarikciEslestir(v.tedarikci?.ad, v.tedarikci?.vkn);
+    let firmaNot = '';
+    if (es.t){
+      const sel = document.getElementById('alTedarikci');
+      if (sel){ sel.value = es.t.id; firmaBilgiGoster(); }
+      firmaNot = `<div class="bilgi-not" style="color:var(--ok)">✓ Firma eşleşti (${es.nasil}): <b>${esc(es.t.ad)}</b></div>`;
+      doldu.push('Firma');
+    } else {
+      firmaNot = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Bu firma kayıtlı değil:
+        <b>${esc(v.tedarikci?.ad || '—')}</b>${v.tedarikci?.vkn?' · VKN '+esc(v.tedarikci.vkn):''}<br>
+        Tedarikçi sekmesinden ekleyip geri dön, ya da listeden doğru firmayı seç.</div>`;
+    }
+    // Alıcı kontrolü — LTD faturası şahıs defterine girmesin
+    const aVkn = (v.alici?.vkn||'').replace(/\D/g,'');
+    let aliciNot = '';
+    if (aVkn && aVkn !== KTU_VKN){
+      aliciNot = `<div class="bilgi-not" style="color:var(--hata)"><b>DİKKAT:</b> Bu belge
+        <b>${esc(v.alici?.ad||'başka bir alıcıya')}</b> (VKN ${esc(aVkn)}) kesilmiş.
+        KTÜ şahıs şirketinin VKN'si ${KTU_VKN}. <b>LTD faturası olabilir — buraya girme.</b></div>`;
+    }
+    // Denetim
+    let denetimNot = '';
+    if (dn.satir_dahil_tutuyor === false && dn.satir_haric_tutuyor === false){
+      denetimNot = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Satır tutarları belge toplamıyla tutmadı
+        (${tl(dn.satir_tutar_toplami)} ≠ ${tl(dn.odenecek ?? dn.genel_toplam)}). Ürün satırları girilmedi —
+        toplam ve KDV'yi belgeyle karşılaştır.</div>`;
+    }
+    if (s.yedege_dusuldu){
+      denetimNot += `<div class="bilgi-not" style="color:var(--uyari)">Not: ana model okuyamadı, yedek modelle okundu — kontrolü daha dikkatli yap.</div>`;
+    }
+    if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
+    alHesapla();
+
+    const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
+    let msj = 'Okundu → ' + (doldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları belgeyle KARŞILAŞTIR.';
+    if (eksik.length) msj += ' Okunamayan: ' + eksik.join(', ');
+    if (v.uyari) msj += ' (' + v.uyari + ')';
+    yaz(msj, doldu.length ? 'ok' : 'uyari');
+  }catch(e){
+    yaz('Okunamadı: ' + e.message + ' — alanları elle yaz.', 'uyari');
+  }finally{
+    btn.disabled = false; btn.textContent = eski;
+  }
+}
+let OCR_SON = null;   // son okuma — kayda denetim izi olarak gider
 function alTurNot(){
   const tur = document.getElementById('alTur').value;
   document.getElementById('alTurNot').innerHTML = tur==='irsaliye'
@@ -1360,10 +1619,20 @@ function alCekAlan(){
   document.getElementById('alCekSatir').style.display = cek ? 'block' : 'none';
 }
 async function alisKaydet(){
-  const toplam = +document.getElementById('alToplam').value||0;
-  const kdvT = +document.getElementById('alKdvTutar').value||0;
+  const pT = paraOku(document.getElementById('alToplam'));
+  if (!pT.ok){ mesaj('alMsg','hata','Ödenecek tutar geçersiz — örnek: 3750 veya 3750,00'); return; }
+  const toplam = pT.deger;
+  let kdvKirilim;
+  try { kdvKirilim = alKdvOku(); }
+  catch(e){ mesaj('alMsg','hata', e.message); return; }
+  const kdvT = +kdvKirilim.reduce((a,x)=>a+x.kdv_tutar,0).toFixed(2);
+  const matrah = +kdvKirilim.reduce((a,x)=>a+x.matrah,0).toFixed(2);
   if (!document.getElementById('alTedarikci').value){ mesaj('alMsg','hata','Tedarikçi seçilmedi.'); return; }
   if (toplam===0){ mesaj('alMsg','hata','Toplam tutar boş olamaz.'); return; }
+  if (kdvT > toplam){ mesaj('alMsg','hata',`KDV (${tl(kdvT)}) toplam tutardan (${tl(toplam)}) büyük olamaz.`); return; }
+  // Belgenin kendi aritmetiği: matrah + KDV = ödenecek
+  if (matrah > 0 && Math.abs(matrah + kdvT - toplam) > 0.05 &&
+      !confirm(`Matrah ${tl(matrah)} + KDV ${tl(kdvT)} = ${tl(matrah+kdvT)}, ödenecek tutar ${tl(toplam)}.\n${tl(Math.abs(matrah+kdvT-toplam))} fark var.\n\nBelgeyle karşılaştırdın mı? Yine de kaydedilsin mi?`)) return;
   // Mükerrer fatura ön kontrolü (belge no doluysa)
   const belgeNo = document.getElementById('alBelgeNo').value.trim();
   if (belgeNo){
@@ -1372,12 +1641,14 @@ async function alisKaydet(){
     if (mv && mv.length){ mesaj('alMsg','hata','Bu belge no bu firma için zaten girilmiş — mükerrer fatura. Kontrol edin.'); return; }
   }
   const alTurDeger = document.getElementById('alTur').value;
-  if (alTurDeger==='fatura' && kdvT===0 && !confirm('KDV tutarı BOŞ — bu fatura indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
+  if (alTurDeger==='fatura' && kdvT===0 && !confirm('KDV dökümü BOŞ — bu fatura indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
+  const fotoVar = !!(document.getElementById('alFoto')?.files?.[0]);
+  if (!fotoVar && !confirm('Belge fotoğrafı yok. Ay sonunda muhasebeye giden arşivde bu belge eksik kalır.\n\nYine de kaydedilsin mi?')) return;
   const btn = document.getElementById('alKaydet');
   btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
   let foto=null;
   try{ foto = await fotoYukle('alFoto','fatura'); }
-  catch(e){ mesaj('alMsg','hata',e.message); btn.disabled=false; btn.textContent='Alışı Kaydet'; return; }
+  catch(e){ mesaj('alMsg','hata',e.message); btn.disabled=false; btn.textContent='Faturayı Kaydet'; return; }
   const data = await rpcCagir('rpc_alis_kaydet',{
     p_idem: idem(), p_sube: PROFIL.sube_id,
     p_tedarikci: document.getElementById('alTedarikci').value,
@@ -1386,8 +1657,13 @@ async function alisKaydet(){
     p_belge_no: document.getElementById('alBelgeNo').value.trim()||null,
     p_fis_no: document.getElementById('alFisNo').value.trim()||null,
     p_toplam: toplam,
-    p_kdv_orani: document.getElementById('alKdvOran').value===''?null:+document.getElementById('alKdvOran').value,
-    p_kdv_tutar: kdvT, p_foto: foto,
+    p_kdv_orani: kdvKirilim.length === 1 ? kdvKirilim[0].oran : null,   // tek oransa eski alan da dolsun
+    p_kdv_tutar: kdvT,
+    p_kdv_kirilim: kdvKirilim,
+    p_kdv_dahil: true,                       // "Ödenecek Tutar" alanı KDV dahil toplamdır
+    p_ocr_ham: OCR_SON ? OCR_SON.veri : null,
+    p_ocr_model: OCR_SON ? OCR_SON.model : null,
+    p_foto: foto,
     p_not: document.getElementById('alNot').value.trim()||null,
     p_kalemler: kalemOku(),
     p_odendi: document.getElementById('alOdendi').value === '1',
