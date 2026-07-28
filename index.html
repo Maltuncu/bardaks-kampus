@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-2">
+<meta name="surum" content="2026-07-28-5">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -59,6 +59,16 @@
 .oku-durum.ok{color:var(--ok)}
 .oku-durum.uyari{color:var(--uyari)}
 .oku-dolu{background:#F2F8F4!important;border-color:var(--ok)!important}
+/* ===== Fatura ürün satırları ===== */
+.fs-satir{border:1px solid var(--cizgi);border-radius:10px;padding:10px 12px;margin:0 0 10px}
+.fs-bas{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 4px}
+.fs-ad{font-size:13.5px;font-weight:800;line-height:1.35}
+.fs-rozet{flex:none;font-size:10px;font-weight:900;letter-spacing:.4px;padding:3px 7px;border-radius:6px}
+.fs-rozet.tam{background:#E8F5EC;color:var(--ok)}
+.fs-rozet.yeni{background:#FFF4E0;color:var(--uyari)}
+.fs-rozet.atla{background:#EFEFEF;color:var(--soluk)}
+.fs-detay{font-size:11.5px;color:var(--soluk);line-height:1.5;margin:0 0 8px}
+.fs-yeni{margin-top:8px;padding-top:8px;border-top:1px dashed var(--cizgi)}
 /* ===== Sürüm uyarı çubuğu ===== */
 #surumBar{position:fixed;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;
   justify-content:space-between;gap:12px;padding:12px 14px;background:var(--uyari);color:#fff;
@@ -1376,8 +1386,56 @@ function firmaBilgiGoster(){
     ${t.vergi_no ? '<br>VKN: ' + esc(t.vergi_no) + (t.vergi_dairesi ? ' · ' + esc(t.vergi_dairesi) + ' V.D.' : '') : ''}
     ${t.adres ? '<br>' + esc(t.adres) : ''}</div>` : '';
 }
+/* ===== FATURA DÜZENLEME — kayıt silinmez, üzerine yazılır ===== */
+let AL_DUZENLE = null;   // {id, foto}
+function alDuzenlemeIptal(){ AL_DUZENLE = null; gdFatura(); }
+async function alisDuzenle(id){
+  const { data, error } = await sb.from('alis')
+    .select('*, alis_kdv(oran,matrah,kdv_tutar,is_deleted), alis_kalem(urun_id,miktar,birim_fiyat,ham_ad,ham_kod,birim_ad,birim_carpani,satir_tutar,kdv_orani,iskonto_orani,iskonto_tutar,is_deleted)')
+    .eq('id', id).maybeSingle();
+  if (error || !data){ alert('Fatura yüklenemedi: ' + hataTr(error?.message || 'bulunamadı')); return; }
+  AL_DUZENLE = null;
+  gdFatura();                                        // formu temiz kur
+  AL_DUZENLE = { id: data.id, foto: data.foto_path || null };
+  const g = id2 => document.getElementById(id2);
+  g('alTedarikci').value = data.tedarikci_id || '';  firmaBilgiGoster();
+  g('alTarih').value     = data.tarih || '';
+  g('alTur').value       = data.tur || 'fatura';     alTurNot();
+  g('alBelgeNo').value   = data.belge_no || '';
+  g('alFisNo').value     = data.fis_no || '';
+  g('alToplam').value    = String(data.toplam ?? '').replace('.', ',');
+  g('alNot').value       = data.notlar || '';
+  g('alOdendi').value    = data.odendi ? '1' : '0';  alOdemeDurum();
+  if (!data.odendi && data.vade_tarihi) g('alVade').value = data.vade_tarihi;
+  // KDV dökümü
+  const kd = (data.alis_kdv||[]).filter(x=>!x.is_deleted).sort((a,b)=>a.oran-b.oran);
+  g('alKdvSatirlari').innerHTML = '';
+  if (kd.length) kd.forEach(x=>alKdvSatirEkle(x.oran, x.matrah, x.kdv_tutar));
+  else alKdvSatirEkle();
+  // Ürün satırları (kayıtlıysa göster, eşleşmiş sayılır)
+  const kl = (data.alis_kalem||[]).filter(x=>!x.is_deleted);
+  AL_SATIRLAR = kl.map((k,i)=>({
+    i, ham_ad:k.ham_ad||'', ham_kod:k.ham_kod||null, miktar:+k.miktar||0,
+    birim:k.birim_ad||null, birim_fiyat:+k.birim_fiyat||0, satir_tutar:+k.satir_tutar||0,
+    iskonto_orani:k.iskonto_orani, iskonto_tutar:k.iskonto_tutar, kdv_orani:k.kdv_orani,
+    carpan:+k.birim_carpani||1, urun_id:k.urun_id, eslesme:'kayıtlı', karar:'mevcut'
+  }));
+  if (AL_SATIRLAR.length) alSatirCiz(); else { const s=g('alSatirlar'); if(s) s.innerHTML=''; }
+  // Düzenleme bandı
+  const bar = g('alDuzenleBar');
+  if (bar) bar.innerHTML = `<div class="kart" style="border-color:var(--uyari);background:#FFF8EC">
+    <div class="kbaslik" style="color:var(--uyari)">DÜZENLEME MODU — ${esc(data.belge_no||'belge no yok')}</div>
+    <div class="bilgi-not" style="margin:0 0 8px">Kayıt <b>silinmiyor</b>, üzerine yazılıyor.
+      Fotoğrafı değiştirmek istemiyorsan dokunma — mevcut korunur.
+      Ödeme durumunu değiştirirsen tedarikçi bakiyesi de düzelir.</div>
+    <button class="btn2" style="width:100%" onclick="alDuzenlemeIptal()">Vazgeç</button></div>`;
+  const kb = g('alKaydet'); if (kb) kb.textContent = 'Değişiklikleri Kaydet';
+  alHesapla();
+  window.scrollTo(0,0);
+}
 function gdFatura(){
   document.getElementById('gdIcerik').innerHTML = `
+    <div id="alDuzenleBar"></div>
     <div class="kart">
       <div class="kbaslik">Fatura (tedarikçiden gelen)</div>
       <div class="bilgi-not" style="margin:0 0 4px">Yoğunsan: şimdilik sadece belgenin FOTOĞRAFINI çek, akşam sakinken buradan gir — geçmiş tarihe kayıt serbest.</div>
@@ -1409,11 +1467,13 @@ function gdFatura(){
       <button type="button" class="btn2" onclick="alKdvSatirEkle()">+ oran ekle</button>
       <div class="kp-ara"><span>İndirilecek KDV toplamı</span><b id="alKdvToplam">0,00 ₺</b></div>
       <div id="alTutarlilik"></div>
-      <label>Alınan Ürünler (isteğe bağlı — stok/maliyet takibi için)</label>
-      <div class="bilgi-not" style="margin:0 0 6px">Bu ay için <b>gerekli değil</b>. Tedarikçi borcu, gider ve KDV
-        yukarıdaki alanlardan çıkar. Ürün detayı stok ve zam takibi açıldığında girilecek.</div>
+      <label>Faturadaki Ürünler</label>
+      <div class="bilgi-not" style="margin:0 0 6px">Fotoğrafı okuttuysan satırlar aşağıda çıkar.
+        <b>İlk kez görülen ürünü bir kez tanımlarsın, sonraki faturalarda kendiliğinden eşleşir.</b>
+        Satır toplamı faturayla tutmuyorsa ürün kaydı yapılmaz — önce düzeltilir.</div>
+      <div id="alSatirlar"></div>
       <div id="kalemSatirlari"></div>
-      <button class="btn2" onclick="kalemEkle()">+ Ürün Ekle</button>
+      <button class="btn2" onclick="kalemEkle()">+ Elle ürün ekle</button>
       <label>Not</label><input type="text" id="alNot">
       <label>Ödeme Durumu</label>
       <select id="alOdendi" onchange="alOdemeDurum()">
@@ -1632,6 +1692,8 @@ async function faturaOku(){
     }
     if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
     alHesapla();
+    // Faturadaki ürün satırları — tanınanlar otomatik, ilk kez görülenler sorulur
+    await alSatirlariKur(v.satirlar, es.t ? es.t.id : null);
 
     const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
     let msj = 'Okundu → ' + (doldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları belgeyle KARŞILAŞTIR.';
@@ -1645,6 +1707,162 @@ async function faturaOku(){
   }
 }
 let OCR_SON = null;   // son okuma — kayda denetim izi olarak gider
+
+/* ===== FATURA SATIRLARI — tanı, eşleştir, bir daha sorma =====
+   Tedarikçinin yazımı → bizim ürün eşleşmesi bir kez kurulur (urun_alias),
+   sonraki faturalarda otomatik bağlanır. Eşleşme önce KOD'dan, kod yoksa isimden.
+   Satır toplamı belgeyle tutmuyorsa ürün kaydı YAPILMAZ. */
+let AL_SATIRLAR = [];
+const birimNorm = s => (s||'').toString().toUpperCase().replace(/\s+/g,' ').trim();
+
+async function alSatirlariKur(satirlar, tedarikciId){
+  AL_SATIRLAR = [];
+  const kap = document.getElementById('alSatirlar'); if(!kap) return;
+  if (!Array.isArray(satirlar) || !satirlar.length){ kap.innerHTML=''; return; }
+  let alias = [];
+  if (tedarikciId){
+    const { data } = await sb.from('urun_alias')
+      .select('tedarikci_kodu,ham_ad,urun_id,birim_carpani')
+      .eq('tedarikci_id', tedarikciId).eq('is_deleted', false);
+    alias = data || [];
+  }
+  satirlar.forEach((s,i)=>{
+    const kod = (s.kod||'').toString().trim();
+    let es = null, nasil = null;
+    if (kod){
+      es = alias.find(a => (a.tedarikci_kodu||'').trim().toUpperCase() === kod.toUpperCase());
+      if (es) nasil = 'kod';
+    }
+    if (!es){
+      es = alias.find(a => birimNorm(a.ham_ad) === birimNorm(s.ad));
+      if (es) nasil = 'isim';
+    }
+    AL_SATIRLAR.push({
+      i, ham_ad:(s.ad||'').toString().trim(), ham_kod:kod||null,
+      miktar:+s.miktar||0, birim:(s.birim||'').toString().trim()||null,
+      birim_fiyat:+s.birim_fiyat||0, satir_tutar:+s.satir_tutar||0,
+      iskonto_orani: s.iskonto_orani ?? null, iskonto_tutar: s.iskonto_tutar ?? null,
+      kdv_orani:s.kdv_orani ?? null,
+      carpan: es ? +es.birim_carpani : (+s.paket_ici_adet || 1),
+      urun_id: es ? es.urun_id : null, eslesme: nasil,
+      karar: es ? 'mevcut' : 'yeni'
+    });
+  });
+  alSatirCiz();
+}
+function alSatirCiz(){
+  const kap = document.getElementById('alSatirlar'); if(!kap) return;
+  const urunler = (KATALOG.urunler||[]);
+  kap.innerHTML = AL_SATIRLAR.map(s=>{
+    const eslesti = s.karar==='mevcut' && s.urun_id;
+    const rozet = eslesti
+      ? `<span class="fs-rozet tam">✓ TANINDI${s.eslesme?' ('+s.eslesme+')':''}</span>`
+      : (s.karar==='atla' ? `<span class="fs-rozet atla">ATLANACAK</span>`
+                          : `<span class="fs-rozet yeni">? İLK KEZ</span>`);
+    const carpanNot = s.carpan > 1 ? ` · <b>${s.miktar} × ${s.carpan} = ${(s.miktar*s.carpan)}</b> adet` : '';
+    // İskonto varsa liste fiyatı ile net tutarı AYRI göster — maliyet net tutardır
+    const brut = +(s.miktar * s.birim_fiyat).toFixed(2);
+    const iskVar = s.iskonto_orani > 0 || s.iskonto_tutar > 0;
+    const iskNot = iskVar
+      ? ` <span style="text-decoration:line-through;opacity:.6">${tl(brut)}</span>
+          <b style="color:var(--ok)">− ${s.iskonto_orani>0?'%'+s.iskonto_orani:tl(s.iskonto_tutar)} iskonto</b> →`
+      : '';
+    // İskonto bildirilmemiş ama çarpım net tutardan büyükse: sütun atlanmış olabilir
+    const gizliIsk = !iskVar && brut > s.satir_tutar + 0.05
+      ? `<br><span style="color:var(--uyari)">⚠ ${s.miktar} × ${tl(s.birim_fiyat)} = ${tl(brut)} ama satır ${tl(s.satir_tutar)} —
+         faturada iskonto olabilir, kontrol et</span>` : '';
+    return `<div class="fs-satir" id="fsS_${s.i}">
+      <div class="fs-bas">${rozet}<span class="fs-ad">${esc(s.ham_ad||'(adsız)')}</span></div>
+      <div class="fs-detay">${s.ham_kod?'kod '+esc(s.ham_kod)+' · ':''}${s.miktar} ${esc(s.birim||'adet')}
+        × ${tl(s.birim_fiyat)}${iskNot} = <b>${tl(s.satir_tutar)}</b>${s.kdv_orani!=null?' · %'+s.kdv_orani:''}${carpanNot}${gizliIsk}</div>
+      <select id="fsU_${s.i}" onchange="alSatirKarar(${s.i})">
+        <option value="__yeni"${s.karar==='yeni'?' selected':''}>+ Yeni ürün olarak tanımla</option>
+        ${urunler.map(u=>`<option value="${u.id}"${s.urun_id===u.id?' selected':''}>${esc(u.kod?u.kod+' — ':'')}${esc(u.ad)}</option>`).join('')}
+        <option value="__atla"${s.karar==='atla'?' selected':''}>Bu satırı kaydetme</option>
+      </select>
+      ${s.karar==='yeni'?`
+        <div class="fs-yeni">
+          <input type="text" id="fsAd_${s.i}" value="${esc(s.ham_ad)}" placeholder="ürün adı (kısaltabilirsin)">
+          <div class="satir">
+            <div><label>Birim</label>
+              <select id="fsBirim_${s.i}">
+                ${['adet','kg','lt','koli','paket'].map(b=>`<option value="${b}"${birimNorm(s.birim)===b.toUpperCase()?' selected':''}>${b}</option>`).join('')}
+              </select></div>
+            <div><label>Paket/koli içi adet</label>
+              <input type="text" inputmode="decimal" autocomplete="off" id="fsPaket_${s.i}" value="${s.carpan>1?s.carpan:''}" placeholder="örn 80"></div>
+          </div>
+        </div>`:''}
+    </div>`;
+  }).join('') + `<div id="fsDenetim"></div>`;
+  alSatirDenetim();
+}
+function alSatirKarar(i){
+  const s = AL_SATIRLAR.find(x=>x.i===i); if(!s) return;
+  const v = document.getElementById('fsU_'+i).value;
+  if (v === '__yeni'){ s.karar='yeni'; s.urun_id=null; s.eslesme=null; }
+  else if (v === '__atla'){ s.karar='atla'; s.urun_id=null; s.eslesme=null; }
+  else { s.karar='mevcut'; s.urun_id=v; s.eslesme='elle'; }
+  alSatirCiz();
+}
+function alSatirDenetim(){
+  const el = document.getElementById('fsDenetim'); if(!el) return;
+  const kalan = AL_SATIRLAR.filter(s=>s.karar!=='atla');
+  const satirT = +kalan.reduce((a,s)=>a+s.satir_tutar,0).toFixed(2);
+  // Faturanın matrahı: KDV dökümündeki matrahların toplamı
+  let matrah = 0;
+  document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d=>{
+    matrah += paraOku(document.getElementById('alKdvM_'+d.id.split('_')[1])).deger;
+  });
+  matrah = +matrah.toFixed(2);
+  const toplam = paraOku(document.getElementById('alToplam')).deger;
+  if (!kalan.length){ el.innerHTML = ''; AL_SATIR_TUTUYOR = true; return; }
+  const hedef = matrah > 0 ? matrah : toplam;
+  const etiket = matrah > 0 ? 'fatura matrahı' : 'ödenecek tutar';
+  const fark = +(satirT - hedef).toFixed(2);
+  AL_SATIR_TUTUYOR = Math.abs(fark) <= 0.05;
+  el.innerHTML = AL_SATIR_TUTUYOR
+    ? `<div class="bilgi-not" style="color:var(--ok)">✓ Satır toplamı ${tl(satirT)} = ${etiket} ${tl(hedef)} — ürünler kaydedilebilir</div>`
+    : `<div class="bilgi-not" style="color:var(--uyari)">⚠ Satır toplamı <b>${tl(satirT)}</b>,
+        ${etiket} <b>${tl(hedef)}</b> — <b>${fark>0?'+':''}${tl(fark)}</b> fark var.<br>
+        Eksik satır olabilir, bir rakam yanlış okunmuş olabilir ya da faturada iskonto vardır.
+        <b>Düzeltmeden ürün kaydı yapılmaz</b> — fatura, tutarı ve KDV'siyle yine kaydedilir.</div>`;
+}
+let AL_SATIR_TUTUYOR = true;
+/* Yeni ürünleri oluştur, eşleşmeyi hafızaya yaz, kalem listesini döndür */
+async function alSatirKaydet(tedarikciId){
+  const kalan = AL_SATIRLAR.filter(s=>s.karar!=='atla');
+  if (!kalan.length || !AL_SATIR_TUTUYOR) return [];
+  const kalemler = [];
+  for (const s of kalan){
+    let urunId = s.urun_id;
+    let carpan = s.carpan;
+    if (s.karar === 'yeni'){
+      const ad = (document.getElementById('fsAd_'+s.i)?.value||s.ham_ad).trim();
+      const birim = document.getElementById('fsBirim_'+s.i)?.value || 'adet';
+      const pk = paraOku(document.getElementById('fsPaket_'+s.i));
+      carpan = pk.deger > 0 ? pk.deger : 1;
+      if (!ad) throw new Error('Yeni ürünün adı boş olamaz.');
+      const { data:u, error:ue } = await sb.from('urun')
+        .insert({ ad, birim, paket_ici_adet: carpan>1?carpan:null }).select('id,ad,kod').single();
+      if (ue) throw new Error('Ürün oluşturulamadı: ' + hataTr(ue.message));
+      urunId = u.id;
+      KATALOG.urunler.push(u);                       // listeye hemen gelsin
+    }
+    // Eşleşmeyi hafızaya yaz — bir dahaki faturada otomatik tanınsın
+    if (tedarikciId && urunId){
+      const { error: ae } = await sb.from('urun_alias').upsert({
+        tedarikci_id: tedarikciId, tedarikci_kodu: s.ham_kod, ham_ad: s.ham_ad,
+        urun_id: urunId, birim_carpani: carpan, birim_ad: s.birim, son_gorulme: bugun()
+      }, { onConflict: s.ham_kod ? 'tedarikci_id,tedarikci_kodu' : undefined, ignoreDuplicates: true });
+      if (ae) console.warn('Eşleşme kaydedilemedi (kayıt yine de sürüyor):', ae.message);
+    }
+    kalemler.push({ urun_id:urunId, miktar:s.miktar, birim_fiyat:s.birim_fiyat,
+      ham_ad:s.ham_ad, ham_kod:s.ham_kod, birim_ad:s.birim, birim_carpani:carpan,
+      satir_tutar:s.satir_tutar, kdv_orani:s.kdv_orani,
+      iskonto_orani:s.iskonto_orani, iskonto_tutar:s.iskonto_tutar });
+  }
+  return kalemler;
+}
 function alTurNot(){
   const tur = document.getElementById('alTur').value;
   document.getElementById('alTurNot').innerHTML = tur==='irsaliye'
@@ -1676,22 +1894,64 @@ async function alisKaydet(){
   // Belgenin kendi aritmetiği: matrah + KDV = ödenecek
   if (matrah > 0 && Math.abs(matrah + kdvT - toplam) > 0.05 &&
       !confirm(`Matrah ${tl(matrah)} + KDV ${tl(kdvT)} = ${tl(matrah+kdvT)}, ödenecek tutar ${tl(toplam)}.\n${tl(Math.abs(matrah+kdvT-toplam))} fark var.\n\nBelgeyle karşılaştırdın mı? Yine de kaydedilsin mi?`)) return;
-  // Mükerrer fatura ön kontrolü (belge no doluysa)
+  // Mükerrer fatura ön kontrolü (belge no doluysa) — düzenlerken kendini saymaz
   const belgeNo = document.getElementById('alBelgeNo').value.trim();
   if (belgeNo){
-    const { data: mv } = await sb.from('alis').select('id').eq('is_deleted',false)
-      .eq('tedarikci_id', document.getElementById('alTedarikci').value).eq('belge_no', belgeNo).limit(1);
+    let q = sb.from('alis').select('id').eq('is_deleted',false)
+      .eq('tedarikci_id', document.getElementById('alTedarikci').value).eq('belge_no', belgeNo);
+    if (AL_DUZENLE) q = q.neq('id', AL_DUZENLE.id);
+    const { data: mv } = await q.limit(1);
     if (mv && mv.length){ mesaj('alMsg','hata','Bu belge no bu firma için zaten girilmiş — mükerrer fatura. Kontrol edin.'); return; }
   }
   const alTurDeger = document.getElementById('alTur').value;
   if (alTurDeger==='fatura' && kdvT===0 && !confirm('KDV dökümü BOŞ — bu fatura indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
-  const fotoVar = !!(document.getElementById('alFoto')?.files?.[0]);
+  const fotoVar = !!(document.getElementById('alFoto')?.files?.[0]) || !!(AL_DUZENLE && AL_DUZENLE.foto);
   if (!fotoVar && !confirm('Belge fotoğrafı yok. Ay sonunda muhasebeye giden arşivde bu belge eksik kalır.\n\nYine de kaydedilsin mi?')) return;
+  // Ürün satırları: tutmuyorsa fatura yine kaydedilir, ÜRÜNLER kaydedilmez
+  const satirVar = AL_SATIRLAR.filter(s=>s.karar!=='atla').length > 0;
+  if (satirVar && !AL_SATIR_TUTUYOR &&
+      !confirm('Ürün satırlarının toplamı faturayla TUTMUYOR.\n\nFatura tutarı ve KDV\'si kaydedilecek, ama ÜRÜN SATIRLARI kaydedilmeyecek — yanlış maliyet oluşmasın diye.\n\nDevam edilsin mi?')) return;
+
   const btn = document.getElementById('alKaydet');
   btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
   let foto=null;
   try{ foto = await fotoYukle('alFoto','fatura'); }
   catch(e){ mesaj('alMsg','hata',e.message); btn.disabled=false; btn.textContent='Faturayı Kaydet'; return; }
+
+  // Yeni ürünleri oluştur + eşleşmeleri hafızaya yaz
+  let kalemler = [];
+  try{
+    btn.textContent = 'Ürünler hazırlanıyor...';
+    kalemler = await alSatirKaydet(document.getElementById('alTedarikci').value);
+  }catch(e){
+    mesaj('alMsg','hata', e.message); btn.disabled=false; btn.textContent='Faturayı Kaydet'; return;
+  }
+  if (!kalemler.length) kalemler = kalemOku();       // elle girilenler
+  btn.textContent = AL_DUZENLE ? 'Değişiklikleri Kaydet' : 'Faturayı Kaydet';
+
+  // DÜZENLEME: kaydı silmeden güncelle
+  if (AL_DUZENLE){
+    const gData = await rpcCagir('rpc_alis_guncelle', {
+      p_idem: idem(), p_id: AL_DUZENLE.id,
+      p_tedarikci: document.getElementById('alTedarikci').value,
+      p_tarih: document.getElementById('alTarih').value,
+      p_tur: document.getElementById('alTur').value,
+      p_belge_no: belgeNo||null,
+      p_fis_no: document.getElementById('alFisNo').value.trim()||null,
+      p_toplam: toplam, p_kdv_kirilim: kdvKirilim,
+      p_foto: foto,                                   // null ise mevcut korunur
+      p_not: document.getElementById('alNot').value.trim()||null,
+      p_kalemler: kalemler,
+      p_odendi: document.getElementById('alOdendi').value === '1',
+      p_odeme_yontem: document.getElementById('alOdendi').value === '1' ? document.getElementById('alYontem').value : null,
+      p_vade: document.getElementById('alOdendi').value === '0' ? (document.getElementById('alVade').value||null) : null,
+      p_cek_no: (document.getElementById('alOdendi').value==='1' && document.getElementById('alYontem').value==='cek') ? (document.getElementById('alCekNo').value.trim()||null) : null,
+      p_cek_vade: (document.getElementById('alOdendi').value==='1' && document.getElementById('alYontem').value==='cek') ? (document.getElementById('alCekVade').value||null) : null
+    }, 'alKaydet','alMsg','Değişiklikler kaydedildi ✓');
+    if (gData && gData.ok){ AL_DUZENLE = null; AL_SATIRLAR = []; vGider(); mesaj('alMsg','ok','Değişiklikler kaydedildi ✓'); }
+    else btn.textContent = 'Değişiklikleri Kaydet';
+    return;
+  }
   const data = await rpcCagir('rpc_alis_kaydet',{
     p_idem: idem(), p_sube: PROFIL.sube_id,
     p_tedarikci: document.getElementById('alTedarikci').value,
@@ -1708,7 +1968,7 @@ async function alisKaydet(){
     p_ocr_model: OCR_SON ? OCR_SON.model : null,
     p_foto: foto,
     p_not: document.getElementById('alNot').value.trim()||null,
-    p_kalemler: kalemOku(),
+    p_kalemler: kalemler,
     p_odendi: document.getElementById('alOdendi').value === '1',
     p_odeme_yontem: document.getElementById('alOdendi').value === '1' ? document.getElementById('alYontem').value : null,
     p_vade: document.getElementById('alOdendi').value === '0' ? (document.getElementById('alVade').value||null) : null,
@@ -1777,7 +2037,9 @@ async function alisListe(){
                  :`<span style="color:${vadeGecti?'var(--hata)':'var(--uyari)'}">${vadeGecti?'⚠ VADESİ GEÇTİ':'Ödenmedi'}${a.vade_tarihi?' · vade '+new Date(a.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}</span>`}
             <div style="margin-top:6px">${belgeBtn(a.foto_path,'Belge',`${t} — ${a.tedarikci?.ad||''} ${a.belge_no||''}`)}</div>
           </div></div>
-        <div class="l-sag">${tl(a.toplam)}</div>
+        <div class="l-sag">${tl(a.toplam)}
+          ${PROFIL.rol==='owner'?`<br><button class="btn2" style="margin-top:4px" onclick="alisDuzenle('${a.id}')">Düzenle</button>`:''}
+        </div>
       </div>`;}).join('')}</div>`;
 }
 
