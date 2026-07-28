@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-5">
+<meta name="surum" content="2026-07-28-7">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1608,22 +1608,32 @@ async function faturaOku(){
   const ozet = document.getElementById('alOkuOzet');
   const btn = document.getElementById('alOku');
   const yaz = (t,s)=>{ if(drm){ drm.className='oku-durum '+(s||''); drm.textContent=t; } };
-  if (!(inp && inp.files && inp.files[0])){ yaz('Önce belgenin fotoğrafını seç.','uyari'); return; }
+  const dosyaVar  = !!(inp && inp.files && inp.files[0]);
+  // Düzenlemede fotoğraf zaten yüklü — yeniden çekmeye gerek yok, depodakini okur
+  const mevcutYol = (AL_DUZENLE && AL_DUZENLE.foto) || null;
+  if (!dosyaVar && !mevcutYol){ yaz('Önce belgenin fotoğrafını seç.','uyari'); return; }
 
   btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
-  yaz('Belge okunuyor, 10-20 saniye sürebilir...','');
+  yaz(dosyaVar ? 'Belge okunuyor, 10-20 saniye sürebilir...'
+               : 'Kayıtlı belge okunuyor, 10-20 saniye sürebilir...','');
   if (ozet) ozet.innerHTML = '';
   try{
     const { data:{ session } } = await sb.auth.getSession();
     if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
-    const k = await fotoKucult(inp.files[0], 2000, 0.92);
-    const b64 = await new Promise((coz,red)=>{ const fr=new FileReader();
-      fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); });
+    let govde;
+    if (dosyaVar){
+      const k = await fotoKucult(inp.files[0], 2000, 0.92);
+      const b64 = await new Promise((coz,red)=>{ const fr=new FileReader();
+        fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); });
+      govde = { gorsel: b64 };
+    } else {
+      govde = { yol: mevcutYol };
+    }
 
     const y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
       method:'POST',
       headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
-      body: JSON.stringify({ gorsel: b64 })
+      body: JSON.stringify(govde)
     });
     const s = await y.json();
     if (!y.ok || !s.ok) throw new Error(s?.hata || ('Okuma başarısız ('+y.status+')'));
@@ -2082,7 +2092,111 @@ async function vStok(){
       <label>Not</label><input type="text" id="shNot">
       <button class="btn" id="shKaydet" onclick="stokHareketKaydet()">Hareketi Kaydet</button>
       <div class="hata-msg" id="shMsg"></div>
-    </div>`;
+    </div>
+    <div id="alacakBolum"></div>`;
+  alacakListe();
+}
+/* ===== ÜRÜN ALACAĞI — parası ödenmiş, tedarikçide bekleyen mal =====
+   Teslimatlar bedelsiz belgelerden (bilgi fişi / irsaliye) TÜRETİLİR.
+   Fatura ekranına girdiğin belge burada da sayılır — ikinci kez yazmazsın. */
+async function alacakListe(){
+  const el = document.getElementById('alacakBolum'); if(!el) return;
+  const owner = PROFIL.rol === 'owner';
+  const { data, error } = await sb.from('v_urun_alacak').select('*')
+    .eq('aktif', true).order('tedarikci_ad').order('urun_ad');
+  const liste = data || [];
+  const acik = liste.filter(a => !a.bitti);
+  const uyaran = acik.filter(a => a.kritik);
+  const firmalar = [...new Set(acik.map(a => a.tedarikci_ad))];
+
+  el.innerHTML = `<div class="kart">
+    <div class="kbaslik">Tedarikçideki Malımız (ürün alacağı)</div>
+    <div class="bilgi-not" style="margin:0 0 8px">Parası ödenmiş ama henüz gelmemiş mal.
+      Teslimat geldiğinde <b>Fatura ekranından "Bilgi Fişi"</b> olarak girersin — buradan kendiliğinden düşer,
+      ikinci kez yazmana gerek yok.</div>
+    ${error?`<div class="bilgi-not" style="color:var(--hata)">Yüklenemedi: ${esc(hataTr(error.message))}</div>`:''}
+    ${uyaran.length?`<div class="bilgi-not" style="color:var(--uyari)">⚠ ${uyaran.length} üründe alacak azaldı — yeni sipariş zamanı olabilir</div>`:''}
+    ${acik.length===0?'<div class="bilgi-not">Açık ürün alacağı yok.</div>'
+      : firmalar.map(f=>`
+        <div style="margin:12px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--ana)">${esc(f)}</div>
+        ${acik.filter(a=>a.tedarikci_ad===f).map(a=>{
+          const brm = esc(a.urun_birim||'adet');
+          const kb = a.kalan_birim!==null ? ` (${a.kalan_birim} ${esc(a.birim_ad||'koli')})` : '';
+          return `<div class="liste-satir">
+            <div class="l-sol"><div class="b">${a.urun_kod?esc(a.urun_kod)+' · ':''}${esc(a.urun_ad)}</div>
+              <div class="k">hakkın ${a.hak_adet} ${brm} · gelen ${a.teslim_adet} ${brm}
+                ${a.tutar?' · ödenen '+tl(a.tutar):''}
+                · ${new Date(a.tarih+'T00:00').toLocaleDateString('tr-TR')}
+                ${a.notlar?'<br>'+esc(a.notlar):''}</div></div>
+            <div class="l-sag">
+              <div style="font-weight:800;font-size:15px;color:${a.kritik?'var(--uyari)':'var(--ana)'}">${a.kalan_adet} ${brm}${kb}</div>
+              <div class="k">%${a.kalan_yuzde} kaldı</div>
+              ${a.kritik?'<span class="rozet rz-hata">AZALDI</span>':''}
+              ${owner?`<br><button class="btn2" style="margin-top:4px" onclick="alacakKapat('${a.id}')">Kapat</button>`:''}
+            </div></div>`;}).join('')}`).join('')}
+    ${liste.some(a=>a.bitti)?`<div class="bilgi-not" style="margin-top:10px">
+      ${liste.filter(a=>a.bitti).length} alacak tamamen teslim alındı.</div>`:''}
+  </div>
+  ${owner?`<div class="kart">
+    <div class="kbaslik">Yeni Ürün Alacağı Tanımla</div>
+    <div class="bilgi-not" style="margin:0 0 8px">Toplu alıp tedarikçide bıraktığın malı buraya yaz.
+      Parayı ayrıca <b>Tedarikçi → Ödeme Kaydet</b>'ten girersen bakiye de doğru olur.</div>
+    <label>Firma</label>
+    <select id="akFirma">${(KATALOG.tedarikciler||[]).map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
+    <label>Ürün</label>
+    <select id="akUrun">${(KATALOG.urunler||[]).map(u=>`<option value="${u.id}">${esc(u.kod?u.kod+' — ':'')}${esc(u.ad)}</option>`).join('')}</select>
+    ${(KATALOG.urunler||[]).length===0?'<div class="bilgi-not" style="color:var(--uyari)">Henüz ürün yok — önce bir fatura girip ürünleri tanımla.</div>':''}
+    <div class="satir">
+      <div><label>Miktar</label><input type="text" inputmode="decimal" autocomplete="off" id="akMiktar" placeholder="örn 5"></div>
+      <div><label>Birim</label>
+        <select id="akBirim"><option value="adet">adet</option><option value="koli">koli</option><option value="paket">paket</option></select></div>
+    </div>
+    <label>Birim içi adet (koli/paket ise — 1 koli kaç adet?)</label>
+    <input type="text" inputmode="decimal" autocomplete="off" id="akCarpan" placeholder="örn 80 · adet ise boş bırak">
+    ${tarihSecici('akTarih')}
+    <div class="satir">
+      <div><label>Ödenen tutar (isteğe bağlı)</label><input type="text" inputmode="decimal" autocomplete="off" id="akTutar" placeholder="0,00"></div>
+      <div><label>Azaldı uyarısı (kalan adet)</label><input type="text" inputmode="decimal" autocomplete="off" id="akKritik" placeholder="örn 80"></div>
+    </div>
+    <label>Not</label><input type="text" id="akNot" placeholder="örn: yıllık anlaşma, peşin ödendi">
+    <button class="btn" id="akKaydet" onclick="alacakKaydet()">Alacağı Kaydet</button>
+    <div class="hata-msg" id="akMsg"></div>
+  </div>`:''}`;
+}
+async function alacakKaydet(){
+  const g = id => document.getElementById(id);
+  const firma = g('akFirma')?.value, urun = g('akUrun')?.value;
+  if (!firma){ mesaj('akMsg','hata','Firma seçilmedi.'); return; }
+  if (!urun){ mesaj('akMsg','hata','Ürün seçilmedi — önce bir fatura girip ürünleri tanımla.'); return; }
+  const pm = paraOku(g('akMiktar')), pc = paraOku(g('akCarpan'));
+  const pt = paraOku(g('akTutar')),  pk = paraOku(g('akKritik'));
+  if (!pm.ok || !pc.ok || !pt.ok || !pk.ok){ mesaj('akMsg','hata','Geçersiz sayı var — örnek: 5 veya 5,5'); return; }
+  if (pm.deger <= 0){ mesaj('akMsg','hata','Miktar girilmedi.'); return; }
+  const carpan = pc.deger > 0 ? pc.deger : 1;
+  const adet = +(pm.deger * carpan).toFixed(3);
+  const birim = g('akBirim').value;
+  if (birim !== 'adet' && carpan === 1 &&
+      !confirm(`Birim "${birim}" seçtin ama içindeki adet girilmedi.\n${pm.deger} ${birim} = ${pm.deger} adet sayılacak.\n\nDevam edilsin mi?`)) return;
+  const ozet = `${pm.deger} ${birim}${carpan>1?` × ${carpan} = ${adet} adet`:''}`;
+  if (!confirm(`ÜRÜN ALACAĞI KAYDEDİLECEK\n\n${ozet}\n\nTeslimatlar bilgi fişi girildikçe buradan düşecek.\nOnaylıyor musun?`)) return;
+  const btn = g('akKaydet'); btn.disabled = true;
+  const { error } = await sb.from('urun_alacak').insert({
+    sube_id: PROFIL.sube_id, tedarikci_id: firma, urun_id: urun,
+    miktar_adet: adet, birim_ad: birim, birim_carpani: carpan,
+    tarih: g('akTarih').value, tutar: pt.deger > 0 ? pt.deger : null,
+    kritik_adet: pk.deger > 0 ? pk.deger : null,
+    notlar: g('akNot').value.trim() || null, giren_id: PROFIL.id || null
+  });
+  btn.disabled = false;
+  if (error){ mesaj('akMsg','hata', hataTr(error.message)); return; }
+  mesaj('akMsg','ok','Ürün alacağı kaydedildi ✓');
+  vStok();
+}
+async function alacakKapat(id){
+  if (!confirm('Bu alacak KAPATILACAK (listeden çıkar, kayıt silinmez).\n\nMal tamamen geldiyse veya anlaşma bittiyse kapat.')) return;
+  const { error } = await sb.from('urun_alacak').update({ aktif:false }).eq('id', id);
+  if (error){ alert('Kapatılamadı: ' + hataTr(error.message)); return; }
+  vStok();
 }
 async function sayimKaydet(urunler){
   const degisenler = [];
