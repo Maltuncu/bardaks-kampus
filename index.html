@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-7">
+<meta name="surum" content="2026-07-28-8">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -276,7 +276,7 @@ async function katalogYukle(){
   const [k, t, u] = await Promise.all([
     sb.from('gider_kategori').select('id,ad').eq('aktif',true).eq('is_deleted',false).order('ad'),
     sb.from('tedarikci').select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres').eq('aktif',true).eq('is_deleted',false).order('ad'),
-    sb.from('urun').select('id,ad,birim').eq('aktif',true).eq('is_deleted',false).order('ad')
+    sb.from('urun').select('id,ad,birim,kod,paket_ici_adet').eq('aktif',true).eq('is_deleted',false).order('kod')
   ]);
   KATALOG.kategoriler = k.data||[]; KATALOG.tedarikciler = t.data||[]; KATALOG.urunler = u.data||[];
 }
@@ -2144,8 +2144,8 @@ async function alacakListe(){
     <label>Firma</label>
     <select id="akFirma">${(KATALOG.tedarikciler||[]).map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
     <label>Ürün</label>
-    <select id="akUrun">${(KATALOG.urunler||[]).map(u=>`<option value="${u.id}">${esc(u.kod?u.kod+' — ':'')}${esc(u.ad)}</option>`).join('')}</select>
-    ${(KATALOG.urunler||[]).length===0?'<div class="bilgi-not" style="color:var(--uyari)">Henüz ürün yok — önce bir fatura girip ürünleri tanımla.</div>':''}
+    <select id="akUrun" onchange="akUrunSecildi()">${(KATALOG.urunler||[]).map(u=>`<option value="${u.id}">${esc(u.kod?u.kod+' — ':'')}${esc(u.ad)}</option>`).join('')}</select>
+    ${(KATALOG.urunler||[]).length===0?'<div class="bilgi-not" style="color:var(--uyari)">Henüz ürün yok — <b>Yönetim → Yeni Ürün</b>\'den ekleyebilir ya da bir fatura girip tanımlayabilirsin.</div>':''}
     <div class="satir">
       <div><label>Miktar</label><input type="text" inputmode="decimal" autocomplete="off" id="akMiktar" placeholder="örn 5"></div>
       <div><label>Birim</label>
@@ -2162,6 +2162,17 @@ async function alacakListe(){
     <button class="btn" id="akKaydet" onclick="alacakKaydet()">Alacağı Kaydet</button>
     <div class="hata-msg" id="akMsg"></div>
   </div>`:''}`;
+}
+// Ürün seçilince kartındaki koli içi adet hazır gelsin (elle yazma hatası olmasın)
+function akUrunSecildi(){
+  const g = id => document.getElementById(id);
+  const u = (KATALOG.urunler||[]).find(x => x.id === g('akUrun')?.value);
+  const c = g('akCarpan'), b = g('akBirim');
+  if (!u || !c) return;
+  if (u.paket_ici_adet > 0){
+    if (!c.value) c.value = u.paket_ici_adet;
+    if (b && b.value === 'adet') b.value = 'koli';
+  }
 }
 async function alacakKaydet(){
   const g = id => document.getElementById(id);
@@ -2601,11 +2612,18 @@ async function vYonetim(){
     <h2 class="bolum">Yönetim</h2>
     <div class="kart">
       <div class="kbaslik">Yeni Ürün (stok kartı)</div>
-      <label>Ürün Adı</label><input type="text" id="ynUrunAd">
+      <div class="bilgi-not" style="margin:0 0 8px">Stok kodunu sistem verir. Faturadan gelen ürünler
+        kendiliğinden açılır — burayı <b>alacak tanımlayacağın</b> ya da henüz fatura girmediğin ürünler için kullan.</div>
+      <label>Ürün Adı</label><input type="text" id="ynUrunAd" placeholder="örn: Çekirdek Kahve 1kg">
       <div class="satir">
-        <div><label>Birim</label><select id="ynUrunBirim"><option>adet</option><option>koli</option><option>kg</option><option>lt</option><option>paket</option></select></div>
-        <div><label>Kritik Seviye</label><input type="number" step="0.001" inputmode="decimal" id="ynUrunKritik" placeholder="örn: 5"></div>
+        <div><label>Stok Birimi</label>
+          <select id="ynUrunBirim"><option>adet</option><option>kg</option><option>lt</option></select></div>
+        <div><label>Kategori (isteğe bağlı)</label><input type="text" id="ynUrunKategori" placeholder="örn: Kahve"></div>
       </div>
+      <label>Koli/paket içi adet (koli alıyorsan — 1 koli kaç adet?)</label>
+      <input type="text" inputmode="decimal" autocomplete="off" id="ynUrunPaket" placeholder="örn: 80 · tek tek alıyorsan boş bırak">
+      <label>Kritik Seviye (bunun altına inince uyarır)</label>
+      <input type="text" inputmode="decimal" autocomplete="off" id="ynUrunKritik" placeholder="örn: 40 · uyarı istemiyorsan boş bırak">
       <button class="btn" id="ynUrunBtn" onclick="urunEkle()">Ürünü Ekle</button>
       <div class="hata-msg" id="ynUrunMsg"></div>
     </div>
@@ -2908,12 +2926,25 @@ async function arsivPdf(){
   }
 }
 async function urunEkle(){
-  const ad = document.getElementById('ynUrunAd').value.trim();
+  const g = id => document.getElementById(id);
+  const ad = g('ynUrunAd').value.trim();
   if (!ad){ mesaj('ynUrunMsg','hata','Ürün adı boş.'); return; }
-  const { error } = await sb.from('urun').insert({ ad, birim: document.getElementById('ynUrunBirim').value,
-    kritik_seviye: +document.getElementById('ynUrunKritik').value||0 });
-  if (error){ mesaj('ynUrunMsg','hata',error.message); return; }
-  mesaj('ynUrunMsg','ok','Ürün eklendi ✓'); document.getElementById('ynUrunAd').value='';
+  const pp = paraOku(g('ynUrunPaket')), pk = paraOku(g('ynUrunKritik'));
+  if (!pp.ok || !pk.ok){ mesaj('ynUrunMsg','hata','Geçersiz sayı — örnek: 80 veya 2,5'); return; }
+  // Aynı isimde ürün varsa uyar (katalog çöplüğe dönmesin)
+  const varOlan = (KATALOG.urunler||[]).find(u => (u.ad||'').toLowerCase().trim() === ad.toLowerCase());
+  if (varOlan && !confirm(`"${varOlan.ad}" adında bir ürün zaten var (kod ${varOlan.kod||'—'}).\n\nYine de ikincisi eklensin mi?`)) return;
+  const btn = g('ynUrunBtn'); btn.disabled = true;
+  const { data, error } = await sb.from('urun').insert({
+    ad, birim: g('ynUrunBirim').value,
+    paket_ici_adet: pp.deger > 0 ? pp.deger : null,
+    kategori: g('ynUrunKategori').value.trim() || null,
+    kritik_seviye: pk.deger || 0
+  }).select('id,ad,kod').single();
+  btn.disabled = false;
+  if (error){ mesaj('ynUrunMsg','hata', hataTr(error.message)); return; }
+  mesaj('ynUrunMsg','ok', `Ürün eklendi ✓  stok kodu: ${data?.kod || '—'}`);
+  ['ynUrunAd','ynUrunKategori','ynUrunPaket','ynUrunKritik'].forEach(i=>{ const e=g(i); if(e) e.value=''; });
   await katalogYukle();
 }
 async function tedarikciEkle(){
