@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-29-8">
+<meta name="surum" content="2026-07-29-9">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -214,7 +214,7 @@ main{padding:14px;max-width:640px;margin:0 auto}
 #dahaKutu button.aktif{color:var(--ana);background:var(--acik)}
 
 /* MASAÜSTÜ — sol menü, geniş içerik, detay sağdan açılır */
-@media(min-width:1024px){
+@media(min-width:900px){
   #sekmeBar{top:0;bottom:0;left:0;right:auto;width:214px;flex-direction:column;
     border-top:none;border-right:1.5px solid var(--cizgi);padding:70px 0 0}
   #sekmeBar button{flex:none;flex-direction:row;justify-content:flex-start;gap:13px;
@@ -237,7 +237,7 @@ main{padding:14px;max-width:640px;margin:0 auto}
   }
 }
 /* TABLET — alt menü sığar, içerik genişler */
-@media(min-width:768px) and (max-width:1023px){
+@media(min-width:768px) and (max-width:899px){
   main{max-width:860px;padding:18px 20px 40px}
   #sekmeBar button.sk-daha{display:none}
   #sekmeBar button.sk-gizli{display:flex}
@@ -248,7 +248,7 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .l-sol .b{font-weight:700}.l-sol .k{font-size:12px;color:var(--soluk)}
 .l-sag{text-align:right;font-weight:800;white-space:nowrap}
 .ozet-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-@media(min-width:1024px){ .ozet-grid{grid-template-columns:repeat(4,1fr)} }
+@media(min-width:900px){ .ozet-grid{grid-template-columns:repeat(4,1fr)} }
 .ozet-kut{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:14px;
   position:relative}
 .ozet-kut .e{font-size:11px;color:var(--soluk);font-weight:800;letter-spacing:.5px}
@@ -567,7 +567,22 @@ function sekmeAc(id){
   const d = document.getElementById('sk_daha');
   if (d) d.classList.toggle('aktif', sekmeGizliMi(id));
   window.scrollTo(0,0);
-  ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci, personel:vPersonel, talep:vTalep, yonetim:vYonetim})[id]();
+  const f = ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
+              personel:vPersonel, talep:vTalep, yonetim:vYonetim})[id];
+  // Ekran çizerken hata olursa "Yükleniyor..." sonsuza kadar ekranda kalıyordu ve kimse
+  // sebebini göremiyordu. Artık hata görünür ve tekrar denenebilir.
+  try { Promise.resolve(f()).catch(e => ekranHatasi(id, e)); }
+  catch(e){ ekranHatasi(id, e); }
+}
+function ekranHatasi(id, e){
+  console.error('Ekran çizilemedi:', id, e);
+  const el = document.getElementById('icerik'); if(!el) return;
+  el.innerHTML = `<div class="kart">
+    <div class="uyari-agir" style="margin:0 0 12px">Bu bölüm açılamadı.</div>
+    <div class="ipucu">Teknik sebep: <b>${esc(String(e && e.message || e))}</b><br>
+      İnternetin gittiyse bağlanınca tekrar dene. Sorun sürerse bu satırı bana ilet.</div>
+    <button class="btn" onclick="sekmeAc('${id}')">Tekrar Dene</button>
+  </div>`;
 }
 
 /* ================== YARDIMCILAR ================== */
@@ -668,7 +683,9 @@ function ciroGrafigi(gunler, ayStr){
   if(!gunler.length) return '';
   const yil=+ayStr.slice(0,4), ayNo=+ayStr.slice(5,7);
   const gunSayisi=new Date(yil, ayNo, 0).getDate();
-  const harita={}; gunler.forEach(x=>{ harita[+x.tarih.slice(8,10)] = +x.toplam; });
+  const harita={};
+  gunler.forEach(x=>{ if(x && x.tarih) harita[+String(x.tarih).slice(8,10)] = +x.toplam || 0; });
+  if(!Object.keys(harita).length) return '';
   const G=340, Y=132, sol=44, sag=8, ust=12, alt=22;
   const iw=G-sol-sag, ih=Y-ust-alt;
   const dgr=Object.values(harita);
@@ -711,7 +728,7 @@ async function vOzet(){
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
     sb.from('v_uyarilar').select('*').order('tarih'),
     sb.from('duzeltme_talebi').select('created_at').eq('durum','acik').eq('is_deleted',false).order('created_at'),
-    sb.from('gun_sonu').select('kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', bugun()).eq('is_deleted', false),
+    sb.from('gun_sonu').select('tarih,toplam,kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', bugun()).eq('is_deleted', false),
     sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', bugun()),
     sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', bugun())
   ]);
