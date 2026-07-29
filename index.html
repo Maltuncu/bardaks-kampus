@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-29-10">
+<meta name="surum" content="2026-07-29-11">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -176,6 +176,14 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 .hata-msg{background:#fdeceb;color:var(--hata);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none}
 .ok-msg{background:#eafaf1;color:var(--ok);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none}
 .satir{display:flex;gap:8px}.satir>*{flex:1}
+/* Segment kontrolü — dört ayrı buton yerine tek şerit; hangisinde olduğun belli */
+.segment{display:flex;background:var(--kart);border:1.5px solid var(--cizgi);border-radius:11px;
+  padding:3px;gap:3px;margin-bottom:12px;overflow:hidden}
+.sg-btn{flex:1;min-width:0;min-height:40px;padding:0 6px;background:none;color:var(--soluk);
+  font-size:13px;font-weight:800;border-radius:8px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;transition:background .12s,color .12s}
+.sg-btn.aktif{background:var(--ana);color:#fff}
+.sg-btn:not(.aktif):active{background:var(--acik)}
 .rozet{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:700}
 .rz-uyari{background:#F8EEDD;color:var(--uyari)}.rz-ok{background:#E5F2E9;color:var(--ok)}.rz-hata{background:#F9E7E3;color:var(--hata)}.rz-gri{background:var(--acik);color:var(--ana)}
 /* ÜST BAR */
@@ -420,6 +428,15 @@ function bosDurum(ikon, baslik, aciklama){
       stroke-linecap="round" stroke-linejoin="round">${BOS_IKON[ikon]||BOS_IKON.liste}</svg>
     <div class="bos-bas">${esc(baslik)}</div>
     ${aciklama?`<div class="bos-alt">${aciklama}</div>`:''}</div>`;
+}
+/* Sürekli açık duran formlar ekranı uzatıyordu (Stok'ta liste 3 formun altında kalıyordu).
+   Form artık katlı: başlıktaki düğmeyle açılır, açık kalması gerekmiyor. */
+function katlaAc(id, btn){
+  const k = document.getElementById(id); if(!k) return;
+  const acik = k.style.display !== 'none';
+  k.style.display = acik ? 'none' : 'block';
+  if (btn) btn.textContent = acik ? 'Aç' : 'Kapat';
+  if (!acik) k.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 const AY_ADI = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 function ayAdi(donem){            // "2026-07" → "Temmuz 2026"
@@ -1639,10 +1656,10 @@ let GIDER_BOLUM = 'temel';
 function gdBolumAc(b){ GIDER_BOLUM = b; vGider(); }
 async function vGider(){
   const el = document.getElementById('icerik');
-  const sekBtn = (id, ad) => `<button class="btn2" style="flex:1;padding:11px 4px;${GIDER_BOLUM===id?'background:var(--ana);color:#fff':''}" onclick="gdBolumAc('${id}')">${ad}</button>`;
+  const sekBtn = (id, ad) => `<button class="sg-btn${GIDER_BOLUM===id?' aktif':''}" onclick="gdBolumAc('${id}')">${ad}</button>`;
   el.innerHTML = `
     <h2 class="bolum">Giderler</h2>
-    <div class="satir" style="margin-bottom:12px">${sekBtn('temel','Temel Giderler')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
+    <div class="segment">${sekBtn('temel','Temel')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
     <div id="gdIcerik"></div>
     <div id="gdListe"></div>`;
   if (GIDER_BOLUM==='temel') gdTemel();
@@ -1922,13 +1939,23 @@ async function giderListe(){
   const { data } = await sb.from('gider').select('*, gider_kategori(ad)').eq('is_deleted',false)
     .order('tarih',{ascending:false}).limit(30);
   const el = document.getElementById('gdListe'); if(!el) return;
-  el.innerHTML = `<div class="kart"><div class="kbaslik">Son Giderler${PROFIL.rol==='personel'?' (son 7 gün)':''}</div>
-    ${(data||[]).length===0?'<div class="bilgi-not">Kayıt yok.</div>':(data||[]).map(g=>`
-      <div class="liste-satir">
-        <div class="l-sol"><div class="b">${esc(g.gider_kategori?.ad||'—')} ${g.kasadan?'<span class="rozet rz-uyari">kasadan</span>':''}</div>
-          <div class="k">${new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')} · ${esc(g.aciklama||'')}</div></div>
-        <div class="l-sag">${tl(g.tutar)}</div>
-      </div>`).join('')}</div>`;
+  const list = data||[];
+  const ay = bugun().slice(0,7);
+  const buAy = list.filter(g=>String(g.tarih).slice(0,7)===ay);
+  const ayToplam = buAy.reduce((a,g)=>a+ +g.tutar,0);
+  const kasadanToplam = buAy.filter(g=>g.kasadan).reduce((a,g)=>a+ +g.tutar,0);
+  el.innerHTML = `<div class="kart">
+    ${kbaslik(PROFIL.rol==='personel'?'SON 7 GÜN':'SON KAYITLAR', 'Giderler',
+       buAy.length?`<div class="kb-sag">${tl(ayToplam)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${ayAdi(ay)}</span></div>`:'')}
+    ${kasadanToplam>0?`<div class="ipucu">Bu ayın <b>${tl(kasadanToplam)}</b> tutarı kasadan nakit ödendi — gün sonu sayımında eksik çıkar, gerçek ciroya geri eklenir.</div>`:''}
+    ${list.length===0
+      ? bosDurum('belge','Gider kaydı yok','Elektrik, su, tüp gibi düzenli giderleri "Temel", ufak alımları "Fiş" bölümünden gir.')
+      : list.map(g=>srSatir({
+          ad: esc(g.gider_kategori?.ad||'—') + (g.kasadan?' <span class="rozet rz-uyari">kasadan</span>':''),
+          alt: new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')
+               + (g.aciklama?' · '+esc(g.aciklama):''),
+          tutar: tl(g.tutar)
+        })).join('')}</div>`;
 }
 
 /* ================== ALIŞ ================== */
@@ -2800,30 +2827,62 @@ async function vStok(){
   const owner = PROFIL.rol === 'owner';
   const { data: stok } = await sb.from('v_stok_durum').select('*').order('ad');
   const toplamDeger = (stok||[]).reduce((a,s)=>a + (+s.stok_degeri||0), 0);
+  const liste = stok||[];
+  const kritikler = liste.filter(s=>s.kritik);
+  // Kritik seviyesi 0 olan ürün için "Yeterli" demek yanlış bilgi: seviye tanımlı değilse
+  // sistem uyaramaz. Bunu "Yeterli" diye göstermek yerine açıkça tanımsız yazıyoruz.
+  const seviyesiz = liste.filter(s=>!(+s.kritik_seviye > 0));
+
   el.innerHTML = `
     <h2 class="bolum">Stok Durumu</h2>
+    ${liste.length ? `<div class="ozet-grid">
+      ${owner ? `<div class="ozet-kut"><div class="e">TOPLAM STOK DEĞERİ</div>
+        <div class="d">${tl(toplamDeger)}</div>
+        <div class="aciklama">${liste.length} üründe</div></div>` : ''}
+      <div class="ozet-kut"><div class="e">KRİTİK ÜRÜN</div>
+        <div class="d" style="color:${kritikler.length?'var(--hata)':'var(--ok)'}">${kritikler.length}</div>
+        <div class="aciklama">${seviyesiz.length?seviyesiz.length+' üründe seviye tanımsız':'hepsinde seviye tanımlı'}</div></div>
+    </div>` : ''}
+
     <div class="kart">
-      <div class="bilgi-not" style="margin:0 0 8px">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>
-      ${(stok||[]).length===0?'<div class="bilgi-not">Ürün tanımlı değil — yönetici "Yönetim" sekmesinden ekler.</div>':(stok||[]).map(s=>`
-        <div class="liste-satir tikla" onclick="urunDetay('${s.urun_id}')">
-          <div class="l-sol"><div class="b">${s.kod?esc(s.kod)+' · ':''}${esc(s.ad)}</div><div class="k">Kritik seviye: ${s.kritik_seviye} ${esc(s.birim)}${owner && +s.ort_maliyet>0?' · Ort. maliyet: '+tl(s.ort_maliyet):''}</div></div>
-          <div class="l-sag">${s.mevcut} ${esc(s.birim)}<br>${s.kritik?'<span class="rozet rz-hata">KRİTİK</span>':'<span class="rozet rz-ok">Yeterli</span>'}${owner && +s.stok_degeri>0?'<br><span class="k">'+tl(s.stok_degeri)+'</span>':''}</div>
-        </div>`).join('')}
-      ${owner && toplamDeger>0?`<div class="liste-satir"><div style="font-weight:800">TOPLAM STOK DEĞERİ</div><div class="l-sag" style="color:var(--ana)">${tl(toplamDeger)}</div></div>`:''}
+      ${kbaslik('', 'Ürünler', `<div class="kb-sag">${liste.length}</div>`)}
+      ${kritikler.length ? `<div class="uyari-agir">${kritikler.length} ürün kritik seviyenin altında: ${kritikler.slice(0,4).map(s=>esc(s.ad)).join(', ')}${kritikler.length>4?' ve '+(kritikler.length-4)+' tane daha':''}</div>` : ''}
+      ${seviyesiz.length === liste.length && liste.length ? `<div class="uyari-orta">Hiçbir üründe kritik seviye tanımlı değil — sistem "stok bitiyor" uyarısı veremiyor. Yönetim sekmesinden ürün başına seviye gir.</div>` : ''}
+      <div class="ipucu">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>
+      ${liste.length===0
+        ? bosDurum('kutu','Ürün tanımlı değil','Fatura girdikçe ürünler kendiliğinden açılır. Elle eklemek için Yönetim sekmesini kullan.')
+        : liste.map(s=>{
+            const sev = +s.kritik_seviye > 0;
+            const rozet = s.kritik ? '<span class="rozet rz-hata">KRİTİK</span>'
+                        : sev ? '<span class="rozet rz-ok">Yeterli</span>'
+                              : '<span class="rozet rz-gri">seviye yok</span>';
+            return srSatir({
+              ad: (s.kod?esc(s.kod)+' · ':'') + esc(s.ad),
+              alt: (sev ? 'Kritik seviye '+s.kritik_seviye+' '+esc(s.birim) : 'Kritik seviye girilmemiş')
+                   + (owner && +s.ort_maliyet>0 ? ' · ort. maliyet '+tl(s.ort_maliyet) : ''),
+              tutar: `${s.mevcut} ${esc(s.birim)}`,
+              tutarAlt: rozet + (owner && +s.stok_degeri>0 ? ' ' + tl(s.stok_degeri) : ''),
+              tikla: `urunDetay('${s.urun_id}')`
+            });
+          }).join('')}
+    </div>
+
+    <div class="kart">
+      ${kbaslik('HAFTALIK', 'Sayım', `<button class="btn2" onclick="katlaAc('sayimKutu',this)">Aç</button>`)}
+      <div id="sayimKutu" style="display:none">
+        <div class="ipucu">Sadece saydığın ürünlere rakam yaz; boş bıraktıkların değişmez. Farkı sistem hesaplar.</div>
+        <div id="sayimListe">${liste.map(s=>`
+          <div class="sr">
+            <div><div class="sr-ad">${esc(s.ad)}</div><div class="sr-alt">sistemde ${s.mevcut} ${esc(s.birim)}</div></div>
+            <div style="width:104px"><input type="text" inputmode="decimal" id="sy_${s.urun_id}" placeholder="sayılan"></div>
+          </div>`).join('')}</div>
+        <button class="btn" id="syKaydet" onclick="sayimKaydet(${JSON.stringify(liste.map(s=>({id:s.urun_id, mevcut:+s.mevcut}))).replace(/"/g,'&quot;')})">Sayımı Kaydet</button>
+        <div class="hata-msg" id="syMsg"></div>
+      </div>
     </div>
     <div class="kart">
-      <div class="kbaslik">Sayım Modu (haftalık — rafı say, yaz, tek tuşla kaydet)</div>
-      <div class="bilgi-not" style="margin:0 0 8px">Sadece saydığın ürünlere rakam yaz; boş bıraktıkların değişmez. Sistem farkı kendisi hesaplar.</div>
-      <div id="sayimListe">${(stok||[]).map(s=>`
-        <div class="liste-satir">
-          <div class="l-sol"><div class="b">${esc(s.ad)}</div><div class="k">sistemde: ${s.mevcut} ${esc(s.birim)}</div></div>
-          <div style="width:110px"><input type="text" inputmode="decimal" id="sy_${s.urun_id}" placeholder="sayılan"></div>
-        </div>`).join('')}</div>
-      <button class="btn" id="syKaydet" onclick="sayimKaydet(${JSON.stringify((stok||[]).map(s=>({id:s.urun_id, mevcut:+s.mevcut}))).replace(/"/g,'&quot;')})">Sayımı Kaydet</button>
-      <div class="hata-msg" id="syMsg"></div>
-    </div>
-    <div class="kart">
-      <div class="kbaslik">Tek Hareket (tüketim / düzeltme)</div>
+      ${kbaslik('', 'Tek Hareket', `<button class="btn2" onclick="katlaAc('hareketKutu',this)">Aç</button>`)}
+      <div id="hareketKutu" style="display:none">
       <label>Ürün</label>
       <select id="shUrun">${KATALOG.urunler.map(u=>`<option value="${u.id}">${esc(u.ad)} (${esc(u.birim)})</option>`).join('')}</select>
       ${tarihSecici('shTarih')}
@@ -2834,6 +2893,7 @@ async function vStok(){
       <label>Not</label><input type="text" id="shNot">
       <button class="btn" id="shKaydet" onclick="stokHareketKaydet()">Hareketi Kaydet</button>
       <div class="hata-msg" id="shMsg"></div>
+      </div>
     </div>
     <div id="alimBolum"></div>
     <div id="alacakBolum"></div>`;
