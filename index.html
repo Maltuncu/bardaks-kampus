@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-29-7">
+<meta name="surum" content="2026-07-29-8">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -66,6 +66,13 @@
   padding:10px 12px;border-radius:0 10px 10px 0;margin:0 0 8px;font-size:13px;font-weight:800;line-height:1.5}
 .uyari-orta{background:#FBF3E4;border-left:3px solid var(--uyari);color:#8A6316;
   padding:9px 12px;border-radius:0 10px 10px 0;margin:0 0 8px;font-size:12.5px;font-weight:700;line-height:1.5}
+/* Uyarı satırı: etiket + metin, dokununca ilgili bölüme gider */
+.uy-sr{display:flex;align-items:baseline;gap:9px;cursor:pointer;min-height:44px;
+  -webkit-tap-highlight-color:transparent}
+.uy-sr:active{filter:brightness(.96)}
+.uy-sr:last-child{margin-bottom:0}
+.uy-et{font-size:9.5px;font-weight:900;letter-spacing:.7px;flex:none;opacity:.72;padding-top:1px}
+.uy-mt{min-width:0;overflow-wrap:anywhere}
 /* ===== Ürün detayı — tıklanabilir stok satırı + fiyat geçmişi ===== */
 .tikla{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tikla:active{background:#F7F3E8}
@@ -241,9 +248,22 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .l-sol .b{font-weight:700}.l-sol .k{font-size:12px;color:var(--soluk)}
 .l-sag{text-align:right;font-weight:800;white-space:nowrap}
 .ozet-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-.ozet-kut{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:14px}
+@media(min-width:1024px){ .ozet-grid{grid-template-columns:repeat(4,1fr)} }
+.ozet-kut{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:14px;
+  position:relative}
 .ozet-kut .e{font-size:11px;color:var(--soluk);font-weight:800;letter-spacing:.5px}
 .ozet-kut .d{font-size:19px;font-weight:900;margin-top:3px;color:var(--ana)}
+/* Tıklanabilir KPI — ok işareti, dokunma geri bildirimi */
+.ozet-kut.ac{cursor:pointer;-webkit-tap-highlight-color:transparent;padding-right:24px;
+  background:no-repeat right 10px top 16px/6px 11px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='12' viewBox='0 0 7 12'%3E%3Cpath d='M1 1l5 5-5 5' fill='none' stroke='%238189A0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+.ozet-kut.ac:active{background-color:#FBF7EC}
+.ozet-kut .aciklama{font-size:11.5px;color:var(--soluk);line-height:1.45;margin-top:4px}
+/* Günlük ciro grafiği */
+.grafik-sar{margin:2px 0 4px}
+.grafik-sar svg{width:100%;height:auto;display:block}
+.gr-alt{display:flex;justify-content:space-between;font-size:11px;color:var(--soluk);
+  font-weight:700;margin-top:2px}
 .kdv-satir{display:flex;gap:6px;margin-bottom:6px;align-items:center}
 .kdv-satir select{width:82px;flex:none}
 .kdv-satir .sil{background:#fdeceb;color:var(--hata);padding:0;min-width:44px;min-height:44px;flex:none}
@@ -393,6 +413,11 @@ function bosDurum(ikon, baslik, aciklama){
       stroke-linecap="round" stroke-linejoin="round">${BOS_IKON[ikon]||BOS_IKON.liste}</svg>
     <div class="bos-bas">${esc(baslik)}</div>
     ${aciklama?`<div class="bos-alt">${aciklama}</div>`:''}</div>`;
+}
+const AY_ADI = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+function ayAdi(donem){            // "2026-07" → "Temmuz 2026"
+  const p = String(donem||'').split('-');
+  return (AY_ADI[(+p[1]||1)-1] || '') + ' ' + (p[0]||'');
 }
 const idem = () => crypto.randomUUID();
 
@@ -635,6 +660,47 @@ function tarihSecici(id, deger){
 }
 
 /* ================== ÖZET (OWNER) ================== */
+/* Günlük ciro sütun grafiği — kütüphane yok, ayın her günü bir sütun.
+   Bugün koyu, ortalama kesik çizgi. Ciro sıfır olan gün boş sütun olarak durur:
+   "o gün kayıt girilmemiş" ile "o gün satış olmamış" aynı görünmesin diye
+   kayıt yoksa sütun hiç çizilmez, sadece zemin şeridi kalır. */
+function ciroGrafigi(gunler, ayStr){
+  if(!gunler.length) return '';
+  const yil=+ayStr.slice(0,4), ayNo=+ayStr.slice(5,7);
+  const gunSayisi=new Date(yil, ayNo, 0).getDate();
+  const harita={}; gunler.forEach(x=>{ harita[+x.tarih.slice(8,10)] = +x.toplam; });
+  const G=340, Y=132, sol=44, sag=8, ust=12, alt=22;
+  const iw=G-sol-sag, ih=Y-ust-alt;
+  const dgr=Object.values(harita);
+  const enCok=Math.max(...dgr, 1);
+  const ort=dgr.reduce((a,b)=>a+b,0)/dgr.length;
+  const bugunGun=(bugun().slice(0,7)===ayStr) ? +bugun().slice(8,10) : -1;
+  const gen=iw/gunSayisi, kal=Math.max(gen*0.62, 2);
+  const kisa=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1).replace('.',',')+'b':String(Math.round(n));
+  let sut='';
+  for(let d=1; d<=gunSayisi; d++){
+    const x=sol+(d-0.5)*gen-kal/2;
+    sut+=`<rect x="${x.toFixed(1)}" y="${ust}" width="${kal.toFixed(1)}" height="${ih}" rx="1.5" fill="#F2ECD9"/>`;
+    if(harita[d]===undefined) continue;
+    const h=Math.max((harita[d]/enCok)*ih, 1.5);
+    sut+=`<rect x="${x.toFixed(1)}" y="${(ust+ih-h).toFixed(1)}" width="${kal.toFixed(1)}" height="${h.toFixed(1)}"
+      rx="1.5" fill="${d===bugunGun?'var(--ana)':'#7E9AC4'}"><title>${d} — ${tl(harita[d])}</title></rect>`;
+  }
+  const oy=ust+ih-(ort/enCok)*ih;
+  return `<div class="grafik-sar"><svg viewBox="0 0 ${G} ${Y}" role="img"
+      aria-label="Ayın günlük cirosu">
+    <line x1="${sol}" y1="${ust}" x2="${sol}" y2="${ust+ih}" stroke="var(--cizgi)" stroke-width="1"/>
+    <text x="${sol-6}" y="${ust+4}" text-anchor="end" font-size="10" font-weight="700" fill="#8189A0">${kisa(enCok)}</text>
+    <text x="${sol-6}" y="${ust+ih}" text-anchor="end" font-size="10" font-weight="700" fill="#8189A0">0</text>
+    ${sut}
+    <line x1="${sol}" y1="${oy.toFixed(1)}" x2="${sol+iw}" y2="${oy.toFixed(1)}"
+      stroke="var(--uyari)" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="${sol+iw}" y="${(oy-4).toFixed(1)}" text-anchor="end" font-size="10" font-weight="800"
+      fill="#8A6316">ort ${kisa(ort)}</text>
+    <text x="${sol}" y="${Y-2}" font-size="10" font-weight="700" fill="#8189A0">1</text>
+    <text x="${sol+iw}" y="${Y-2}" text-anchor="end" font-size="10" font-weight="700" fill="#8189A0">${gunSayisi}</text>
+  </svg></div>`;
+}
 async function vOzet(){
   const el = document.getElementById('icerik');
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
@@ -666,28 +732,61 @@ async function vOzet(){
     const gunFarki = Math.floor((Date.now() - new Date(acikTalep[0].created_at).getTime()) / 86400000);
     u.unshift({ tip:'talep', mesaj: acikTalep.length + ' bekleyen yapılacak/alınacak' + (gunFarki >= 1 ? ` (en eskisi ${gunFarki} gündür)` : ''), tarih: acikTalep[0].created_at });
   }
+  // Para kaybettiren uyarı (fatura/çek/vade) ile işleyiş uyarısı ayrı ağırlıkta gösterilir
+  const AGIR = { fatura:1, cek:1, vade:1 };
+  const ETIKET = {vade:'VADE',stok:'STOK',talep:'YAPILACAK',eksik_gun:'EKSİK GÜN',fatura:'FATURA',cek:'ÇEK'};
+  const HEDEF = {vade:'tedarikci',fatura:'tedarikci',cek:'tedarikci',stok:'stok',talep:'talep',eksik_gun:'gunsonu'};
+  const sirali = [...u].sort((a,b)=>(AGIR[b.tip]||0)-(AGIR[a.tip]||0));
+  const agirSayi = u.filter(x=>AGIR[x.tip]).length;
+
   el.innerHTML = `
     <h2 class="bolum">Özet — ${new Date().toLocaleDateString('tr-TR')}</h2>
     <div class="ozet-grid">
-      <div class="ozet-kut"><div class="e">BUGÜN (RESMİ / GERÇEK)</div><div class="d">${g?tl(g.toplam):'—'}</div>
-        <div class="k" style="font-size:12px;color:var(--soluk)">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+' · Z-dışı +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+' · Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
-      <div class="ozet-kut"><div class="e">AY CİROSU (${o?o.gun_sayisi:0} gün)</div><div class="d">${o?tl(o.ciro):'—'}</div>
-        <div class="k" style="font-size:12px;color:var(--soluk)">${kasaVeriVar?('Gerçek '+tl(ayGercek)+' · Z-dışı +'+tl(ayZdisi)):''}</div></div>
-      <div class="ozet-kut"><div class="e">AY KDV TAHMİNİ</div><div class="d">${k?tl(k.odenecek_kdv_tahmini):'—'}</div>
-        <div style="font-size:12px;color:var(--soluk)">${k?('Satış '+tl(k.satis_kdv)+' − İnd. '+tl(k.indirilecek_kdv)):''}</div></div>
-      <div class="ozet-kut"><div class="e">AY BRÜT KÂR TAHMİNİ</div><div class="d">${o?tl(o.brut_kar_tahmini):'—'}</div></div>
+      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
+        <div class="d">${g?tl(g.toplam):'—'}</div>
+        <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Z-dışı +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
+      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU</div>
+        <div class="d">${o?tl(o.ciro):'—'}</div>
+        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${kasaVeriVar?'<br>Gerçek '+tl(ayGercek):''}</div></div>
+      <div class="ozet-kut ac" onclick="sekmeAc('yonetim')"><div class="e">AY KDV TAHMİNİ</div>
+        <div class="d">${k?tl(k.odenecek_kdv_tahmini):'—'}</div>
+        <div class="aciklama">${k?('Satış '+tl(k.satis_kdv)+'<br>İndirilecek '+tl(k.indirilecek_kdv)):''}</div></div>
+      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="e">AY SONUCU (TAHMİNİ)</div>
+        <div class="d" style="color:${o&&+o.brut_kar_tahmini<0?'var(--hata)':'var(--ana)'}">${o?tl(o.brut_kar_tahmini):'—'}</div>
+        <div class="aciklama">Gider ve personel düşülmüş<br>dökümü gör</div></div>
     </div>
-    <div class="kart"><div class="kbaslik" style="color:var(--ana)">Uyarılar (${u.length})</div>
-      ${u.length===0?'<div class="bilgi-not">Uyarı yok.</div>':u.map(x=>`
-        <div class="liste-satir"><div class="l-sol"><span class="rozet ${x.tip==='stok'||x.tip==='talep'||x.tip==='fatura'||x.tip==='cek'?'rz-hata':'rz-uyari'}">${({vade:'VADE',stok:'STOK',talep:'TALEP',eksik_gun:'EKSİK GÜN',fatura:'FATURA',cek:'ÇEK'})[x.tip]||'UYARI'}</span> ${esc(x.mesaj)}</div></div>`).join('')}
+
+    ${(ayGunler.data||[]).length ? `<div class="kart">
+      ${kbaslik('GÜNLÜK CİRO', ayAdi(ay), `<div class="kb-sag">${tl(ayGercek||(o?+o.ciro:0))}</div>`)}
+      ${ciroGrafigi(ayGunler.data, ay)}
+      <div class="gr-alt"><span>Koyu sütun bugün</span><span>Kesik çizgi ayın ortalaması</span></div>
+    </div>` : ''}
+
+    <div class="kart">
+      ${kbaslik(agirSayi?'ACİL '+agirSayi:'', 'Uyarılar', `<div class="kb-sag">${u.length}</div>`)}
+      ${u.length===0
+        ? bosDurum('uyari','Bekleyen uyarı yok','Vadesi geçen fatura, biten stok veya eksik gün olduğunda burada görürsün.')
+        : sirali.map(x=>`
+          <div class="${AGIR[x.tip]?'uyari-agir':'uyari-orta'} uy-sr" onclick="sekmeAc('${HEDEF[x.tip]||'ozet'}')">
+            <span class="uy-et">${ETIKET[x.tip]||'UYARI'}</span>
+            <span class="uy-mt">${esc(x.mesaj)}</span></div>`).join('')}
     </div>
-    ${o?`<div class="kart"><div class="kbaslik">Bu Ay (${ay})</div>
-      <div class="liste-satir"><div>Net satış (KDV hariç)</div><div class="l-sag">${tl(o.net_satis_kdv_haric)}</div></div>
-      <div class="liste-satir"><div>Mal alışları</div><div class="l-sag">−${tl(o.alis_toplam)}</div></div>
-      <div class="liste-satir"><div>Giderler</div><div class="l-sag">−${tl(o.gider_toplam)}</div></div>
-      <div class="liste-satir"><div>Personel</div><div class="l-sag">−${tl(o.personel_toplam)}</div></div>
-      <div class="liste-satir"><div>Fiş iptalleri</div><div class="l-sag">${tl(o.iptal_tutar)}</div></div>
-      <div class="liste-satir"><div style="font-weight:800">BRÜT KÂR TAHMİNİ</div><div class="l-sag" style="color:var(--ana)">${tl(o.brut_kar_tahmini)}</div></div>
+
+    ${o?`<div class="kart" id="ayDokum">
+      ${kbaslik('AY DÖKÜMÜ', ayAdi(ay))}
+      ${ozSatir('Net satış (KDV hariç)', tl(o.net_satis_kdv_haric))}
+      ${ozSatir('Mal alışları (KDV dahil)', '−'+tl(o.alis_toplam))}
+      ${ozSatir('Giderler (KDV dahil)', '−'+tl(o.gider_toplam))}
+      ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
+      ${+o.iptal_tutar ? ozSatir('Fiş iptalleri', tl(o.iptal_tutar)) : ''}
+      ${ozSatir('AY SONUCU (TAHMİNİ)', tl(o.brut_kar_tahmini), true)}
+      <div class="bilgi-not" style="margin-top:10px">
+        <b>Bu rakam brüt kâr değildir.</b> İçinden gider ve personel de düşülmüştür.
+        Ayrıca alışların tamamı maliyet sayılır — <b>rafta duran mal da bu rakamın içinde giderdir</b>.
+        Alış ve giderler KDV dahil, satış ise KDV hariç yazıldığı için indirilecek KDV${k?' ('+tl(k.indirilecek_kdv)+')':''}
+        burada maliyet gibi görünür. Gerçek kâr bunlardan yüksektir.
+      </div>
     </div>`:''}`;
 }
 
