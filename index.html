@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-29-11">
+<meta name="surum" content="2026-07-29-12">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -789,13 +789,14 @@ async function vOzet(){
       <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU</div>
         <div class="d">${o?tl(o.ciro):'—'}</div>
         <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${kasaVeriVar?'<br>Gerçek '+tl(ayGercek):''}</div></div>
-      <div class="ozet-kut ac" onclick="sekmeAc('yonetim')"><div class="e">AY KDV TAHMİNİ</div>
-        <div class="d">${k?tl(k.odenecek_kdv_tahmini):'—'}</div>
-        <div class="aciklama">${k?('Satış '+tl(k.satis_kdv)+'<br>İndirilecek '+tl(k.indirilecek_kdv)):''}</div></div>
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
-        <div class="e">AY SONUCU (TAHMİNİ)</div>
-        <div class="d" style="color:${o&&+o.brut_kar_tahmini<0?'var(--hata)':'var(--ana)'}">${o?tl(o.brut_kar_tahmini):'—'}</div>
-        <div class="aciklama">Gider ve personel düşülmüş<br>dökümü gör</div></div>
+        <div class="e">NAKİT ÇIKIŞI</div>
+        <div class="d" style="color:var(--hata)">${o?tl(o.nakit_cikisi):'—'}</div>
+        <div class="aciklama">bu ay elden çıkan<br>${o&&+o.odenmeyen_alis>0?'+ '+tl(o.odenmeyen_alis)+' bekliyor':'ödenmemiş alış yok'}</div></div>
+      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="e">AY KÂRI</div>
+        <div class="d" style="color:${o&&+o.ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.ay_kari):'—'}</div>
+        <div class="aciklama">fatura bazlı, KDV hariç<br>dökümü gör</div></div>
     </div>
 
     ${(ayGunler.data||[]).length ? `<div class="kart">
@@ -815,18 +816,31 @@ async function vOzet(){
     </div>
 
     ${o?`<div class="kart" id="ayDokum">
-      ${kbaslik('AY DÖKÜMÜ', ayAdi(ay))}
+      ${kbaslik('NAKİT ÇIKIŞI', ayAdi(ay), '<div class="kb-sag" style="color:var(--hata)">'+tl(o.nakit_cikisi)+'</div>')}
+      <div class="ipucu">Bu ay <b>gerçekten elinden çıkan</b> para. Faturanın kesilmesi değil, ödenmesi sayılır.</div>
+      ${ozSatir('Tedarikçiye ödenen', tl(o.odenen_tedarikci))}
+      ${ozSatir('Giderler', tl(o.gider_toplam))}
+      ${ozSatir('Personel', tl(o.personel_toplam))}
+      ${+o.personel_avans ? ozSatir('Personel avansı', tl(o.personel_avans)) : ''}
+      ${ozSatir('TOPLAM ÇIKIŞ', tl(o.nakit_cikisi), true)}
+      ${+o.odenmeyen_alis > 0 ? `<div class="uyari-orta" style="margin-top:10px">Bu ayın alışlarından
+        <b>${tl(o.odenmeyen_alis)}</b> henüz ödenmedi — sonraki aylarda çıkacak.</div>` : ''}
+    </div>
+    <div class="kart">
+      ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
+      <div class="ipucu">Fatura bazlı: malı aldığın anda maliyet sayılır, ödemesi ne zaman olursa olsun.
+        Her kalem <b>KDV hariç</b> — indirilecek KDV maliyet değildir.</div>
       ${ozSatir('Net satış (KDV hariç)', tl(o.net_satis_kdv_haric))}
-      ${ozSatir('Mal alışları (KDV dahil)', '−'+tl(o.alis_toplam))}
-      ${ozSatir('Giderler (KDV dahil)', '−'+tl(o.gider_toplam))}
+      ${ozSatir('Mal alışları (KDV hariç)', '−'+tl(o.alis_net))}
+      ${ozSatir('Giderler (KDV hariç)', '−'+tl(o.gider_net))}
       ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
       ${+o.iptal_tutar ? ozSatir('Fiş iptalleri', tl(o.iptal_tutar)) : ''}
-      ${ozSatir('AY SONUCU (TAHMİNİ)', tl(o.brut_kar_tahmini), true)}
+      ${ozSatir('AY KÂRI', tl(o.ay_kari), true)}
+      ${k?ozSatir('Ödenecek KDV (ayrı)', tl(k.odenecek_kdv_tahmini)):''}
       <div class="bilgi-not" style="margin-top:10px">
-        <b>Bu rakam brüt kâr değildir.</b> İçinden gider ve personel de düşülmüştür.
-        Ayrıca alışların tamamı maliyet sayılır — <b>rafta duran mal da bu rakamın içinde giderdir</b>.
-        Alış ve giderler KDV dahil, satış ise KDV hariç yazıldığı için indirilecek KDV${k?' ('+tl(k.indirilecek_kdv)+')':''}
-        burada maliyet gibi görünür. Gerçek kâr bunlardan yüksektir.
+        Alışların <b>tamamı</b> maliyet sayılıyor — rafta duran mal da içinde.
+        Tüketim kaydı girilmediği için sistem "ne kadarını sattım" hesaplayamıyor;
+        gerçek kâr bundan yüksek olabilir. Stok ekranından tüketim girmeye başlarsan bu düzelir.
       </div>
     </div>`:''}`;
 }
@@ -3408,8 +3422,9 @@ async function vTedarikci(){
       <button class="btn" id="abKaydet" onclick="acilisBakiyeKaydet()">Açılış Bakiyesi Ekle</button>
       <div class="hata-msg" id="abMsg"></div>
     </div>
-    <div class="kart"><div class="kbaslik">Açık Faturalar (ödenmemiş)</div><div id="acikFaturaListe">Yükleniyor...</div></div>
-    <div class="kart"><div class="kbaslik">Portföydeki Çekler</div><div id="acikCekListe">Yükleniyor...</div></div>
+    <div class="kart">${kbaslik('', 'Açık Faturalar', '')}<div id="acikFaturaListe">Yükleniyor...</div></div>
+    <div class="kart">${kbaslik('', 'Yapılan Ödemeler', '')}<div id="odemeListe">Yükleniyor...</div></div>
+    <div class="kart">${kbaslik('', 'Portföydeki Çekler', '')}<div id="acikCekListe">Yükleniyor...</div></div>
     <div class="kart">
       <div class="kbaslik">İhtilaf Dökümü</div>
       <label>Tedarikçi</label>
@@ -3418,7 +3433,33 @@ async function vTedarikci(){
       <div id="dokumAlan"></div>
     </div>` : ''}`;
   paraBaglaHepsi(['toTutar','abTutar']);
-  if (owner){ acikFaturaYukle(); acikCekYukle(); }
+  if (owner){ acikFaturaYukle(); odemeListe(); acikCekYukle(); }
+}
+/* YAPILAN ÖDEMELER — hangi gün, hangi firmaya, neyle, ne kadar.
+   Eskiden ödeme kaydı sadece bakiyeyi düşürüyordu; "bu ay ne ödedim" sorusunun
+   cevabı hiçbir ekranda yoktu. Özet'teki NAKİT ÇIKIŞI rakamı da buradan besleniyor. */
+async function odemeListe(){
+  const el = document.getElementById('odemeListe'); if(!el) return;
+  const ay = bugun().slice(0,7);
+  const { data, error } = await sb.from('tedarikci_odeme')
+    .select('tarih,tutar,yontem,cek_no,cek_vade,aciklama,tedarikci(ad)')
+    .eq('is_deleted',false).order('tarih',{ascending:false}).limit(60);
+  if (error){ el.innerHTML = `<div class="uyari-agir">Ödemeler yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
+  const list = data||[];
+  const buAy = list.filter(o=>String(o.tarih).slice(0,7)===ay);
+  const ayToplam = buAy.reduce((a,o)=>a+ +o.tutar,0);
+  const YONTEM = {kart:'Kart', nakit:'Nakit', havale:'Havale/EFT', cek:'Çek'};
+  el.innerHTML = list.length===0
+    ? bosDurum('belge','Ödeme kaydı yok','Bir firmaya ödeme yaptığında yukarıdaki "Ödeme Kaydet" formundan gir — bakiyesi düşer ve Özet\'teki nakit çıkışına yansır.')
+    : `<div class="ipucu"><b>${ayAdi(ay)}</b> içinde ${buAy.length} ödeme · toplam <b>${tl(ayToplam)}</b></div>`
+      + list.map(o=>srSatir({
+          ad: esc(o.tedarikci?.ad || '—'),
+          alt: new Date(o.tarih+'T00:00').toLocaleDateString('tr-TR')
+               + ' · ' + (YONTEM[o.yontem]||esc(o.yontem||'—'))
+               + (o.cek_no?' '+esc(o.cek_no)+(o.cek_vade?' (vade '+new Date(o.cek_vade+'T00:00').toLocaleDateString('tr-TR')+')':''):'')
+               + (o.aciklama?' · '+esc(o.aciklama):''),
+          tutar: tl(o.tutar)
+        })).join('');
 }
 async function acilisBakiyeKaydet(){
   const tutar = paraDeger('abTutar');
@@ -3487,16 +3528,20 @@ async function firmaDetay(id){
   const [bk, af, od, kl] = await Promise.all([
     owner ? sb.from('v_tedarikci_bakiye').select('*').eq('tedarikci_id',id).maybeSingle()
           : Promise.resolve({data:null}),
-    sb.from('v_acik_fatura').select('*').eq('tedarikci_id',id).order('vade_tarihi',{nullsFirst:false}),
+    // Mutabakat icin TUM faturalar — firma butun hesabi soyluyor, sadece acik olanlari degil
+    sb.from('alis').select('id,tarih,belge_no,toplam,vade_tarihi,odendi')
+      .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}),
     sb.from('tedarikci_odeme').select('tarih,tutar,yontem,cek_no,cek_vade,aciklama')
-      .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}).limit(12),
+      .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}),
     sb.from('alis_kalem')
       .select('miktar,birim_carpani,satir_tutar,urun_id,urun(ad,birim),alis!inner(tarih,tedarikci_id,is_deleted)')
       .eq('is_deleted',false).eq('alis.is_deleted',false).eq('alis.tedarikci_id',id)
   ]);
 
   const b = bk.data ? +bk.data.bakiye : null;
-  const acik = af.data || [], odemeler = od.data || [];
+  const faturalar = af.data || [], odemeler = od.data || [];
+  const acik = faturalar.filter(f=>!f.odendi);
+  const bugunS = bugun();
 
   // Ürün bazında: kaç kez alındı, son birim fiyat ne, ilk fiyata göre ne oldu
   const urunler = {};
@@ -3530,7 +3575,14 @@ async function firmaDetay(id){
         <div><div class="ud-et">${b>0?'BORCUN':b<0?'İÇERİDE MALIN':'BAKİYE'}</div>
           <div class="ud-dg" style="color:${b>0?'var(--hata)':b<0?'var(--ok)':'var(--soluk)'}">${b===0?'Kapalı':tl(Math.abs(b))}</div></div>
         <div><div class="ud-et">AÇIK FATURA</div><div class="ud-dg">${acik.length}</div></div>
-      </div>` : ''}
+      </div>
+      <!-- Firma "şu kadar borcunuz var" dediğinde karşılaştıracağın döküm -->
+      <div class="ud-bas"><span class="ud-blk">MUTABAKAT</span></div>
+      ${ozSatir('Kesilen fatura', tl(bk.data.toplam_alis))}
+      ${ozSatir('Ödenen', '−'+tl(bk.data.toplam_odeme))}
+      ${ozSatir('KALAN BORÇ', tl(b), true)}
+      <div class="ipucu" style="margin-top:8px">Firma farklı bir rakam söylüyorsa aşağıdaki fatura ve
+        ödeme listesini onunkiyle karşılaştır — eksik girilen belge çıkar.</div>` : ''}
 
       ${t && (t.telefon || t.yetkili_ad) ? `<div class="ud-bas"><span class="ud-blk">İLETİŞİM</span></div>
         <div class="ud-bos" style="padding-bottom:12px">
@@ -3539,17 +3591,19 @@ async function firmaDetay(id){
           ${t.telefon2?' · '+esc(t.telefon2):''}
         </div>` : ''}
 
-      <div class="ud-bas"><span class="ud-blk">AÇIK FATURALAR</span><span class="ud-trend">${acik.length?tl(acik.reduce((a,x)=>a+ +x.toplam,0)):''}</span></div>
-      ${acik.length===0 ? '<div class="ud-bos">Ödenmemiş fatura yok.</div>' : acik.map(f=>`
-        <div class="ud-satir">
+      <div class="ud-bas"><span class="ud-blk">FATURALAR</span><span class="ud-trend">${faturalar.length} adet · ${tl(faturalar.reduce((a,x)=>a+ +x.toplam,0))}</span></div>
+      ${faturalar.length===0 ? '<div class="ud-bos">Bu firmadan fatura girilmemiş.</div>' : faturalar.map(f=>{
+        const gecikti = !f.odendi && f.vade_tarihi && f.vade_tarihi < bugunS;
+        return `<div class="ud-satir">
           <div class="ud-trh">${new Date(f.tarih+'T00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
           <div><div style="font-weight:800;font-size:13px">${esc(f.belge_no||'Belge no yok')}
-            ${f.gecikti?'<span class="rozet rz-hata" style="margin-left:4px">GECİKTİ</span>':''}</div>
+            ${f.odendi?'<span class="rozet rz-ok" style="margin-left:4px">ödendi</span>'
+                      :gecikti?'<span class="rozet rz-hata" style="margin-left:4px">GECİKTİ</span>':''}</div>
             <div class="ud-alt">${f.vade_tarihi?'Vade '+new Date(f.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):'Vade yok'}</div></div>
           <div class="ud-tut">${tl(f.toplam)}</div>
-        </div>`).join('')}
+        </div>`; }).join('')}
 
-      <div class="ud-bas" style="margin-top:16px"><span class="ud-blk">SON ÖDEMELER</span></div>
+      <div class="ud-bas" style="margin-top:16px"><span class="ud-blk">ÖDEMELER</span><span class="ud-trend">${odemeler.length} adet</span></div>
       ${odemeler.length===0 ? '<div class="ud-bos">Bu firmaya ödeme kaydı yok.</div>' : odemeler.map(o=>`
         <div class="ud-satir">
           <div class="ud-trh">${new Date(o.tarih+'T00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
