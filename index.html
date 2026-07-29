@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-29-9">
+<meta name="surum" content="2026-07-29-10">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -161,7 +161,9 @@ body{font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,san
 .susSvg{display:block;margin:18px auto 0;opacity:.85}
 /* GENEL */
 .kart{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:16px;margin-bottom:12px}
-.kbaslik{font-weight:700;margin-bottom:10px;font-size:15px}
+/* Eski kart başlığı — yeni .kb-ad ile aynı ağırlıkta olsun ki ekranlar arası
+   başlık boyu değişmesin (30'dan fazla yerde kullanılıyor, tek tek dokunmuyorum) */
+.kbaslik{font-size:16px;font-weight:900;line-height:1.25;letter-spacing:-.2px;margin-bottom:12px}
 label{display:block;font-size:12.5px;color:var(--soluk);font-weight:700;margin:10px 0 4px}
 input,select,textarea{width:100%;padding:11px 12px;border:1.5px solid var(--cizgi);border-radius:9px;font-size:15px;background:#fff;color:var(--metin);font-family:inherit}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--ana);border-color:var(--ana)}
@@ -269,7 +271,12 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .kdv-satir .sil{background:#fdeceb;color:var(--hata);padding:0;min-width:44px;min-height:44px;flex:none}
 .kalem-satir{display:flex;gap:6px;margin-bottom:6px;align-items:center}
 .kalem-satir .sil{background:#fdeceb;color:var(--hata);padding:0;min-width:44px;min-height:44px;flex:none}
-.bilgi-not{font-size:12.5px;color:var(--soluk);background:var(--acik);padding:8px 10px;border-radius:8px;margin-top:8px}
+/* Açıklama notu — 43 yerde kullanılıyordu ve hepsi mavi kutuydu; ekran uyarı gibi
+   görünen kutularla doluyordu. Artık sessiz: zemin yok, sadece ince sol çizgi.
+   Böylece gerçek uyarı (.uyari-agir / .uyari-orta) tek başına göze çarpıyor. */
+.bilgi-not{font-size:12.5px;color:var(--soluk);line-height:1.6;margin-top:8px;
+  padding:2px 0 2px 10px;border-left:2px solid var(--cizgi)}
+.bilgi-not b{color:var(--metin);font-weight:800}
 
 /* ============ GÖRSEL DİL ============
    Tek satır deseni 34 farklı bilgi türüne uygulanmıştı. Bilgi türüne göre ayrıştırıldı.
@@ -1554,26 +1561,26 @@ async function gunSonuListe(){
     const t = ay + '-' + String(d).padStart(2,'0');
     if (t <= bugunS && !girilen.has(t)) eksikGunler.push(d);
   }
-  const ayAdi = new Date(bas+'T00:00').toLocaleDateString('tr-TR',{month:'long',year:'numeric'});
+  const ayBasligi = ayAdi(ay);   // global ayAdi() fonksiyonuyla ayni ismi kullanma: golgeliyordu
 
   el.innerHTML = `<div class="kart">
-    <div class="kbaslik">Gün Sonları</div>
+    ${kbaslik('', 'Gün Sonları', '')}
     <label>Ay</label>
     <input type="month" id="gsListeAy" value="${ay}" onchange="gsAyDegisti()">
     ${error?`<div class="bilgi-not" style="color:var(--hata)">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`:''}
     <div class="gs-bant" style="margin:12px 0">
       <div class="kalem"><div class="gs-et">Kart</div><div class="dg">${tl(tKart)}</div></div>
       <div class="kalem"><div class="gs-et">Z nakit</div><div class="dg">${tl(tNakit)}</div></div>
-      <div class="kalem buyuk"><div class="gs-et">${esc(ayAdi)} toplamı</div><div class="dg">${tl(tKart+tNakit)}</div></div>
+      <div class="kalem buyuk"><div class="gs-et">${esc(ayBasligi)} toplamı</div><div class="dg">${tl(tKart+tNakit)}</div></div>
       <div class="kalem"><div class="gs-et">KDV (beyana giden)</div><div class="dg">${tl(tKdv)}</div></div>
     </div>
+    ${eksikGunler.length
+      ? `<div class="uyari-orta">${eksikGunler.length} gün girilmemiş: ${eksikGunler.join(', ')}</div>`
+      : ''}
     <div class="bilgi-not" style="margin:0 0 10px">
-      <b>${gunler.length}</b> gün girildi · Z dışı kasa toplamı <b>${tl(tZDisi)}</b>
-      ${eksikGunler.length
-        ? `<br><span style="color:var(--uyari)">⚠ Girilmeyen gün (${eksikGunler.length}): ${eksikGunler.join(', ')}</span>`
-        : '<br><span style="color:var(--ok)">✓ Bugüne kadarki tüm günler girilmiş</span>'}
+      <b>${gunler.length}</b> gün girildi · Z dışı kasa toplamı <b>${tl(tZDisi)}</b>${eksikGunler.length?'':' · bugüne kadar eksik gün yok'}
     </div>
-    ${gunler.length===0?'<div class="bilgi-not">Bu ayda kayıt yok.</div>':gunler.map(g=>{
+    ${gunler.length===0?bosDurum('belge','Bu ayda gün sonu kaydı yok','Yukarıdan başka ay seçebilir veya bugünün Z raporlarını girebilirsin.'):gunler.map(g=>{
       const kasa = g.kasa_nakit===null ? null : +g.kasa_nakit;
       const kasadan = kasadanMap[g.tarih]||0;
       const gercek = kasa===null ? null : +g.kart_toplam + kasa + kasadan;
@@ -2745,10 +2752,10 @@ async function alisListe(){
   const gecmis = acik.filter(a=>a.vade_tarihi && a.vade_tarihi < bugunS);
   const belgesiz = fat.filter(a=>!a.foto_path);
   const kdvsiz = mali.filter(a=>a.tur==='fatura' && kdvOf(a)===0);
-  const ayAdi = new Date(bas+'T00:00').toLocaleDateString('tr-TR',{month:'long',year:'numeric'});
+  const ayBasligi = ayAdi(ay);   // global ayAdi() fonksiyonuyla ayni ismi kullanma: golgeliyordu
 
   el.innerHTML = `<div class="kart">
-    ${kbaslik(PROFIL.rol==='personel'?'SON 7 GÜN':'ALIŞ FATURALARI', ayAdi,
+    ${kbaslik(PROFIL.rol==='personel'?'SON 7 GÜN':'ALIŞ FATURALARI', ayBasligi,
       PROFIL.rol==='owner'
         ? `<input type="month" id="alListeAy" value="${ay}" onchange="alAyDegisti()"
              style="width:auto;margin:0;min-height:44px;font-size:13px">` : '')}
@@ -3260,28 +3267,41 @@ async function vTedarikci(){
   const { data: bakiye } = owner ? await sb.from('v_tedarikci_bakiye').select('*').order('ad') : { data: null };
   const bakiyeMap = {};
   (bakiye||[]).forEach(b => bakiyeMap[b.tedarikci_id] = b.bakiye);
+  // Toplam açık: borçlu olduklarımız ile içeride malımız duranlar ayrı toplanır, netlenmez
+  let toplamBorc = 0, toplamAlacak = 0;
+  (bakiye||[]).forEach(b => { const v = +b.bakiye; if (v>0) toplamBorc += v; else if (v<0) toplamAlacak += -v; });
+
   el.innerHTML = `
     <h2 class="bolum">Tedarikçiler</h2>
+    ${owner ? `<div class="ozet-grid">
+      <div class="ozet-kut"><div class="e">TOPLAM BORÇ</div>
+        <div class="d" style="color:${toplamBorc>0?'var(--hata)':'var(--ana)'}">${tl(toplamBorc)}</div>
+        <div class="aciklama">${(bakiye||[]).filter(b=>+b.bakiye>0).length} firmaya</div></div>
+      <div class="ozet-kut"><div class="e">İÇERİDE MALIN</div>
+        <div class="d" style="color:${toplamAlacak>0?'var(--ok)':'var(--ana)'}">${tl(toplamAlacak)}</div>
+        <div class="aciklama">peşin ödendi, teslim alınmadı</div></div>
+    </div>` : ''}
     <div class="kart">
-      <div class="kbaslik">Firmalar</div>
-      ${KATALOG.tedarikciler.length===0?'<div class="bilgi-not">Firma yok — aşağıdan ekleyin.</div>':KATALOG.tedarikciler.map(t=>`
-        <div class="liste-satir">
-          <div class="l-sol"><div class="b">${esc(t.ad)}</div>
-            <div class="k">${t.yetkili_ad?'Sorumlu: '+esc(t.yetkili_ad):''}${t.telefon?' · '+esc(t.telefon):''}</div>
-            ${owner && bakiyeMap[t.id] !== undefined ? (()=>{
-              // Negatif bakiye = pesin odenmis, mal tedarikcide bekliyor -> BORC degil ALACAK
-              const b = +bakiyeMap[t.id];
-              if (b > 0)  return `<div class="k" style="color:var(--hata);font-weight:800">Borç: ${tl(b)}</div>`;
-              if (b < 0)  return `<div class="k" style="color:var(--ok);font-weight:800">İçeride alacağın: ${tl(-b)}</div>`;
-              return `<div class="k" style="color:var(--soluk);font-weight:800">Bakiye kapalı</div>`;
-            })() : ''}</div>
-          <div class="l-sag">
-            ${t.telefon?`<a href="tel:${esc(t.telefon)}" class="btn2" style="text-decoration:none;display:inline-block">📞 ARA</a>`:''}
-            <button class="btn2" style="margin-left:4px" onclick="tedarikciDuzenle('${t.id}')">Düzenle</button>
-          </div>
-        </div>`).join('')}
+      ${kbaslik('', 'Firmalar', `<button class="btn2" onclick="firmaFormAc()">+ Yeni</button>`)}
+      ${KATALOG.tedarikciler.length===0
+        ? bosDurum('kutu','Kayıtlı firma yok','Mal aldığın firmayı ekle; faturaları ve bakiyesi buradan takip edilir.')
+        : KATALOG.tedarikciler.map(t=>{
+            const b = owner && bakiyeMap[t.id]!==undefined ? +bakiyeMap[t.id] : null;
+            const durum = b===null ? '' : b>0
+              ? `<span style="color:var(--hata)">Borç</span>`
+              : b<0 ? `<span style="color:var(--ok)">İçeride malın</span>` : `<span>Kapalı</span>`;
+            const tutar = b===null ? '' : b===0 ? '—' : tl(Math.abs(b));
+            const renk = b>0?'var(--hata)':b<0?'var(--ok)':'var(--soluk)';
+            return srSatir({
+              ad: esc(t.ad),
+              alt: [t.yetkili_ad?esc(t.yetkili_ad):'', t.telefon?esc(t.telefon):'', durum]
+                     .filter(Boolean).join(' · '),
+              tutar: `<span style="color:${renk}">${tutar}</span>`,
+              tikla: `firmaDetay('${t.id}')`
+            });
+          }).join('')}
     </div>
-    <div class="kart">
+    <div class="kart" id="firmaFormKart" style="display:none">
       <div class="kbaslik" id="tdFormBaslik">Yeni Firma Ekle</div>
       <label>Firma Adı (bilinen adı) *</label><input type="text" id="tdYeniAd">
       <label>Resmi Ünvan (faturadaki tam yazım — farklıysa)</label><input type="text" id="tdYeniUnvan" placeholder="örn: XYZ Gıda San. ve Tic. Ltd. Şti.">
@@ -3352,12 +3372,20 @@ async function acilisBakiyeKaydet(){
 async function acikFaturaYukle(){
   const { data } = await sb.from('v_acik_fatura').select('*').order('vade_tarihi',{nullsFirst:false});
   const el = document.getElementById('acikFaturaListe'); if(!el) return;
-  el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Açık fatura yok.</div>' : (data||[]).map(f=>`
-    <div class="liste-satir">
-      <div class="l-sol"><div class="b">${esc(f.tedarikci_ad)} ${f.gecikti?'<span class="rozet rz-hata">GECİKTİ</span>':''}</div>
-        <div class="k">${new Date(f.tarih+'T00:00').toLocaleDateString('tr-TR')} · Belge:${esc(f.belge_no||'—')}${f.vade_tarihi?' · Vade: '+new Date(f.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}</div></div>
-      <div class="l-sag">${tl(f.toplam)}<br><button class="btn2" style="margin-top:4px" onclick="faturaOdendi('${f.id}')">Ödendi ✓</button></div>
-    </div>`).join('');
+  const list = data||[];
+  const gecikmis = list.filter(f=>f.gecikti);
+  el.innerHTML = list.length===0
+    ? bosDurum('belge','Ödenmemiş fatura yok','Vadesi gelen fatura olduğunda burada ve Özet ekranında uyarı çıkar.')
+    : (gecikmis.length ? `<div class="uyari-agir">${gecikmis.length} faturanın vadesi geçti · ${tl(gecikmis.reduce((a,x)=>a+ +x.toplam,0))}</div>` : '')
+      + list.map(f=>srSatir({
+          ad: esc(f.tedarikci_ad) + (f.gecikti?' <span class="rozet rz-hata">GECİKTİ</span>':''),
+          alt: new Date(f.tarih+'T00:00').toLocaleDateString('tr-TR')
+               + ' · ' + esc(f.belge_no||'belge no yok')
+               + (f.vade_tarihi?' · vade '+new Date(f.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):''),
+          tutar: tl(f.toplam),
+          tutarAlt: `<button class="bo-btn" style="margin-top:4px" onclick="event.stopPropagation();faturaOdendi('${f.id}')">Ödendi ✓</button>`,
+          tikla: `firmaDetay('${f.tedarikci_id}')`
+        })).join('');
 }
 async function faturaOdendi(id){
   if (!confirm('Fatura ödendi olarak işaretlensin mi? (Takip listesinden çıkar. Ödemeyi ayrıca "Ödeme Kaydet"ten girin ki bakiye düşsün.)')) return;
@@ -3385,9 +3413,120 @@ async function cekDurum(id, durum){
   if (error){ alert('Güncellenemedi: '+hataTr(error.message)); return; }
   vTedarikci();
 }
+/* FİRMA MERKEZİ — bakiye, açık faturalar, ödemeler ve o firmadan aldığın ürünler tek yerde.
+   Eskiden bunlar dört ayrı kartta, firmadan bağımsız listeler hâlinde duruyordu; "bu firmaya
+   ne kadar borçluyum ve neyi kaça alıyorum" sorusu tek ekranda cevaplanmıyordu. */
+async function firmaDetay(id){
+  const t = KATALOG.tedarikciler.find(x=>x.id===id);
+  const ov = udKutu(), ic = document.getElementById('udIcerik');
+  ic.innerHTML = `<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Yükleniyor...</div></div>
+    <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
+  ov.classList.add('acik');
+  const owner = PROFIL.rol === 'owner';
+
+  const [bk, af, od, kl] = await Promise.all([
+    owner ? sb.from('v_tedarikci_bakiye').select('*').eq('tedarikci_id',id).maybeSingle()
+          : Promise.resolve({data:null}),
+    sb.from('v_acik_fatura').select('*').eq('tedarikci_id',id).order('vade_tarihi',{nullsFirst:false}),
+    sb.from('tedarikci_odeme').select('tarih,tutar,yontem,cek_no,cek_vade,aciklama')
+      .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}).limit(12),
+    sb.from('alis_kalem')
+      .select('miktar,birim_carpani,satir_tutar,urun_id,urun(ad,birim),alis!inner(tarih,tedarikci_id,is_deleted)')
+      .eq('is_deleted',false).eq('alis.is_deleted',false).eq('alis.tedarikci_id',id)
+  ]);
+
+  const b = bk.data ? +bk.data.bakiye : null;
+  const acik = af.data || [], odemeler = od.data || [];
+
+  // Ürün bazında: kaç kez alındı, son birim fiyat ne, ilk fiyata göre ne oldu
+  const urunler = {};
+  (kl.data||[]).forEach(k=>{
+    if(!k.urun_id || !k.urun) return;
+    const adet = (+k.miktar||0) * (+k.birim_carpani||1);
+    if(adet <= 0) return;
+    const birim = (+k.satir_tutar||0) / adet;
+    (urunler[k.urun_id] = urunler[k.urun_id] || { ad:k.urun.ad, birim:k.urun.birim, nk:[] })
+      .nk.push({ ts:new Date(k.alis.tarih+'T00:00').getTime(), fiyat:birim });
+  });
+  const urunListe = Object.entries(urunler).map(([uid,u])=>{
+    u.nk.sort((a,b)=>a.ts-b.ts);
+    const ilk=u.nk[0].fiyat, son=u.nk[u.nk.length-1].fiyat;
+    return { uid, ad:u.ad, birim:u.birim, kez:u.nk.length, son,
+             degisim: ilk>0 ? ((son-ilk)/ilk)*100 : 0 };
+  }).sort((a,b)=>b.degisim-a.degisim);
+
+  const YONTEM = {kart:'Kart', nakit:'Nakit', havale:'Havale', cek:'Çek'};
+  ic.innerHTML = `
+    <div class="ud-ust">
+      <div style="flex:1;min-width:0">
+        <div class="ud-kod">FİRMA</div>
+        <div class="ud-ad">${esc(t?t.ad:'—')}</div>
+        ${t&&t.unvan?`<div class="ud-alt">${esc(t.unvan)}</div>`:''}
+      </div>
+      <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button>
+    </div>
+    <div class="ud-govde">
+      ${b!==null ? `<div class="ud-kunye" style="grid-template-columns:1fr 1fr">
+        <div><div class="ud-et">${b>0?'BORCUN':b<0?'İÇERİDE MALIN':'BAKİYE'}</div>
+          <div class="ud-dg" style="color:${b>0?'var(--hata)':b<0?'var(--ok)':'var(--soluk)'}">${b===0?'Kapalı':tl(Math.abs(b))}</div></div>
+        <div><div class="ud-et">AÇIK FATURA</div><div class="ud-dg">${acik.length}</div></div>
+      </div>` : ''}
+
+      ${t && (t.telefon || t.yetkili_ad) ? `<div class="ud-bas"><span class="ud-blk">İLETİŞİM</span></div>
+        <div class="ud-bos" style="padding-bottom:12px">
+          ${t.yetkili_ad?esc(t.yetkili_ad)+'<br>':''}
+          ${t.telefon?`<a href="tel:${esc(t.telefon)}" style="color:var(--ana);font-weight:800;text-decoration:none">${esc(t.telefon)} · ARA</a>`:''}
+          ${t.telefon2?' · '+esc(t.telefon2):''}
+        </div>` : ''}
+
+      <div class="ud-bas"><span class="ud-blk">AÇIK FATURALAR</span><span class="ud-trend">${acik.length?tl(acik.reduce((a,x)=>a+ +x.toplam,0)):''}</span></div>
+      ${acik.length===0 ? '<div class="ud-bos">Ödenmemiş fatura yok.</div>' : acik.map(f=>`
+        <div class="ud-satir">
+          <div class="ud-trh">${new Date(f.tarih+'T00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
+          <div><div style="font-weight:800;font-size:13px">${esc(f.belge_no||'Belge no yok')}
+            ${f.gecikti?'<span class="rozet rz-hata" style="margin-left:4px">GECİKTİ</span>':''}</div>
+            <div class="ud-alt">${f.vade_tarihi?'Vade '+new Date(f.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):'Vade yok'}</div></div>
+          <div class="ud-tut">${tl(f.toplam)}</div>
+        </div>`).join('')}
+
+      <div class="ud-bas" style="margin-top:16px"><span class="ud-blk">SON ÖDEMELER</span></div>
+      ${odemeler.length===0 ? '<div class="ud-bos">Bu firmaya ödeme kaydı yok.</div>' : odemeler.map(o=>`
+        <div class="ud-satir">
+          <div class="ud-trh">${new Date(o.tarih+'T00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
+          <div><div style="font-weight:800;font-size:13px">${YONTEM[o.yontem]||esc(o.yontem||'—')}</div>
+            <div class="ud-alt">${o.cek_no?'Çek '+esc(o.cek_no)+(o.cek_vade?' · vade '+new Date(o.cek_vade+'T00:00').toLocaleDateString('tr-TR'):''):esc(o.aciklama||'')}</div></div>
+          <div class="ud-tut">${tl(o.tutar)}</div>
+        </div>`).join('')}
+
+      <div class="ud-bas" style="margin-top:16px"><span class="ud-blk">BU FİRMADAN ALDIKLARIN</span><span class="ud-trend">${urunListe.length} ürün</span></div>
+      ${urunListe.length===0 ? '<div class="ud-bos">Kalemli fatura girilmemiş.</div>' : urunListe.map(u=>`
+        <div class="ud-satir tikla" style="grid-template-columns:1fr auto" onclick="urunDetay('${u.uid}')">
+          <div><div style="font-weight:800;font-size:13px">${esc(u.ad)}</div>
+            <div class="ud-alt">${u.kez} alım · son ${tl(u.son)}/${esc(u.birim)}</div></div>
+          <div class="ud-tut ${u.degisim>0.5?'ud-zam':u.degisim<-0.5?'ud-indi':''}">${u.kez<2?'—':(u.degisim>0?'+':'')+u.degisim.toFixed(0)+'%'}</div>
+        </div>`).join('')}
+
+      <button class="btn" style="margin-top:18px" onclick="tedarikciDuzenle('${id}')">Firma Bilgilerini Düzenle</button>
+    </div>`;
+}
+/* Form artık hep açık durmuyor — ekran firma listesiyle başlıyor, form istenince geliyor */
+function firmaFormAc(){
+  TD_DUZENLENEN = null;
+  const k = document.getElementById('firmaFormKart'); if(!k) return;
+  k.style.display = 'block';
+  document.getElementById('tdFormBaslik').textContent = 'Yeni Firma Ekle';
+  ['tdYeniAd','tdYeniUnvan','tdYeniVergiNo','tdYeniVergiDairesi','tdYeniYetkili',
+   'tdYeniTel','tdYeniTel2','tdYeniEmail','tdYeniAdres'].forEach(i=>{
+    const e = document.getElementById(i); if(e) e.value='';
+  });
+  k.scrollIntoView({behavior:'smooth', block:'start'});
+  setTimeout(()=>document.getElementById('tdYeniAd')?.focus(), 250);
+}
 function tedarikciDuzenle(id){
   const t = KATALOG.tedarikciler.find(x=>x.id===id); if (!t) return;
   TD_DUZENLENEN = id;
+  udKapat();
+  const k = document.getElementById('firmaFormKart'); if (k) k.style.display = 'block';
   document.getElementById('tdFormBaslik').textContent = 'Firmayı Düzenle: ' + t.ad;
   document.getElementById('tdYeniAd').value = t.ad||'';
   document.getElementById('tdYeniUnvan').value = t.unvan||'';
@@ -3479,11 +3618,18 @@ async function vPersonel(){
     </tr>`;
   el.innerHTML = `
     <h2 class="bolum">Personel Giderleri</h2>
+    ${kayitlar.length ? `<div class="ozet-grid">
+      <div class="ozet-kut"><div class="e">AY MALİYETİ</div><div class="d">${tl(T.maliyet)}</div>
+        <div class="aciklama">${kayitlar.length} kişi</div></div>
+      <div class="ozet-kut"><div class="e">KİŞİ BAŞI</div><div class="d">${tl(T.maliyet/kayitlar.length)}</div>
+        <div class="aciklama">SGK ${tl(T.sgk)} dahil</div></div>
+    </div>` : ''}
     <div class="kart">
+      ${kbaslik('', ayAdi(donem), '')}
       <label>Dönem</label>
       <input type="month" id="pgDonem" value="${donem}" onchange="PG_DONEM=this.value; vPersonel()">
-      ${kayitlar.length===0 ? `<div class="bilgi-not">Bu ay kayıt yok.
-        <button class="btn2" style="margin-left:8px" onclick="pgOncekiAydanKopyala()">Önceki aydan kopyala</button></div>` : `
+      ${kayitlar.length===0 ? `${bosDurum('liste','Bu ay kayıt yok','Geçen ayın satırlarını kopyalayıp tutarları güncelleyebilirsin.')}
+        <button class="btn2" style="display:block;margin:0 auto" onclick="pgOncekiAydanKopyala()">Önceki aydan kopyala</button>` : `
       <div style="overflow-x:auto;margin-top:10px">
         <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">
           <thead><tr style="border-bottom:2px solid var(--cizgi);font-size:11px;color:var(--soluk)">
@@ -3564,9 +3710,9 @@ async function vTalep(){
   el.innerHTML = `
     <h2 class="bolum">Yapılacaklar / Alınacaklar</h2>
     <div class="kart">
-      <div class="kbaslik">Yeni Madde Ekle</div>
-      <div class="bilgi-not">Alınacak/yapılacak bir şey mi var? Yaz — herkes görsün, yapan işaretlesin.</div>
+      ${kbaslik('', 'Yeni Madde', '')}
       <textarea id="tlMesaj" rows="2" placeholder="örn: 50 kg şeker, peçete, bardak alınacak / arıtma bakımı yapılacak"></textarea>
+      <div class="ipucu" style="margin-top:6px">Yaz — herkes görür, yapan işaretler.</div>
       <button class="btn" id="tlKaydet" onclick="talepKaydet()">Listeye Ekle</button>
       <div class="hata-msg" id="tlMsg"></div>
     </div>
@@ -3588,24 +3734,35 @@ async function talepListe(){
   const el = document.getElementById('tlListe'); if(!el) return;
   const acik = (data||[]).filter(t=>t.durum==='acik');
   const bitti = (data||[]).filter(t=>t.durum!=='acik');
-  const kart = (t) => `
-    <div class="liste-satir">
-      <div class="l-sol" style="flex:1">
-        <div class="b" style="${t.durum!=='acik'?'text-decoration:line-through;color:var(--soluk)':''}">${esc(t.mesaj)}</div>
-        <div class="k">Ekleyen: ${esc(t.olusturan?.ad||'—')} · ${new Date(t.created_at).toLocaleDateString('tr-TR')}
-          ${t.durum!=='acik'?`<br><span style="color:var(--ok);font-weight:700">✓ ${esc(t.cozen?.ad||'')} yaptı · ${t.cozum_tarihi?new Date(t.cozum_tarihi).toLocaleDateString('tr-TR'):''}</span>`:''}</div>
+  // Kaç gündür beklediği görünsün — 7 günü geçen madde unutulmuş demektir
+  const gun = (t) => Math.floor((Date.now() - new Date(t.created_at).getTime()) / 86400000);
+  const kart = (t) => {
+    const g = gun(t), eski = t.durum==='acik' && g >= 7;
+    return `<div class="sr">
+      <div>
+        <div class="sr-ad" style="${t.durum!=='acik'?'text-decoration:line-through;color:var(--soluk);font-weight:700':''}">${esc(t.mesaj)}</div>
+        <div class="sr-alt">${esc(t.olusturan?.ad||'—')} · ${g===0?'bugün':g+' gündür'}
+          ${eski?'<span class="rozet rz-hata" style="margin-left:4px">UNUTULDU</span>':''}
+          ${t.durum!=='acik'?`<br><span style="color:var(--ok);font-weight:800">✓ ${esc(t.cozen?.ad||'')} yaptı${t.cozum_tarihi?' · '+new Date(t.cozum_tarihi).toLocaleDateString('tr-TR'):''}</span>`:''}</div>
       </div>
-      <div class="l-sag" style="white-space:normal">
+      <div style="text-align:right;white-space:nowrap">
         ${t.durum==='acik'
           ? `<button class="btn2" onclick="yapildiIsaretle('${t.id}',false)">✓ Yaptım</button>`
           : `<button class="btn2" style="background:var(--gri);color:var(--soluk)" onclick="yapildiIsaretle('${t.id}',true)">Geri Al</button>`}
-        <button class="btn-kirmizi" style="margin-top:4px" onclick="maddeSil('${t.id}')">Sil</button>
+        <button class="bo-btn" style="color:var(--hata);display:block;margin:4px 0 0 auto" onclick="maddeSil('${t.id}')">Sil</button>
       </div>
     </div>`;
+  };
+  const unutulan = acik.filter(t=>gun(t)>=7).length;
   el.innerHTML = `
-    <div class="kart"><div class="kbaslik">Bekleyenler (${acik.length})</div>
-      ${acik.length===0?'<div class="bilgi-not">Bekleyen madde yok.</div>':acik.map(kart).join('')}</div>
-    ${bitti.length>0?`<div class="kart"><div class="kbaslik" style="color:var(--soluk)">Tamamlananlar (${bitti.length})</div>
+    <div class="kart">
+      ${kbaslik(unutulan?unutulan+' MADDE UNUTULDU':'', 'Bekleyenler', `<div class="kb-sag">${acik.length}</div>`)}
+      ${acik.length===0
+        ? bosDurum('liste','Bekleyen madde yok','Alınacak veya yapılacak bir şey çıktığında yukarıdan ekle.')
+        : acik.map(kart).join('')}
+    </div>
+    ${bitti.length>0?`<div class="kart">
+      ${kbaslik('', 'Tamamlananlar', `<div class="kb-sag">${bitti.length}</div>`)}
       ${bitti.map(kart).join('')}</div>`:''}`;
 }
 async function yapildiIsaretle(id, geri){
