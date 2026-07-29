@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-28-13">
+<meta name="surum" content="2026-07-29-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -202,7 +202,10 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<!-- e-Fatura PDF'i metin tabanlı: tarayıcıda metni çıkarıp okuruz (fotoğraftan hatasız ve ucuz) -->
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<!-- Ay sonu mutabakatı: portaldan inen zip'i açıp içindeki PDF'leri okumak için -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 /* ================== AYAR ================== */
 const SB_URL = 'https://gbheqnxmwvabwuimzskv.supabase.co';
@@ -585,6 +588,15 @@ function belgeKutusu(){
 }
 async function belgeAc(yol, baslik){
   if(!yol){ alert('Bu belge yüklenmemiş.'); return; }
+  // PDF resim olarak açılmaz — imzalı bağlantıyı yeni sekmede aç
+  if (/\.pdf$/i.test(yol)){
+    try{
+      const { data, error } = await sb.storage.from('belgeler').createSignedUrl(yol, 300);
+      if (error || !data?.signedUrl) throw new Error(error?.message || 'bağlantı alınamadı');
+      window.open(data.signedUrl, '_blank', 'noopener');
+    }catch(e){ alert('Belge açılamadı: ' + e.message); }
+    return;
+  }
   const ov=belgeKutusu();
   document.getElementById('boBaslik').textContent = baslik||'Belge';
   const img=document.getElementById('boResim'), durum=document.getElementById('boDurum');
@@ -1269,12 +1281,212 @@ async function vGider(){
   const sekBtn = (id, ad) => `<button class="btn2" style="flex:1;padding:11px 4px;${GIDER_BOLUM===id?'background:var(--ana);color:#fff':''}" onclick="gdBolumAc('${id}')">${ad}</button>`;
   el.innerHTML = `
     <h2 class="bolum">Giderler</h2>
-    <div class="satir" style="margin-bottom:12px">${sekBtn('temel','Temel Giderler')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}</div>
+    <div class="satir" style="margin-bottom:12px">${sekBtn('temel','Temel Giderler')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
     <div id="gdIcerik"></div>
     <div id="gdListe"></div>`;
   if (GIDER_BOLUM==='temel') gdTemel();
   else if (GIDER_BOLUM==='fatura') gdFatura();
+  else if (GIDER_BOLUM==='mutabakat') gdMutabakat();
   else gdFis();
+}
+/* ===== AY SONU MUTABAKATI =====
+   Personel ay boyunca faturaları tek tek girer. Ay sonunda portaldan inen zip buraya
+   bırakılır: sistem her PDF'i okuyup belge numarasından eşleştirir.
+     · Girilmiş + belgesiz  -> PDF'i kaydına ekler (arşiv tamamlanır)
+     · Girilmemiş           -> listeler, tek tuşla forma taşır
+     · Alıcısı biz değiliz  -> ayırır (LTD/şahsi karışmasın)
+   Böylece gözden kaçan fatura kalmaz. */
+let MUTABAKAT = [];
+function gdMutabakat(){
+  document.getElementById('gdIcerik').innerHTML = `
+    <div class="kart">
+      <div class="kbaslik">Ay Sonu Mutabakatı — gözden kaçan fatura kalmasın</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Luca portalından indirdiğin <b>zip'i olduğu gibi</b> bırak
+        (ya da PDF'leri topluca seç). Sistem her belgeyi okur, numarasından eşleştirir:
+        girilmemiş olanları listeler, girilmiş ama belgesi olmayanlara PDF'i ekler.</div>
+      <label>Zip veya PDF'ler</label>
+      <input type="file" id="mtDosya" accept=".zip,application/zip,application/pdf,.pdf" multiple>
+      <button class="btn" id="mtBtn" onclick="mutabakatCalistir()">Belgeleri Oku ve Karşılaştır</button>
+      <div class="oku-durum" id="mtDurum"></div>
+      <div class="hata-msg" id="mtMsg"></div>
+    </div>
+    <div id="mtSonuc"></div>`;
+}
+async function mutabakatDosyalari(){
+  const inp = document.getElementById('mtDosya');
+  const secilen = [...(inp?.files || [])];
+  if (!secilen.length) throw new Error('Önce zip veya PDF seç.');
+  const pdfler = [];
+  for (const f of secilen){
+    if (/\.zip$/i.test(f.name) || f.type === 'application/zip'){
+      if (!window.JSZip) throw new Error('Zip okuyucu yüklenemedi — internet bağlantısını kontrol et.');
+      const z = await window.JSZip.loadAsync(f);
+      const adlar = Object.keys(z.files).filter(n => /\.pdf$/i.test(n) && !z.files[n].dir);
+      for (const n of adlar){
+        const blob = await z.files[n].async('blob');
+        pdfler.push(new File([blob], n.split('/').pop(), { type:'application/pdf' }));
+      }
+    } else if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf'){
+      pdfler.push(f);
+    }
+  }
+  if (!pdfler.length) throw new Error('Seçilenlerin içinde PDF bulunamadı.');
+  return pdfler;
+}
+async function mutabakatCalistir(){
+  const btn = document.getElementById('mtBtn');
+  const drm = document.getElementById('mtDurum');
+  const yaz = (t,s)=>{ drm.className='oku-durum '+(s||''); drm.textContent=t; };
+  btn.disabled = true; MUTABAKAT = [];
+  document.getElementById('mtSonuc').innerHTML = '';
+  try{
+    const pdfler = await mutabakatDosyalari();
+    yaz(`${pdfler.length} belge bulundu, okunuyor...`, '');
+    for (let i=0; i<pdfler.length; i++){
+      const f = pdfler[i];
+      yaz(`Okunuyor ${i+1}/${pdfler.length} — ${f.name.slice(0,40)}`, '');
+      const kayit = { dosya:f, ad:f.name };
+      try{
+        const c = await pdfMetinCikar(f);
+        kayit.metin = c.metin;
+        const t = c.metin;
+        // Belge no: önce dosya adından (portal "FATURANO_VKN_FIRMA.pdf" verir), yoksa metinden
+        const adNo = (f.name.match(/^([A-Z0-9]{10,20})_/i)||[])[1];
+        const metinNo = (t.match(/Fatura\s*No\s*:?\s*([A-Z0-9]{10,20})/i)||[])[1]
+                     || (t.match(/FATURA\s*ID\s*:?\s*([A-Z0-9]{10,20})/i)||[])[1];
+        kayit.belge_no = (adNo || metinNo || '').toUpperCase() || null;
+        // Alıcı kontrolü: şahsın TCKN'si belgede geçiyor mu
+        kayit.bizeMi = t.replace(/\D/g,'').includes(KTU_VKN);
+        kayit.firma = t.split('\n')[0].slice(0,40);
+        kayit.tarih = (t.match(/(?:Fatura\s*)?Tarihi?\s*:?\s*(\d{2}\s?[-.\/]\s?\d{2}\s?[-.\/]\s?\d{4})/i)||[])[1] || null;
+      }catch(e){ kayit.hata = e.message; }
+      MUTABAKAT.push(kayit);
+    }
+    // Sistemde ne var: alış belge_no + gider açıklamasındaki belge no
+    const nolar = MUTABAKAT.map(x=>x.belge_no).filter(Boolean);
+    const [av, gv] = await Promise.all([
+      sb.from('alis').select('id,belge_no,tarih,toplam,foto_path,tedarikci(ad)')
+        .eq('is_deleted',false).in('belge_no', nolar.length?nolar:['-']),
+      sb.from('gider').select('id,aciklama,tarih,tutar,foto_path').eq('is_deleted',false)
+    ]);
+    // Bilerek girilmeyenler (şahsi harcama vb) "eksik" sayılmasın
+    const { data: hd } = await sb.from('belge_haric').select('belge_no,neden').eq('is_deleted',false);
+    const haricMap = {}; (hd||[]).forEach(h=>{ haricMap[(h.belge_no||'').toUpperCase()] = h.neden; });
+    const alisMap = {}; (av.data||[]).forEach(a=>{ alisMap[(a.belge_no||'').toUpperCase()] = a; });
+    const giderler = gv.data || [];
+    MUTABAKAT.forEach(x=>{
+      if (x.hata){ x.durum='hata'; return; }
+      if (!x.bizeMi){ x.durum='baska_alici'; return; }
+      if (x.belge_no && haricMap[x.belge_no]){ x.durum='haric'; x.neden=haricMap[x.belge_no]; return; }
+      const a = x.belge_no ? alisMap[x.belge_no] : null;
+      const g = x.belge_no ? giderler.find(z => (z.aciklama||'').toUpperCase().includes(x.belge_no)) : null;
+      const k = a || g;
+      if (!k){ x.durum='eksik'; return; }
+      x.kayit = k; x.tur = a ? 'alis' : 'gider';
+      x.durum = k.foto_path ? 'belgeli' : 'belge_eklenecek';
+    });
+    yaz(`${MUTABAKAT.length} belge okundu.`, 'ok');
+    mutabakatCiz();
+  }catch(e){
+    yaz('Hata: ' + e.message, 'uyari');
+  }finally{ btn.disabled = false; }
+}
+function mutabakatCiz(){
+  const el = document.getElementById('mtSonuc'); if(!el) return;
+  const say = d => MUTABAKAT.filter(x=>x.durum===d).length;
+  const grup = (d) => MUTABAKAT.filter(x=>x.durum===d);
+  const satir = (x, sag) => `<div class="liste-satir">
+      <div class="l-sol"><div class="b">${esc(x.belge_no||x.ad.slice(0,24))}</div>
+        <div class="k">${esc(x.firma||'—')}${x.tarih?' · '+esc(x.tarih):''}
+          ${x.kayit?' · '+tl(x.kayit.toplam ?? x.kayit.tutar):''}</div></div>
+      <div class="l-sag">${sag}</div></div>`;
+  const eksik = grup('eksik'), ekle = grup('belge_eklenecek'),
+        tamam = grup('belgeli'), baska = grup('baska_alici'), hata = grup('hata');
+  el.innerHTML = `<div class="kart">
+    <div class="kbaslik">Karşılaştırma Sonucu</div>
+    <div class="gs-bant" style="margin:0 0 12px">
+      <div class="kalem buyuk"><div class="gs-et">Portaldan gelen</div><div class="dg">${MUTABAKAT.length}</div></div>
+      <div class="kalem"><div class="gs-et">Sistemde var</div><div class="dg">${tamam.length+ekle.length}</div></div>
+      <div class="kalem"><div class="gs-et">Girilmemiş</div><div class="dg" style="color:${eksik.length?'var(--hata)':'var(--ok)'}">${eksik.length}</div></div>
+    </div>
+    ${eksik.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--hata)">
+        ⚠ SİSTEME GİRİLMEMİŞ (${eksik.length}) — gözden kaçmış</div>
+      ${eksik.map(x=>satir(x,
+        `<button class="btn2" onclick="mutabakatGir('${esc(x.belge_no||'')}')">Şimdi gir</button>
+         <button class="btn2" style="margin-top:4px" onclick="mutabakatHaric('${esc(x.belge_no||'')}')">İşletme dışı</button>`)).join('')}`:''}
+    ${grup('haric').length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--soluk)">
+        İŞLETME DIŞI (${grup('haric').length}) — bilerek girilmiyor</div>
+      ${grup('haric').map(x=>satir(x, `<span class="k">${esc((x.neden||'').slice(0,28))}</span>`)).join('')}`:''}
+    ${ekle.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--uyari)">
+        BELGESİ EKSİK (${ekle.length}) — kayıt var, PDF yok</div>
+      ${ekle.map(x=>satir(x, `<span class="k">hazır</span>`)).join('')}
+      <button class="btn" id="mtEkleBtn" onclick="mutabakatBelgeEkle()">${ekle.length} Belgeyi Kayıtlara Ekle</button>`:''}
+    ${tamam.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--ok)">
+        ✓ TAM (${tamam.length}) — kayıt ve belge yerinde</div>
+      ${tamam.map(x=>satir(x,'<span class="rozet rz-ok">✓</span>')).join('')}`:''}
+    ${baska.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--soluk)">
+        ⊘ BAŞKA ALICI (${baska.length}) — bu belgelerde şahsın TCKN'si geçmiyor, girilmedi</div>
+      ${baska.map(x=>satir(x,'<span class="k">atlandı</span>')).join('')}`:''}
+    ${hata.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--hata)">
+        OKUNAMADI (${hata.length})</div>
+      ${hata.map(x=>`<div class="liste-satir"><div class="l-sol"><div class="b">${esc(x.ad)}</div>
+        <div class="k">${esc(x.hata)}</div></div><div class="l-sag"></div></div>`).join('')}`:''}
+  </div>`;
+}
+async function mutabakatBelgeEkle(){
+  const liste = MUTABAKAT.filter(x=>x.durum==='belge_eklenecek');
+  if (!liste.length) return;
+  if (!confirm(`${liste.length} belge kayıtlarına eklenecek.\n\nDevam edilsin mi?`)) return;
+  const btn = document.getElementById('mtEkleBtn'); if(btn) btn.disabled = true;
+  let ok = 0; const hatalar = [];
+  for (const x of liste){
+    try{
+      const yol = `fatura/${bugun()}_${crypto.randomUUID()}.pdf`;
+      const { error: ue } = await sb.storage.from('belgeler')
+        .upload(yol, x.dosya, { upsert:false, contentType:'application/pdf' });
+      if (ue) throw new Error(ue.message);
+      const tablo = x.tur === 'alis' ? 'alis' : 'gider';
+      const { error: ge } = await sb.from(tablo).update({ foto_path: yol }).eq('id', x.kayit.id);
+      if (ge) throw new Error(ge.message);
+      x.durum = 'belgeli'; x.kayit.foto_path = yol; ok++;
+    }catch(e){ hatalar.push(`${x.belge_no}: ${hataTr(e.message)}`); }
+  }
+  if(btn) btn.disabled = false;
+  mutabakatCiz();
+  mesaj('mtMsg', hatalar.length ? 'hata' : 'ok',
+    `${ok} belge eklendi ✓` + (hatalar.length ? ` · ${hatalar.length} hata: ${hatalar[0]}` : ''));
+}
+/* Bilerek girilmeyecek belgeyi işaretle — bir daha "eksik" diye uyarmasın */
+async function mutabakatHaric(no){
+  const x = MUTABAKAT.find(z=>z.belge_no===no); if(!x) return;
+  const neden = prompt(`${no} — ${x.firma||''}\n\nNeden sisteme girilmiyor? (örn: ev interneti, şahsi harcama)`);
+  if (neden === null) return;
+  if (!neden.trim()){ alert('Neden yazmak zorunlu — sonradan niye atlandığını bilmen gerekir.'); return; }
+  const { error } = await sb.from('belge_haric').insert({
+    sube_id: PROFIL.sube_id, belge_no: no, firma: (x.firma||'').slice(0,80),
+    neden: neden.trim(), giren_id: PROFIL.id || null });
+  if (error){ alert('Kaydedilemedi: ' + hataTr(error.message)); return; }
+  x.durum = 'haric'; x.neden = neden.trim();
+  mutabakatCiz();
+  mesaj('mtMsg','ok', `${no} işletme dışı olarak işaretlendi — bir daha uyarmayacak.`);
+}
+/* Girilmemiş faturayı forma taşı — PDF'i de dosya alanına koyar, tek tuşla okutulur */
+function mutabakatGir(no){
+  const x = MUTABAKAT.find(z=>z.belge_no===no);
+  if (!x){ alert('Belge bulunamadı.'); return; }
+  GIDER_BOLUM = 'fatura';
+  vGider();
+  setTimeout(()=>{
+    const inp = document.getElementById('alFoto');
+    if (inp){
+      const dt = new DataTransfer(); dt.items.add(x.dosya); inp.files = dt.files;
+      alFotoSecildi();
+    }
+    const b = document.getElementById('alBelgeNo'); if (b) b.value = no;
+    const d = document.getElementById('alOkuDurum');
+    if (d){ d.className='oku-durum'; d.textContent = `${no} forma taşındı — "Belgeyi oku"ya bas.`; }
+    window.scrollTo(0,0);
+  }, 60);
 }
 function gdTemel(){
   const katlar = KATALOG.kategoriler.filter(k=>k.ad!=='Fiş/Gündelik');
@@ -1439,10 +1651,12 @@ function gdFatura(){
     <div class="kart">
       <div class="kbaslik">Fatura (tedarikçiden gelen)</div>
       <div class="bilgi-not" style="margin:0 0 4px">Yoğunsan: şimdilik sadece belgenin FOTOĞRAFINI çek, akşam sakinken buradan gir — geçmiş tarihe kayıt serbest.</div>
-      <label>Belge Fotoğrafı</label>
-      <input type="file" id="alFoto" accept="image/*" capture="environment" onchange="alFotoSecildi()">
+      <label>Belge — e-Fatura PDF'i veya fotoğraf</label>
+      <div class="bilgi-not" style="margin:0 0 6px">Luca portalından indirdiğin <b>PDF'i seçersen rakamlar birebir okunur</b>
+        (hata payı yok). Fiş ve elden gelen belgelerde fotoğraf çek.</div>
+      <input type="file" id="alFoto" accept="image/*,application/pdf,.pdf" onchange="alFotoSecildi()">
       <button type="button" class="btn2" id="alOku" onclick="faturaOku()" style="width:100%">
-        📄 Faturayı oku — alanları doldur</button>
+        📄 Belgeyi oku — alanları doldur</button>
       <div class="oku-durum" id="alOkuDurum"></div>
       <div id="alOkuOzet"></div>
       <label>Firma</label>
@@ -1611,11 +1825,56 @@ function alHesapla(){
       ödenecek tutar ${tl(toplam)} — <b>${fark>0?'+':''}${tl(fark)}</b> fark var. Belgeyle karşılaştır.</div>`;
   }
 }
+/* ===== e-FATURA PDF'İNDEN METİN ÇIKARMA =====
+   Luca portalından inen e-fatura PDF'leri METİN tabanlı. Fotoğraf çekip okutmak yerine
+   metni doğrudan çıkarırız: rakamlar birebir doğru, Türkçe karakter bozulmaz, maliyet düşük.
+   Metin çıkmazsa (taranmış PDF) fotoğraf yoluna düşeriz. */
+function pdfHazir(){
+  const L = window.pdfjsLib;
+  if (!L) return null;
+  if (!L.GlobalWorkerOptions.workerSrc)
+    L.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  return L;
+}
+async function pdfMetinCikar(file){
+  const L = pdfHazir();
+  if (!L) throw new Error('PDF okuyucu yüklenemedi — internet bağlantısını kontrol et.');
+  const buf = await file.arrayBuffer();
+  const pdf = await L.getDocument({ data: buf }).promise;
+  const sayfalar = [];
+  const enFazla = Math.min(pdf.numPages, 10);            // fatura 1-2 sayfa; kaçak dosyaya karşı sınır
+  for (let i = 1; i <= enFazla; i++){
+    const sy = await pdf.getPage(i);
+    const ic = await sy.getTextContent();
+    // Satır satır topla: aynı y'deki parçalar tek satır olsun (sütun hizası korunsun)
+    const satirlar = new Map();
+    ic.items.forEach(it => {
+      if (!it.str) return;
+      const y = Math.round(it.transform[5]);
+      if (!satirlar.has(y)) satirlar.set(y, []);
+      satirlar.get(y).push({ x: it.transform[4], s: it.str });
+    });
+    const metin = [...satirlar.entries()]
+      .sort((a,b) => b[0] - a[0])                        // yukarıdan aşağı
+      .map(([,p]) => p.sort((a,b)=>a.x-b.x).map(o=>o.s).join(' ').replace(/\s+/g,' ').trim())
+      .filter(Boolean).join('\n');
+    sayfalar.push(metin);
+  }
+  const tam = sayfalar.join('\n\n--- SAYFA ---\n\n').trim();
+  return { metin: tam, sayfa: pdf.numPages, yeterli: tam.length >= 200 };
+}
+
 /* ===== FATURA OKUMA — sistem doldurur, SEN doğrularsın ===== */
 const KTU_VKN = '20345231280';      // şahıs şirketi. LTD faturası buraya girmemeli.
 function alFotoSecildi(){
-  const d = document.getElementById('alOkuDurum');
-  if (d){ d.className = 'oku-durum'; d.textContent = 'Fotoğraf seçildi — "Faturayı oku"ya basabilirsin.'; }
+  const d = document.getElementById('alOkuDurum'); if(!d) return;
+  const f = document.getElementById('alFoto')?.files?.[0];
+  d.className = 'oku-durum';
+  if (!f){ d.textContent = ''; return; }
+  const pdfMi = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
+  d.textContent = pdfMi
+    ? 'e-Fatura PDF\'i seçildi — "Belgeyi oku"ya bas, rakamlar birebir okunacak.'
+    : 'Fotoğraf seçildi — "Belgeyi oku"ya basabilirsin.';
 }
 function alTedarikciEslestir(ocrAd, ocrVkn){
   const norm = s => (s||'').toString().toUpperCase()
@@ -1654,15 +1913,25 @@ async function faturaOku(){
   try{
     const { data:{ session } } = await sb.auth.getSession();
     if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
-    let govde;
+    let govde, yontem = 'fotoğraf';
     if (dosyaVar){
-      const k = await fotoKucult(inp.files[0], 2000, 0.92);
-      const b64 = await new Promise((coz,red)=>{ const fr=new FileReader();
-        fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); });
-      govde = { gorsel: b64 };
+      const f = inp.files[0];
+      const pdfMi = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
+      if (pdfMi){
+        yaz('e-Fatura PDF\'i okunuyor...','');
+        const c = await pdfMetinCikar(f);
+        if (!c.yeterli) throw new Error('Bu PDF taranmış görünüyor (metin çıkmadı). Belgenin fotoğrafını çekip dene.');
+        govde = { metin: c.metin }; yontem = 'PDF metni';
+      } else {
+        const k = await fotoKucult(f, 2000, 0.92);
+        const b64 = await new Promise((coz,red)=>{ const fr=new FileReader();
+          fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); });
+        govde = { gorsel: b64 };
+      }
     } else {
       govde = { yol: mevcutYol };
     }
+    OKUMA_YONTEMI = yontem;
 
     const y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
       method:'POST',
@@ -1744,7 +2013,8 @@ async function faturaOku(){
     await alSatirlariKur(v.satirlar, es.t ? es.t.id : null);
 
     const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
-    let msj = 'Okundu → ' + (doldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları belgeyle KARŞILAŞTIR.';
+    let msj = (OKUMA_YONTEMI === 'PDF metni' ? '✓ e-Fatura PDF\'inden okundu (rakamlar birebir) → ' : 'Okundu → ')
+            + (doldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları belgeyle KARŞILAŞTIR.';
     if (eksik.length) msj += ' Okunamayan: ' + eksik.join(', ');
     if (v.uyari) msj += ' (' + v.uyari + ')';
     yaz(msj, doldu.length ? 'ok' : 'uyari');
@@ -1754,7 +2024,8 @@ async function faturaOku(){
     btn.disabled = false; btn.textContent = eski;
   }
 }
-let OCR_SON = null;   // son okuma — kayda denetim izi olarak gider
+let OCR_SON = null;         // son okuma — kayda denetim izi olarak gider
+let OKUMA_YONTEMI = null;   // 'PDF metni' | 'fotoğraf' — kullanıcıya hangi yolla okunduğunu söyler
 
 /* ===== FATURA SATIRLARI — tanı, eşleştir, bir daha sorma =====
    Tedarikçinin yazımı → bizim ürün eşleşmesi bir kez kurulur (urun_alias),
@@ -2998,7 +3269,16 @@ async function arsivPdf(){
       ogeler.push({ b:`ALIS — ${a.tarih} — ${a.tedarikci?.ad||''} — ${tl(a.toplam)}`, p:a.foto_path });
     for (const x of (gd.data||[])) if (x.foto_path)
       ogeler.push({ b:`GIDER — ${x.tarih} — ${x.gider_kategori?.ad||''} — ${tl(x.tutar)}`, p:x.foto_path });
-    if (ogeler.length === 0){ mesaj('arsivMsg','hata','Bu ayda fotoğraflı belge yok.'); return; }
+    // PDF belgeler bu birleştirmeye giremez (jsPDF yalnız görsel ekler) — ayrı say ve söyle
+    const pdfBelgeler = ogeler.filter(o => /\.pdf$/i.test(o.p));
+    const gorseller   = ogeler.filter(o => !/\.pdf$/i.test(o.p));
+    ogeler.length = 0; ogeler.push(...gorseller);
+    if (ogeler.length === 0){
+      mesaj('arsivMsg','hata', pdfBelgeler.length
+        ? `Bu ayda ${pdfBelgeler.length} belge var ama hepsi PDF — PDF'ler zaten tek tek dosya, birleştirmeye gerek yok. Listeden "Belge" ile açabilirsin.`
+        : 'Bu ayda fotoğraflı belge yok.');
+      return;
+    }
 
     const pdf = new window.jspdf.jsPDF({ unit:'mm', format:'a4' });
     let ilk = true, eklenen = 0;
@@ -3020,7 +3300,8 @@ async function arsivPdf(){
     }
     if (eklenen === 0){ mesaj('arsivMsg','hata','Belgeler indirilemedi.'); return; }
     pdf.save(`bardaks-arsiv-${ayS}.pdf`);
-    mesaj('arsivMsg','ok', eklenen + ' belge tek PDF olarak indirildi ✓');
+    mesaj('arsivMsg','ok', eklenen + ' belge tek PDF olarak indirildi ✓'
+      + (pdfBelgeler.length ? ` · ${pdfBelgeler.length} e-Fatura PDF'i ayrı duruyor (listeden "Belge" ile açılır)` : ''));
   }catch(e){
     mesaj('arsivMsg','hata','PDF oluşturulamadı: ' + e.message);
   }finally{
