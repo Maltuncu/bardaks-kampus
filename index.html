@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-30-8">
+<meta name="surum" content="2026-07-30-9">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1895,6 +1895,64 @@ async function vGider(){
      · tedarikci_odeme — firmaya yapılan ödeme (kart/nakit/havale/çek)
    Eskiden tedarikçi ödemesi yalnız Tedarikçi ekranında, gider yalnız burada duruyordu;
    "bu ay kime ne ödedim" sorusunun tek cevabı yoktu. */
+/* KASADAN NAKİT kutusuna dokununca: o ay kasadan çıkan her ödeme — hangi gün, ne için.
+   Bu para elindeki nakitten çıktığı için o günün kasa sayımı o kadar düşük olur;
+   "kasa neden eksik" sorusunun cevabı burada. */
+async function kasadanDetay(ay){
+  const ov=udKutu(), ic=document.getElementById('udIcerik');
+  ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Yükleniyor...</div></div>
+    <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
+  ov.classList.add('acik');
+  const sonGun=new Date(+ay.slice(0,4), +ay.slice(5,7), 0).getDate();
+  const bas=ay+'-01', son=ay+'-'+String(sonGun).padStart(2,'0');
+  const [gd, td] = await Promise.all([
+    sb.from('gider').select('tarih,tutar,aciklama,gider_kategori(ad)')
+      .eq('is_deleted',false).eq('kasadan',true).gte('tarih',bas).lte('tarih',son),
+    sb.from('tedarikci_odeme').select('tarih,tutar,aciklama,tedarikci(ad)')
+      .eq('is_deleted',false).eq('yontem','nakit').gte('tarih',bas).lte('tarih',son)
+  ]);
+  const bas_=(sag)=>`<div class="ud-ust"><div style="flex:1;min-width:0">
+      <div class="ud-kod">KASADAN NAKİT</div><div class="ud-ad">${esc(ayAdi(ay))}</div>${sag||''}</div>
+    <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
+  if(gd.error||td.error){
+    ic.innerHTML=bas_()+`<div class="ud-govde"><div class="uyari-agir">Yüklenemedi:
+      ${esc(hataTr((gd.error||td.error).message))}</div></div>`; return;
+  }
+  const kayitlar=[
+    ...(gd.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar,
+      ne: esc(x.aciklama || x.gider_kategori?.ad || 'Gider'),
+      tur: esc(x.gider_kategori?.ad || 'Gider') })),
+    ...(td.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar,
+      ne: esc(x.tedarikci?.ad || 'Tedarikçi') + (x.aciklama?' — '+esc(x.aciklama):''),
+      tur: 'Tedarikçi ödemesi' }))
+  ].sort((a,b)=> a.tarih<b.tarih?1:a.tarih>b.tarih?-1:0);
+  const toplam=kayitlar.reduce((a,x)=>a+x.tutar,0);
+  const GUNAD=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+
+  ic.innerHTML=bas_()+`<div class="ud-govde">
+    <div class="ud-kunye" style="grid-template-columns:1fr 1fr">
+      <div><div class="ud-et">TOPLAM</div><div class="ud-dg" style="color:var(--uyari)">${tl(toplam)}</div></div>
+      <div><div class="ud-et">KAYIT</div><div class="ud-dg">${kayitlar.length}</div></div>
+    </div>
+    ${kayitlar.length===0
+      ? '<div class="ud-bos">Bu ay kasadan nakit ödeme yapılmamış.</div>'
+      : kayitlar.map(x=>{
+          const d=new Date(x.tarih+'T00:00');
+          return `<div class="ud-satir tikla" style="grid-template-columns:44px 1fr auto"
+              onclick="gunDetay('${x.tarih}')">
+            <div class="ud-trh">${d.toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}
+              <span style="display:block;font-size:10px;font-weight:700">${GUNAD[d.getDay()].slice(0,3)}</span></div>
+            <div><div style="font-weight:800;font-size:13px">${x.ne}</div>
+              <div class="ud-alt">${x.tur}</div></div>
+            <div class="ud-tut">${tl(x.tutar)}</div>
+          </div>`;
+        }).join('')}
+    <div class="bilgi-not" style="margin-top:12px">
+      Bu ödemeler <b>elindeki nakitten</b> yapıldı. O günün kasa sayımı bu kadar düşük çıkar —
+      satırın üstüne dokunursan o günün gün sonu kaydı açılır.
+    </div>
+  </div>`;
+}
 function odKimeDegisti(){
   const diger = document.getElementById('odKime').value === '__diger';
   document.getElementById('odDigerAlan').style.display = diger ? 'block' : 'none';
@@ -2029,9 +2087,10 @@ async function gdOdeme(){
     : `<div class="ozet-grid" style="margin-top:12px">
         <div class="ozet-kut"><div class="e">TOPLAM ÖDEME</div><div class="d">${tl(toplam)}</div>
           <div class="aciklama">${kayitlar.length} kayıt</div></div>
-        <div class="ozet-kut"><div class="e">KASADAN NAKİT</div>
+        <div class="ozet-kut${kasadanT>0?' ac':''}"${kasadanT>0?` onclick="kasadanDetay('${ay}')"`:''}>
+          <div class="e">KASADAN NAKİT</div>
           <div class="d" style="color:${kasadanT>0?'var(--uyari)':'var(--ana)'}">${tl(kasadanT)}</div>
-          <div class="aciklama">elden çıkan</div></div>
+          <div class="aciklama">${kasadanT>0?'elden çıkan · dökümü gör':'elden çıkan yok'}</div></div>
       </div>
       ${ozSatir('Tedarikçi ödemeleri', tl(tedT))}
       ${ozSatir('Giderler', tl(gidT))}
