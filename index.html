@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-30-5">
+<meta name="surum" content="2026-07-30-8">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -718,9 +718,13 @@ function tarihSecici(id, deger){
 /* gunlukCiro(gunler, ayStr, kasaCikis)
    Grafiğin çizdiği sütunlar, başlıktaki toplam ve ortalama çizgisi TEK kaynaktan
    (bu fonksiyonun döndürdüğü seri) hesaplanır — üçü ayrı yerden gelirse tutmaz.
-     resmi  = gun_sonu.toplam                      (Z raporu)
-     z_disi = kasa_nakit − nakit_toplam + o gün kasadan ödenen + o gün nakit tedarikçi ödemesi
-   Kasa sayılmamışsa KDV dışı kısım BİLİNMEZ (uydurulmaz). Negatifse bu satış değil
+     kart         = gun_sonu.kart_toplam
+     TOPLAM NAKİT = gun_sonu.kasa_nakit    ← kasaya ELLE YAZILAN tutar. O kadar.
+                    Kasadan ödenen EKLENMEZ (zaten gider olarak kayıtlı).
+     gerçek ciro  = kart + toplam nakit
+     Z'deki nakit (gun_sonu.nakit_toplam) toplam nakdi DEĞİŞTİRMEZ; tek işi
+     ay sonu KDV beyanını beslemek (Temmuz'un Z nakdi → 28 Ağustos'ta ödenecek KDV).
+   Kasa sayılmamışsa nakit BİLİNMEZ (uydurulmaz). Sayılan Z'dekinden azsa bu
    KASA AÇIĞIDIR — ayrı işaretlenir, sıfıra kırpılıp gizlenmez. */
 function gunlukCiro(gunler, ayStr){
   const yil=+ayStr.slice(0,4), ayNo=+ayStr.slice(5,7);
@@ -741,14 +745,13 @@ function gunlukCiro(gunler, ayStr){
     if(k.kasa_nakit===null || k.kasa_nakit===undefined){
       g.durum='kasa_sayilmadi'; g.nakitToplam=null; g.zDisi=null; g.gercek=g.resmi; bilinmeyen++;
     }else{
-      // Elle girilen nakit BİZİM nakdimizdir; Z'deki kısım onun İÇİNDE, üstüne eklenmez.
-      // Kasadan ödenen gider geri EKLENMEZ: o zaten gider olarak kayıtlı, ikinci kez gelir sayılmaz.
+      // TOPLAM NAKİT = kasaya elle yazılan tutar. O kadar.
+      // Kasadan ödenen eklenmez (zaten gider), Z'deki nakit çıkarılmaz (o KDV hesabı için).
       g.nakitToplam = +k.kasa_nakit;
-      const ham = g.nakitToplam - g.nakit;      // KDV'ye girmeyen kısım
-      g.zDisi = ham;
-      g.gercek = g.kart + g.nakitToplam;        // gerçek ciro = kart + sayılan nakit
-      g.durum = ham<0 ? 'kasa_acigi' : 'tam';
-      if(ham<0) acikGun++;
+      g.zDisi = g.nakitToplam - g.nakit;        // KDV'ye girmeyen kısım (yalnız bilgi)
+      g.gercek = g.kart + g.nakitToplam;        // gerçek ciro = kart + elle yazılan nakit
+      g.durum = g.zDisi<0 ? 'kasa_acigi' : 'tam';
+      if(g.zDisi<0) acikGun++;
     }
     tResmi+=g.resmi; tKart+=g.kart; tKdvNakit+=g.nakit;
     tNakit+=(g.nakitToplam||0); tZDisi+=(g.zDisi||0); tGercek+=g.gercek;
@@ -987,9 +990,9 @@ async function vOzet(){
         <span><i style="background:#E08A3C"></i>Nakit <b>${tl(GC.toplamNakit)}</b></span>
       </div>
       <div class="ipucu" style="margin:0 0 8px">
-        Kart bankaya gider (komisyon ve valör var). Nakit elde kalır —
-        elle girdiğin <b>${tl(GC.toplamNakit)}</b> bizim nakdimiz.
-        Bunun <b>${tl(GC.toplamKdvNakit)}</b>'i Z raporuna girdiği için KDV hesabına dahil.
+        Kart bankaya gider. <b>Toplam nakit ${tl(GC.toplamNakit)}</b> — kasaya elle yazdığın tutar.
+        Bunun <b>${tl(GC.toplamKdvNakit)}</b>'i Z raporunda; ${ayAdi(ay)} KDV'si
+        o rakamdan hesaplanıp gelecek ay ödenecek.
       </div>
       ${ciroGrafigi(GC)}
       <div class="ipucu" style="margin-top:6px">Bir güne dokun — o günün gün sonu kaydı açılır.</div>
@@ -1892,6 +1895,56 @@ async function vGider(){
      · tedarikci_odeme — firmaya yapılan ödeme (kart/nakit/havale/çek)
    Eskiden tedarikçi ödemesi yalnız Tedarikçi ekranında, gider yalnız burada duruyordu;
    "bu ay kime ne ödedim" sorusunun tek cevabı yoktu. */
+function odKimeDegisti(){
+  const diger = document.getElementById('odKime').value === '__diger';
+  document.getElementById('odDigerAlan').style.display = diger ? 'block' : 'none';
+  document.getElementById('odAciklamaAlan').style.display = diger ? 'none' : 'block';
+}
+function odYontemDegisti(){
+  document.getElementById('odCekAlan').style.display =
+    document.getElementById('odYontem').value === 'cek' ? 'block' : 'none';
+}
+/* Tek form, iki kayıt yolu:
+     firma seçilirse  -> tedarikci_odeme  (bakiyesi düşer)
+     "Diğer" seçilirse-> gider            (firma bakiyesi yok, açıklama zorunlu)
+   Nakit seçilirse her iki yolda da "kasadan ödendi" işaretlenir — o gün sayılan
+   kasa o kadar eksik çıkar ve sistem bunu toplam nakde geri ekler. */
+async function odemeGirisiKaydet(){
+  const kime = document.getElementById('odKime').value;
+  const tutar = paraDeger('odTutar');
+  const yontem = document.getElementById('odYontem').value;
+  const tarih = document.getElementById('odTarih').value;
+  if (tutar === 0){ mesaj('odMsg','hata','Tutar boş olamaz.'); return; }
+
+  if (kime === '__diger'){
+    const ne = document.getElementById('odAciklamaDiger').value.trim();
+    if (!ne){ mesaj('odMsg','hata','"Diğer" seçtiğinde ne için ödendiğini yazman gerekiyor.'); return; }
+    const data = await rpcCagir('rpc_gider_kaydet',{
+      p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: tarih,
+      p_kategori: document.getElementById('odKategori').value,
+      p_aciklama: ne, p_tutar: tutar,
+      p_kdv_orani: null, p_kdv_tutar: 0, p_foto: null,
+      p_kasadan: yontem === 'nakit', p_tedarikci: null
+    },'odKaydet','odMsg','Ödeme kaydedildi ✓');
+    if (data && data.ok){
+      document.getElementById('odTutar').value=''; document.getElementById('odAciklamaDiger').value='';
+      gdOdeme();
+    }
+    return;
+  }
+  const cek = yontem === 'cek';
+  const data = await rpcCagir('rpc_tedarikci_odeme_kaydet',{
+    p_idem: idem(), p_sube: PROFIL.sube_id, p_tedarikci: kime, p_tarih: tarih, p_tutar: tutar,
+    p_aciklama: document.getElementById('odAciklama').value.trim()||null,
+    p_yontem: yontem,
+    p_cek_no: cek ? (document.getElementById('odCekNo').value.trim()||null) : null,
+    p_cek_vade: cek ? (document.getElementById('odCekVade').value||null) : null
+  },'odKaydet','odMsg','Ödeme kaydedildi ✓');
+  if (data && data.ok){
+    document.getElementById('odTutar').value=''; document.getElementById('odAciklama').value='';
+    gdOdeme();
+  }
+}
 async function gdOdeme(){
   const ay = GD_ODEME_AY || bugun().slice(0,7);
   GD_ODEME_AY = ay;
@@ -1899,12 +1952,47 @@ async function gdOdeme(){
   const bas = ay+'-01', son = ay+'-'+String(sonGun).padStart(2,'0');
   document.getElementById('gdIcerik').innerHTML = `
     <div class="kart">
+      ${kbaslik('', 'Ödeme Kaydet', '')}
+      <label>Kime ödendi?</label>
+      <select id="odKime" onchange="odKimeDegisti()">
+        ${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}
+        <option value="__diger">— Diğer (firma dışı) —</option>
+      </select>
+      <div id="odDigerAlan" style="display:none">
+        <label>Ne için ödendi? *</label>
+        <input type="text" id="odAciklamaDiger" placeholder="örn: ilaçlama, tamirci, temizlik">
+        <label>Kategori</label>
+        <select id="odKategori">${KATALOG.kategoriler.map(k=>`<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select>
+      </div>
+      ${tarihSecici('odTarih')}
+      <label>Tutar</label><input type="text" inputmode="decimal" id="odTutar" placeholder="0,00">
+      <label>Neyle ödendi?</label>
+      <select id="odYontem" onchange="odYontemDegisti()">
+        <option value="kart">Kart</option>
+        <option value="nakit">Nakit — kasadan</option>
+        <option value="havale">Havale/EFT</option>
+        <option value="cek">Çek</option>
+      </select>
+      <div id="odCekAlan" style="display:none">
+        <div class="satir">
+          <div><label>Çek No</label><input type="text" id="odCekNo"></div>
+          <div><label>Çek Vadesi</label><input type="date" id="odCekVade"></div>
+        </div>
+      </div>
+      <div id="odAciklamaAlan"><label>Açıklama</label><input type="text" id="odAciklama"></div>
+      <div class="ipucu" style="margin-top:8px">Nakit seçersen kasadan ödenmiş sayılır —
+        o gün kasada sayılan para o kadar eksik çıkar, sistem bunu bilir.</div>
+      <button class="btn" id="odKaydet" onclick="odemeGirisiKaydet()">Ödemeyi Kaydet</button>
+      <div class="hata-msg" id="odMsg"></div>
+    </div>
+    <div class="kart">
       ${kbaslik('AY İÇİNDE', 'Yapılan Ödemeler', '')}
       <label>Ay</label>
       <input type="month" id="gdOdemeAy" value="${ay}" onchange="GD_ODEME_AY=this.value; gdOdeme()">
       <div id="gdOdemeListe">Yükleniyor...</div>
     </div>`;
   document.getElementById('gdListe').innerHTML = '';
+  paraBaglaHepsi(['odTutar']);
   const [gd, td] = await Promise.all([
     sb.from('gider').select('tarih,tutar,aciklama,kasadan,gider_kategori(ad)')
       .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
