@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-30-1">
+<meta name="surum" content="2026-07-30-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -727,7 +727,7 @@ function gunlukCiro(gunler, ayStr, kasaCikis){
   const gunSayisi=new Date(yil, ayNo, 0).getDate();
   const cikis={}; (kasaCikis||[]).forEach(x=>{ cikis[x.tarih]=(cikis[x.tarih]||0)+(+x.tutar||0); });
   const seri=[];
-  let tResmi=0, tZDisi=0, tGercek=0, kayitli=0, acikGun=0, bilinmeyen=0;
+  let tResmi=0, tKart=0, tNakit=0, tZDisi=0, tGercek=0, kayitli=0, acikGun=0, bilinmeyen=0;
   const bugunS=bugun();
   for(let d=1; d<=gunSayisi; d++){
     const ts=ayStr+'-'+String(d).padStart(2,'0');
@@ -737,18 +737,23 @@ function gunlukCiro(gunler, ayStr, kasaCikis){
     if(!k){ g.durum = g.gelecek ? 'gelecek' : 'eksik'; seri.push(g); continue; }
     kayitli++;
     g.resmi=+k.toplam||0;
+    g.kart=+k.kart_toplam||0;
+    g.nakit=+k.nakit_toplam||0;
     if(k.kasa_nakit===null || k.kasa_nakit===undefined){
       g.durum='kasa_sayilmadi'; g.zDisi=null; g.gercek=g.resmi; bilinmeyen++;
     }else{
-      const ham=(+k.kasa_nakit) - (+k.nakit_toplam||0) + (cikis[ts]||0);
+      const ham=(+k.kasa_nakit) - g.nakit + (cikis[ts]||0);
       g.zDisi=ham; g.gercek=g.resmi+ham;
       g.durum = ham<0 ? 'kasa_acigi' : 'tam';
       if(ham<0) acikGun++;
     }
-    tResmi+=g.resmi; tZDisi+=(g.zDisi||0); tGercek+=g.gercek;
+    tResmi+=g.resmi; tKart+=g.kart; tNakit+=g.nakit;
+    tZDisi+=(g.zDisi||0); tGercek+=g.gercek;
     seri.push(g);
   }
-  return { seri, gunSayisi, toplamResmi:tResmi, toplamZDisi:tZDisi, toplamGercek:tGercek,
+  return { seri, gunSayisi, toplamResmi:tResmi, toplamKart:tKart, toplamNakit:tNakit,
+           toplamZDisi:tZDisi, toplamGercek:tGercek,
+           toplamNakitTumu: tNakit + tZDisi,
            kayitliGun:kayitli, ortalama: kayitli? tGercek/kayitli : 0,
            kasaAcigiGun:acikGun, kasaSayilmayanGun:bilinmeyen };
 }
@@ -764,7 +769,8 @@ function ciroGrafigi(v){
   const kisa=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1).replace('.',',')+'b':String(Math.round(n));
   const yOf=val=>ust+ih-(val/tavan)*ih;
   const GUNAD=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
-  const RESMI='#4F86D6', ZDISI='#E08A3C', ACIK='#B3402F';
+  // Paranın NEREDE olduğuna göre ayrılır: kart bankada, nakit elde, Z dışı elde ama beyansız
+  const KART='#4F86D6', NAKIT='#2F8F6B', ZDISI='#E08A3C', ACIK='#B3402F';
 
   let kilavuz='';
   [0,0.5,1].forEach(o=>{
@@ -794,22 +800,26 @@ function ciroGrafigi(v){
       sut+=`<rect x="${x.toFixed(1)}" y="${(tb-h).toFixed(1)}" width="${kal.toFixed(1)}"
         height="${h.toFixed(1)}" fill="${ACIK}"/>`; return;
     }
-    const hR=Math.max((g.resmi/tavan)*ih, 1);
-    sut+=`<rect x="${x.toFixed(1)}" y="${(tb-hR).toFixed(1)}" width="${kal.toFixed(1)}"
-      height="${hR.toFixed(1)}" fill="${RESMI}"${g.bugun?' stroke="var(--ana-koyu)" stroke-width="1"':''}/>`;
-    if(g.zDisi>0){
-      const hZ=Math.max((g.zDisi/tavan)*ih, 1);
-      sut+=`<rect x="${x.toFixed(1)}" y="${(tb-hR-hZ).toFixed(1)}" width="${kal.toFixed(1)}"
-        height="${hZ.toFixed(1)}" fill="${ZDISI}"/>`;
-    }
+    // Alttan üste: kart (bankada) → nakit (elde, beyanlı) → Z dışı (elde, beyansız)
+    let y=tb;
+    [[g.kart,KART],[g.nakit,NAKIT],[g.zDisi>0?g.zDisi:0,ZDISI]].forEach(([v,c])=>{
+      if(!(v>0)) return;
+      const h=Math.max((v/tavan)*ih, 0.8);
+      y-=h;
+      sut+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${kal.toFixed(1)}"
+        height="${h.toFixed(1)}" fill="${c}"/>`;
+    });
+    if(g.bugun) sut+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${kal.toFixed(1)}"
+      height="${(tb-y).toFixed(1)}" fill="none" stroke="var(--ana-koyu)" stroke-width="1"/>`;
   });
 
   const METIN={
     gelecek:  ()=>'gelecek gün',
     eksik:    ()=>'gün sonu GİRİLMEMİŞ — dokun ve gir',
     kasa_acigi:g=>'KASA AÇIĞI '+tl(g.zDisi)+' · Z '+tl(g.resmi)+' · gerçek '+tl(g.gercek),
-    kasa_sayilmadi:g=>'Z '+tl(g.resmi)+' · kasa sayılmadı, Z dışı bilinmiyor',
-    tam:      g=>'Z '+tl(g.resmi)+' · Z dışı '+tl(g.zDisi)+' · gerçek '+tl(g.gercek)
+    kasa_sayilmadi:g=>'Kart '+tl(g.kart)+' · Nakit '+tl(g.nakit)+' · kasa sayılmadı, Z dışı bilinmiyor',
+    tam:      g=>'Kart '+tl(g.kart)+' · Nakit '+tl(g.nakit)+' · Z dışı '+tl(g.zDisi)
+                 +' · toplam '+tl(g.gercek)
   };
   let hedef='';
   seri.forEach(g=>{
@@ -825,20 +835,20 @@ function ciroGrafigi(v){
       font-size="9.5" font-weight="700" fill="#8189A0">${d}</text>`;
 
   const oy=yOf(ortalama);
-  const lej=[[RESMI,'Resmî / Z'],[ZDISI,'Z dışı'],[ACIK,'kasa açığı / eksik gün']];
+  const lej=[[KART,'Kart'],[NAKIT,'Nakit'],[ZDISI,'Z dışı nakit'],[ACIK,'açık / eksik']];
   let lejant='', lx=0;
   lej.forEach(([c,ad])=>{
     lejant+=`<rect x="${lx}" y="-7" width="7" height="7" fill="${c}"/>
       <text x="${lx+10}" y="-1" font-size="8.5" font-weight="700" fill="#8189A0">${ad}</text>`;
-    lx += 16 + ad.length*4.4;
+    lx += 15 + ad.length*4.3;
   });
   return `<div class="grafik-sar"><svg viewBox="0 0 ${G} ${Y}" role="img"
       aria-label="Günlük gerçek ciro: resmî ve Z dışı yığılmış">
     ${kilavuz}${sut}${hedef}
     <line x1="${sol}" y1="${oy.toFixed(1)}" x2="${sol+iw}" y2="${oy.toFixed(1)}"
-      stroke="var(--ok)" stroke-width="1.1" stroke-dasharray="5 3"/>
+      stroke="var(--metin)" stroke-width="1.1" stroke-dasharray="5 3" opacity=".6"/>
     <text x="${sol+iw}" y="${(oy-4).toFixed(1)}" text-anchor="end" font-size="9.5"
-      font-weight="800" fill="var(--ok)">kayıtlı gün ort. ${kisa(ortalama)}</text>
+      font-weight="800" fill="var(--metin)" opacity=".75">kayıtlı gün ort. ${kisa(ortalama)}</text>
     ${etiket}
     <g transform="translate(${sol},${Y-1})">${lejant}</g>
   </svg></div>`;
@@ -966,8 +976,14 @@ async function vOzet(){
       ${kbaslik('GÜNLÜK GERÇEK CİRO', ayAdi(ay),
         `<div class="kb-sag">${tl(GC.toplamGercek)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${GC.kayitliGun} kayıtlı gün</span></div>`)}
       <div class="gc-ust">
-        <span><i style="background:#4F86D6"></i>Resmî / Z <b>${tl(GC.toplamResmi)}</b></span>
-        <span><i style="background:#E08A3C"></i>Z dışı <b>${tl(GC.toplamZDisi)}</b></span>
+        <span><i style="background:#4F86D6"></i>Kart <b>${tl(GC.toplamKart)}</b></span>
+        <span><i style="background:#2F8F6B"></i>Nakit <b>${tl(GC.toplamNakit)}</b></span>
+        <span><i style="background:#E08A3C"></i>Z dışı nakit <b>${tl(GC.toplamZDisi)}</b></span>
+      </div>
+      <div class="ipucu" style="margin:0 0 8px">
+        Kart bankaya gider (komisyon ve valör var), nakit elde kalır.
+        Ayın nakdi <b>${tl(GC.toplamNakitTumu)}</b> — bunun
+        <b>${GC.toplamNakitTumu>0?Math.round(100*GC.toplamNakit/GC.toplamNakitTumu):0}%</b>'i Z'den geçmiş.
       </div>
       ${ciroGrafigi(GC)}
       <div class="ipucu" style="margin-top:6px">Bir güne dokun — o günün gün sonu kaydı açılır.</div>
