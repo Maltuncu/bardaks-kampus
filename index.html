@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-30-9">
+<meta name="surum" content="2026-07-30-10">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4474,10 +4474,16 @@ function bankaMutabakatKart(){
       <div id="bmSonuc"></div>
     </div>`;
 }
-function trSayi(s){ // "1.658.776,00" → 1658776.00 ; "-24.688,65" → -24688.65
+/* Banka/POS ekstresindeki sayı. Eskiden TÜM noktaları siliyordu:
+   "1250.50" → 125050 (100 KAT hata). Ekstrede tek bir İngilizce biçimli sayı
+   olsa para 100 katına çıkıyordu. Artık paraCoz ile aynı kural: SON ayraç ondalıktır. */
+function trSayi(s){ // "1.658.776,00" → 1658776.00 ; "-24.688,65" → -24688.65 ; "1250.50" → 1250.50
   if (s==null) return null;
-  const m = String(s).replace(/[^\d.,-]/g,'').replace(/\./g,'').replace(',','.');
-  const n = parseFloat(m); return isNaN(n) ? null : n;
+  const t = String(s);
+  const eksi = /-/.test(t.replace(/[^\d.,-]/g,'').slice(0,2));   // baştaki eksi
+  const r = paraCoz(t, 2);
+  if (!r.ok) return null;
+  return eksi ? -r.deger : r.deger;
 }
 async function bankaPdfAnaliz(){
   const inp = document.getElementById('bmPdf');
