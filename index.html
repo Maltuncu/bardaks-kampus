@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-29-12">
+<meta name="surum" content="2026-07-30-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -272,6 +272,13 @@ main{padding:14px;max-width:640px;margin:0 auto}
 /* Günlük ciro grafiği */
 .grafik-sar{margin:2px 0 4px}
 .grafik-sar svg{width:100%;height:auto;display:block}
+/* Sütuna dokununca o günün gün sonu kaydı açılır */
+.gc-tik{cursor:pointer}
+.gc-tik:hover{opacity:.82}
+.gc-ust{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 8px;font-size:11.5px;
+  color:var(--soluk);font-weight:700}
+.gc-ust i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+.gc-ust b{color:var(--metin);font-weight:900;font-variant-numeric:tabular-nums}
 .gr-alt{display:flex;justify-content:space-between;font-size:11px;color:var(--soluk);
   font-weight:700;margin-top:2px}
 .kdv-satir{display:flex;gap:6px;margin-bottom:6px;align-items:center}
@@ -699,48 +706,209 @@ function tarihSecici(id, deger){
 }
 
 /* ================== ÖZET (OWNER) ================== */
-/* Günlük ciro sütun grafiği — kütüphane yok, ayın her günü bir sütun.
-   Bugün koyu, ortalama kesik çizgi. Ciro sıfır olan gün boş sütun olarak durur:
-   "o gün kayıt girilmemiş" ile "o gün satış olmamış" aynı görünmesin diye
-   kayıt yoksa sütun hiç çizilmez, sadece zemin şeridi kalır. */
-function ciroGrafigi(gunler, ayStr){
-  if(!gunler.length) return '';
+/* Günlük ciro grafiği — kütüphanesiz SVG.
+   Önceki hâli adım sayara benziyordu: her sütunun arkasında bej "hedef şeridi",
+   yuvarlak uçlar, tek renk, iki eksen etiketi. Finans grafiği değil aktivite çubuğuydu.
+   Şimdi:
+     · zemin şeridi YOK, düz uçlu sütun
+     · hafta sonu ayrı ton — kampüste hafta sonu düşüğü BAŞARISIZLIK DEĞİL, takvim
+     · üç yatay kılavuz + gerçek rakam
+     · haftalık tarih etiketi (1, 8, 15, 22, 29)
+     · kayıt girilmemiş gün: ince kesik taban çizgisi — "satış yok" ile karışmasın */
+/* gunlukCiro(gunler, ayStr, kasaCikis)
+   Grafiğin çizdiği sütunlar, başlıktaki toplam ve ortalama çizgisi TEK kaynaktan
+   (bu fonksiyonun döndürdüğü seri) hesaplanır — üçü ayrı yerden gelirse tutmaz.
+     resmi  = gun_sonu.toplam                      (Z raporu)
+     z_disi = kasa_nakit − nakit_toplam + o gün kasadan ödenen + o gün nakit tedarikçi ödemesi
+   Kasa sayılmamışsa z dışı BİLİNMEZ (uydurulmaz). Negatifse bu Z dışı satış değil
+   KASA AÇIĞIDIR — ayrı işaretlenir, sıfıra kırpılıp gizlenmez. */
+function gunlukCiro(gunler, ayStr, kasaCikis){
   const yil=+ayStr.slice(0,4), ayNo=+ayStr.slice(5,7);
   const gunSayisi=new Date(yil, ayNo, 0).getDate();
-  const harita={};
-  gunler.forEach(x=>{ if(x && x.tarih) harita[+String(x.tarih).slice(8,10)] = +x.toplam || 0; });
-  if(!Object.keys(harita).length) return '';
-  const G=340, Y=132, sol=44, sag=8, ust=12, alt=22;
-  const iw=G-sol-sag, ih=Y-ust-alt;
-  const dgr=Object.values(harita);
-  const enCok=Math.max(...dgr, 1);
-  const ort=dgr.reduce((a,b)=>a+b,0)/dgr.length;
-  const bugunGun=(bugun().slice(0,7)===ayStr) ? +bugun().slice(8,10) : -1;
-  const gen=iw/gunSayisi, kal=Math.max(gen*0.62, 2);
-  const kisa=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1).replace('.',',')+'b':String(Math.round(n));
-  let sut='';
+  const cikis={}; (kasaCikis||[]).forEach(x=>{ cikis[x.tarih]=(cikis[x.tarih]||0)+(+x.tutar||0); });
+  const seri=[];
+  let tResmi=0, tZDisi=0, tGercek=0, kayitli=0, acikGun=0, bilinmeyen=0;
+  const bugunS=bugun();
   for(let d=1; d<=gunSayisi; d++){
-    const x=sol+(d-0.5)*gen-kal/2;
-    sut+=`<rect x="${x.toFixed(1)}" y="${ust}" width="${kal.toFixed(1)}" height="${ih}" rx="1.5" fill="#F2ECD9"/>`;
-    if(harita[d]===undefined) continue;
-    const h=Math.max((harita[d]/enCok)*ih, 1.5);
-    sut+=`<rect x="${x.toFixed(1)}" y="${(ust+ih-h).toFixed(1)}" width="${kal.toFixed(1)}" height="${h.toFixed(1)}"
-      rx="1.5" fill="${d===bugunGun?'var(--ana)':'#7E9AC4'}"><title>${d} — ${tl(harita[d])}</title></rect>`;
+    const ts=ayStr+'-'+String(d).padStart(2,'0');
+    const k=gunler.find(x=>x && x.tarih===ts);
+    const g={ gun:d, tarih:ts, hafta:new Date(yil,ayNo-1,d).getDay(),
+              gelecek: ts>bugunS, bugun: ts===bugunS };
+    if(!k){ g.durum = g.gelecek ? 'gelecek' : 'eksik'; seri.push(g); continue; }
+    kayitli++;
+    g.resmi=+k.toplam||0;
+    if(k.kasa_nakit===null || k.kasa_nakit===undefined){
+      g.durum='kasa_sayilmadi'; g.zDisi=null; g.gercek=g.resmi; bilinmeyen++;
+    }else{
+      const ham=(+k.kasa_nakit) - (+k.nakit_toplam||0) + (cikis[ts]||0);
+      g.zDisi=ham; g.gercek=g.resmi+ham;
+      g.durum = ham<0 ? 'kasa_acigi' : 'tam';
+      if(ham<0) acikGun++;
+    }
+    tResmi+=g.resmi; tZDisi+=(g.zDisi||0); tGercek+=g.gercek;
+    seri.push(g);
   }
-  const oy=ust+ih-(ort/enCok)*ih;
+  return { seri, gunSayisi, toplamResmi:tResmi, toplamZDisi:tZDisi, toplamGercek:tGercek,
+           kayitliGun:kayitli, ortalama: kayitli? tGercek/kayitli : 0,
+           kasaAcigiGun:acikGun, kasaSayilmayanGun:bilinmeyen };
+}
+function ciroGrafigi(v){
+  if(!v || !v.kayitliGun) return '';
+  const { seri, gunSayisi, ortalama } = v;
+  const G=340, Y=152, sol=40, sag=6, ust=14, alt=30;
+  const iw=G-sol-sag, ih=Y-ust-alt;
+  const ham=Math.max(...seri.map(g=>g.gercek||0), 1);
+  const bas=Math.pow(10, Math.floor(Math.log10(ham)));
+  const tavan=Math.ceil(ham/(bas/2))*(bas/2);
+  const gen=iw/gunSayisi, kal=Math.max(gen-2.2, 1.6);
+  const kisa=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1).replace('.',',')+'b':String(Math.round(n));
+  const yOf=val=>ust+ih-(val/tavan)*ih;
+  const GUNAD=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+  const RESMI='#4F86D6', ZDISI='#E08A3C', ACIK='#B3402F';
+
+  let kilavuz='';
+  [0,0.5,1].forEach(o=>{
+    const val=tavan*o, y=yOf(val);
+    kilavuz+=`<line x1="${sol}" y1="${y.toFixed(1)}" x2="${sol+iw}" y2="${y.toFixed(1)}"
+      stroke="var(--cizgi)" stroke-width="1"${o?' stroke-dasharray="2 4"':''}/>`
+      +`<text x="${sol-6}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="9.5"
+        font-weight="700" fill="#8189A0">${kisa(val)}</text>`;
+  });
+
+  // Sütunlar SADECE görsel. Telefonda sütun ~7px, kısa günlerde birkaç piksel;
+  // parmakla basılmaz. Tıklama ve ipucu, sütunun ÜSTÜNDEKİ tam boy görünmez alanda.
+  let sut='';
+  seri.forEach(g=>{
+    const x=sol+(g.gun-0.5)*gen-kal/2, tb=ust+ih;
+    if(g.durum==='gelecek'){
+      sut+=`<rect x="${x.toFixed(1)}" y="${(tb-6).toFixed(1)}" width="${kal.toFixed(1)}" height="6"
+        fill="none" stroke="#C9BFA6" stroke-width="1" stroke-dasharray="2 2" opacity=".8"/>`; return;
+    }
+    if(g.durum==='eksik'){
+      sut+=`<rect x="${x.toFixed(1)}" y="${(tb-9).toFixed(1)}" width="${kal.toFixed(1)}"
+        height="9" fill="${ACIK}" opacity=".16"/>`; return;
+    }
+    if(g.durum==='kasa_acigi'){
+      // Gerçek giren para resmîden AZ: sütun gerçeği gösterir, gün ayrı renkle işaretlenir
+      const h=Math.max((g.gercek/tavan)*ih, 1.2);
+      sut+=`<rect x="${x.toFixed(1)}" y="${(tb-h).toFixed(1)}" width="${kal.toFixed(1)}"
+        height="${h.toFixed(1)}" fill="${ACIK}"/>`; return;
+    }
+    const hR=Math.max((g.resmi/tavan)*ih, 1);
+    sut+=`<rect x="${x.toFixed(1)}" y="${(tb-hR).toFixed(1)}" width="${kal.toFixed(1)}"
+      height="${hR.toFixed(1)}" fill="${RESMI}"${g.bugun?' stroke="var(--ana-koyu)" stroke-width="1"':''}/>`;
+    if(g.zDisi>0){
+      const hZ=Math.max((g.zDisi/tavan)*ih, 1);
+      sut+=`<rect x="${x.toFixed(1)}" y="${(tb-hR-hZ).toFixed(1)}" width="${kal.toFixed(1)}"
+        height="${hZ.toFixed(1)}" fill="${ZDISI}"/>`;
+    }
+  });
+
+  const METIN={
+    gelecek:  ()=>'gelecek gün',
+    eksik:    ()=>'gün sonu GİRİLMEMİŞ — dokun ve gir',
+    kasa_acigi:g=>'KASA AÇIĞI '+tl(g.zDisi)+' · Z '+tl(g.resmi)+' · gerçek '+tl(g.gercek),
+    kasa_sayilmadi:g=>'Z '+tl(g.resmi)+' · kasa sayılmadı, Z dışı bilinmiyor',
+    tam:      g=>'Z '+tl(g.resmi)+' · Z dışı '+tl(g.zDisi)+' · gerçek '+tl(g.gercek)
+  };
+  let hedef='';
+  seri.forEach(g=>{
+    const hx=sol+(g.gun-1)*gen;
+    const tik = g.durum!=='gelecek' ? ` class="gc-tik" data-t="${g.tarih}"` : '';
+    hedef+=`<rect${tik} x="${hx.toFixed(1)}" y="${ust}" width="${gen.toFixed(1)}" height="${ih}"
+      fill="transparent"><title>${g.gun} ${GUNAD[g.hafta]} — ${(METIN[g.durum]||METIN.tam)(g)}</title></rect>`;
+  });
+
+  let etiket='';
+  for(let d=1; d<=gunSayisi; d+=7)
+    etiket+=`<text x="${(sol+(d-0.5)*gen).toFixed(1)}" y="${Y-16}" text-anchor="middle"
+      font-size="9.5" font-weight="700" fill="#8189A0">${d}</text>`;
+
+  const oy=yOf(ortalama);
+  const lej=[[RESMI,'Resmî / Z'],[ZDISI,'Z dışı'],[ACIK,'kasa açığı / eksik gün']];
+  let lejant='', lx=0;
+  lej.forEach(([c,ad])=>{
+    lejant+=`<rect x="${lx}" y="-7" width="7" height="7" fill="${c}"/>
+      <text x="${lx+10}" y="-1" font-size="8.5" font-weight="700" fill="#8189A0">${ad}</text>`;
+    lx += 16 + ad.length*4.4;
+  });
   return `<div class="grafik-sar"><svg viewBox="0 0 ${G} ${Y}" role="img"
-      aria-label="Ayın günlük cirosu">
-    <line x1="${sol}" y1="${ust}" x2="${sol}" y2="${ust+ih}" stroke="var(--cizgi)" stroke-width="1"/>
-    <text x="${sol-6}" y="${ust+4}" text-anchor="end" font-size="10" font-weight="700" fill="#8189A0">${kisa(enCok)}</text>
-    <text x="${sol-6}" y="${ust+ih}" text-anchor="end" font-size="10" font-weight="700" fill="#8189A0">0</text>
-    ${sut}
+      aria-label="Günlük gerçek ciro: resmî ve Z dışı yığılmış">
+    ${kilavuz}${sut}${hedef}
     <line x1="${sol}" y1="${oy.toFixed(1)}" x2="${sol+iw}" y2="${oy.toFixed(1)}"
-      stroke="var(--uyari)" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <text x="${sol+iw}" y="${(oy-4).toFixed(1)}" text-anchor="end" font-size="10" font-weight="800"
-      fill="#8A6316">ort ${kisa(ort)}</text>
-    <text x="${sol}" y="${Y-2}" font-size="10" font-weight="700" fill="#8189A0">1</text>
-    <text x="${sol+iw}" y="${Y-2}" text-anchor="end" font-size="10" font-weight="700" fill="#8189A0">${gunSayisi}</text>
+      stroke="var(--ok)" stroke-width="1.1" stroke-dasharray="5 3"/>
+    <text x="${sol+iw}" y="${(oy-4).toFixed(1)}" text-anchor="end" font-size="9.5"
+      font-weight="800" fill="var(--ok)">kayıtlı gün ort. ${kisa(ortalama)}</text>
+    ${etiket}
+    <g transform="translate(${sol},${Y-1})">${lejant}</g>
   </svg></div>`;
+}
+/* Grafik sütunları SVG içinde üretiliyor; tıklama tek yerden yakalanır —
+   her sütuna ayrı onclick yazmak yerine gövdede tek dinleyici. */
+document.addEventListener('click', e=>{
+  const h = e.target.closest && e.target.closest('.gc-tik');
+  if (h && h.dataset.t) gunDetay(h.dataset.t);
+});
+/* Grafikte bir güne dokununca o günün gün sonu kaydı açılır (drill-down). */
+async function gunDetay(tarih){
+  const ov=udKutu(), ic=document.getElementById('udIcerik');
+  const trh=new Date(tarih+'T00:00').toLocaleDateString('tr-TR',{day:'numeric',month:'long',weekday:'long'});
+  ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Yükleniyor...</div></div>
+    <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
+  ov.classList.add('acik');
+  const [gs, kg, no] = await Promise.all([
+    sb.from('gun_sonu')
+      .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,is_deleted), gun_sonu_kdv(kasa_no,oran,kdv_tutar,is_deleted)')
+      .eq('tarih',tarih).eq('is_deleted',false).maybeSingle(),
+    sb.from('gider').select('tutar,aciklama').eq('tarih',tarih).eq('kasadan',true).eq('is_deleted',false),
+    sb.from('tedarikci_odeme').select('tutar,tedarikci(ad)').eq('tarih',tarih).eq('yontem','nakit').eq('is_deleted',false)
+  ]);
+  const g=gs.data;
+  const bas=(sag)=>`<div class="ud-ust"><div style="flex:1;min-width:0">
+      <div class="ud-kod">GÜN SONU</div><div class="ud-ad">${esc(trh)}</div>${sag||''}</div>
+    <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
+  if(!g){
+    ic.innerHTML=bas()+`<div class="ud-govde">
+      <div class="uyari-agir">Bu güne ait gün sonu kaydı yok.</div>
+      <div class="ipucu">Gün Sonu sekmesinden bu tarihi seçip Z raporlarını girebilirsin.</div>
+      <button class="btn" onclick="udKapat();sekmeAc('gunsonu')">Gün Sonu'na Git</button></div>`;
+    return;
+  }
+  const cikisT=(kg.data||[]).reduce((a,x)=>a+ +x.tutar,0)+(no.data||[]).reduce((a,x)=>a+ +x.tutar,0);
+  const kasa=g.kasa_nakit===null?null:+g.kasa_nakit;
+  const zDisi=kasa===null?null:(kasa-(+g.nakit_toplam||0)+cikisT);
+  const gercek=(+g.toplam)+(zDisi||0);
+  const ks=(g.gun_sonu_kasa||[]).filter(x=>!x.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no||(a.sira||1)-(b.sira||1));
+  const kd=(g.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
+  ic.innerHTML=bas()+`<div class="ud-govde">
+    <div class="ud-kunye" style="grid-template-columns:1fr 1fr">
+      <div><div class="ud-et">GERÇEK</div><div class="ud-dg">${tl(gercek)}</div></div>
+      <div><div class="ud-et">RESMÎ / Z</div><div class="ud-dg">${tl(g.toplam)}</div></div>
+    </div>
+    ${zDisi===null
+      ? '<div class="uyari-orta">Kasa sayılmamış — bu günün Z dışı nakdi bilinmiyor.</div>'
+      : zDisi<0
+        ? `<div class="uyari-agir">KASA AÇIĞI ${tl(zDisi)} — kasada Z raporunun dediğinden az para sayılmış.</div>`
+        : ''}
+    <div class="ud-bas"><span class="ud-blk">DÖKÜM</span></div>
+    ${ozSatir('Kart', tl(g.kart_toplam))}
+    ${ozSatir('Z nakit', tl(g.nakit_toplam))}
+    ${kasa!==null?ozSatir('Kasada sayılan', tl(kasa)):''}
+    ${cikisT>0?ozSatir('Kasadan ödenen', tl(cikisT)):''}
+    ${zDisi!==null?ozSatir(zDisi<0?'Kasa açığı':'Z dışı nakit', tl(zDisi)):''}
+    ${ozSatir('GERÇEK TOPLAM', tl(gercek), true)}
+    ${ks.length?`<div class="ud-bas" style="margin-top:16px"><span class="ud-blk">YAZARKASALAR</span></div>`
+      +ks.map(k=>`<div class="ud-satir"><div class="ud-trh">K${k.kasa_no}${(k.sira||1)>1?'/'+k.sira:''}</div>
+        <div><div style="font-weight:800;font-size:13px">Z: ${esc(k.z_no||'—')}</div>
+          <div class="ud-alt">Kart ${tl(k.kart_toplam)} · Nakit ${tl(k.nakit_toplam)}</div></div>
+        <div class="ud-tut">${tl(k.toplam)}</div></div>`).join(''):''}
+    ${kd.length?`<div class="ud-bas" style="margin-top:16px"><span class="ud-blk">KDV</span>
+        <span class="ud-trend">${tl(kd.reduce((a,x)=>a+ +x.kdv_tutar,0))}</span></div>`
+      +kd.map(x=>ozSatir('%'+x.oran+' (K'+x.kasa_no+')', tl(x.kdv_tutar))).join('')
+      :'<div class="uyari-orta" style="margin-top:12px">Bu güne KDV dökümü girilmemiş — beyan eksik kalır.</div>'}
+    ${g.notlar?`<div class="bilgi-not" style="margin-top:12px">${esc(g.notlar)}</div>`:''}
+    <button class="btn" onclick="udKapat();sekmeAc('gunsonu')">Gün Sonu Ekranına Git</button>
+  </div>`;
 }
 async function vOzet(){
   const el = document.getElementById('icerik');
@@ -757,17 +925,12 @@ async function vOzet(){
     sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', bugun())
   ]);
   const g = gs.data, k = (kdv.data||[])[0], o = (ozet.data||[])[0], u = uyari.data||[];
-  // Ayın gerçek cirosu: kart + kasada sayılan + kasadan ödenen giderler (Z-dışı nakit dahil)
-  let ayGercek = 0, ayZdisi = 0, kasaVeriVar = false;
-  for (const x of (ayGunler.data||[])){
-    const kasa = x.kasa_nakit===null ? null : +x.kasa_nakit;
-    if (kasa !== null){ kasaVeriVar = true; ayGercek += (+x.kart_toplam + kasa); ayZdisi += (kasa - +x.nakit_toplam); }
-    else { ayGercek += (+x.kart_toplam + +x.nakit_toplam); }
-  }
+  // Ayın gerçek cirosu/Z dışı nakdi artık v_aylik_ozet'te hesaplanıyor (gercek_ciro,
+  // z_disi_nakit). Burada yalnız BUGÜNÜN kasa çıkışı gerekiyor — günlük kutu için.
   const kasaCikislari = [...(ayKasadan.data||[]), ...(ayNakitOdeme.data||[])];
   const kasadanBugun = kasaCikislari.filter(x=>x.tarih===bugun()).reduce((a,x)=>a+ +x.tutar,0);
-  const kasadanAy = kasaCikislari.reduce((a,x)=>a+ +x.tutar,0);
-  ayGercek += kasadanAy; ayZdisi += kasadanAy;
+  // Grafik, başlıktaki toplam ve ortalama çizgisi hep bu tek seriden okunur
+  const GC = gunlukCiro(ayGunler.data||[], ay, kasaCikislari);
   const acikTalep = talep.data||[];
   if (acikTalep.length > 0){
     const gunFarki = Math.floor((Date.now() - new Date(acikTalep[0].created_at).getTime()) / 86400000);
@@ -786,23 +949,33 @@ async function vOzet(){
       <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
         <div class="d">${g?tl(g.toplam):'—'}</div>
         <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Z-dışı +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
-      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU</div>
-        <div class="d">${o?tl(o.ciro):'—'}</div>
-        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${kasaVeriVar?'<br>Gerçek '+tl(ayGercek):''}</div></div>
+      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU (GERÇEK)</div>
+        <div class="d">${o?tl(o.gercek_ciro):'—'}</div>
+        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${o&&+o.z_disi_nakit>0?'<br>Z raporu '+tl(o.ciro):''}</div></div>
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="e">NAKİT ÇIKIŞI</div>
         <div class="d" style="color:var(--hata)">${o?tl(o.nakit_cikisi):'—'}</div>
         <div class="aciklama">bu ay elden çıkan<br>${o&&+o.odenmeyen_alis>0?'+ '+tl(o.odenmeyen_alis)+' bekliyor':'ödenmemiş alış yok'}</div></div>
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
-        <div class="e">AY KÂRI</div>
-        <div class="d" style="color:${o&&+o.ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.ay_kari):'—'}</div>
-        <div class="aciklama">fatura bazlı, KDV hariç<br>dökümü gör</div></div>
+        <div class="e">AY KÂRI (GERÇEK)</div>
+        <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.gercek_ay_kari):'—'}</div>
+        <div class="aciklama">${o&&+o.z_disi_nakit>0?'Z dışı '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
     </div>
 
-    ${(ayGunler.data||[]).length ? `<div class="kart">
-      ${kbaslik('GÜNLÜK CİRO', ayAdi(ay), `<div class="kb-sag">${tl(ayGercek||(o?+o.ciro:0))}</div>`)}
-      ${ciroGrafigi(ayGunler.data, ay)}
-      <div class="gr-alt"><span>Koyu sütun bugün</span><span>Kesik çizgi ayın ortalaması</span></div>
+    ${GC.kayitliGun ? `<div class="kart">
+      ${kbaslik('GÜNLÜK GERÇEK CİRO', ayAdi(ay),
+        `<div class="kb-sag">${tl(GC.toplamGercek)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${GC.kayitliGun} kayıtlı gün</span></div>`)}
+      <div class="gc-ust">
+        <span><i style="background:#4F86D6"></i>Resmî / Z <b>${tl(GC.toplamResmi)}</b></span>
+        <span><i style="background:#E08A3C"></i>Z dışı <b>${tl(GC.toplamZDisi)}</b></span>
+      </div>
+      ${ciroGrafigi(GC)}
+      <div class="ipucu" style="margin-top:6px">Bir güne dokun — o günün gün sonu kaydı açılır.</div>
+      ${GC.kasaAcigiGun ? `<div class="uyari-agir">${GC.kasaAcigiGun} günde kasada Z raporunun
+        dediğinden AZ para sayılmış. Bu Z dışı satış değil <b>kasa açığı</b> — grafikte koyu
+        kırmızı sütun. O günlere dokunup kontrol et.</div>` : ''}
+      ${GC.kasaSayilmayanGun ? `<div class="uyari-orta">${GC.kasaSayilmayanGun} günde kasa
+        sayılmamış — o günlerin Z dışı nakdi bilinmiyor, toplama dahil edilmedi.</div>` : ''}
     </div>` : ''}
 
     <div class="kart">
@@ -835,12 +1008,19 @@ async function vOzet(){
       ${ozSatir('Giderler (KDV hariç)', '−'+tl(o.gider_net))}
       ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
       ${+o.iptal_tutar ? ozSatir('Fiş iptalleri', tl(o.iptal_tutar)) : ''}
-      ${ozSatir('AY KÂRI', tl(o.ay_kari), true)}
+      ${ozSatir('Beyana giden kâr', tl(o.ay_kari))}
+      ${+o.z_disi_nakit>0 ? ozSatir('Z dışı kasa nakdi', '+'+tl(o.z_disi_nakit)) : ''}
+      ${ozSatir('GERÇEK AY KÂRI', tl(o.gercek_ay_kari), true)}
       ${k?ozSatir('Ödenecek KDV (ayrı)', tl(k.odenecek_kdv_tahmini)):''}
+      ${+o.kasa_sayilmayan_gun > 0 ? `<div class="uyari-orta" style="margin-top:10px">
+        ${o.kasa_sayilmayan_gun} gün kasa sayılmamış — o günlerin Z dışı nakdi bilinmiyor,
+        gerçek kâr bundan yüksek olabilir.</div>` : ''}
       <div class="bilgi-not" style="margin-top:10px">
-        Alışların <b>tamamı</b> maliyet sayılıyor — rafta duran mal da içinde.
-        Tüketim kaydı girilmediği için sistem "ne kadarını sattım" hesaplayamıyor;
-        gerçek kâr bundan yüksek olabilir. Stok ekranından tüketim girmeye başlarsan bu düzelir.
+        <b>Beyana giden kâr</b> yalnız Z raporundaki ciroyu esas alır. <b>Gerçek kâr</b> kasada
+        sayılan ama Z'ye girmeyen nakdi de ekler — ikisi ayrı rakamdır, karıştırma.<br>
+        O ayın alışlarının tamamı maliyet sayılır. Kafede alınan ile tüketilen aynı aya
+        denk geldiği için bu doğru çalışır; ay sonunda elde ciddi mal kalırsa o ayın kârı
+        olduğundan düşük, sonraki ayın yüksek görünür.
       </div>
     </div>`:''}`;
 }
@@ -2839,7 +3019,20 @@ async function alisListe(){
 async function vStok(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
-  const { data: stok } = await sb.from('v_stok_durum').select('*').order('ad');
+  const [{ data: stok }, cikis] = await Promise.all([
+    sb.from('v_stok_durum').select('*').order('ad'),
+    // Son sayım/tüketim ne zaman? Hiç yoksa "mevcut" stok değil, toplam alımdır.
+    // Bir kez sayıp bırakmak da yetmez: sayım eskidikçe rakam yine gerçeklikten kopar.
+    sb.from('stok_hareket').select('tarih')
+      .eq('is_deleted',false).in('tur',['tuketim','sayim_duzeltme'])
+      .order('tarih',{ascending:false}).limit(1)
+  ]);
+  const sonSayim = (cikis.data||[])[0]?.tarih || null;
+  const sayimGunu = sonSayim
+    ? Math.floor((new Date(bugun()+'T00:00') - new Date(sonSayim+'T00:00')) / 86400000)
+    : null;
+  const cikisVar = sonSayim !== null;
+  const sayimEskidi = cikisVar && sayimGunu > 14;   // iki haftadan eski sayım güvenilmez
   const toplamDeger = (stok||[]).reduce((a,s)=>a + (+s.stok_degeri||0), 0);
   const liste = stok||[];
   const kritikler = liste.filter(s=>s.kritik);
@@ -2850,16 +3043,26 @@ async function vStok(){
   el.innerHTML = `
     <h2 class="bolum">Stok Durumu</h2>
     ${liste.length ? `<div class="ozet-grid">
-      ${owner ? `<div class="ozet-kut"><div class="e">TOPLAM STOK DEĞERİ</div>
+      ${owner ? `<div class="ozet-kut"><div class="e">${cikisVar?'TOPLAM STOK DEĞERİ':'ALINAN MAL DEĞERİ'}</div>
         <div class="d">${tl(toplamDeger)}</div>
-        <div class="aciklama">${liste.length} üründe</div></div>` : ''}
+        <div class="aciklama">${liste.length} üründe${cikisVar?(sayimGunu===0?'<br>bugün sayıldı':'<br>'+sayimGunu+' gün önce sayıldı'):'<br>tüketim düşülmedi'}</div></div>` : ''}
       <div class="ozet-kut"><div class="e">KRİTİK ÜRÜN</div>
         <div class="d" style="color:${kritikler.length?'var(--hata)':'var(--ok)'}">${kritikler.length}</div>
         <div class="aciklama">${seviyesiz.length?seviyesiz.length+' üründe seviye tanımsız':'hepsinde seviye tanımlı'}</div></div>
     </div>` : ''}
 
+    ${liste.length && !cikisVar ? `<div class="uyari-agir">
+      Bu rakamlar <b>raftaki mal değil, bugüne kadar aldığın toplam mal</b>.
+      Henüz sayım yapılmadığı için stok yalnızca artıyor, satılınca azalmıyor.
+      İlk sayımı yaptığında sistem farkı kendisi düşer ve bu uyarı kalkar.
+    </div>` : ''}
+    ${liste.length && sayimEskidi ? `<div class="uyari-orta">
+      Son sayımın üstünden <b>${sayimGunu} gün</b> geçti. O tarihten sonra alınanlar stoğa eklendi
+      ama satılanlar düşülmedi — rakamlar olduğundan yüksek. Yeni sayım yap.
+    </div>` : ''}
+
     <div class="kart">
-      ${kbaslik('', 'Ürünler', `<div class="kb-sag">${liste.length}</div>`)}
+      ${kbaslik('', cikisVar?'Ürünler':'Alınan Ürünler', `<div class="kb-sag">${liste.length}</div>`)}
       ${kritikler.length ? `<div class="uyari-agir">${kritikler.length} ürün kritik seviyenin altında: ${kritikler.slice(0,4).map(s=>esc(s.ad)).join(', ')}${kritikler.length>4?' ve '+(kritikler.length-4)+' tane daha':''}</div>` : ''}
       ${seviyesiz.length === liste.length && liste.length ? `<div class="uyari-orta">Hiçbir üründe kritik seviye tanımlı değil — sistem "stok bitiyor" uyarısı veremiyor. Yönetim sekmesinden ürün başına seviye gir.</div>` : ''}
       <div class="ipucu">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>
