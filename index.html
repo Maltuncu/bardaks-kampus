@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-30-10">
+<meta name="surum" content="2026-07-30-11">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1959,8 +1959,25 @@ function odKimeDegisti(){
   document.getElementById('odAciklamaAlan').style.display = diger ? 'none' : 'block';
 }
 function odYontemDegisti(){
-  document.getElementById('odCekAlan').style.display =
-    document.getElementById('odYontem').value === 'cek' ? 'block' : 'none';
+  const y = document.getElementById('odYontem').value;
+  document.getElementById('odCekAlan').style.display  = y==='cek'  ? 'block' : 'none';
+  // Taksit yalnız kartta olur; başka yöntemde alan gizlenir ve 1'e döner
+  document.getElementById('odKartAlan').style.display = y==='kart' ? 'block' : 'none';
+  if (y !== 'kart'){ document.getElementById('odTaksit').value = '1'; }
+  odTaksitDegisti();
+}
+function odTaksitDegisti(){
+  const n = +document.getElementById('odTaksit').value || 1;
+  const alan = document.getElementById('odTaksitTarihAlan');
+  alan.style.display = n > 1 ? 'block' : 'none';
+  const ozet = document.getElementById('odTaksitOzet');
+  if (n < 2){ ozet.textContent = ''; return; }
+  const t = paraDeger('odTutar');
+  if (!t){ ozet.textContent = 'Tutarı yazınca taksit dökümü burada çıkar.'; return; }
+  // Kuruş kaybı olmasın: son taksit farkı alır (görünümdeki hesabın aynısı)
+  const bir = Math.round((t/n)*100)/100, son = Math.round((t - bir*(n-1))*100)/100;
+  ozet.innerHTML = `Ayda <b>${tl(bir)}</b>${son!==bir?` (son taksit ${tl(son)})`:''} · toplam <b>${tl(t)}</b>.
+    Tedarikçinin borcu bugün kapanır; para hesabından ${n} ayda çıkar.`;
 }
 /* Tek form, iki kayıt yolu:
      firma seçilirse  -> tedarikci_odeme  (bakiyesi düşer)
@@ -1991,17 +2008,72 @@ async function odemeGirisiKaydet(){
     return;
   }
   const cek = yontem === 'cek';
+  const kart = yontem === 'kart';
+  const taksit = kart ? (+document.getElementById('odTaksit').value || 1) : 1;
+  const taksitIlk = document.getElementById('odTaksitIlk').value || null;
+  if (taksit > 1 && !taksitIlk){
+    mesaj('odMsg','hata','Taksitli ödemede ilk taksitin çıkacağı tarihi seç — yoksa nakit takvimi yanlış olur.');
+    return;
+  }
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet',{
     p_idem: idem(), p_sube: PROFIL.sube_id, p_tedarikci: kime, p_tarih: tarih, p_tutar: tutar,
     p_aciklama: document.getElementById('odAciklama').value.trim()||null,
     p_yontem: yontem,
     p_cek_no: cek ? (document.getElementById('odCekNo').value.trim()||null) : null,
-    p_cek_vade: cek ? (document.getElementById('odCekVade').value||null) : null
+    p_cek_vade: cek ? (document.getElementById('odCekVade').value||null) : null,
+    p_taksit: taksit,
+    p_taksit_ilk: taksit > 1 ? taksitIlk : null,
+    p_banka: kart ? (document.getElementById('odBanka').value.trim()||null) : null
   },'odKaydet','odMsg','Ödeme kaydedildi ✓');
   if (data && data.ok){
     document.getElementById('odTutar').value=''; document.getElementById('odAciklama').value='';
+    document.getElementById('odTaksit').value='1'; odTaksitDegisti();
     gdOdeme();
   }
+}
+/* KART TAKSİT TAKVİMİ — hangi ay ne kadar kart borcu çıkacak.
+   Tedarikçi bakiyesiyle ilgisi yok: firma parasını aldı. Bu senin hesabından
+   çıkacak paranın takvimi. Geçmiş aylar da görünür ki ekstreyle karşılaştırasın. */
+async function taksitTakvimi(){
+  const el = document.getElementById('taksitAlan'); if(!el) return;
+  const { data, error } = await sb.from('v_kart_taksit')
+    .select('firma,banka,odeme_tarihi,toplam_tutar,taksit_sayisi,taksit_no,vade,donem,taksit_tutari')
+    .gt('taksit_sayisi', 1).order('vade');
+  if (error){ el.innerHTML = `<div class="uyari-agir">Taksitler yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
+  const list = data||[];
+  if (!list.length){
+    el.innerHTML = bosDurum('belge','Taksitli ödeme yok',
+      'Kartla taksitli ödeme girdiğinde hangi ay ne kadar çıkacağı burada listelenir.');
+    return;
+  }
+  const buAy = bugun().slice(0,7);
+  const aylar = {};
+  list.forEach(x=>{ (aylar[x.donem] = aylar[x.donem] || []).push(x); });
+  const gelecek = list.filter(x=>x.donem >= buAy).reduce((a,x)=>a+ +x.taksit_tutari, 0);
+  el.innerHTML = `
+    <div class="ozet-kut" style="margin-bottom:12px">
+      <div class="e">BUNDAN SONRA ÇIKACAK</div>
+      <div class="d" style="color:var(--uyari)">${tl(gelecek)}</div>
+      <div class="aciklama">${list.filter(x=>x.donem>=buAy).length} taksit · bu ay ve sonrası</div>
+    </div>
+    ${Object.keys(aylar).sort().map(d=>{
+      const t = aylar[d].reduce((a,x)=>a+ +x.taksit_tutari,0);
+      const gecmis = d < buAy;
+      return `<div class="ud-bas" style="margin-top:14px">
+          <span class="ud-blk">${esc(ayAdi(d))}${gecmis?' · çıktı':''}</span>
+          <span class="ud-trend"${gecmis?' style="opacity:.55"':''}>${tl(t)}</span></div>`
+        + aylar[d].map(x=>srSatir({
+            ad: esc(x.firma) + (gecmis?'':' <span class="rozet rz-uyari">bekliyor</span>'),
+            alt: x.taksit_no+'/'+x.taksit_sayisi+' taksit'
+                 + (x.banka?' · '+esc(x.banka):'')
+                 + ' · toplam '+tl(x.toplam_tutar),
+            tutar: tl(x.taksit_tutari)
+          })).join('');
+    }).join('')}
+    <div class="bilgi-not" style="margin-top:10px">
+      Bu tutarlar tedarikçi borcuna <b>dahil değil</b> — firma parasını ödeme günü aldı.
+      Burada yalnız <b>senin hesabından</b> hangi ay ne kadar çıkacağı var.
+    </div>`;
 }
 async function gdOdeme(){
   const ay = GD_ODEME_AY || bugun().slice(0,7);
@@ -2037,6 +2109,20 @@ async function gdOdeme(){
           <div><label>Çek Vadesi</label><input type="date" id="odCekVade"></div>
         </div>
       </div>
+      <div id="odKartAlan" style="display:none">
+        <div class="satir">
+          <div><label>Taksit</label>
+            <select id="odTaksit" onchange="odTaksitDegisti()">
+              ${[1,2,3,4,5,6,9,12].map(n=>`<option value="${n}">${n===1?'Tek çekim':n+' taksit'}</option>`).join('')}
+            </select></div>
+          <div><label>Hangi kart</label><input type="text" id="odBanka" placeholder="örn: Akbank ticari"></div>
+        </div>
+        <div id="odTaksitTarihAlan" style="display:none">
+          <label>İlk taksit hangi gün hesaptan çıkacak?</label>
+          <input type="date" id="odTaksitIlk">
+          <div class="ipucu" id="odTaksitOzet"></div>
+        </div>
+      </div>
       <div id="odAciklamaAlan"><label>Açıklama</label><input type="text" id="odAciklama"></div>
       <div class="ipucu" style="margin-top:8px">Nakit seçersen kasadan ödenmiş sayılır —
         o gün kasada sayılan para o kadar eksik çıkar, sistem bunu bilir.</div>
@@ -2048,9 +2134,16 @@ async function gdOdeme(){
       <label>Ay</label>
       <input type="month" id="gdOdemeAy" value="${ay}" onchange="GD_ODEME_AY=this.value; gdOdeme()">
       <div id="gdOdemeListe">Yükleniyor...</div>
+    </div>
+    <div class="kart">
+      ${kbaslik('KART BORCU', 'Taksit Takvimi', '')}
+      <div id="taksitAlan">Yükleniyor...</div>
     </div>`;
   document.getElementById('gdListe').innerHTML = '';
   paraBaglaHepsi(['odTutar']);
+  paraBagla(document.getElementById('odTutar'), odTaksitDegisti);
+  odYontemDegisti();
+  taksitTakvimi();
   const [gd, td] = await Promise.all([
     sb.from('gider').select('tarih,tutar,aciklama,kasadan,gider_kategori(ad)')
       .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
