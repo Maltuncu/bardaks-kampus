@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-30-11">
+<meta name="surum" content="2026-07-31-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -527,7 +527,8 @@ const IKON = {
   personel:_svg('<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'),
   talep:   _svg('<path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 5 2 6 2 6h-15s2-1 2-6A5.5 5.5 0 0 1 12 4zM10 19a2.2 2.2 0 0 0 4 0"/>'),
   yonetim: _svg('<path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h10M18 17h2"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="17" r="2"/>'),
-  daha:    _svg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>')
+  daha:    _svg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>'),
+  arac:    _svg('<path d="M3 13.5l1.6-4.6A2 2 0 0 1 6.5 7.5h11a2 2 0 0 1 1.9 1.4l1.6 4.6M3 13.5h18M3 13.5v4h2.5M21 13.5v4h-2.5M5.5 17.5h13"/><circle cx="7.5" cy="17.5" r="1.7"/><circle cx="16.5" cy="17.5" r="1.7"/>')
 };
 const SEKMELER_OWNER = [
   {id:'ozet',    ad:'Özet'},
@@ -537,6 +538,7 @@ const SEKMELER_OWNER = [
   {id:'tedarikci',ad:'Tedarikçi'},
   {id:'personel',ad:'Personel'},
   {id:'talep',   ad:'Yapılacaklar'},
+  {id:'arac',    ad:'Araç'},
   {id:'yonetim', ad:'Yönetim'}
 ];
 const SEKMELER_PERSONEL = [
@@ -599,7 +601,7 @@ function sekmeAc(id){
   if (d) d.classList.toggle('aktif', sekmeGizliMi(id));
   window.scrollTo(0,0);
   const f = ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
-              personel:vPersonel, talep:vTalep, yonetim:vYonetim})[id];
+              personel:vPersonel, talep:vTalep, arac:vArac, yonetim:vYonetim})[id];
   // Ekran çizerken hata olursa "Yükleniyor..." sonsuza kadar ekranda kalıyordu ve kimse
   // sebebini göremiyordu. Artık hata görünür ve tekrar denenebilir.
   try { Promise.resolve(f()).catch(e => ekranHatasi(id, e)); }
@@ -4434,6 +4436,187 @@ async function maddeSil(id){
   talepListe(); talepRozet();
 }
 
+/* ================== ARAÇ (OWNER) ==================
+   Aracın kimliği burada, masrafları GİDER tablosunda (arac_id ile bağlı).
+   Böylece yakıt/bakım/MTV hem bu ekranda toplanır hem kâra doğru düşer — çift sayım yok.
+   Gelir vergisi buraya GİRMEZ: o kâr üzerinden alınır, aracın masrafı değildir.       */
+let AR_YIL = null;
+async function vArac(){
+  const el = document.getElementById('icerik');
+  if (PROFIL.rol !== 'owner'){ el.innerHTML = '<div class="ipucu">Bu ekran yöneticiye özeldir.</div>'; return; }
+  el.innerHTML = '<h2 class="bolum">Araç</h2><div class="kart">Yükleniyor...</div>';
+  const yil = AR_YIL || bugun().slice(0,4);
+  AR_YIL = yil;
+  const [ar, mal] = await Promise.all([
+    sb.from('arac').select('*').eq('is_deleted',false).order('plaka'),
+    sb.from('v_arac_maliyet').select('*').eq('yil',yil)
+  ]);
+  if (ar.error){ el.innerHTML = `<div class="kart"><div class="uyari-agir">Araçlar yüklenemedi: ${esc(hataTr(ar.error.message))}</div></div>`; return; }
+  const araclar = ar.data||[], masraf = mal.data||[];
+
+  // Tarih uyarısı: muayene/sigorta/kasko yaklaşıyor mu
+  const gunFark = (t)=> t ? Math.round((new Date(t+'T00:00') - new Date(bugun()+'T00:00'))/86400000) : null;
+  const tarihDurum = (t, ad)=>{
+    const g = gunFark(t);
+    if (g === null) return { sinif:'', metin: ad+' girilmemiş', gun:null };
+    if (g < 0)  return { sinif:'uyari-agir',  metin:`${ad} ${Math.abs(g)} gün önce GEÇTİ`, gun:g };
+    if (g <= 30) return { sinif:'uyari-orta', metin:`${ad} ${g} gün sonra`, gun:g };
+    return { sinif:'', metin:`${ad}: ${new Date(t+'T00:00').toLocaleDateString('tr-TR')}`, gun:g };
+  };
+
+  el.innerHTML = `
+    <h2 class="bolum">Araç</h2>
+    ${araclar.length===0
+      ? `<div class="kart">${bosDurum('kutu','Kayıtlı araç yok','Aşağıdan plakayı ekle; yakıt, bakım, sigorta ve MTV masrafları o araca bağlanır.')}</div>`
+      : araclar.map(a=>{
+          const m = masraf.filter(x=>x.arac_id===a.id);
+          const toplam = m.reduce((s,x)=>s+ +x.tutar,0);
+          const kat = {};
+          m.forEach(x=>{ kat[x.kategori||'Diğer'] = (kat[x.kategori||'Diğer']||0) + +x.tutar; });
+          const sirali = Object.entries(kat).sort((a,b)=>b[1]-a[1]);
+          const uyarilar = [tarihDurum(a.muayene_tarihi,'Muayene'),
+                            tarihDurum(a.sigorta_bitis,'Sigorta'),
+                            tarihDurum(a.kasko_bitis,'Kasko')];
+          const acil = uyarilar.filter(u=>u.sinif);
+          return `<div class="kart">
+            ${kbaslik(esc(a.marka_model||'ARAÇ'), esc(a.plaka),
+               `<button class="btn2" onclick="aracDuzenle('${a.id}')">Düzenle</button>`)}
+            ${acil.map(u=>`<div class="${u.sinif}">${esc(u.metin)}</div>`).join('')}
+            <div class="ozet-grid">
+              <div class="ozet-kut"><div class="e">${yil} MALİYETİ</div>
+                <div class="d">${tl(toplam)}</div>
+                <div class="aciklama">${m.reduce((s,x)=>s+ +x.kayit,0)} kayıt${toplam>0?'<br>ayda ~'+tl(toplam/12):''}</div></div>
+              <div class="ozet-kut"><div class="e">KAYITLI</div>
+                <div class="d" style="font-size:16px">${a.kayitli_kime==='sirket'?'Şirket':'Şahıs'}</div>
+                <div class="aciklama">${uyarilar.filter(u=>!u.sinif && u.gun!==null).length} tarih takipte</div></div>
+            </div>
+            ${sirali.length ? sirali.map(([k,v])=>ozSatir(esc(k), tl(v))).join('')
+                              + ozSatir(yil+' TOPLAM', tl(toplam), true)
+                            : '<div class="ipucu">Bu yıl bu araca masraf girilmemiş.</div>'}
+            <div class="bilgi-not" style="margin-top:10px">
+              ${uyarilar.filter(u=>u.gun!==null && !u.sinif).map(u=>esc(u.metin)).join(' · ') || 'Muayene/sigorta/kasko tarihi girilmemiş — Düzenle\'den ekle, yaklaşınca uyarır.'}
+            </div>
+          </div>`;
+        }).join('')}
+
+    <div class="kart">
+      ${kbaslik('', 'Araç Masrafı Ekle', '')}
+      <label>Araç</label>
+      <select id="agArac">${araclar.map(a=>`<option value="${a.id}">${esc(a.plaka)}</option>`).join('')}</select>
+      <label>Ne için?</label>
+      <select id="agKategori">${KATALOG.kategoriler
+        .filter(k=>/Yakıt|Araç|Taşıt|Otopark/.test(k.ad))
+        .map(k=>`<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select>
+      ${tarihSecici('agTarih')}
+      <label>Tutar</label><input type="text" inputmode="decimal" id="agTutar" placeholder="0,00">
+      <label>KDV Tutarı (belgede yazanı yaz; MTV'de yoktur, boş bırak)</label>
+      <input type="text" inputmode="decimal" id="agKdv" placeholder="0,00">
+      <label>Açıklama</label><input type="text" id="agAciklama" placeholder="örn: 40 lt motorin, 152.000 km">
+      <label>Belge Fotoğrafı</label><input type="file" id="agFoto" accept="image/*" capture="environment">
+      <button class="btn" id="agKaydet" onclick="aracMasrafKaydet()">Masrafı Kaydet</button>
+      <div class="hata-msg" id="agMsg"></div>
+      <div class="ipucu">Bu masraf normal giderlere de yazılır — ay kârından düşer.</div>
+    </div>
+
+    <div class="kart">
+      ${kbaslik('', 'Yeni Araç', `<button class="btn2" onclick="katlaAc('aracFormKutu',this)">Aç</button>`)}
+      <div id="aracFormKutu" style="display:none">
+        <input type="hidden" id="arId">
+        <label>Plaka *</label><input type="text" id="arPlaka" placeholder="61 AJU 850">
+        <label>Marka / Model</label><input type="text" id="arMarka" placeholder="örn: Fiat Doblo 1.6">
+        <div class="satir">
+          <div><label>Model Yılı</label><input type="text" inputmode="numeric" id="arYil"></div>
+          <div><label>Kayıtlı</label>
+            <select id="arKayitli"><option value="sahis">Şahıs</option><option value="sirket">Şirket</option></select></div>
+        </div>
+        <label>Muayene Tarihi (bir sonraki)</label><input type="date" id="arMuayene">
+        <div class="satir">
+          <div><label>Sigorta Bitiş</label><input type="date" id="arSigorta"></div>
+          <div><label>Kasko Bitiş</label><input type="date" id="arKasko"></div>
+        </div>
+        <label>Not</label><input type="text" id="arNot">
+        <button class="btn" id="arKaydet" onclick="aracKaydet()">Aracı Kaydet</button>
+        <div class="hata-msg" id="arMsg"></div>
+      </div>
+    </div>
+
+    <div class="kart">
+      ${kbaslik('YIL', 'Masraf Dökümü', '')}
+      <label>Yıl</label>
+      <input type="number" id="arYilSec" value="${yil}" min="2020" max="2099"
+             onchange="AR_YIL=this.value; vArac()">
+      <div class="ipucu">Yakıt, bakım, sigorta, MTV — hepsi yukarıdaki araç kartında toplanıyor.</div>
+    </div>`;
+  paraBaglaHepsi(['agTutar','agKdv']);
+}
+function aracDuzenle(id){
+  const k = document.getElementById('aracFormKutu');
+  k.style.display = 'block';
+  sb.from('arac').select('*').eq('id',id).maybeSingle().then(({data:a})=>{
+    if(!a) return;
+    document.getElementById('arId').value = a.id;
+    document.getElementById('arPlaka').value = a.plaka||'';
+    document.getElementById('arMarka').value = a.marka_model||'';
+    document.getElementById('arYil').value = a.yil||'';
+    document.getElementById('arKayitli').value = a.kayitli_kime||'sahis';
+    document.getElementById('arMuayene').value = a.muayene_tarihi||'';
+    document.getElementById('arSigorta').value = a.sigorta_bitis||'';
+    document.getElementById('arKasko').value = a.kasko_bitis||'';
+    document.getElementById('arNot').value = a.notlar||'';
+    k.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+}
+async function aracKaydet(){
+  const plaka = document.getElementById('arPlaka').value.trim();
+  if (!plaka){ mesaj('arMsg','hata','Plaka boş olamaz.'); return; }
+  const id = document.getElementById('arId').value || null;
+  const kayit = {
+    sube_id: PROFIL.sube_id,
+    plaka,
+    marka_model: document.getElementById('arMarka').value.trim()||null,
+    yil: parseInt(document.getElementById('arYil').value,10) || null,
+    kayitli_kime: document.getElementById('arKayitli').value,
+    muayene_tarihi: document.getElementById('arMuayene').value||null,
+    sigorta_bitis: document.getElementById('arSigorta').value||null,
+    kasko_bitis: document.getElementById('arKasko').value||null,
+    notlar: document.getElementById('arNot').value.trim()||null
+  };
+  const btn = document.getElementById('arKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = id
+    ? await sb.from('arac').update(kayit).eq('id',id)
+    : await sb.from('arac').insert(kayit);
+  btn.disabled = false; btn.textContent = 'Aracı Kaydet';
+  if (error){ mesaj('arMsg','hata', hataTr(error.message)); return; }
+  mesaj('arMsg','ok','Kaydedildi ✓');
+  document.getElementById('arId').value = '';
+  setTimeout(vArac, 700);
+}
+async function aracMasrafKaydet(){
+  const tutar = paraDeger('agTutar');
+  if (tutar === 0){ mesaj('agMsg','hata','Tutar boş olamaz.'); return; }
+  const arac = document.getElementById('agArac').value;
+  if (!arac){ mesaj('agMsg','hata','Önce araç ekle.'); return; }
+  const btn = document.getElementById('agKaydet');
+  btn.disabled = true; btn.textContent = 'Fotoğraf yükleniyor...';
+  let foto = null;
+  try { foto = await fotoYukle('agFoto','fatura'); }
+  catch(e){ mesaj('agMsg','hata',e.message); btn.disabled=false; btn.textContent='Masrafı Kaydet'; return; }
+  const data = await rpcCagir('rpc_gider_kaydet',{
+    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_tarih: document.getElementById('agTarih').value,
+    p_kategori: document.getElementById('agKategori').value,
+    p_aciklama: document.getElementById('agAciklama').value.trim()||null,
+    p_tutar: tutar, p_kdv_orani: null, p_kdv_tutar: paraDeger('agKdv'),
+    p_foto: foto, p_kasadan: false, p_tedarikci: null, p_arac: arac
+  },'agKaydet','agMsg','Masraf kaydedildi ✓');
+  if (data && data.ok){
+    ['agTutar','agKdv','agAciklama'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('agFoto').value='';
+    setTimeout(vArac, 700);
+  }
+}
+
 /* ================== YÖNETİM (OWNER) ================== */
 async function vYonetim(){
   const el = document.getElementById('icerik');
@@ -4549,7 +4732,8 @@ async function vergiOdemeKaydet(){
   const data = await rpcCagir('rpc_vergi_odeme_kaydet',{
     p_donem: document.getElementById('voDonem').value, p_tur: document.getElementById('voTur').value,
     p_tutar: tutar, p_odeme_tarihi: document.getElementById('voTarih').value,
-    p_foto: foto, p_not: document.getElementById('voNot').value.trim()||null
+    p_foto: foto, p_not: document.getElementById('voNot').value.trim()||null,
+    p_sube: PROFIL.sube_id            // Samsun bağlanınca vergiler karışmasın
   },'voKaydet','voMsg','Vergi ödemesi kaydedildi ✓');
   if (data && data.ok){ document.getElementById('voTutar').value=''; document.getElementById('voNot').value=''; document.getElementById('voFoto').value=''; vergiOdenenYukle(); }
 }
