@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-31-2">
+<meta name="surum" content="2026-07-31-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -528,6 +528,7 @@ const IKON = {
   talep:   _svg('<path d="M12 4a5.5 5.5 0 0 1 5.5 5.5c0 5 2 6 2 6h-15s2-1 2-6A5.5 5.5 0 0 1 12 4zM10 19a2.2 2.2 0 0 0 4 0"/>'),
   yonetim: _svg('<path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h10M18 17h2"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="17" r="2"/>'),
   daha:    _svg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>'),
+  vergi:   _svg('<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9.5 11h5M9.5 14.5h5M9.5 18h3"/>'),
   arac:    _svg('<path d="M3 13.5l1.6-4.6A2 2 0 0 1 6.5 7.5h11a2 2 0 0 1 1.9 1.4l1.6 4.6M3 13.5h18M3 13.5v4h2.5M21 13.5v4h-2.5M5.5 17.5h13"/><circle cx="7.5" cy="17.5" r="1.7"/><circle cx="16.5" cy="17.5" r="1.7"/>')
 };
 const SEKMELER_OWNER = [
@@ -539,6 +540,7 @@ const SEKMELER_OWNER = [
   {id:'personel',ad:'Personel'},
   {id:'talep',   ad:'Yapılacaklar'},
   {id:'arac',    ad:'Araç'},
+  {id:'vergi',   ad:'Vergiler'},
   {id:'yonetim', ad:'Yönetim'}
 ];
 const SEKMELER_PERSONEL = [
@@ -601,7 +603,7 @@ function sekmeAc(id){
   if (d) d.classList.toggle('aktif', sekmeGizliMi(id));
   window.scrollTo(0,0);
   const f = ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
-              personel:vPersonel, talep:vTalep, arac:vArac, yonetim:vYonetim})[id];
+              personel:vPersonel, talep:vTalep, arac:vArac, vergi:vVergi, yonetim:vYonetim})[id];
   // Ekran çizerken hata olursa "Yükleniyor..." sonsuza kadar ekranda kalıyordu ve kimse
   // sebebini göremiyordu. Artık hata görünür ve tekrar denenebilir.
   try { Promise.resolve(f()).catch(e => ekranHatasi(id, e)); }
@@ -4617,6 +4619,95 @@ async function aracMasrafKaydet(){
   }
 }
 
+/* ================== VERGİLER (OWNER) ==================
+   Yönetim ekranının içinde gömülüydü, kimse bulamıyordu — kendi sekmesine alındı.
+   BURAYA GİREN: kâr üzerinden alınan yükler (gelir vergisi, Bağkur, SGK, KDV, stopaj).
+   BURAYA GİRMEYEN: MTV — o aracın işletme gideri, Araç sekmesinde ve kâra düşüyor. */
+let VG_YIL = null;
+async function vVergi(){
+  const el = document.getElementById('icerik');
+  if (PROFIL.rol !== 'owner'){ el.innerHTML = '<div class="ipucu">Bu ekran yöneticiye özeldir.</div>'; return; }
+  el.innerHTML = '<h2 class="bolum">Vergiler</h2><div class="kart">Yükleniyor...</div>';
+  const yil = VG_YIL || bugun().slice(0,4);
+  VG_YIL = yil;
+  const [vo, kdv] = await Promise.all([
+    sb.from('vergi_odeme').select('*').eq('is_deleted',false).order('odeme_tarihi',{ascending:false}),
+    sb.from('v_kdv_ay').select('donem,odenecek_kdv_tahmini').order('donem',{ascending:false}).limit(12)
+  ]);
+  if (vo.error){ el.innerHTML = `<div class="kart"><div class="uyari-agir">Yüklenemedi: ${esc(hataTr(vo.error.message))}</div></div>`; return; }
+  const hepsi = vo.data||[];
+  const buYil = hepsi.filter(x=>String(x.odeme_tarihi).slice(0,4)===yil);
+  const yilToplam = buYil.reduce((a,x)=>a+ +x.tutar,0);
+  const buAy = hepsi.filter(x=>String(x.odeme_tarihi).slice(0,7)===bugun().slice(0,7));
+  const tur = {};
+  buYil.forEach(x=>{ tur[x.tur] = (tur[x.tur]||0) + +x.tutar; });
+  const bekleyenKdv = (kdv.data||[]).filter(k=>
+    !hepsi.some(v=>v.tur==='kdv' && v.donem===k.donem) && +k.odenecek_kdv_tahmini>0);
+
+  el.innerHTML = `
+    <h2 class="bolum">Vergiler</h2>
+    <div class="ozet-grid">
+      <div class="ozet-kut"><div class="e">${yil} ÖDENEN</div>
+        <div class="d" style="color:var(--hata)">${tl(yilToplam)}</div>
+        <div class="aciklama">${buYil.length} ödeme</div></div>
+      <div class="ozet-kut"><div class="e">BU AY</div>
+        <div class="d">${tl(buAy.reduce((a,x)=>a+ +x.tutar,0))}</div>
+        <div class="aciklama">${buAy.length} ödeme</div></div>
+    </div>
+
+    ${bekleyenKdv.length ? `<div class="uyari-orta">
+      ${bekleyenKdv.length} ayın KDV'si girilmemiş: ${bekleyenKdv.slice(0,3).map(k=>ayAdi(k.donem)+' '+tl(k.odenecek_kdv_tahmini)).join(' · ')}
+      ${bekleyenKdv.length>3?' ve '+(bekleyenKdv.length-3)+' ay daha':''}. Ödediysen aşağıdan gir.
+    </div>` : ''}
+
+    ${Object.keys(tur).length ? `<div class="kart">
+      ${kbaslik(yil+' DAĞILIM', 'Ne Kadar Nereye', `<div class="kb-sag">${tl(yilToplam)}</div>`)}
+      ${Object.entries(tur).sort((a,b)=>b[1]-a[1])
+          .map(([t,v])=>ozSatir(VERGI_AD[t]||esc(t), tl(v))).join('')}
+      ${ozSatir(yil+' TOPLAM', tl(yilToplam), true)}
+      <div class="bilgi-not" style="margin-top:10px">
+        Bu ödemeler <b>kâra düşmez</b> — kâr üzerinden alınan yüklerdir.
+        Aracın MTV'si burada değil, <b>Araç</b> sekmesinde: o işletme gideri, kârdan düşüyor.
+      </div>
+    </div>` : ''}
+
+    <div class="kart">
+      ${kbaslik('', 'Ödeme Takvimi', '')}
+      <div id="vergiVadeler">Yükleniyor...</div>
+      <div class="bilgi-not">KDV ve muhtasar ertesi ayın 26'sı · SGK ve Bağkur ertesi ayın <b>son günü</b>
+        · gelir vergisi Mart ve Temmuz.</div>
+    </div>
+
+    <div class="kart">
+      ${kbaslik('', 'Ödeme Kaydet', '')}
+      <label>Dönem</label><input type="month" id="voDonem" value="${bugun().slice(0,7)}">
+      <label>Tür</label>
+      <select id="voTur">
+        <option value="kdv">KDV</option><option value="bagkur">Bağkur (4B)</option>
+        <option value="sgk">SGK Primi</option><option value="muhsgk">MUHSGK (stopaj+SGK)</option>
+        <option value="gecici_vergi">Geçici Vergi</option><option value="gelir_vergisi">Gelir Vergisi</option>
+        <option value="stopaj">Stopaj</option><option value="muhasebeci">Muhasebeci Ücreti</option>
+        <option value="diger">Diğer</option>
+      </select>
+      <label>Tutar</label><input type="text" inputmode="decimal" autocomplete="off" id="voTutar" placeholder="0,00">
+      <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
+      <label>Belge Fotoğrafı</label><input type="file" id="voFoto" accept="image/*" capture="environment">
+      <label>Not</label><input type="text" id="voNot" placeholder="örn: 2. taksit, banka, tahsilat no">
+      <button class="btn" id="voKaydet" onclick="vergiOdemeKaydet()">Ödemeyi Kaydet</button>
+      <div class="hata-msg" id="voMsg"></div>
+      <div class="ipucu">Banka komisyonu varsa onu <b>Giderler</b>'e ayrı yaz — o işletme masrafı, kârdan düşer.</div>
+    </div>
+
+    <div class="kart">
+      ${kbaslik('', 'Ödenen Vergiler', `<input type="number" id="vgYil" value="${yil}" min="2020" max="2099"
+         style="width:92px;padding:6px 8px" onchange="VG_YIL=this.value; vVergi()">`)}
+      <div id="voListe">Yükleniyor...</div>
+    </div>`;
+  paraBaglaHepsi(['voTutar']);
+  vergiVadeYukle();
+  vergiOdenenYukle();
+}
+
 /* ================== YÖNETİM (OWNER) ================== */
 async function vYonetim(){
   const el = document.getElementById('icerik');
@@ -4653,29 +4744,6 @@ async function vYonetim(){
       <div class="hata-msg" id="ynKatMsg"></div>
     </div>
     <div class="kart">
-      <div class="kbaslik">Vergi & Resmi Ödeme Takvimi</div>
-      <div id="vergiVadeler">Yükleniyor...</div>
-    </div>
-    <div class="kart">
-      <div class="kbaslik">Vergi/Resmi Ödeme Kaydet</div>
-      <label>Dönem</label><input type="month" id="voDonem" value="${bugun().slice(0,7)}">
-      <label>Tür</label>
-      <select id="voTur">
-        <option value="kdv">KDV</option><option value="bagkur">Bağkur (4B)</option>
-        <option value="sgk">SGK Primi</option><option value="muhsgk">MUHSGK (stopaj+SGK)</option>
-        <option value="gecici_vergi">Geçici Vergi</option><option value="gelir_vergisi">Gelir Vergisi</option>
-        <option value="stopaj">Stopaj</option><option value="muhasebeci">Muhasebeci Ücreti</option>
-        <option value="diger">Diğer</option>
-      </select>
-      <label>Tutar</label><input type="text" inputmode="decimal" autocomplete="off" id="voTutar" placeholder="0,00">
-      <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
-      <label>Belge Fotoğrafı</label><input type="file" id="voFoto" accept="image/*" capture="environment">
-      <label>Not</label><input type="text" id="voNot">
-      <button class="btn" id="voKaydet" onclick="vergiOdemeKaydet()">Ödemeyi Kaydet</button>
-      <div class="hata-msg" id="voMsg"></div>
-    </div>
-    <div class="kart"><div class="kbaslik">Ödenen Vergiler</div><div id="voListe">Yükleniyor...</div></div>
-    <div class="kart">
       <div class="kbaslik">Ay Kapatma</div>
       <div class="bilgi-not" style="margin:0 0 8px">Ay kapatınca o aya personel hiçbir kayıt (geçmiş tarih dahil) giremez. Beyan/mutabakat sonrası kapatın. Gerekirse nedenle açarsınız.</div>
       <label>Dönem</label><input type="month" id="akDonem" value="${bugun().slice(0,7)}" onchange="akDurumGoster()">
@@ -4695,7 +4763,7 @@ async function vYonetim(){
       <div class="hata-msg" id="arsivMsg"></div>
     </div>
     <div id="bankaMutabakatKart"></div>`;
-  akDurumGoster(); vergiVadeYukle(); vergiOdenenYukle(); bankaMutabakatKart();
+  akDurumGoster(); bankaMutabakatKart();   // vergi bolumu artik Vergiler sekmesinde
   paraBagla(document.getElementById('voTutar'));
 }
 const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',diger:'Diğer'};
