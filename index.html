@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-01-1">
+<meta name="surum" content="2026-08-02-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -21,7 +21,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
 <style>
-:root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;--metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
+/* --kagit: alttan/sağdan açılan panel ve tabaka zemini. TANIMSIZDI — "Daha" menüsü ve
+   bütün detay panelleri şeffaf çıkıyordu, arkadaki içerik okunuyordu. */
+:root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;--kagit:#FFFEF8;--metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
 /* ===== Gün Sonu — iki kasa (Mission Control) ===== */
 .kasa-grid{display:grid;grid-template-columns:1fr 1px 1fr;margin:12px 0}
 .kasa-panel{min-width:0}
@@ -76,10 +78,11 @@
 /* ===== Ürün detayı — tıklanabilir stok satırı + fiyat geçmişi ===== */
 .tikla{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tikla:active{background:#F7F3E8}
-.ud-ov{position:fixed;inset:0;z-index:70;background:rgba(28,24,18,.42);display:none;
+.ud-ov{position:fixed;inset:0;z-index:70;background:rgba(28,24,18,.55);display:none;
   align-items:flex-end;justify-content:center}
 .ud-ov.acik{display:flex}
-.ud-kutu{background:var(--kagit);width:100%;max-width:520px;max-height:92vh;overflow-y:auto;
+.ud-kutu{background:var(--kagit);box-shadow:0 -8px 28px rgba(28,24,18,.28);
+  width:100%;max-width:520px;max-height:92vh;overflow-y:auto;
   border-radius:20px 20px 0 0;padding:0 0 24px}
 @media(min-width:560px){ .ud-ov{align-items:center} .ud-kutu{border-radius:20px} }
 .ud-ust{position:sticky;top:0;background:var(--kagit);padding:18px 18px 12px;
@@ -212,10 +215,19 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 main{padding:14px;max-width:640px;margin:0 auto}
 
 /* "Daha" tabakası — mobilde sığmayan bölümler burada, gizli değil */
-#dahaOv{position:fixed;inset:0;z-index:60;background:rgba(28,24,18,.42);display:none;
+#dahaOv{position:fixed;inset:0;z-index:60;background:rgba(28,24,18,.55);display:none;
   align-items:flex-end}
 #dahaOv.acik{display:flex}
-#dahaKutu{background:var(--kagit);width:100%;border-radius:20px 20px 0 0;padding:8px 0 calc(18px + env(safe-area-inset-bottom,0))}
+#dahaKutu{background:var(--kagit);width:100%;border-radius:20px 20px 0 0;
+  padding:8px 0 calc(18px + env(safe-area-inset-bottom,0));
+  box-shadow:0 -8px 28px rgba(28,24,18,.28);border-top:1px solid var(--cizgi)}
+/* Üstte tutamak — parmakla kapatılabileceği belli olsun */
+#dahaKutu::before{content:'';display:block;width:38px;height:4px;border-radius:3px;
+  background:var(--cizgi);margin:2px auto 6px}
+@media(prefers-reduced-motion:no-preference){
+  #dahaOv.acik #dahaKutu{animation:dahaGir .16s ease-out}
+  @keyframes dahaGir{from{transform:translateY(18px)}to{transform:none}}
+}
 #dahaKutu .db-bas{font-size:11px;font-weight:900;letter-spacing:.8px;color:var(--soluk);padding:12px 20px 8px}
 #dahaKutu button{width:100%;display:flex;align-items:center;gap:14px;padding:0 20px;min-height:54px;
   background:none;color:var(--metin);font-size:15px;font-weight:800;text-align:left;position:relative}
