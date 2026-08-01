@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-07-31-3">
+<meta name="surum" content="2026-08-01-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -336,6 +336,16 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .ipucu{font-size:12.5px;color:var(--soluk);line-height:1.6;margin:0 0 10px}
 .ipucu b{color:var(--metin)}
 h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
+/* Ay gezinme — Özet artık bugünün ayına sabit değil, geçmiş aylar açılabiliyor */
+.ay-gez{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;
+  padding:8px 8px;margin:4px 0 12px}
+.ay-gez>div{text-align:center;min-width:0;flex:1}
+.ay-ad{font-size:17px;font-weight:900;color:var(--ana-koyu);line-height:1.2}
+.ay-alt{font-size:11.5px;color:var(--soluk);font-weight:700;margin-top:2px}
+.ay-gez button{flex:none;width:44px;height:44px;border-radius:11px;background:var(--acik);
+  color:var(--ana);font-size:22px;font-weight:900;line-height:1}
+.ay-gez button:disabled{background:transparent;color:var(--cizgi);cursor:default}
 .foto-onizle{max-width:80px;max-height:80px;border-radius:8px;border:1px solid var(--cizgi);margin-top:6px}
 </style>
 </head>
@@ -446,6 +456,10 @@ function katlaAc(id, btn){
   if (!acik) k.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 const AY_ADI = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+function aySon(donem){           // "2026-07" → "2026-07-31"
+  const y=+String(donem).slice(0,4), a=+String(donem).slice(5,7);
+  return donem+'-'+String(new Date(y, a, 0).getDate()).padStart(2,'0');
+}
 function ayAdi(donem){            // "2026-07" → "Temmuz 2026"
   const p = String(donem||'').split('-');
   return (AY_ADI[(+p[1]||1)-1] || '') + ' ' + (p[0]||'');
@@ -934,19 +948,31 @@ async function gunDetay(tarih){
     <button class="btn" onclick="udKapat();sekmeAc('gunsonu')">Gün Sonu Ekranına Git</button>
   </div>`;
 }
+/* Özet ay ay gezilebilir. Eskiden bugünün ayına SABİTTİ: ayın 1'inde açtığında
+   önceki ayı göremiyordun, geçen ayın kârı/cirosu kayboluyordu. */
+let OZ_AY = null;
+function ozAyDegistir(fark){
+  const t = new Date((OZ_AY||bugun().slice(0,7))+'-01T00:00');
+  t.setMonth(t.getMonth()+fark);
+  const yeni = t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0');
+  if (yeni > bugun().slice(0,7)) return;          // geleceğe gitme
+  OZ_AY = yeni; vOzet();
+}
 async function vOzet(){
   const el = document.getElementById('icerik');
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
-  const ay = bugun().slice(0,7);
+  const ay = OZ_AY || bugun().slice(0,7);
+  OZ_AY = ay;
   const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme] = await Promise.all([
     sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
     sb.from('v_uyarilar').select('*').order('tarih'),
     sb.from('duzeltme_talebi').select('created_at').eq('durum','acik').eq('is_deleted',false).order('created_at'),
-    sb.from('gun_sonu').select('tarih,toplam,kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', bugun()).eq('is_deleted', false),
-    sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', bugun()),
-    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', bugun())
+    // Geçmiş aya bakılırken sınır bugün DEĞİL, o ayın son günü olmalı
+    sb.from('gun_sonu').select('tarih,toplam,kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', aySon(ay)).eq('is_deleted', false),
+    sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
   ]);
   const g = gs.data, k = (kdv.data||[])[0], o = (ozet.data||[])[0], u = uyari.data||[];
   // Ayın gerçek cirosu/Z dışı nakdi artık v_aylik_ozet'te hesaplanıyor (gercek_ciro,
@@ -968,7 +994,14 @@ async function vOzet(){
   const agirSayi = u.filter(x=>AGIR[x.tip]).length;
 
   el.innerHTML = `
-    <h2 class="bolum">Özet — ${new Date().toLocaleDateString('tr-TR')}</h2>
+    <div class="ay-gez">
+      <button onclick="ozAyDegistir(-1)" aria-label="Önceki ay">‹</button>
+      <div><div class="ay-ad">${ayAdi(ay)}</div>
+        <div class="ay-alt">${ay===bugun().slice(0,7)
+          ? 'bu ay · '+new Date().toLocaleDateString('tr-TR')
+          : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
+      <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
+    </div>
     <div class="ozet-grid">
       <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
         <div class="d">${g?tl(g.toplam):'—'}</div>
@@ -4772,13 +4805,18 @@ async function vergiVadeYukle(){
   const { data } = await sb.from('vade').select('*').eq('is_deleted',false).order('vade_tarihi');
   const bugunT = bugun();
   el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Vade kaydı yok.</div>' : (data||[]).map(v=>{
-    const odendi = v.odendi_gider_id !== null;
+    // Ödeme kaydedilince vade otomatik kapanıyor (odendi_tarih). Eskiden yalnız
+    // odendi_gider_id'ye bakılıyordu ve o yol FK yüzünden hiç çalışmıyordu.
+    const odendi = v.odendi_tarih !== null || v.odendi_gider_id !== null;
     const gecti = !odendi && v.vade_tarihi < bugunT;
     const yakin = !odendi && !gecti && v.vade_tarihi <= new Date(Date.now()+7*864e5).toISOString().slice(0,10);
     return `<div class="liste-satir">
       <div class="l-sol"><div class="b">${esc(v.aciklama)} ${gecti?'<span class="rozet rz-hata">GEÇTİ</span>':yakin?'<span class="rozet rz-uyari">YAKLAŞTI</span>':''}</div>
         <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${v.tutar?' · '+tl(v.tutar):''}</div></div>
-      <div class="l-sag">${odendi?'<span class="rozet rz-ok">Ödendi</span>':`<button class="btn2" onclick="vadeOdendi('${v.id}')">Ödendi</button>`}</div>
+      <div class="l-sag">${odendi
+        ? '<span class="rozet rz-ok">Ödendi</span>'
+          + (v.odendi_tarih ? '<div class="k">'+new Date(v.odendi_tarih+'T00:00').toLocaleDateString('tr-TR')+'</div>' : '')
+        : `<button class="btn2" onclick="vadeOdendi('${v.id}')">Ödendi</button>`}</div>
     </div>`;
   }).join('');
 }
