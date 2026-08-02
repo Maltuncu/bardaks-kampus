@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-02-1">
+<meta name="surum" content="2026-08-02-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1028,7 +1028,7 @@ async function vOzet(){
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="e">AY KÂRI (GERÇEK)</div>
         <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.gercek_ay_kari):'—'}</div>
-        <div class="aciklama">${o&&+o.z_disi_nakit>0?'Elde kalan '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
+        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${o&&+o.z_disi_nakit>0?'Elde kalan '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
     </div>
 
     ${GC.kayitliGun ? `<div class="kart">
@@ -1075,10 +1075,17 @@ async function vOzet(){
     </div>
     <div class="kart">
       ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
-      <div class="ipucu">Fatura bazlı: malı aldığın anda maliyet sayılır, ödemesi ne zaman olursa olsun.
+      <div class="ipucu">${o.stok_bazli
+        ? 'Depo sayımına dayalı: maliyet = açılış deposu + ay içi alış − kapanış deposu. Depodan kullanılan mal da maliyete giriyor.'
+        : 'Fatura bazlı: yalnız o ay <b>satın alınan</b> mal maliyet sayılır.'}
         Her kalem <b>KDV hariç</b> — indirilecek KDV maliyet değildir.</div>
       ${ozSatir('Net satış (KDV hariç)', tl(o.net_satis_kdv_haric))}
-      ${ozSatir('Mal alışları (KDV hariç)', '−'+tl(o.alis_net))}
+      ${o.stok_bazli
+        ? ozSatir('Açılış deposu', tl(o.acilis_stok))
+          + ozSatir('Ay içi alış (KDV hariç)', '+'+tl(o.alis_net))
+          + ozSatir('Kapanış deposu', '−'+tl(o.kapanis_stok))
+          + ozSatir('Satılan malın maliyeti', '−'+tl(o.smm))
+        : ozSatir('Mal alışları (KDV hariç)', '−'+tl(o.alis_net))}
       ${ozSatir('Giderler (KDV hariç)', '−'+tl(o.gider_net))}
       ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
       ${+o.iptal_tutar ? ozSatir('Fiş iptalleri', tl(o.iptal_tutar)) : ''}
@@ -1086,15 +1093,20 @@ async function vOzet(){
       ${+o.z_disi_nakit>0 ? ozSatir('Z dışı kasa nakdi', '+'+tl(o.z_disi_nakit)) : ''}
       ${ozSatir('GERÇEK AY KÂRI', tl(o.gercek_ay_kari), true)}
       ${k?ozSatir('Ödenecek KDV (ayrı)', tl(k.odenecek_kdv_tahmini)):''}
+      ${!o.stok_bazli ? `<div class="uyari-agir" style="margin-top:10px">
+        Bu ayın kârı <b>ölçülmedi</b>. Depo sayımı olmadığı için depodan kullanılan malın
+        maliyeti hesaba girmiyor — kâr olduğundan <b>yüksek</b> görünüyor.
+        Stok sekmesindeki <b>Sayım</b> kartından ay sonu sayımını gir.${
+          o.kapanis_stok!=null&&o.acilis_stok==null ? ' (Bu ayın sayımı var, açılışı yok — ikisi de gerekiyor.)' : ''}</div>` : ''}
       ${+o.kasa_sayilmayan_gun > 0 ? `<div class="uyari-orta" style="margin-top:10px">
         ${o.kasa_sayilmayan_gun} gün kasa sayılmamış — o günlerin Z dışı nakdi bilinmiyor,
         gerçek kâr bundan yüksek olabilir.</div>` : ''}
       <div class="bilgi-not" style="margin-top:10px">
         <b>Beyana giden kâr</b> yalnız Z raporundaki ciroyu esas alır. <b>Gerçek kâr</b> kasada
         sayılan ama Z'ye girmeyen nakdi de ekler — ikisi ayrı rakamdır, karıştırma.<br>
-        O ayın alışlarının tamamı maliyet sayılır. Kafede alınan ile tüketilen aynı aya
-        denk geldiği için bu doğru çalışır; ay sonunda elde ciddi mal kalırsa o ayın kârı
-        olduğundan düşük, sonraki ayın yüksek görünür.
+        ${o.stok_bazli
+          ? 'Maliyet depo sayımından geliyor: aldığın değil, <b>tükettiğin</b> mal maliyet sayılıyor. Depodan kullandığın mal da hesaba giriyor.'
+          : 'Şu an yalnız o ay satın alınan mal maliyet sayılıyor. Depodan kullanırsan o maliyet hiçbir yerde görünmez — iki uçlu sayım (açılış + kapanış) girilene kadar bu rakam tahmindir.'}
       </div>
     </div>`:''}`;
 }
@@ -3424,6 +3436,12 @@ async function vStok(){
   const sayimEskidi = cikisVar && sayimGunu > 14;   // iki haftadan eski sayım güvenilmez
   const toplamDeger = (stok||[]).reduce((a,s)=>a + (+s.stok_degeri||0), 0);
   const liste = stok||[];
+  // Sayım kutusu canlı toplam hesaplayacak; listeyi (maliyetiyle) dışarı taşı
+  // mal = yuvarlanmamis birim maliyet (maliyet_tam). ort_maliyet 4 haneye yuvarli
+  // oldugu icin onunla hesaplarsak ekrandaki toplam kaydedilenden kurus sapiyor.
+  SY_LISTE = liste.map(x => ({ id:x.urun_id, ad:x.ad, birim:x.birim,
+                               mevcut:+x.mevcut||0,
+                               mal:+(x.maliyet_tam ?? x.ort_maliyet)||0 }));
   const kritikler = liste.filter(s=>s.kritik);
   // Kritik seviyesi 0 olan ürün için "Yeterli" demek yanlış bilgi: seviye tanımlı değilse
   // sistem uyaramaz. Bunu "Yeterli" diye göstermek yerine açıkça tanımsız yazıyoruz.
@@ -3474,15 +3492,24 @@ async function vStok(){
     </div>
 
     <div class="kart">
-      ${kbaslik('HAFTALIK', 'Sayım', `<button class="btn2" onclick="katlaAc('sayimKutu',this)">Aç</button>`)}
+      ${kbaslik('AY SONU', 'Sayım', `<button class="btn2" onclick="katlaAc('sayimKutu',this)">Aç</button>`)}
       <div id="sayimKutu" style="display:none">
-        <div class="ipucu">Sadece saydığın ürünlere rakam yaz; boş bıraktıkların değişmez. Farkı sistem hesaplar.</div>
+        <div class="ipucu"><b>Ayın kârı ancak bu sayımla gerçek olur.</b> Saymadığın ürün
+          sistemdeki miktarıyla değerlenir — o yüzden hepsini saymak en doğrusu.</div>
+        <div class="satir">
+          <div><label>Hangi ayı kapatıyor</label>
+            <input type="month" id="syDonem" value="${syVarsayilanDonem()}" max="${bugun().slice(0,7)}"></div>
+          <div><label>Sayım tarihi</label>
+            <input type="date" id="syTarih" value="${bugun()}"></div>
+        </div>
         <div id="sayimListe">${liste.map(s=>`
           <div class="sr">
-            <div><div class="sr-ad">${esc(s.ad)}</div><div class="sr-alt">sistemde ${s.mevcut} ${esc(s.birim)}</div></div>
+            <div><div class="sr-ad">${esc(s.ad)}</div><div class="sr-alt">sistemde ${s.mevcut} ${esc(s.birim)}${owner&&+s.ort_maliyet>0?' · birim '+tl(s.ort_maliyet):''}</div></div>
             <div style="width:104px"><input type="text" inputmode="decimal" id="sy_${s.urun_id}" placeholder="sayılan"></div>
           </div>`).join('')}</div>
-        <button class="btn" id="syKaydet" onclick="sayimKaydet(${JSON.stringify(liste.map(s=>({id:s.urun_id, mevcut:+s.mevcut}))).replace(/"/g,'&quot;')})">Sayımı Kaydet</button>
+        ${owner?'<div id="syToplam" class="bilgi-not" style="margin:10px 0"></div>':''}
+        <label>Not</label><input type="text" id="syNot" placeholder="örn: ay sonu sayımı">
+        <button class="btn" id="syKaydet" onclick="sayimKaydet()">Sayımı Kaydet</button>
         <div class="hata-msg" id="syMsg"></div>
       </div>
     </div>
@@ -3505,6 +3532,8 @@ async function vStok(){
     <div id="alacakBolum"></div>`;
   paraBaglaHepsi(['shMiktar'], 3, true);   // sayim duzeltmesinde eksi anlamli
   document.querySelectorAll('#sayimListe input').forEach(el => paraBagla(el, null, 3));
+  document.getElementById('sayimListe')?.addEventListener('input', syTopla);
+  syTopla();
   alimRaporu();
   alacakListe();
 }
@@ -3895,20 +3924,74 @@ async function alacakKapat(id){
   if (error){ alert('Kapatılamadı: ' + hataTr(error.message)); return; }
   vStok();
 }
-async function sayimKaydet(urunler){
-  const degisenler = [];
-  for (const u of urunler){
+/* SAYIM
+   Eskiden sayım yalnız stok miktarını düzeltiyordu; ayın kârına hiç dokunmuyordu.
+   Artık dönemin DEPO DEĞERİ de kaydediliyor — kâr formülü şuna dönüyor:
+     satılan malın maliyeti = açılış deposu + ay içi alış − kapanış deposu
+   Saymadığın ürün sistemdeki miktarıyla değerlenir; yoksa kapanış stoğu eksik
+   çıkar ve kâr olduğundan yüksek görünür. */
+let SY_LISTE = [];
+function syVarsayilanDonem(){
+  // Ayın ilk 10 günündeysek büyük ihtimalle önceki ay kapatılıyor
+  const d = new Date(bugun()+'T00:00');
+  if (d.getDate() <= 10) d.setMonth(d.getMonth()-1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+/* Satır satır yuvarla, sonra topla — RPC de öyle yapıyor.
+   Toplayıp sonra yuvarlarsak ekrandaki rakam kaydedilenden 1-2 kuruş sapıyor. */
+const syTutar = (miktar, birim) => Math.round(miktar * birim * 100) / 100;
+function syTopla(){
+  const el = document.getElementById('syToplam'); if (!el) return;
+  let toplam = 0, sayilan = 0, hatali = 0;
+  for (const u of SY_LISTE){
     const inp = document.getElementById('sy_'+u.id);
-    if (!inp || inp.value.trim() === '') continue;
-    const fark = paraCoz(inp.value, 3).deger - u.mevcut;
-    if (Math.abs(fark) > 0.0001) degisenler.push({ urun:u.id, fark });
+    const yazili = inp && inp.value.trim() !== '';
+    if (!yazili){ toplam += syTutar(u.mevcut, u.mal); continue; }
+    const p = paraCoz(inp.value, 3);
+    if (!p.ok || p.deger < 0){ hatali++; toplam += syTutar(u.mevcut, u.mal); continue; }
+    sayilan++; toplam += syTutar(p.deger, u.mal);
   }
-  if (degisenler.length === 0){ mesaj('syMsg','hata','Hiç sayım girilmedi (veya hepsi sistemle aynı).'); return; }
-  const data = await rpcCagir('rpc_sayim_toplu', {
-    p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: bugun(),
-    p_kalemler: degisenler.map(d=>({ urun:d.urun, fark:d.fark }))
-  }, 'syKaydet','syMsg', `Sayım tamam: ${degisenler.length} ürün güncellendi ✓`);
-  if (data && data.ok) setTimeout(vStok, 1200);
+  el.innerHTML = `Sayılan depo değeri <b>${tl(toplam)}</b>`
+    + `<span style="color:var(--soluk)"> · ${sayilan}/${SY_LISTE.length} ürün elle sayıldı`
+    + (sayilan < SY_LISTE.length ? ', kalanı sistemdeki miktarla değerlendi' : '')
+    + '</span>'
+    + (hatali ? `<div style="color:var(--hata);margin-top:4px">${hatali} üründe geçersiz sayı var</div>` : '');
+}
+async function sayimKaydet(){
+  const g = id => document.getElementById(id);
+  const donem = g('syDonem')?.value, tarih = g('syTarih')?.value;
+  if (!donem){ mesaj('syMsg','hata','Hangi ayı kapattığını seç.'); return; }
+  if (!tarih){ mesaj('syMsg','hata','Sayım tarihi girilmedi.'); return; }
+  const kalemler = []; let hatali = 0, toplam = 0;
+  for (const u of SY_LISTE){
+    const inp = g('sy_'+u.id);
+    const yazili = inp && inp.value.trim() !== '';
+    if (!yazili){ toplam += syTutar(u.mevcut, u.mal); continue; }
+    const p = paraCoz(inp.value, 3);
+    if (!p.ok || p.deger < 0){ hatali++; continue; }
+    kalemler.push({ urun:u.id, sayilan:p.deger });
+    toplam += syTutar(p.deger, u.mal);
+  }
+  if (hatali){ mesaj('syMsg','hata', hatali+' üründe geçersiz sayı var — örnek: 12 veya 12,5'); return; }
+  const saymadigin = SY_LISTE.length - kalemler.length;
+  // Depo DEĞERİ maliyet verisidir — personele miktar onayı gösterilir, TL gösterilmez
+  const owner = PROFIL.rol === 'owner';
+  if (!confirm(`${ayAdi(donem)} SAYIMI KAYDEDİLECEK\n\n`
+    + `Elle sayılan: ${kalemler.length} ürün\n`
+    + (saymadigin ? `Saymadığın ${saymadigin} ürün sistemdeki miktarla değerlenecek\n` : '')
+    + (owner ? `Depo değeri: ${tl(toplam)}\n` : '')
+    + `\n${ayAdi(donem)} kârı bundan sonra bu sayımla hesaplanır.\n`
+    + `O ay için daha önce sayım varsa üzerine yazılır.\n\nOnaylıyor musun?`)) return;
+  const data = await rpcCagir('rpc_sayim_kaydet', {
+    p_idem: idem(), p_sube: PROFIL.sube_id, p_donem: donem, p_tarih: tarih,
+    p_kalemler: kalemler, p_not: g('syNot')?.value.trim() || null
+  }, 'syKaydet','syMsg','Sayım kaydedildi ✓');
+  if (data && data.ok){
+    mesaj('syMsg','ok', 'Sayım kaydedildi'
+      + (owner ? ` · ${ayAdi(donem)} deposu ${tl(data.toplam)}` : '')
+      + ` · ${data.duzeltme} üründe stok düzeltildi ✓`);
+    setTimeout(vStok, 1600);
+  }
 }
 async function stokHareketKaydet(){
   let miktar = paraDeger('shMiktar', 3, true);
@@ -4006,10 +4089,13 @@ async function vTedarikci(){
     ${owner ? `
     <div class="kart">
       <div class="kbaslik">Açılış Bakiyesi Gir</div>
-      <div class="bilgi-not" style="margin:0 0 8px">Sisteme geçmeden önce firmaya olan mevcut borcun varsa buraya gir — bakiye doğru başlasın.</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Sisteme geçmeden önce firmaya olan mevcut borcun varsa buraya gir — bakiye doğru başlasın.
+        Açılış borcu <b>ayın alışı sayılmaz</b>, kârı etkilemez. Bir firmanın açılışı tektir: yenisi eskisinin yerine geçer.</div>
       <label>Firma</label>
       <select id="abTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
       <label>Mevcut Borç (açılış)</label><input type="text" inputmode="decimal" id="abTutar" placeholder="0,00">
+      <label>Borcun doğduğu tarih</label>
+      <input type="date" id="abTarih" value="${abVarsayilanTarih()}" max="${bugun()}">
       <label>Not</label><input type="text" id="abNot" placeholder="örn: Haziran devri">
       <button class="btn" id="abKaydet" onclick="acilisBakiyeKaydet()">Açılış Bakiyesi Ekle</button>
       <div class="hata-msg" id="abMsg"></div>
@@ -4053,13 +4139,24 @@ async function odemeListe(){
           tutar: tl(o.tutar)
         })).join('');
 }
+function abVarsayilanTarih(){
+  const d = new Date(bugun()+'T00:00'); d.setDate(0);   // önceki ayın son günü
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')
+       + '-'+String(d.getDate()).padStart(2,'0');
+}
 async function acilisBakiyeKaydet(){
+  const g = id => document.getElementById(id);
   const tutar = paraDeger('abTutar');
-  if (tutar===0){ mesaj('abMsg','hata','Tutar boş olamaz.'); return; }
+  if (tutar<=0){ mesaj('abMsg','hata','Tutar boş olamaz.'); return; }
+  const firmaAd = g('abTedarikci').selectedOptions[0]?.text || 'firma';
+  if (!confirm(`AÇILIŞ BORCU KAYDEDİLECEK\n\n${firmaAd}\n${tl(tutar)}\n`
+    + `Tarih: ${new Date(g('abTarih').value+'T00:00').toLocaleDateString('tr-TR')}\n\n`
+    + `Bu firmanın daha önce açılışı varsa üzerine yazılır.\nOnaylıyor musun?`)) return;
   const data = await rpcCagir('rpc_acilis_bakiye',{
-    p_sube: PROFIL.sube_id, p_tedarikci: document.getElementById('abTedarikci').value,
-    p_tutar: tutar, p_not: document.getElementById('abNot').value.trim()||null
-  },'abKaydet','abMsg','Açılış bakiyesi eklendi ✓');
+    p_sube: PROFIL.sube_id, p_tedarikci: g('abTedarikci').value,
+    p_tutar: tutar, p_not: g('abNot').value.trim()||null,
+    p_tarih: g('abTarih').value || null
+  },'abKaydet','abMsg','Açılış bakiyesi kaydedildi ✓');
   if (data && data.ok) vTedarikci();
 }
 async function acikFaturaYukle(){
