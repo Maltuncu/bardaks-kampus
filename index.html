@@ -908,7 +908,8 @@ async function gunDetay(tarih){
   ov.classList.add('acik');
   const [gs, kg, no] = await Promise.all([
     sb.from('gun_sonu')
-      .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,is_deleted), gun_sonu_kdv(kasa_no,oran,kdv_tutar,is_deleted)')
+      // z_foto_path/pos_slip_foto_path eksikti: bu panelden Z raporu açılamıyordu
+      .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,oran,kdv_tutar,is_deleted)')
       .eq('tarih',tarih).eq('is_deleted',false).maybeSingle(),
     sb.from('gider').select('tutar,aciklama').eq('tarih',tarih).eq('kasadan',true).eq('is_deleted',false),
     sb.from('tedarikci_odeme').select('tutar,tedarikci(ad)').eq('tarih',tarih).eq('yontem','nakit').eq('is_deleted',false)
@@ -948,10 +949,14 @@ async function gunDetay(tarih){
     ${zDisi!==null?ozSatir(zDisi<0?'Kasa açığı':"Bunun KDV'ye girmeyen kısmı", tl(zDisi)):''}
     ${ozSatir('GERÇEK TOPLAM', tl(gercek), true)}
     ${ks.length?`<div class="ud-bas" style="margin-top:16px"><span class="ud-blk">YAZARKASALAR</span></div>`
-      +ks.map(k=>`<div class="ud-satir"><div class="ud-trh">K${k.kasa_no}${(k.sira||1)>1?'/'+k.sira:''}</div>
+      +ks.map(k=>{
+        const e=`K${k.kasa_no}${zCok(ks,k.kasa_no)?'/'+(k.sira||1):''}`;
+        return `<div class="ud-satir"><div class="ud-trh">${e}</div>
         <div><div style="font-weight:800;font-size:13px">Z: ${esc(k.z_no||'—')}</div>
-          <div class="ud-alt">Kart ${tl(k.kart_toplam)} · Nakit ${tl(k.nakit_toplam)}</div></div>
-        <div class="ud-tut">${tl(k.toplam)}</div></div>`).join(''):''}
+          <div class="ud-alt">Kart ${tl(k.kart_toplam)} · Nakit ${tl(k.nakit_toplam)}</div>
+          <div style="margin-top:6px">${belgeBtn(k.z_foto_path,'Z Raporu',`${trh} — Kasa ${k.kasa_no} Z Raporu`)}${slipBtn(k.pos_slip_foto_path,'Slip',`${trh} — Kasa ${k.kasa_no} POS Slip`)}</div></div>
+        <div class="ud-tut">${tl(k.toplam)}</div></div>`;}).join('')
+      : `<div style="margin-top:14px">${belgeBtn(g.z_foto_path,'Z Raporu',`${trh} — Z Raporu`)}${slipBtn(g.pos_slip_foto_path,'POS Slip',`${trh} — POS Slip`)}</div>`}
     ${kd.length?`<div class="ud-bas" style="margin-top:16px"><span class="ud-blk">KDV</span>
         <span class="ud-trend">${tl(kd.reduce((a,x)=>a+ +x.kdv_tutar,0))}</span></div>`
       +kd.map(x=>ozSatir('%'+x.oran+' (K'+x.kasa_no+')', tl(x.kdv_tutar))).join('')
