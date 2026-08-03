@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-03-3">
+<meta name="surum" content="2026-08-03-4">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1525,7 +1525,7 @@ function zBlokHtml(n, s){
       <div id="kdvSatirlari_${k}"></div>
       <button type="button" class="btn2" onclick="kdvSatirEkle('${k}')">+ farklı oran ekle</button>
       <label>Z Raporu Fotoğrafı <b style="color:var(--hata)">*</b></label>
-      <input type="file" id="gsZFoto_${k}" accept="image/*" capture="environment">
+      <input type="file" id="gsZFoto_${k}" accept="image/*,application/pdf,.pdf">
       <button type="button" class="btn2" id="gsOku_${k}" onclick="zRaporuOku('${k}')" style="width:100%">
         📄 Z raporunu oku — alanları doldur</button>
       <div class="oku-durum" id="gsOkuDurum_${k}"></div>
@@ -2546,7 +2546,7 @@ function gdTemel(){
         <input type="checkbox" id="gdKasadan" style="width:20px;height:20px;flex:none"> Kasadan nakit ödendi
       </label>
       <label>Açıklama</label><input type="text" id="gdAciklama" placeholder="örn: Temmuz elektrik faturası">
-      <label>Belge Fotoğrafı</label><input type="file" id="gdFoto" accept="image/*" capture="environment">
+      <label>Belge Fotoğrafı</label><input type="file" id="gdFoto" accept="image/*,application/pdf,.pdf">
       <button class="btn" id="gdKaydet" onclick="giderKaydet(null)">Kaydet</button>
       <div class="hata-msg" id="gdMsg"></div>
     </div>`;
@@ -2565,7 +2565,7 @@ function gdFis(){
         <input type="checkbox" id="gdKasadan" style="width:20px;height:20px;flex:none"> Kasadan nakit ödendi
       </label>
       <label>Ne alındı?</label><input type="text" id="gdAciklama" placeholder="örn: peçete, çöp poşeti">
-      <label>Fiş Fotoğrafı</label><input type="file" id="gdFoto" accept="image/*" capture="environment">
+      <label>Fiş Fotoğrafı</label><input type="file" id="gdFoto" accept="image/*,application/pdf,.pdf">
       <button class="btn" id="gdKaydet" onclick="giderKaydet('fis')">Kaydet</button>
       <div class="hata-msg" id="gdMsg"></div>
     </div>`;
@@ -5017,7 +5017,7 @@ async function vVergi(){
       </select>
       <label>Tutar</label><input type="text" inputmode="decimal" autocomplete="off" id="voTutar" placeholder="0,00">
       <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
-      <label>Belge Fotoğrafı</label><input type="file" id="voFoto" accept="image/*" capture="environment">
+      <label>Belge Fotoğrafı</label><input type="file" id="voFoto" accept="image/*,application/pdf,.pdf">
       <label>Not</label><input type="text" id="voNot" placeholder="örn: 2. taksit, banka, tahsilat no">
       <button class="btn" id="voKaydet" onclick="vergiOdemeKaydet()">Ödemeyi Kaydet</button>
       <div class="hata-msg" id="voMsg"></div>
