@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-03-6">
+<meta name="surum" content="2026-08-03-7">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5475,78 +5475,184 @@ function trSayi(s){ // "1.658.776,00" → 1658776.00 ; "-24.688,65" → -24688.6
   if (!r.ok) return null;
   return eksi ? -r.deger : r.deger;
 }
+/* POS EKSTRESİ OKUMA
+   Eski sürüm sayfadaki bütün metni tek satıra ezip yalnız AYLIK toplamları
+   arıyordu. O yüzden "fark 1.320 TL" diyebilirdi ama HANGİ GÜN olduğunu asla
+   söyleyemezdi. 03.08.2026'da farkı bulan şey gün gün karşılaştırmaydı;
+   üstelik asıl ipucu tutar değil İŞLEM ADEDİ oldu.
+   Artık satır satır okunuyor ve gün gün karşılaştırılıyor. */
+
+// PDF'te Türkçe harfler bazen ISO-8859-9 karşılığıyla geliyor (Ý=İ, Þ=Ş...)
+const POS_TR = { 'Ý':'İ','Þ':'Ş','ý':'ı','þ':'ş','Ð':'Ğ','ð':'ğ' };
+const posTrDuzelt = t => String(t).replace(/[ÝÞýþÐð]/g, c => POS_TR[c]);
+
+function posEkstreCoz(metin){
+  const satir = posTrDuzelt(metin).split('\n');
+  const gunler = {};
+  // "GÜN BÖLÜM ADET TÜR TUTAR ..." — tür kodu harflerle başlar (PŞNYİKK, TKSTMAX...)
+  const satirRe = /^(\d{1,2})\s+(\d+)\s+(\d+)\s+([A-ZÇĞİÖŞÜ]{3,12}\S*)\s+(-?[\d.]+,\d{2})\b/;
+  for (const l of satir){
+    const m = satirRe.exec(l.trim());
+    if (!m) continue;
+    const g = +m[1];
+    if (g < 1 || g > 31) continue;
+    const t = trSayi(m[5]); if (t === null) continue;
+    gunler[g] = gunler[g] || { gun:g, adet:0, tutar:0 };
+    gunler[g].adet  += +m[3];
+    gunler[g].tutar  = +(gunler[g].tutar + t).toFixed(2);
+  }
+  // Özet: etiket ile rakam aynı satırda olmayabilir, 2 satır ileriye bak
+  const bul = (...etiketler) => {
+    for (const et of etiketler){
+      const re = new RegExp(et.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'i');
+      for (let i = 0; i < satir.length; i++){
+        if (!re.test(satir[i])) continue;
+        for (let j = i; j < Math.min(i+3, satir.length); j++){
+          const s = /(-?[\d.]+,\d{2})/.exec(satir[j]);
+          if (s) return trSayi(s[1]);
+        }
+      }
+    }
+    return null;
+  };
+  return {
+    gunluk: Object.values(gunler).sort((a,b)=>a.gun-b.gun),
+    isyeri: (posTrDuzelt(metin).match(/İşyeri No:\s*(\d+)/)||[])[1] || null,
+    ozet: {
+      toplam_satis:     bul('Toplam Satış'),
+      komisyon:         bul('İşyeri Ücreti Pşn\\(Tutar\\)','İşyeri Ücreti Pşn'),
+      maxipuan:         bul('Maxipuan Katkı Payı'),
+      okc_ucret:        bul('Ücreti\\(ÖKC\\)','POS Yzlm/Dnnm/Bakım'),
+      kesinti_toplam:   bul('Kesintiler Toplamı'),
+      net_hesaba_gecis: bul('Dönem İçi Toplam Hesaba','Dönem İçi Peşin Hesaba'),
+      bekleyen_alacak:  bul('Toplam Alacak Tutarı')
+    }
+  };
+}
+
+let MT_SON = null;
 async function bankaPdfAnaliz(){
   const inp = document.getElementById('bmPdf');
   if (!inp.files || !inp.files[0]){ mesaj('bmMsg','hata','PDF seçilmedi.'); return; }
-  const btn = document.getElementById('bmAnaliz'); btn.disabled=true; btn.textContent='Okunuyor...';
+  const donem = document.getElementById('bmDonem').value;
+  if (!donem){ mesaj('bmMsg','hata','Dönem seçilmedi.'); return; }
+  const btn = document.getElementById('bmAnaliz'); btn.disabled = true; btn.textContent = 'Okunuyor...';
   try{
-    const buf = await inp.files[0].arrayBuffer();
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
-    let metin = '';
-    for (let i=1; i<=pdf.numPages; i++){
-      const pg = await pdf.getPage(i);
-      const tc = await pg.getTextContent();
-      metin += tc.items.map(x=>x.str).join(' ') + '\n';
-    }
-    const bul = (etiket) => {
-      const re = new RegExp(etiket.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '[^\\d-]*(-?[\\d.]+,\\d{2})');
-      const m = metin.match(re); return m ? trSayi(m[1]) : null;
-    };
-    const veri = {
-      toplam_satis: bul('Toplam Satış'),
-      komisyon: bul('İşyeri Ücreti Pşn\\(Tutar\\)'),
-      maxipuan: bul('Maxipuan Katkı Payı'),
-      okc_ucret: bul('ÖKC\\)') || bul('Bakım Ücreti'),
-      kesinti_toplam: bul('Kesintiler Toplamı'),
-      net_hesaba_gecis: bul('Dönem İçi Toplam Hesaba') || bul('Dönem İçi Peşin Hesaba'),
-      bekleyen_alacak: bul('Toplam Alacak Tutarı')
-    };
-    if (veri.toplam_satis === null){ mesaj('bmMsg','hata','PDF tanınamadı — bu İş Bankası üye işyeri özeti mi? Alanlar okunamadı.'); btn.disabled=false; btn.textContent="PDF'i Analiz Et"; return; }
-    // O ayın kart cirosu ile karşılaştır
-    const donem = document.getElementById('bmDonem').value;
-    const { data: gs } = await sb.from('gun_sonu').select('kart_toplam').gte('tarih',donem+'-01').lte('tarih',donem+'-31').eq('is_deleted',false);
-    const bizimKart = (gs||[]).reduce((a,x)=>a+ +x.kart_toplam,0);
-    const fark = veri.toplam_satis - bizimKart;
-    const uyumlu = Math.abs(fark) < 1;
+    const c = await pdfMetinCikar(inp.files[0]);
+    if (!c.yeterli) throw new Error('PDF taranmış görünüyor — metin çıkmadı.');
+    const p = posEkstreCoz(c.metin);
+    if (!p.gunluk.length) throw new Error('Günlük işlem satırları okunamadı. Bu İş Bankası üye işyeri hesap özeti mi?');
+
+    // Ayrıştırma doğru mu: günlerin toplamı ekstrenin kendi "Toplam Satış"ıyla tutmalı
+    const gunToplam = +p.gunluk.reduce((a,x)=>a+x.tutar,0).toFixed(2);
+    const tutar_kontrol = p.ozet.toplam_satis !== null
+      && Math.abs(gunToplam - p.ozet.toplam_satis) < 0.05;
+
+    const { data: gs } = await sb.from('gun_sonu')
+      .select('tarih,kart_toplam,gun_sonu_kasa(kart_adet,is_deleted)')
+      .gte('tarih', donem+'-01').lte('tarih', aySon(donem)).eq('is_deleted', false);
+    const sis = {};
+    (gs||[]).forEach(g => {
+      const gun = +String(g.tarih).slice(8,10);
+      const kasalar = (g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
+      const adet = kasalar.some(k=>k.kart_adet!=null)
+        ? kasalar.reduce((a,k)=>a+(+k.kart_adet||0),0) : null;
+      sis[gun] = { tutar:+g.kart_toplam, adet };
+    });
+
+    const bankaMap = {}; p.gunluk.forEach(x => bankaMap[x.gun] = x);
+    const tumGun = [...new Set([...Object.keys(sis), ...Object.keys(bankaMap)].map(Number))].sort((a,b)=>a-b);
+    const satirlar = tumGun.map(g => {
+      const S = sis[g], B = bankaMap[g];
+      return { gun:g,
+        sistem: S ? S.tutar : null, banka: B ? B.tutar : null,
+        fark: (S?S.tutar:0) - (B?B.tutar:0),
+        sAdet: S ? S.adet : null, bAdet: B ? B.adet : null,
+        adetFark: (S && S.adet != null && B) ? S.adet - B.adet : null };
+    });
+    const farkli = satirlar.filter(x => Math.abs(x.fark) >= 0.005 || x.sistem === null || x.banka === null);
+    const sisTop = +Object.values(sis).reduce((a,x)=>a+x.tutar,0).toFixed(2);
+    MT_SON = { donem, gunluk:p.gunluk, ozet:p.ozet, isyeri:p.isyeri };
+
+    const st = (v, renk) => `<span style="color:var(--${renk})">${v}</span>`;
     document.getElementById('bmSonuc').innerHTML = `
+      ${tutar_kontrol ? '' : `<div class="uyari-agir" style="margin-top:10px">
+        Ayrıştırma şüpheli: okunan günlerin toplamı (${tl(gunToplam)}) ekstrenin
+        "Toplam Satış" rakamıyla (${tl(p.ozet.toplam_satis)}) tutmuyor.
+        Kaydetme, bana bildir.</div>`}
       <div style="margin-top:12px">
-        <div class="liste-satir"><div>Banka toplam satış</div><div class="l-sag">${tl(veri.toplam_satis)}</div></div>
-        <div class="liste-satir"><div>Bizim kart cirosu (${(gs||[]).length} gün)</div><div class="l-sag">${tl(bizimKart)}</div></div>
-        <div class="liste-satir"><div style="font-weight:800">FARK</div><div class="l-sag" style="color:${uyumlu?'var(--ok)':'var(--hata)'}">${uyumlu?'✓ Tutuyor':tl(fark)}</div></div>
-        <div class="liste-satir"><div>Komisyon</div><div class="l-sag">${tl(veri.komisyon||0)}</div></div>
-        <div class="liste-satir"><div>ÖKC/bakım ücreti</div><div class="l-sag">${tl(veri.okc_ucret||0)}</div></div>
-        <div class="liste-satir"><div>Kesinti toplamı</div><div class="l-sag">${tl(veri.kesinti_toplam||0)}</div></div>
-        <div class="liste-satir"><div>Net hesaba geçiş</div><div class="l-sag">${tl(veri.net_hesaba_gecis||0)}</div></div>
-        <div class="liste-satir"><div>Bekleyen alacak</div><div class="l-sag">${tl(veri.bekleyen_alacak||0)}</div></div>
+        ${ozSatir('Bankanın toplam satışı', tl(p.ozet.toplam_satis))}
+        ${ozSatir('Bizim kart cirosu ('+Object.keys(sis).length+' gün)', tl(sisTop))}
+        ${ozSatir('FARK', Math.abs(sisTop-(p.ozet.toplam_satis||0))<0.005
+            ? '✓ Tutuyor' : tl(sisTop-(p.ozet.toplam_satis||0)), true)}
       </div>
-      <button class="btn" onclick='bankaMutabakatKaydet(${JSON.stringify(veri).replace(/'/g,"&#39;")}, "${donem}", ${uyumlu})'>Mutabakatı Kaydet</button>`;
-    mesaj('bmMsg','ok','PDF okundu — kontrol edip kaydedin.');
+      <div class="yy-bas" style="margin-top:14px">KESİNTİLER</div>
+      ${ozSatir('Komisyon', tl(p.ozet.komisyon||0))}
+      ${ozSatir('Maxipuan katkı payı', tl(p.ozet.maxipuan||0))}
+      ${ozSatir('POS/ÖKC cihaz ücreti', tl(p.ozet.okc_ucret||0))}
+      ${ozSatir('Kesinti toplamı', tl(p.ozet.kesinti_toplam||0), true)}
+      ${ozSatir('Net hesaba geçen', tl(p.ozet.net_hesaba_gecis||0))}
+      ${ozSatir('Gelecek aya sarkan alacak', tl(p.ozet.bekleyen_alacak||0))}
+      <div class="yy-bas" style="margin-top:14px">GÜN GÜN</div>
+      ${farkli.length === 0
+        ? '<div class="bilgi-not">31 günün hepsi tutuyor.</div>'
+        : `<div class="uyari-agir">${farkli.length} günde fark var</div>`
+          + farkli.map(x => `<div class="liste-satir">
+              <div class="l-sol"><div class="b">${String(x.gun).padStart(2,'0')}.${donem.slice(5)} ${
+                x.adetFark ? '<span class="rozet rz-hata">'+Math.abs(x.adetFark)+' İŞLEM</span>' : ''}</div>
+                <div class="k">sistem ${x.sistem==null?'—':tl(x.sistem)} · banka ${x.banka==null?'—':tl(x.banka)}${
+                  x.sAdet!=null ? ' · adet '+x.sAdet+'/'+x.bAdet : ' · adet girilmemiş'}</div></div>
+              <div class="l-sag" style="color:var(--hata);font-weight:800">${tl(x.fark)}</div>
+            </div>`).join('')}
+      ${farkli.some(x=>x.sAdet==null) ? `<div class="ipucu">Bazı günlerde Z'deki kart
+        <b>işlem adedi</b> girilmemiş. Adet girilirse fark "kaç işlem" olduğunu da söyler —
+        03.08.2026'daki 960 TL'yi bulan şey buydu.</div>` : ''}
+      <button class="btn" style="margin-top:12px" id="bmKaydet" onclick="bankaMutabakatKaydet()">Mutabakatı Kaydet</button>`;
+    mesaj('bmMsg','ok', `${p.gunluk.length} gün okundu · ${farkli.length} günde fark. Kontrol edip kaydet.`);
   }catch(e){
-    mesaj('bmMsg','hata','PDF okunamadı: '+e.message);
+    mesaj('bmMsg','hata','PDF okunamadı: ' + e.message);
   }finally{
-    btn.disabled=false; btn.textContent="PDF'i Analiz Et";
+    btn.disabled = false; btn.textContent = "PDF'i Analiz Et";
   }
 }
-async function bankaMutabakatKaydet(veri, donem, uyumlu){
-  const kesinti = (veri.komisyon||0)+(veri.maxipuan||0)+(veri.okc_ucret||0);
-  const { error } = await sb.from('banka_mutabakat').insert({
-    sube_id: PROFIL.sube_id, donem, toplam_satis: veri.toplam_satis,
-    komisyon: veri.komisyon, maxipuan: veri.maxipuan, okc_ucret: veri.okc_ucret,
-    kesinti_toplam: veri.kesinti_toplam, net_hesaba_gecis: veri.net_hesaba_gecis,
-    bekleyen_alacak: veri.bekleyen_alacak, durum: uyumlu?'uyumlu':'farkli'
-  });
-  if (error){ alert('Kaydedilemedi: '+error.message); return; }
-  // Komisyon + ÖKC otomatik gider olarak yazılsın mı
-  if (confirm('Komisyon + ÖKC ücretini bu ayın gideri olarak da kaydedeyim mi? ('+tl(Math.abs((veri.komisyon||0)+(veri.okc_ucret||0)))+')')){
-    const kat = KATALOG.kategoriler.find(k=>k.ad==='POS Komisyon') || KATALOG.kategoriler.find(k=>k.ad==='Diğer');
+
+async function bankaMutabakatKaydet(){
+  if (!MT_SON){ mesaj('bmMsg','hata','Önce PDF analiz edilmeli.'); return; }
+  const o = MT_SON.ozet;
+  const kesintiToplam = Math.abs((o.komisyon||0) + (o.maxipuan||0) + (o.okc_ucret||0));
+  if (!confirm(`${ayAdi(MT_SON.donem)} POS MUTABAKATI KAYDEDİLECEK\n\n`
+    + `Banka toplam satış: ${tl(o.toplam_satis)}\n`
+    + `Kesintiler: ${tl(o.kesinti_toplam)}\n`
+    + `${MT_SON.gunluk.length} günün verisi saklanacak.\n\n`
+    + `Bu dönemin önceki mutabakatı varsa üzerine yazılır.\n\nOnaylıyor musun?`)) return;
+
+  const data = await rpcCagir('rpc_mutabakat_kaydet', {
+    p_idem: idem(), p_sube: PROFIL.sube_id, p_donem: MT_SON.donem,
+    p_gunluk: MT_SON.gunluk, p_ozet: o, p_pdf: null, p_isyeri: MT_SON.isyeri
+  }, 'bmKaydet', 'bmMsg', null);
+  if (!data || !data.ok) return;
+
+  mesaj('bmMsg','ok', `Mutabakat kaydedildi · ${data.durum === 'uyumlu'
+    ? 'bütün günler tutuyor ✓' : data.tutmayan_gun + ' günde fark var'}`);
+
+  // Kesintiler gider olarak yazılsın mı — mükerrer olmasın diye SORARAK
+  if (kesintiToplam > 0 && confirm(
+      `Bankanın kestiği ${tl(kesintiToplam)} gider olarak kaydedilsin mi?\n\n`
+    + `Komisyon ${tl(Math.abs(o.komisyon||0))}\n`
+    + `Maxipuan ${tl(Math.abs(o.maxipuan||0))}\n`
+    + `ÖKC cihaz ücreti ${tl(Math.abs(o.okc_ucret||0))}\n\n`
+    + `DİKKAT: bu ayın komisyonunu daha önce elle girdiysen MÜKERRER olur.\n`
+    + `Giderler ekranından kontrol et.`)){
+    const kat = KATALOG.kategoriler.find(k=>k.ad==='POS Komisyon')
+             || KATALOG.kategoriler.find(k=>k.ad==='Diğer');
     if (kat){
-      await sb.rpc('rpc_gider_kaydet',{ p_idem:idem(), p_sube:PROFIL.sube_id, p_tarih:donem+'-28',
-        p_kategori:kat.id, p_aciklama:'Banka komisyon+ÖKC ('+donem+')', p_tutar:Math.abs((veri.komisyon||0)+(veri.okc_ucret||0)),
-        p_kdv_orani:null, p_kdv_tutar:0, p_foto:null, p_kasadan:false, p_tedarikci:null });
+      await sb.rpc('rpc_gider_kaydet', { p_idem: idem(), p_sube: PROFIL.sube_id,
+        p_tarih: aySon(MT_SON.donem), p_kategori: kat.id,
+        p_aciklama: 'Banka kesintisi (' + MT_SON.donem + ') · komisyon + maxipuan + ÖKC · işyeri ' + (MT_SON.isyeri||''),
+        p_tutar: kesintiToplam, p_kdv_orani: null, p_kdv_tutar: 0,
+        p_foto: null, p_kasadan: false, p_tedarikci: null, p_arac: null });
     }
   }
-  mesaj('bmMsg','ok','Mutabakat kaydedildi ✓');
 }
 async function vergiOdenenYukle(){
   const el = document.getElementById('voListe'); if(!el) return;
