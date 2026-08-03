@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-03-2">
+<meta name="surum" content="2026-08-03-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4760,7 +4760,11 @@ async function vArac(){
       <label>KDV Tutarı (belgede yazanı yaz; MTV'de yoktur, boş bırak)</label>
       <input type="text" inputmode="decimal" id="agKdv" placeholder="0,00">
       <label>Açıklama</label><input type="text" id="agAciklama" placeholder="örn: 40 lt motorin, 152.000 km">
-      <label>Belge Fotoğrafı</label><input type="file" id="agFoto" accept="image/*" capture="environment">
+      <label>Belge (fiş fotoğrafı veya PDF)</label>
+      <input type="file" id="agFoto" accept="image/*,application/pdf,.pdf">
+      <button type="button" class="btn2" id="agOku" onclick="aracBelgeOku()" style="width:100%;margin-top:6px">
+        📄 Belgeyi oku — tutarı doldur</button>
+      <div class="oku-durum" id="agOkuDurum"></div>
       <button class="btn" id="agKaydet" onclick="aracMasrafKaydet()">Masrafı Kaydet</button>
       <div class="hata-msg" id="agMsg"></div>
       <div class="ipucu">Bu masraf normal giderlere de yazılır — ay kârından düşer.</div>
@@ -4840,6 +4844,81 @@ async function aracKaydet(){
   document.getElementById('arId').value = '';
   setTimeout(vArac, 700);
 }
+/* ARAÇ BELGESİ OKUMA
+   Fatura ekranında "Belgeyi oku" vardı, araç masrafında YOKTU — kullanıcı fişin
+   fotoğrafını yüklüyor, tutar boş kalıyordu. Aynı Edge Function (fatura-oku)
+   akaryakıt fişini de okuyor; termal fiş kuralları zaten içinde tanımlı.
+   Okunan değer ÖNERİDİR: alanlar dolar, kaydetmeden önce kullanıcı görür. */
+async function aracBelgeOku(){
+  const inp = document.getElementById('agFoto');
+  const drm = document.getElementById('agOkuDurum');
+  const btn = document.getElementById('agOku');
+  const yaz = (t, s) => { if (drm){ drm.className = 'oku-durum ' + (s||''); drm.textContent = t; } };
+  if (!(inp && inp.files && inp.files[0])){ yaz('Önce belgenin fotoğrafını veya PDF\'ini seç.','uyari'); return; }
+
+  btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
+  yaz('Belge okunuyor, 10-20 saniye sürebilir...','');
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
+    const f = inp.files[0];
+    let govde;
+    if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf'){
+      const c = await pdfMetinCikar(f);
+      if (!c.yeterli) throw new Error('Bu PDF taranmış görünüyor (metin çıkmadı). Fotoğrafını çekip dene.');
+      govde = { metin: c.metin };
+    } else {
+      const k = await fotoKucult(f, 2000, 0.92);
+      govde = { gorsel: await new Promise((coz,red)=>{ const fr=new FileReader();
+        fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); }) };
+    }
+    const y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
+      body: JSON.stringify(govde)
+    });
+    const s = await y.json();
+    if (!y.ok || !s.ok) throw new Error(s?.hata || ('Okuma başarısız ('+y.status+')'));
+
+    const v = s.veri || {}, doldu = [];
+    const koy = (id, deger, etiket) => {
+      if (deger === null || deger === undefined || deger === '') return;
+      const e = document.getElementById(id); if (!e) return;
+      e.value = String(deger).replace('.', ',');
+      e.dispatchEvent(new Event('input',{bubbles:true}));
+      e.classList.add('oku-dolu'); doldu.push(etiket);
+    };
+    if (v.tarih && /^\d{4}-\d{2}-\d{2}$/.test(v.tarih)){
+      const t = document.getElementById('agTarih');
+      if (t){ t.value = v.tarih; t.classList.add('oku-dolu'); doldu.push('Tarih'); }
+    }
+    koy('agTutar', v.odenecek ?? v.genel_toplam, 'Tutar');
+    const kdv = v.kdv_toplam ?? (Array.isArray(v.kdv_kirilim)
+      ? v.kdv_kirilim.reduce((a,k)=>a + (+k.kdv_tutar||0), 0) || null : null);
+    koy('agKdv', kdv, 'KDV');
+
+    // Açıklama: yakıt fişinde satır "MOTORİN 40,5 LT" gibi gelir — miktarı koru
+    const s1 = Array.isArray(v.satirlar) && v.satirlar.length ? v.satirlar[0] : null;
+    const ack = document.getElementById('agAciklama');
+    if (ack && !ack.value.trim()){
+      const parca = [];
+      if (s1?.ad) parca.push(s1.ad);
+      if (s1?.miktar) parca.push(s1.miktar + (s1.birim ? ' '+s1.birim : ''));
+      if (v.tedarikci?.ad) parca.push(v.tedarikci.ad);
+      if (parca.length){ ack.value = parca.join(' · '); ack.classList.add('oku-dolu'); doldu.push('Açıklama'); }
+    }
+
+    if (doldu.length === 0){
+      yaz('Belge okundu ama tutar bulunamadı — elle yaz.','uyari');
+    } else {
+      yaz('Dolduruldu: ' + doldu.join(', ') + ' · rakamları belgeyle karşılaştır, sonra kaydet.','ok');
+    }
+  }catch(e){
+    yaz(hataTr(e.message || String(e)), 'uyari');
+  }finally{
+    btn.disabled = false; btn.textContent = eski;
+  }
+}
 async function aracMasrafKaydet(){
   const tutar = paraDeger('agTutar');
   if (tutar === 0){ mesaj('agMsg','hata','Tutar boş olamaz.'); return; }
@@ -4859,7 +4938,8 @@ async function aracMasrafKaydet(){
     p_foto: foto, p_kasadan: false, p_tedarikci: null, p_arac: arac
   },'agKaydet','agMsg','Masraf kaydedildi ✓');
   if (data && data.ok){
-    ['agTutar','agKdv','agAciklama'].forEach(i=>document.getElementById(i).value='');
+    ['agTutar','agKdv','agAciklama'].forEach(i=>{ const e=document.getElementById(i); e.value=''; e.classList.remove('oku-dolu'); });
+    const od=document.getElementById('agOkuDurum'); if(od){ od.textContent=''; od.className='oku-durum'; }
     document.getElementById('agFoto').value='';
     setTimeout(vArac, 700);
   }
