@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-03-7">
+<meta name="surum" content="2026-08-03-8">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1504,6 +1504,9 @@ async function gunSonuDuzenle(id){
       document.getElementById('gsZNo_'+key).value   = k.z_no || '';
       document.getElementById('gsKart_'+key).value  = k.kart_toplam;
       document.getElementById('gsNakit_'+key).value = k.nakit_toplam;
+      const ka = document.getElementById('gsKAdet_'+key);  if(ka) ka.value = k.kart_adet ?? '';
+      const ia = document.getElementById('gsIAdet_'+key);  if(ia) ia.value = k.fis_iptal_adet ?? '';
+      const it = document.getElementById('gsITutar_'+key); if(it) it.value = k.fis_iptal_tutar ?? '';
       const kn = document.getElementById('gsKNot_'+key); if(kn) kn.value = k.notlar || '';
     }
     const kap = document.getElementById('kdvSatirlari_'+key);
@@ -1538,6 +1541,19 @@ function zBlokHtml(n, s){
         <div><label>Kart Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsKart_${k}" placeholder="0,00"></div>
         <div><label>Nakit Toplamı</label><input type="text" inputmode="decimal" autocomplete="off" id="gsNakit_${k}" placeholder="0,00"></div>
       </div>
+      <div class="satir">
+        <div><label>Kart işlem adedi</label>
+          <input type="text" inputmode="numeric" autocomplete="off" id="gsKAdet_${k}"
+                 placeholder="Z'de K.KARTI yanındaki sayı"></div>
+        <div><label>Fiş iptal (adet / tutar)</label>
+          <div class="satir" style="gap:6px">
+            <input type="text" inputmode="numeric" autocomplete="off" id="gsIAdet_${k}" placeholder="adet">
+            <input type="text" inputmode="decimal" autocomplete="off" id="gsITutar_${k}" placeholder="0,00">
+          </div></div>
+      </div>
+      <div class="bilgi-not" style="margin:0 0 8px">İşlem adedi zorunlu değil ama
+        <b>ay sonu banka mutabakatını</b> çok güçlendirir: tutar farkı "belki iade, belki
+        yazım hatası" der; adet farkı "<b>bir işlem eksik</b>" der.</div>
       <div class="kp-ara"><span>Bu Z'nin toplamı — Z'deki NET SATIŞ ile aynı olmalı</span><b id="gsZAra_${k}">0,00 ₺</b></div>
       <label>KDV — bu Z'nin VERGİ DÖKÜMÜ</label>
       <div class="bilgi-not" style="margin:0 0 6px">Z'deki <b>"%10 TOPLAM"</b> satırını yaz; KDV'yi sistem hesaplar.
@@ -1597,6 +1613,7 @@ function zBlokSil(n, s){
 function zBlokTopla(n, s){
   const k = n+'_'+s, al = id => (document.getElementById(id)?.value ?? '');
   return { zno:al('gsZNo_'+k), kart:al('gsKart_'+k), nakit:al('gsNakit_'+k),
+           kadet:al('gsKAdet_'+k), iadet:al('gsIAdet_'+k), itutar:al('gsITutar_'+k),
            not:al('gsKNot_'+k), kdv:kdvHam(k), durum:document.getElementById('gsOkuDurum_'+k)?.textContent||'' };
 }
 function kdvHam(k){
@@ -1641,6 +1658,17 @@ function zDurum(n, s){
   const pk=paraOku(document.getElementById('gsKart_'+k));
   const pn=paraOku(document.getElementById('gsNakit_'+k));
   const kart=pk.deger, nakit=pn.deger;
+  // Kart işlem adedi ve fiş iptali — hepsi isteğe bağlı, boşsa null gider.
+  // Adet alanları tam sayı: "105 adet" gibi yazılsa bile rakamları alıyoruz.
+  const tamSayi = id => {
+    const t = (document.getElementById(id)?.value || '').replace(/\D/g,'');
+    return t === '' ? null : parseInt(t, 10);
+  };
+  const kadet = tamSayi('gsKAdet_'+k);
+  const iadet = tamSayi('gsIAdet_'+k);
+  const itEl  = document.getElementById('gsITutar_'+k);
+  const pit   = itEl ? paraOku(itEl) : { ok:true, deger:0 };
+  const itutar = (pit.ok && pit.deger > 0) ? pit.deger : null;
   const zf=document.getElementById('gsZFoto_'+k);
   // Düzenleme modunda mevcut fotoğraf zorunluluğu karşılar (yenisi seçilmezse korunur)
   const mev = (DUZENLE && DUZENLE.foto && DUZENLE.foto[k]) || {};
@@ -1650,10 +1678,12 @@ function zDurum(n, s){
   if(!zno) eksik.push(on+'Z No');
   if(!pk.ok) eksik.push(on+'Kart tutarı geçersiz');
   if(!pn.ok) eksik.push(on+'Nakit tutarı geçersiz');
+  if(!pit.ok) eksik.push(on+'Fiş iptal tutarı geçersiz');
   if(!zfVar) eksik.push(on+'Z fotoğrafı');
   const bos=!zno && !kart && !nakit && !zfVar && pk.ok && pn.ok;
-  return { k, n, s, zno, kart, nakit, ara:+(kart+nakit).toFixed(2), kdv:kdvToplam(k),
-           eksik, bos, gecerli: pk.ok && pn.ok };
+  return { k, n, s, zno, kart, nakit, kadet, iadet, itutar,
+           ara:+(kart+nakit).toFixed(2), kdv:kdvToplam(k),
+           eksik, bos, gecerli: pk.ok && pn.ok && pit.ok };
 }
 function kasaDurum(n){
   const bloklar = ZLISTE[n].map(s=>zDurum(n,s));
@@ -1809,6 +1839,7 @@ async function gunSonuKaydet(){
       try { kdvSatir = kdvOku(b.k); }
       catch(e){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} / ${b.s}. Z: `+e.message); return; }
       kasalar.push({ n, s:b.s, k:b.k, zno:b.zno, kart:b.kart, nakit:b.nakit, kdv:kdvSatir,
+        kadet:b.kadet, iadet:b.iadet, itutar:b.itutar,
         knot:(document.getElementById('gsKNot_'+b.k)?.value||'').trim()||null });
     }
   }
@@ -1877,6 +1908,7 @@ async function gunSonuKaydet(){
       p_not: document.getElementById('gsNot').value.trim()||null,
       p_kasa: kasa > 0 ? kasa : null,
       p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
+        kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
         z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
     }, 'gsKaydet','gsMsg','Değişiklikler kaydedildi ✓');
     if (gData && gData.ok){ DUZENLE = null; vGunSonu(); mesaj('gsMsg','ok','Değişiklikler kaydedildi ✓'); }
@@ -1896,6 +1928,7 @@ async function gunSonuKaydet(){
     p_not: document.getElementById('gsNot').value.trim()||null,
     p_kasa: kasa > 0 ? kasa : null,
     p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
+      kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
       z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
   if (data && data.ok){
@@ -5165,7 +5198,11 @@ async function vVergi(){
       </select>
       <label>Tutar</label><input type="text" inputmode="decimal" autocomplete="off" id="voTutar" placeholder="0,00">
       <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
-      <label>Belge Fotoğrafı</label><input type="file" id="voFoto" accept="image/*,application/pdf,.pdf">
+      <label>Belge (dekont fotoğrafı veya PDF)</label>
+      <input type="file" id="voFoto" accept="image/*,application/pdf,.pdf">
+      <button type="button" class="btn2" id="voOku" onclick="vergiBelgeOku()" style="width:100%;margin-top:6px">
+        📄 Belgeyi oku — tutarı doldur</button>
+      <div class="oku-durum" id="voOkuDurum"></div>
       <label>Not</label><input type="text" id="voNot" placeholder="örn: 2. taksit, banka, tahsilat no">
       <button class="btn" id="voKaydet" onclick="vergiOdemeKaydet()">Ödemeyi Kaydet</button>
       <div class="hata-msg" id="voMsg"></div>
@@ -5431,6 +5468,64 @@ async function vadeKapat(id, ad){
   const { error } = await sb.rpc('rpc_vade_durum', { p_id:id, p_durum:durum, p_not:neden.trim() });
   if (error){ alert('Kapatılamadı: '+hataTr(error.message)); return; }
   vergiVadeYukle();
+}
+/* VERGİ DEKONTU OKUMA — fatura ve araç masrafındaki ile aynı okuyucu.
+   Dekontlarda tutar genelde "ÖDENEN TUTAR"/"Tahsil Edilen" diye geçer;
+   okuyucu bunu genel toplam olarak döndürüyor. Okunan değer ÖNERİDİR. */
+async function vergiBelgeOku(){
+  const inp = document.getElementById('voFoto');
+  const drm = document.getElementById('voOkuDurum');
+  const btn = document.getElementById('voOku');
+  const yaz = (t,s)=>{ if(drm){ drm.className='oku-durum '+(s||''); drm.textContent=t; } };
+  if (!(inp && inp.files && inp.files[0])){ yaz('Önce dekontu seç.','uyari'); return; }
+  btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
+  yaz('Belge okunuyor, 10-20 saniye sürebilir...','');
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
+    const f = inp.files[0];
+    let govde;
+    if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf'){
+      const c = await pdfMetinCikar(f);
+      if (!c.yeterli) throw new Error('Bu PDF taranmış görünüyor. Fotoğrafını çekip dene.');
+      govde = { metin: c.metin };
+    } else {
+      const k = await fotoKucult(f, 2000, 0.92);
+      govde = { gorsel: await new Promise((coz,red)=>{ const fr=new FileReader();
+        fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); }) };
+    }
+    const y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
+      body: JSON.stringify(govde)
+    });
+    const r = await y.json();
+    if (!y.ok || !r.ok) throw new Error(r?.hata || ('Okuma başarısız ('+y.status+')'));
+    const v = r.veri || {}, doldu = [];
+    const tutar = v.odenecek ?? v.genel_toplam;
+    if (tutar != null && tutar !== ''){
+      const e = document.getElementById('voTutar');
+      e.value = String(tutar).replace('.', ',');
+      e.dispatchEvent(new Event('input',{bubbles:true}));
+      e.classList.add('oku-dolu'); doldu.push('Tutar');
+    }
+    if (v.tarih && /^\d{4}-\d{2}-\d{2}$/.test(v.tarih)){
+      const t = document.getElementById('voTarih');
+      if (t){ t.value = v.tarih; t.classList.add('oku-dolu'); doldu.push('Ödeme tarihi'); }
+    }
+    const nt = document.getElementById('voNot');
+    if (nt && !nt.value.trim() && (v.tedarikci?.ad || v.belge_no)){
+      nt.value = [v.tedarikci?.ad, v.belge_no].filter(Boolean).join(' · ');
+      nt.classList.add('oku-dolu'); doldu.push('Not');
+    }
+    yaz(doldu.length
+      ? 'Dolduruldu: ' + doldu.join(', ') + ' · TÜRÜ ve DÖNEMİ sen seç, sonra kaydet.'
+      : 'Belge okundu ama tutar bulunamadı — elle yaz.', doldu.length ? 'ok' : 'uyari');
+  }catch(e){
+    yaz(hataTr(e.message || String(e)), 'uyari');
+  }finally{
+    btn.disabled = false; btn.textContent = eski;
+  }
 }
 async function vergiOdemeKaydet(){
   const pv = paraOku(document.getElementById('voTutar'));
