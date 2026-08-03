@@ -2,10 +2,12 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- Zoom engeli kaldırıldı: finans tablolarında küçük rakamı büyütememek yanlış
+     okumaya yol açıyor. Dokunma hedefleri zaten ≥44px, engele gerek yok. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-02-2">
+<meta name="surum" content="2026-08-03-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -23,6 +25,10 @@
 <style>
 /* --kagit: alttan/sağdan açılan panel ve tabaka zemini. TANIMSIZDI — "Daha" menüsü ve
    bütün detay panelleri şeffaf çıkıyordu, arkadaki içerik okunuyordu. */
+.yy-bas{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--soluk);margin:10px 0 4px}
+.yy-rol{display:flex;flex-wrap:wrap;gap:6px}
+.yy-rol .yy-aktif{background:var(--ana);color:#fff;border-color:var(--ana)}
+.yy-acik{background:var(--ok);color:#fff;border-color:var(--ok)}
 :root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;--kagit:#FFFEF8;--metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
 /* ===== Gün Sonu — iki kasa (Mission Control) ===== */
 .kasa-grid{display:grid;grid-template-columns:1fr 1px 1fr;margin:12px 0}
@@ -420,10 +426,25 @@ const SB_KEY = 'sb_publishable_qtiCjExLIte6WJcbdB5jNg_fUJDYnxF';
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
 let PROFIL = null;   // {id, ad, rol, sube_id}
+/* YETKILER — hangi ekranı görebiliyorum/yazabiliyorum.
+   Kaynak: rol_yetki tablosu. AYNI TABLOYU RLS de okuyor (yetki_var fonksiyonu).
+   Bu yüzden burada gizlenen ekranın verisi API'den de gelmez — ekran gizlemek
+   tek başına yetki değildir, ikisi tek kaynaktan beslenmek zorunda. */
+let YETKILER = {};
+const gorebilir = ekran => !!YETKILER[ekran]?.gorebilir;
+const yazabilir = ekran => !!YETKILER[ekran]?.yazabilir;
 let KATALOG = { kategoriler: [], tedarikciler: [], urunler: [] };
 let AKTIF_SEKME = null;
 
-const bugun = () => new Date().toISOString().slice(0,10);
+/* TARİH — YEREL TAKVİM.
+   Eskiden toISOString() kullanılıyordu; o UTC üretir. İstanbul UTC+3 olduğu için
+   gece 00:00–03:00 arasında girilen her kayıt BİR GÜN GERİYE yazılıyordu:
+   gün sonu tarihi, vade, eksik gün uyarısı, belge yolu — hepsi kayıyordu.
+   Ve bu, gün sonu girişinin en çok yapıldığı saat. */
+const tarihStr = d => d.getFullYear() + '-'
+  + String(d.getMonth()+1).padStart(2,'0') + '-'
+  + String(d.getDate()).padStart(2,'0');
+const bugun = () => tarihStr(new Date());
 const tl = n => (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -513,6 +534,19 @@ async function sifremiUnuttum(){
 // Sıfırlama mailindeki linkle dönüldüğünde yeni şifre iste
 sb.auth.onAuthStateChange((event)=>{ if (event === 'PASSWORD_RECOVERY') setTimeout(sifreDegistir, 400); });
 
+let ROL_AD = { owner:'Yönetici', personel:'Personel' };
+async function yetkileriYukle(){
+  YETKILER = {};
+  const [{ data: y }, { data: r }] = await Promise.all([
+    sb.from('rol_yetki').select('ekran,gorebilir,yazabilir').eq('rol', PROFIL.rol),
+    sb.from('rol').select('kod,ad')
+  ]);
+  (y||[]).forEach(x => YETKILER[x.ekran] = { gorebilir:x.gorebilir, yazabilir:x.yazabilir });
+  (r||[]).forEach(x => ROL_AD[x.kod] = x.ad);
+  // Yetki satırı hiç yoksa (eski profil) owner tam, diğerleri kapalı kalır
+  if (PROFIL.rol === 'owner')
+    SEKMELER_TUM.forEach(t => YETKILER[t.id] = { gorebilir:true, yazabilir:true });
+}
 async function baslat(){
   surumKontrol();                                    // arka planda, açılışı bekletmez
   setInterval(surumKontrol, 30*60*1000);             // uzun açık kalan telefon için 30 dk'da bir
@@ -524,12 +558,16 @@ async function baslat(){
     await sb.auth.signOut(); location.reload(); return;
   }
   PROFIL = p;
+  await yetkileriYukle();
   document.getElementById('girisEkran').classList.add('gizli');
   document.getElementById('uygulama').classList.remove('gizli');
-  document.getElementById('kimBilgi').textContent = p.ad + ' · ' + (p.rol==='owner'?'Yönetici':'Personel');
+  document.getElementById('kimBilgi').textContent = p.ad + ' · ' + (ROL_AD[p.rol] || p.rol);
   await katalogYukle();
   sekmeleriKur();
-  sekmeAc(PROFIL.rol==='owner' ? 'ozet' : 'gunsonu');
+  const ilk = sekmeListesi()[0];
+  if (!ilk){ document.getElementById('icerik').innerHTML =
+    '<div class="uyari-agir">Hiçbir ekran yetkiniz yok. Yöneticiyle görüşün.</div>'; return; }
+  sekmeAc(ilk.id);
 }
 
 async function katalogYukle(){
@@ -557,7 +595,8 @@ const IKON = {
   vergi:   _svg('<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9.5 11h5M9.5 14.5h5M9.5 18h3"/>'),
   arac:    _svg('<path d="M3 13.5l1.6-4.6A2 2 0 0 1 6.5 7.5h11a2 2 0 0 1 1.9 1.4l1.6 4.6M3 13.5h18M3 13.5v4h2.5M21 13.5v4h-2.5M5.5 17.5h13"/><circle cx="7.5" cy="17.5" r="1.7"/><circle cx="16.5" cy="17.5" r="1.7"/>')
 };
-const SEKMELER_OWNER = [
+/* Tek liste; kimin neyi göreceğini rol_yetki belirler (bkz. YETKILER). */
+const SEKMELER_TUM = [
   {id:'ozet',    ad:'Özet'},
   {id:'gunsonu', ad:'Gün Sonu'},
   {id:'gider',   ad:'Giderler'},
@@ -569,18 +608,11 @@ const SEKMELER_OWNER = [
   {id:'vergi',   ad:'Vergiler'},
   {id:'yonetim', ad:'Yönetim'}
 ];
-const SEKMELER_PERSONEL = [
-  {id:'gunsonu', ad:'Gün Sonu'},
-  {id:'gider',   ad:'Giderler'},
-  {id:'stok',    ad:'Stok'},
-  {id:'tedarikci',ad:'Tedarikçi'},
-  {id:'talep',   ad:'Yapılacaklar'}
-];
 /* 375px telefonda alt çubuğa en fazla 5 yuva sığıyor. Owner'da 8 bölüm var; eskiden
    çubuk 496px olup "Yapılacaklar" ve "Yönetim" ekran dışında kalıyordu (yan kaydırma
    vardı ama kimse bir menünün kaydığını fark etmez). Artık 4 bölüm + "Daha". */
 const MOBIL_GORUNUR = 4;
-function sekmeListesi(){ return PROFIL.rol==='owner' ? SEKMELER_OWNER : SEKMELER_PERSONEL; }
+function sekmeListesi(){ return SEKMELER_TUM.filter(t => gorebilir(t.id)); }
 function sekmeTasiyor(){ return sekmeListesi().length > 5; }
 function sekmeGizliMi(id){
   return sekmeTasiyor() && sekmeListesi().findIndex(s=>s.id===id) >= MOBIL_GORUNUR;
@@ -684,8 +716,10 @@ async function fotoYukle(inputId, klasor){
   return yol;
 }
 async function rpcCagir(fn, params, btnId, msgId, basariTxt){
-  const btn = document.getElementById(btnId);
-  btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Kaydediliyor...';
+  // btnId olmayabilir (satır içi aç/kapa butonlarının sabit id'si yok) — null güvenli
+  const btn = btnId ? document.getElementById(btnId) : null;
+  const eski = btn ? btn.textContent : null;
+  if (btn){ btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
   try{
     // Aynı idem anahtarıyla otomatik 2 deneme: bağlantı koparsa (commit olmuş olabilir)
     // aynı anahtar _idem_kontrol'e takılır, mükerrer kayıt OLMAZ.
@@ -698,16 +732,41 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
       await new Promise(r=>setTimeout(r, 1200));
     }
     if (son.error){ window.__sonRpcHataHam = son.error.message; throw new Error(hataTr(son.error.message)); }
-    mesaj(msgId, 'ok', basariTxt);
+    if (basariTxt) mesaj(msgId, 'ok', basariTxt);
     return son.data;
   }catch(e){
     mesaj(msgId, 'hata', e.message + ' — Verileriniz formda duruyor, tekrar deneyin.');
     return null;
   }finally{
-    btn.disabled = false; btn.textContent = eski;
+    if (btn){ btn.disabled = false; btn.textContent = eski; }
   }
 }
 function hataTr(m){
+  // v33–v36 ile eklenen sunucu tarafı kurallar
+  if (m.includes('ODEME_KAYDI_YOK')) return 'Bu vade elle "ödendi" yapılamaz — önce ödemeyi kaydet, vade kendiliğinden kapanır. Ödenecek tutar çıkmadıysa "Kapat" düğmesini kullan.';
+  if (m.includes('TUTAR_POZITIF_OLMALI')) return 'Tutar sıfırdan büyük olmalı.';
+  if (m.includes('MIKTAR_SIFIR_OLAMAZ')) return 'Miktar sıfır olamaz.';
+  if (m.includes('OWNER_ROLU_KORUMALI')) return 'Yönetici rolü korumalıdır — yetkileri kapatılamaz.';
+  if (m.includes('KORUMALI_ROL_SILINEMEZ')) return 'Bu rol korumalıdır, silinemez.';
+  if (m.includes('KENDI_ROLUNU_DEGISTIREMEZSIN')) return 'Kendi rolünü değiştiremezsin.';
+  if (m.includes('KENDINI_KAPATAMAZSIN')) return 'Kendi hesabını kapatamazsın.';
+  if (m.includes('ROLDE_') && m.includes('_KISI_VAR')) return 'Bu rolde kayıtlı kişi var — önce onları başka role al.';
+  if (m.includes('ROL_KODU_GECERSIZ')) return 'Rol adı en az 3 harf olmalı, sadece harf içermeli.';
+  if (m.includes('ROL_ADI_ZORUNLU')) return 'Rol adı boş olamaz.';
+  if (m.includes('ROL_YOK')) return 'Böyle bir rol yok.';
+  if (m.includes('PROFIL_YOK')) return 'Kişi bulunamadı.';
+  if (m.includes('DONEM_BICIMI')) return 'Dönem biçimi hatalı (YYYY-AA olmalı).';
+  if (m.includes('SUBE_ZORUNLU')) return 'Şube seçilmemiş.';
+  if (m.includes('DOSYA_YOLU_ZORUNLU')) return 'Dosya yolu boş olamaz.';
+  if (m.includes('IDEM_KEY_BASKA_ISLEMDE')) return 'Bu işlem anahtarı başka bir işlemde kullanılmış — sayfayı yenileyip tekrar dene.';
+  if (m.includes('VADE_YOK') || m.includes('VADE_BULUNAMADI')) return 'Vade kaydı bulunamadı.';
+  if (m.includes('GECERSIZ_DURUM')) return 'Geçersiz durum.';
+  if (m.includes('YIL_GECERSIZ')) return 'Yıl geçersiz.';
+  if (m.includes('TARIH_ZORUNLU')) return 'Tarih zorunlu.';
+  if (m.includes('ck_odeme_tutar_pozitif') || m.includes('ck_gider_tutar_pozitif')
+   || m.includes('ck_alis_toplam_pozitif') || m.includes('ck_vergi_tutar_pozitif'))
+    return 'Tutar sıfırdan büyük olmalı — eksi veya sıfır kaydedilemez.';
+  if (m.includes('ck_stok_isaret')) return 'Stok hareketi geçersiz: tüketim stoktan düşer, sıfır miktar kaydedilemez.';
   if (m.includes('GUN_ZATEN_GIRILMIS')) return 'Bu günün kaydı zaten girilmiş. Düzeltme gerekiyorsa talep açın.';
   if (m.includes('AY_KAPALI')) return 'Bu ay kapatılmış — geçmişe kayıt için yöneticiye başvurun.';
   if (m.includes('YETKI_YOK')) return 'Bu işlem için yetkiniz yok.';
@@ -1067,6 +1126,12 @@ async function vOzet(){
             <span class="uy-mt">${esc(x.mesaj)}</span></div>`).join('')}
     </div>
 
+    ${o && PROFIL.rol==='owner' ? `<div class="kart">
+      ${kbaslik('AY RAPORU', ayAdi(ay),
+        `<button class="btn2" onclick="ayRaporuAc('${ay}')">Aç</button>`)}
+      <div class="ipucu">Ayın tamamı tek sayfada: gün gün ciro, ödemeler, giderler,
+        vergi, personel, kâr, depo ve gelecek ay. Ay sonunda aynısı e-postana gelir.</div>
+    </div>` : ''}
     ${o?`<div class="kart" id="ayDokum">
       ${kbaslik('NAKİT ÇIKIŞI', ayAdi(ay), '<div class="kb-sag" style="color:var(--hata)">'+tl(o.nakit_cikisi)+'</div>')}
       <div class="ipucu">Bu ay <b>gerçekten elinden çıkan</b> para. Faturanın kesilmesi değil, ödenmesi sayılır.</div>
@@ -3545,6 +3610,40 @@ async function vStok(){
 /* ===== ÜRÜN DETAYI — fiyat geçmişi grafiği + alım dökümü =====
    Stok veya alım listesinde bir ürüne dokununca açılır.
    Grafik kütüphanesiz SVG: hafif, offline çalışır, telefonda hızlı. */
+/* AY RAPORU
+   HTML'i sunucu üretiyor (fn_ay_raporu_html). Ay sonu e-postası da AYNI
+   fonksiyonu kullanacak — ekranda gördüğün ile mailde gelen birebir aynı olsun,
+   iki ayrı şablon iki ayrı rakam riski doğurmasın. */
+async function ayRaporuAc(donem){
+  const ov = udKutu(), ic = document.getElementById('udIcerik');
+  ic.innerHTML = `<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Rapor hazırlanıyor...</div></div>
+    <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
+  ov.classList.add('acik');
+  const { data, error } = await sb.rpc('fn_ay_raporu_html',
+    { p_donem: donem, p_sube: PROFIL.sube_id });
+  if (error || !data){
+    ic.innerHTML = `<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Rapor açılamadı</div></div>
+      <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>
+      <div class="uyari-agir" style="margin:12px">${esc(hataTr(error?.message||'boş yanıt'))}</div>`;
+    return;
+  }
+  ic.innerHTML = `<div class="ud-ust"><div style="flex:1"><div class="ud-ad">${esc(ayAdi(donem))} Raporu</div></div>
+      <button class="btn2" onclick="ayRaporuYazdir()">Yazdır / PDF</button>
+      <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>
+    <div id="ayRaporIcerik" style="padding:14px 12px;overflow-x:auto">${data}</div>`;
+}
+function ayRaporuYazdir(){
+  const ic = document.getElementById('ayRaporIcerik');
+  if (!ic) return;
+  const w = window.open('', '_blank');
+  if (!w){ alert('Tarayıcı yeni sekmeyi engelledi — açılır pencere iznini ver.'); return; }
+  w.document.write('<!doctype html><html lang="tr"><head><meta charset="utf-8">'
+    + '<title>Bardaks KTÜ — Ay Raporu</title>'
+    + '<style>body{margin:24px;background:#fff}@media print{body{margin:0}}</style>'
+    + '</head><body>' + ic.innerHTML + '</body></html>');
+  w.document.close();
+  setTimeout(()=>w.print(), 400);
+}
 function udKapat(){
   const o=document.getElementById('udOverlay');
   if(o){ o.classList.remove('acik'); document.getElementById('udIcerik').innerHTML=''; }
@@ -4856,10 +4955,137 @@ async function vVergi(){
 }
 
 /* ================== YÖNETİM (OWNER) ================== */
+/* ================== YETKİ YÖNETİMİ ==================
+   Yetki ROL bazlıdır (karar K15). Kişiler role atanır, ekran izni role verilir.
+   Aynı rol_yetki tablosunu RLS'teki yetki_var() da okur; ekran ile veri
+   birbirinden ayrılamaz. Yönetici rolü korumalı: kendini kilitlemek mümkün değil. */
+let YY_ROLLER = [], YY_KISILER = [], YY_MATRIS = {}, YY_SECILI = null;
+async function yetkiYukle(){
+  const el = document.getElementById('yetkiIcerik'); if (!el) return;
+  const [{ data: roller, error: e1 }, { data: kisiler, error: e2 }, { data: matris, error: e3 }] =
+    await Promise.all([
+      sb.from('rol').select('*').order('sira'),
+      sb.from('v_kisi_yetki').select('*').order('ad'),
+      sb.from('rol_yetki').select('*')
+    ]);
+  if (e1 || e2 || e3){
+    el.innerHTML = `<div class="uyari-agir">Yetkiler yüklenemedi: ${esc(hataTr((e1||e2||e3).message))}</div>`;
+    return;
+  }
+  YY_ROLLER = roller||[]; YY_KISILER = kisiler||[];
+  YY_MATRIS = {};
+  (matris||[]).forEach(x => { (YY_MATRIS[x.rol] = YY_MATRIS[x.rol] || {})[x.ekran] = x; });
+  if (!YY_SECILI || !YY_ROLLER.some(r => r.kod === YY_SECILI))
+    YY_SECILI = (YY_ROLLER.find(r => !r.korumali) || YY_ROLLER[0])?.kod || null;
+  yetkiCiz();
+}
+function yetkiCiz(){
+  const el = document.getElementById('yetkiIcerik'); if (!el) return;
+  const rolSayi = {};
+  YY_KISILER.forEach(k => rolSayi[k.rol] = (rolSayi[k.rol]||0) + 1);
+  const sec = YY_ROLLER.find(r => r.kod === YY_SECILI);
+
+  el.innerHTML =
+    `<div class="yy-bas">KİŞİLER</div>`
+    + YY_KISILER.map(k => {
+        const acik = (k.ekranlar||'').split(',').filter(Boolean);
+        return `<div class="sr">
+          <div>
+            <div class="sr-ad">${esc(k.ad||'—')}${k.aktif?'':' <span class="rozet rz-gri">pasif</span>'}</div>
+            <div class="sr-alt">${esc(k.rol_ad||k.rol)} · ${acik.length} ekran${
+              acik.length ? ' · ' + acik.map(x => esc(EKRAN_AD[x]||x)).join(', ') : ''}</div>
+          </div>
+          <div style="min-width:120px;text-align:right">
+            ${k.korumali
+              ? '<span class="rozet rz-ok">korumalı</span>'
+              : `<select onchange="kisiRolDegistir('${k.id}', this.value, '${esc(k.ad||'')}')">
+                   ${YY_ROLLER.map(r => `<option value="${r.kod}"${r.kod===k.rol?' selected':''}>${esc(r.ad)}</option>`).join('')}
+                 </select>
+                 <button class="btn2" style="margin-top:4px" onclick="kisiAktifDegistir('${k.id}', ${!k.aktif}, '${esc(k.ad||'')}')">${k.aktif?'Kapat':'Aç'}</button>`}
+          </div>
+        </div>`;
+      }).join('')
+    + `<div class="yy-bas" style="margin-top:14px">ROLLER</div>
+       <div class="yy-rol">${YY_ROLLER.map(r => `
+         <button class="btn2${r.kod===YY_SECILI?' yy-aktif':''}" onclick="YY_SECILI='${r.kod}';yetkiCiz()">
+           ${esc(r.ad)}${rolSayi[r.kod]?' ('+rolSayi[r.kod]+')':''}
+         </button>`).join('')}
+       </div>
+       <div class="satir" style="margin-top:8px">
+         <div><input type="text" id="yyYeniAd" placeholder="yeni rol adı · örn: Mutfak"></div>
+         <div><button class="btn2" onclick="rolEkle()">Rol Ekle</button></div>
+       </div>`
+    + (!sec ? '' : `
+       <div class="yy-bas" style="margin-top:14px">${esc(sec.ad).toUpperCase()} NELERİ GÖRSÜN?</div>
+       ${sec.korumali
+         ? '<div class="bilgi-not">Yönetici rolü korumalıdır — tüm ekranlar her zaman açıktır ve kapatılamaz.</div>'
+         : SEKMELER_TUM.map(t => {
+             const y = YY_MATRIS[sec.kod]?.[t.id] || {gorebilir:false, yazabilir:false};
+             return `<div class="sr">
+               <div><div class="sr-ad">${esc(t.ad)}</div>
+                 <div class="sr-alt">${y.gorebilir ? (y.yazabilir?'görebilir · kayıt girebilir':'sadece görebilir') : 'kapalı'}</div></div>
+               <div style="min-width:150px;text-align:right">
+                 <button class="btn2${y.gorebilir?' yy-acik':''}" onclick="yetkiDegistir('${sec.kod}','${t.id}',${!y.gorebilir},${y.yazabilir})">${y.gorebilir?'Açık':'Kapalı'}</button>
+                 ${y.gorebilir ? `<button class="btn2${y.yazabilir?' yy-acik':''}" style="margin-left:4px" onclick="yetkiDegistir('${sec.kod}','${t.id}',true,${!y.yazabilir})">${y.yazabilir?'Yazar':'Okur'}</button>` : ''}
+               </div>
+             </div>`;
+           }).join('')
+       }
+       ${sec.korumali || rolSayi[sec.kod] ? '' :
+         `<button class="btn2" style="margin-top:10px;color:var(--hata)" onclick="rolSil('${sec.kod}','${esc(sec.ad)}')">Bu rolü sil</button>`}
+       <div class="hata-msg" id="yyMsg"></div>`);
+}
+const EKRAN_AD = Object.fromEntries(SEKMELER_TUM.map(t => [t.id, t.ad]));
+async function yetkiDegistir(rol, ekran, gor, yaz){
+  const ad = EKRAN_AD[ekran] || ekran;
+  const rolAd = YY_ROLLER.find(r=>r.kod===rol)?.ad || rol;
+  if (!gor && !confirm(`${rolAd} rolü "${ad}" ekranını ARTIK GÖREMEYECEK.\n\n`
+      + `Sekme kaybolur ve o ekranın verisi API'den de gelmez.\nOnaylıyor musun?`)) return;
+  const data = await rpcCagir('rpc_yetki_ayarla',
+    { p_rol:rol, p_ekran:ekran, p_gorebilir:gor, p_yazabilir:yaz }, null, 'yyMsg', null);
+  if (data && data.ok) yetkiYukle();
+}
+async function rolEkle(){
+  const ad = (document.getElementById('yyYeniAd')?.value || '').trim();
+  if (!ad){ mesaj('yyMsg','hata','Rol adı gir.'); return; }
+  const kod = ad.toLocaleLowerCase('tr')
+    .replace(/ı/g,'i').replace(/ş/g,'s').replace(/ğ/g,'g')
+    .replace(/ü/g,'u').replace(/ö/g,'o').replace(/ç/g,'c')
+    .replace(/[^a-z]/g,'_').replace(/^_+|_+$/g,'').slice(0,20);
+  if (kod.length < 3){ mesaj('yyMsg','hata','Rol adı en az 3 harf olmalı.'); return; }
+  if (!confirm(`"${ad}" rolü eklenecek.\n\nYeni rol HİÇBİR EKRANI göremez olarak başlar;\nneyi görebileceğini sen açarsın.\n\nOnaylıyor musun?`)) return;
+  const data = await rpcCagir('rpc_rol_ekle', { p_kod:kod, p_ad:ad }, null, 'yyMsg', 'Rol eklendi ✓');
+  if (data && data.ok){ YY_SECILI = kod; yetkiYukle(); }
+}
+async function rolSil(kod, ad){
+  if (!confirm(`"${ad}" rolü silinecek.\n\nBu rolde kimse yoksa silinir.\nOnaylıyor musun?`)) return;
+  const data = await rpcCagir('rpc_rol_sil', { p_kod:kod }, null, 'yyMsg', 'Rol silindi ✓');
+  if (data && data.ok){ YY_SECILI = null; yetkiYukle(); }
+}
+async function kisiRolDegistir(profil, rol, ad){
+  const rolAd = YY_ROLLER.find(r=>r.kod===rol)?.ad || rol;
+  if (!confirm(`${ad} → ${rolAd}\n\nBu kişinin görebilecekleri değişecek.\nOnaylıyor musun?`)){ yetkiCiz(); return; }
+  const data = await rpcCagir('rpc_profil_rol_ata', { p_profil:profil, p_rol:rol }, null, 'yyMsg', 'Rol atandı ✓');
+  if (data && data.ok) yetkiYukle(); else yetkiCiz();
+}
+async function kisiAktifDegistir(profil, aktif, ad){
+  if (!confirm(`${ad} ${aktif?'AÇILACAK':'KAPATILACAK'}.\n\n${aktif?'Tekrar giriş yapabilir.':'Artık sisteme giremez. Kayıtları silinmez.'}\n\nOnaylıyor musun?`)) return;
+  const data = await rpcCagir('rpc_profil_aktif', { p_profil:profil, p_aktif:aktif }, null, 'yyMsg', 'Kaydedildi ✓');
+  if (data && data.ok) yetkiYukle();
+}
+
 async function vYonetim(){
   const el = document.getElementById('icerik');
   el.innerHTML = `
     <h2 class="bolum">Yönetim</h2>
+    <div class="kart">
+      ${kbaslik('YETKİ', 'Kişiler ve Yetkileri', `<button class="btn2" onclick="katlaAc('yetkiKutu',this)">Aç</button>`)}
+      <div id="yetkiKutu" style="display:none">
+        <div class="ipucu">Ekranı kapattığında o kişi sekmeyi göremez <b>ve verisini çekemez</b> —
+          kısıt veritabanında da uygulanır. Yönetici rolü korumalıdır, kapatılamaz.</div>
+        <div id="yetkiIcerik">Yükleniyor...</div>
+      </div>
+    </div>
     <div class="kart">
       <div class="kbaslik">Yeni Ürün (stok kartı)</div>
       <div class="bilgi-not" style="margin:0 0 8px">Stok kodunu sistem verir. Faturadan gelen ürünler
@@ -4912,31 +5138,70 @@ async function vYonetim(){
     <div id="bankaMutabakatKart"></div>`;
   akDurumGoster(); bankaMutabakatKart();   // vergi bolumu artik Vergiler sekmesinde
   paraBagla(document.getElementById('voTutar'));
+  yetkiYukle();
 }
 const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',diger:'Diğer'};
+/* VADE LİSTESİ
+   Vadeler artık vergi takviminden otomatik üretiliyor (rpc_vade_uret), bu yüzden
+   sistemde yıllarca ileriye kayıt var. Hepsini listelemek anlamsız — varsayılan
+   olarak geçmişte kalanlar + önümüzdeki 60 gün gösteriliyor.
+
+   "Ödendi" düğmesi KALDIRILDI: bir vade ancak gerçek bir ödeme kaydına bağlanınca
+   kapanır. Elle işaretleme, olmayan bir ödemeyi var göstermeye yol açıyordu
+   (03.08.2026'da geçici vergi ve kirada tam olarak bu oldu). */
+let VADE_HEPSI = false;
+const VADE_DURUM = {
+  odendi:    ['rz-ok',   'Ödendi'],
+  tutar_yok: ['rz-gri',  'Tutar çıkmadı'],
+  iptal:     ['rz-gri',  'İptal']
+};
 async function vergiVadeYukle(){
   const el = document.getElementById('vergiVadeler'); if(!el) return;
-  const { data } = await sb.from('vade').select('*').eq('is_deleted',false).order('vade_tarihi');
-  const bugunT = bugun();
-  el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Vade kaydı yok.</div>' : (data||[]).map(v=>{
-    // Ödeme kaydedilince vade otomatik kapanıyor (odendi_tarih). Eskiden yalnız
-    // odendi_gider_id'ye bakılıyordu ve o yol FK yüzünden hiç çalışmıyordu.
-    const odendi = v.odendi_tarih !== null || v.odendi_gider_id !== null;
-    const gecti = !odendi && v.vade_tarihi < bugunT;
-    const yakin = !odendi && !gecti && v.vade_tarihi <= new Date(Date.now()+7*864e5).toISOString().slice(0,10);
-    return `<div class="liste-satir">
-      <div class="l-sol"><div class="b">${esc(v.aciklama)} ${gecti?'<span class="rozet rz-hata">GEÇTİ</span>':yakin?'<span class="rozet rz-uyari">YAKLAŞTI</span>':''}</div>
-        <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${v.tutar?' · '+tl(v.tutar):''}</div></div>
-      <div class="l-sag">${odendi
-        ? '<span class="rozet rz-ok">Ödendi</span>'
-          + (v.odendi_tarih ? '<div class="k">'+new Date(v.odendi_tarih+'T00:00').toLocaleDateString('tr-TR')+'</div>' : '')
-        : `<button class="btn2" onclick="vadeOdendi('${v.id}')">Ödendi</button>`}</div>
-    </div>`;
-  }).join('');
+  const { data, error } = await sb.from('v_vade_liste').select('*').order('vade_tarihi');
+  if (error){ el.innerHTML = `<div class="uyari-agir">Vadeler yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
+  const hepsi = data||[];
+  const sinir = tarihStr(new Date(Date.now()+60*864e5));
+  const liste = VADE_HEPSI ? hepsi
+    : hepsi.filter(v => v.durum === 'acik' ? v.vade_tarihi <= sinir
+                                           : v.vade_tarihi >= tarihStr(new Date(Date.now()-45*864e5)));
+  const gizli = hepsi.length - liste.length;
+
+  el.innerHTML = (liste.length === 0
+      ? '<div class="bilgi-not">Bu aralıkta vade yok.</div>'
+      : liste.map(v => {
+          const d = VADE_DURUM[v.durum];
+          return `<div class="liste-satir">
+            <div class="l-sol"><div class="b">${esc(v.aciklama)} ${
+              v.gecti ? '<span class="rozet rz-hata">GEÇTİ</span>'
+              : v.yakin ? '<span class="rozet rz-uyari">'+(v.kalan_gun===0?'BUGÜN':v.kalan_gun+' GÜN')+'</span>' : ''}</div>
+              <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${
+                v.tutar ? ' · '+tl(v.tutar) : ' · tutar belli değil'}${
+                v.durum_notu ? '<br>'+esc(v.durum_notu) : ''}</div></div>
+            <div class="l-sag">${d
+              ? `<span class="rozet ${d[0]}">${d[1]}</span>`
+              : `<button class="btn2" onclick="vadeKapat('${v.id}','${esc(v.aciklama)}')">Kapat</button>`}</div>
+          </div>`;
+        }).join(''))
+    + (gizli > 0 || VADE_HEPSI
+        ? `<button class="btn2" style="margin-top:8px" onclick="VADE_HEPSI=${!VADE_HEPSI};vergiVadeYukle()">${
+            VADE_HEPSI ? 'Sadece yakın vadeleri göster' : gizli+' vade daha var — hepsini göster'}</button>`
+        : '');
 }
-async function vadeOdendi(id){
-  const { error } = await sb.rpc('rpc_vade_odendi', { p_id:id });
-  if (error){ alert('Güncellenemedi: '+hataTr(error.message)); return; }
+/* Bir vadeyi ödeme kaydı olmadan kapatmak: yalnız "tutar çıkmadı" veya "iptal".
+   Ödeme yapıldıysa ödeme kaydı girilir, vade kendiliğinden kapanır. */
+async function vadeKapat(id, ad){
+  const secim = prompt(`"${ad}" kapatılacak.\n\n`
+    + `1 = Beyan verildi, ödenecek tutar çıkmadı\n`
+    + `2 = İptal (bu yükümlülük geçerli değil)\n\n`
+    + `Ödeme YAPILDIYSA burayı kullanma — ödemeyi kaydet, vade kendiliğinden kapanır.\n\n`
+    + `1 veya 2 yaz:`);
+  if (!secim) return;
+  const durum = secim.trim() === '1' ? 'tutar_yok' : secim.trim() === '2' ? 'iptal' : null;
+  if (!durum){ alert('1 veya 2 yazmalısın.'); return; }
+  const neden = prompt('Nedenini yaz (kayda geçecek):');
+  if (!neden || !neden.trim()){ alert('Neden zorunlu.'); return; }
+  const { error } = await sb.rpc('rpc_vade_durum', { p_id:id, p_durum:durum, p_not:neden.trim() });
+  if (error){ alert('Kapatılamadı: '+hataTr(error.message)); return; }
   vergiVadeYukle();
 }
 async function vergiOdemeKaydet(){
