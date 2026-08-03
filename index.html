@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-03-4">
+<meta name="surum" content="2026-08-03-6">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -458,9 +458,28 @@ function kbaslik(etiket, ad, sag){
 }
 /* Kayıt satırı: ad + alt bilgi + sağda tutar. tikla varsa ok işareti ve 44px dokunma alanı. */
 function srSatir(o){
-  return `<div class="sr${o.tikla?' sr-ac':''}"${o.tikla?` onclick="${o.tikla}"`:''}>
+  // o.ara verilirse satır aranabilir olur (data-ara). Arama kutusu bu alanda süzer.
+  return `<div class="sr${o.tikla?' sr-ac':''}"${o.tikla?` onclick="${o.tikla}"`:''}${
+    o.ara?` data-ara="${esc(String(o.ara).toLocaleLowerCase('tr'))}"`:''}>
     <div><div class="sr-ad">${o.ad}</div>${o.alt?`<div class="sr-alt">${o.alt}</div>`:''}</div>
     <div class="sr-tut">${o.tutar||''}${o.tutarAlt?`<span class="k">${o.tutarAlt}</span>`:''}</div></div>`;
+}
+/* ARAMA — uygulamada hiçbir yerde arama yoktu; 30 ürün arasında kaydırmak
+   tedarikçi karşındayken çalışmaz. srSatir'ın data-ara alanında süzer. */
+function stokFiltre(q){
+  const t = (q||'').toLocaleLowerCase('tr').trim();
+  let gorunen = 0, toplam = 0;
+  document.querySelectorAll('#icerik .sr[data-ara]').forEach(el => {
+    toplam++;
+    const uy = !t || el.dataset.ara.includes(t);
+    el.style.display = uy ? '' : 'none';
+    if (uy) gorunen++;
+  });
+  const b = document.getElementById('stokAraBos');
+  if (b){
+    b.style.display = (t && gorunen === 0) ? '' : 'none';
+    b.textContent = t && gorunen === 0 ? `"${q}" için ürün bulunamadı.` : '';
+  }
 }
 function ozSatir(et, dg, vurgu){
   return `<div class="oz${vurgu?' vurgu':''}"><span class="oz-et">${et}</span><span class="oz-dg">${dg}</span></div>`;
@@ -593,6 +612,7 @@ const IKON = {
   yonetim: _svg('<path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h10M18 17h2"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="17" r="2"/>'),
   daha:    _svg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>'),
   vergi:   _svg('<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9.5 11h5M9.5 14.5h5M9.5 18h3"/>'),
+  belge:   _svg('<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h5L12 6h6.5A1.5 1.5 0 0 1 20 7.5v11A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5z"/><path d="M8 12h8M8 15.5h5"/>'),
   arac:    _svg('<path d="M3 13.5l1.6-4.6A2 2 0 0 1 6.5 7.5h11a2 2 0 0 1 1.9 1.4l1.6 4.6M3 13.5h18M3 13.5v4h2.5M21 13.5v4h-2.5M5.5 17.5h13"/><circle cx="7.5" cy="17.5" r="1.7"/><circle cx="16.5" cy="17.5" r="1.7"/>')
 };
 /* Tek liste; kimin neyi göreceğini rol_yetki belirler (bkz. YETKILER). */
@@ -606,6 +626,7 @@ const SEKMELER_TUM = [
   {id:'talep',   ad:'Yapılacaklar'},
   {id:'arac',    ad:'Araç'},
   {id:'vergi',   ad:'Vergiler'},
+  {id:'belge',   ad:'Belgeler'},
   {id:'yonetim', ad:'Yönetim'}
 ];
 /* 375px telefonda alt çubuğa en fazla 5 yuva sığıyor. Owner'da 8 bölüm var; eskiden
@@ -661,7 +682,7 @@ function sekmeAc(id){
   if (d) d.classList.toggle('aktif', sekmeGizliMi(id));
   window.scrollTo(0,0);
   const f = ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
-              personel:vPersonel, talep:vTalep, arac:vArac, vergi:vVergi, yonetim:vYonetim})[id];
+              personel:vPersonel, talep:vTalep, arac:vArac, vergi:vVergi, belge:vBelge, yonetim:vYonetim})[id];
   // Ekran çizerken hata olursa "Yükleniyor..." sonsuza kadar ekranda kalıyordu ve kimse
   // sebebini göremiyordu. Artık hata görünür ve tekrar denenebilir.
   try { Promise.resolve(f()).catch(e => ekranHatasi(id, e)); }
@@ -3490,14 +3511,18 @@ async function alisListe(){
 async function vStok(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
-  const [{ data: stok }, cikis] = await Promise.all([
+  const [{ data: stok }, cikis, fiyat] = await Promise.all([
     sb.from('v_stok_durum').select('*').order('ad'),
     // Son sayım/tüketim ne zaman? Hiç yoksa "mevcut" stok değil, toplam alımdır.
     // Bir kez sayıp bırakmak da yetmez: sayım eskidikçe rakam yine gerçeklikten kopar.
     sb.from('stok_hareket').select('tarih')
       .eq('is_deleted',false).in('tur',['tuketim','sayim_duzeltme'])
-      .order('tarih',{ascending:false}).limit(1)
+      .order('tarih',{ascending:false}).limit(1),
+    // Tedarikçi karşındayken lazım olan rakam ORTALAMA değil SON fatura fiyatıdır
+    sb.from('v_urun_son_fiyat').select('*')
   ]);
+  const fiyatMap = {};
+  (fiyat.data||[]).forEach(f => fiyatMap[f.urun_id] = f);
   const sonSayim = (cikis.data||[])[0]?.tarih || null;
   const sayimGunu = sonSayim
     ? Math.floor((new Date(bugun()+'T00:00') - new Date(sonSayim+'T00:00')) / 86400000)
@@ -3519,6 +3544,10 @@ async function vStok(){
 
   el.innerHTML = `
     <h2 class="bolum">Stok Durumu</h2>
+    ${liste.length ? `<input type="search" id="stokAra" placeholder="Ürün ara — örn: su, kahve, bardak"
+       oninput="stokFiltre(this.value)" autocomplete="off"
+       style="margin:0 0 10px">
+       <div id="stokAraBos" class="bilgi-not" style="display:none;margin:0 0 10px"></div>` : ''}
     ${liste.length ? `<div class="ozet-grid">
       ${owner ? `<div class="ozet-kut"><div class="e">${cikisVar?'TOPLAM STOK DEĞERİ':'ALINAN MAL DEĞERİ'}</div>
         <div class="d">${tl(toplamDeger)}</div>
@@ -3546,17 +3575,30 @@ async function vStok(){
       ${liste.length===0
         ? bosDurum('kutu','Ürün tanımlı değil','Fatura girdikçe ürünler kendiliğinden açılır. Elle eklemek için Yönetim sekmesini kullan.')
         : liste.map(s=>{
+            const f = fiyatMap[s.urun_id];
             const sev = +s.kritik_seviye > 0;
             const rozet = s.kritik ? '<span class="rozet rz-hata">KRİTİK</span>'
                         : sev ? '<span class="rozet rz-ok">Yeterli</span>'
                               : '<span class="rozet rz-gri">seviye yok</span>';
+            // SON ALIŞ — tedarikçi karşındayken karşılaştıracağın rakam.
+            // Ortalama maliyet geçmişin karışımı; adam sana bugünkü fiyatı söylüyor.
+            const zam = f && f.degisim_yuzde != null && Math.abs(+f.degisim_yuzde) >= 0.05;
+            const sonSatir = !(owner && f) ? '' :
+              `<br><b>Son alış ${tl(f.son_fiyat)}</b>/${esc(f.birim||'')}`
+              + ` · ${new Date(f.son_tarih+'T00:00').toLocaleDateString('tr-TR')}`
+              + ` · ${esc(f.son_firma||'')}`
+              + (zam ? ` <span style="color:${+f.degisim_yuzde>0?'var(--hata)':'var(--ok)'};font-weight:800">`
+                       + `${+f.degisim_yuzde>0?'▲':'▼'} %${Math.abs(+f.degisim_yuzde)}</span>`
+                       + ` <span style="color:var(--soluk)">(önce ${tl(f.onceki_fiyat)})</span>` : '');
             return srSatir({
               ad: (s.kod?esc(s.kod)+' · ':'') + esc(s.ad),
               alt: (sev ? 'Kritik seviye '+s.kritik_seviye+' '+esc(s.birim) : 'Kritik seviye girilmemiş')
-                   + (owner && +s.ort_maliyet>0 ? ' · ort. maliyet '+tl(s.ort_maliyet) : ''),
+                   + (owner && +s.ort_maliyet>0 ? ' · ort. maliyet '+tl(s.ort_maliyet) : '')
+                   + sonSatir,
               tutar: `${s.mevcut} ${esc(s.birim)}`,
               tutarAlt: rozet + (owner && +s.stok_degeri>0 ? ' ' + tl(s.stok_degeri) : ''),
-              tikla: `urunDetay('${s.urun_id}')`
+              tikla: `urunDetay('${s.urun_id}')`,
+              ara: (s.kod||'') + ' ' + (s.ad||'') + ' ' + (f?.son_firma||'')
             });
           }).join('')}
     </div>
@@ -4943,6 +4985,112 @@ async function aracMasrafKaydet(){
     document.getElementById('agFoto').value='';
     setTimeout(vArac, 700);
   }
+}
+
+/* ================== BELGELER ==================
+   Belgeler yükleniyordu ama hiçbir yerde toplu görünmüyordu: bir dekontu bulmak
+   için hangi kayda eklendiğini hatırlamak gerekiyordu. Daha kötüsü, BELGESİ
+   OLMAYAN kayıtlar hiç görünmüyordu — kanıt eksiği sessiz kalıyordu.
+   Bu ekran ikisini birden gösterir; eksikler üstte, çünkü iş onlarda. */
+let BG_AY = null, BG_TUR = 'hepsi', BG_LISTE = [];
+const BG_TUR_AD = { z_raporu:'Z Raporu', pos_slip:'POS Slip', fatura:'Fatura',
+                    gider:'Gider', vergi:'Vergi/SGK' };
+async function vBelge(){
+  const el = document.getElementById('icerik');
+  const ay = BG_AY || bugun().slice(0,7);
+  el.innerHTML = '<h2 class="bolum">Belgeler</h2><div class="kart">Yükleniyor...</div>';
+
+  const { data, error } = await sb.from('v_belgeler').select('*')
+    .gte('tarih', ay + '-01').lte('tarih', aySon(ay)).order('tarih', { ascending:false });
+  if (error){
+    el.innerHTML = `<h2 class="bolum">Belgeler</h2>
+      <div class="uyari-agir">Belgeler yüklenemedi: ${esc(hataTr(error.message))}</div>`;
+    return;
+  }
+  BG_LISTE = data || [];
+  const eksik = BG_LISTE.filter(x => !x.yol);
+  const eksikTutar = eksik.reduce((a,x) => a + (+x.tutar||0), 0);
+  const gorunen = BG_TUR === 'hepsi' ? BG_LISTE : BG_LISTE.filter(x => x.tur === BG_TUR);
+  // Eksikler üstte: yapılacak iş onlar
+  const sirali = [...gorunen].sort((a,b) => (a.yol?1:0) - (b.yol?1:0) || (a.tarih < b.tarih ? 1 : -1));
+
+  const turSay = {};
+  BG_LISTE.forEach(x => {
+    turSay[x.tur] = turSay[x.tur] || { hepsi:0, eksik:0 };
+    turSay[x.tur].hepsi++; if (!x.yol) turSay[x.tur].eksik++;
+  });
+
+  el.innerHTML = `
+    <h2 class="bolum">Belgeler</h2>
+    <div class="ay-gez">
+      <button onclick="bgAyDegistir(-1)" aria-label="Önceki ay">‹</button>
+      <div><div class="ay-ad">${ayAdi(ay)}</div>
+        <div class="ay-alt">${BG_LISTE.length} belge taşıyan kayıt</div></div>
+      <button onclick="bgAyDegistir(1)" ${ay >= bugun().slice(0,7) ? 'disabled' : ''} aria-label="Sonraki ay">›</button>
+    </div>
+    <div class="ozet-grid">
+      <div class="ozet-kut"><div class="e">BELGELİ</div>
+        <div class="d" style="color:var(--ok)">${BG_LISTE.length - eksik.length}</div>
+        <div class="aciklama">${BG_LISTE.length} kayıttan</div></div>
+      <div class="ozet-kut"><div class="e">BELGE EKSİK</div>
+        <div class="d" style="color:${eksik.length?'var(--hata)':'var(--ok)'}">${eksik.length}</div>
+        <div class="aciklama">${eksik.length ? tl(eksikTutar) + ' tutarında' : 'hepsi tamam'}</div></div>
+    </div>
+    ${eksik.length ? `<div class="uyari-orta">Belgesi olmayan kayıtlar listenin başında.
+      Vergi dairesi veya muhasebeci sorduğunda kanıtın olmaz — dekontu bulup yükle.</div>` : ''}
+    <div class="kart">
+      <div class="yy-rol">
+        <button class="btn2${BG_TUR==='hepsi'?' yy-aktif':''}" onclick="BG_TUR='hepsi';vBelge()">Hepsi (${BG_LISTE.length})</button>
+        ${Object.keys(BG_TUR_AD).filter(t=>turSay[t]).map(t=>`
+          <button class="btn2${BG_TUR===t?' yy-aktif':''}" onclick="BG_TUR='${t}';vBelge()">
+            ${esc(BG_TUR_AD[t])}${turSay[t].eksik?' · '+turSay[t].eksik+' eksik':''}
+          </button>`).join('')}
+      </div>
+    </div>
+    <div class="kart">
+      ${sirali.length === 0
+        ? bosDurum('belge','Bu ayda kayıt yok','Başka bir ay seç.')
+        : sirali.map(x => `<div class="liste-satir">
+            <div class="l-sol">
+              <div class="b">${esc(x.baslik || BG_TUR_AD[x.tur] || '—')}
+                ${x.yol ? '' : '<span class="rozet rz-hata">BELGE YOK</span>'}</div>
+              <div class="k">${esc(BG_TUR_AD[x.tur]||x.tur)} · ${new Date(x.tarih+'T00:00').toLocaleDateString('tr-TR')}${
+                +x.tutar ? ' · ' + tl(x.tutar) : ''}</div>
+            </div>
+            <div class="l-sag">${x.yol
+              ? belgeBtn(x.yol, 'Aç', esc(x.baslik||''))
+              : `<button class="btn2" onclick="belgeYukleAc('${x.tur}','${x.kayit_id}','${esc((x.baslik||'').replace(/'/g,''))}')">Belge Yükle</button>`}
+            </div>
+          </div>`).join('')}
+    </div>
+    <input type="file" id="bgDosya" accept="image/*,application/pdf,.pdf" style="display:none">
+    <div class="hata-msg" id="bgMsg"></div>`;
+}
+function bgAyDegistir(fark){
+  const t = new Date((BG_AY || bugun().slice(0,7)) + '-01T00:00');
+  t.setMonth(t.getMonth() + fark);
+  const yeni = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0');
+  if (yeni > bugun().slice(0,7)) return;
+  BG_AY = yeni; vBelge();
+}
+/* Satırdaki "Belge Yükle" — dosya seçtirir, yükler, kayda bağlar */
+function belgeYukleAc(tur, kayitId, baslik){
+  const inp = document.getElementById('bgDosya'); if (!inp) return;
+  inp.value = '';
+  inp.onchange = async () => {
+    if (!inp.files || !inp.files[0]) return;
+    mesaj('bgMsg','ok','Belge yükleniyor...');
+    try{
+      const yol = await fotoYukle('bgDosya', tur === 'vergi' ? 'vergi' : 'fatura');
+      if (!yol) throw new Error('Dosya seçilmedi.');
+      const { error } = await sb.rpc('rpc_belge_ekle',
+        { p_tur: tur, p_kayit_id: kayitId, p_yol: yol });
+      if (error) throw new Error(hataTr(error.message));
+      mesaj('bgMsg','ok', baslik + ' — belge eklendi ✓');
+      setTimeout(vBelge, 900);
+    }catch(e){ mesaj('bgMsg','hata', e.message); }
+  };
+  inp.click();
 }
 
 /* ================== VERGİLER (OWNER) ==================
