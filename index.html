@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-04-5">
+<meta name="surum" content="2026-08-04-6">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -3857,8 +3857,21 @@ function fiyatGrafigi(nk){
         stroke-linejoin="round" stroke-linecap="round"/>`:''}
     ${nk.map((p,i)=>{
       const son=i===nk.length-1, art=i>0 && p.fiyat>nk[i-1].fiyat+0.005;
-      return `<circle cx="${X(p).toFixed(1)}" cy="${Yp(p).toFixed(1)}" r="${son?4.5:3.2}"
-        fill="${art?'var(--hata)':'var(--ana)'}" stroke="var(--kagit)" stroke-width="1.6"/>`;
+      const onceki=i>0?nk[i-1]:null;
+      const fark=onceki&&onceki.fiyat>0?((p.fiyat-onceki.fiyat)/onceki.fiyat*100):0;
+      /* Ipucu metni: dokunmadan once parmagini bekletince de gorunsun */
+      const ipucu=new Date(p.ts).toLocaleDateString('tr-TR')+' · '+tl(p.fiyat)+'/'+(p.birim||'')
+        + (onceki&&Math.abs(fark)>0.05
+            ? ' · onceki '+tl(onceki.fiyat)+' ('+(fark>0?'+':'')+fark.toFixed(1).replace('.',',')+'%)' : '')
+        + (p.belge?' · '+p.belge:'') + ' — dokun, faturasi acilsin';
+      const cx=X(p).toFixed(1), cy=Yp(p).toFixed(1);
+      /* Gorunen nokta kucuk ama DOKUNMA HEDEFI genis: telefonda 3px'lik
+         daireye parmakla isabet ettirilemez. Seffaf buyuk daire o isi gorur. */
+      return `<circle cx="${cx}" cy="${cy}" r="${son?4.5:3.2}"
+          fill="${art?'var(--hata)':'var(--ana)'}" stroke="var(--kagit)" stroke-width="1.6"
+          style="pointer-events:none"/>
+        ${p.alisId?`<circle cx="${cx}" cy="${cy}" r="13" fill="transparent" style="cursor:pointer"
+          onclick="faturaDetay('${p.alisId}')"><title>${esc(ipucu)}</title></circle>`:''}`;
     }).join('')}
     <text x="${sol}" y="${Y-6}" font-size="9" font-weight="700" fill="var(--soluk)">${tarihEt(nk[0])}</text>
     ${nk.length>1?`<text x="${G-sag}" y="${Y-6}" font-size="9" font-weight="700" fill="var(--soluk)"
@@ -3940,7 +3953,7 @@ async function urunDetay(urunId){
   const [ur, kl, st] = await Promise.all([
     sb.from('urun').select('kod,ad,birim,paket_ici_adet,kategori,kritik_seviye').eq('id',urunId).maybeSingle(),
     sb.from('alis_kalem')
-      .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,alis!inner(tarih,belge_no,is_deleted,tedarikci(ad))')
+      .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,alis!inner(id,tarih,belge_no,is_deleted,tedarikci(ad))')
       .eq('urun_id',urunId).eq('is_deleted',false).eq('alis.is_deleted',false),
     sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', PROFIL.sube_id).maybeSingle()
   ]);
@@ -3952,7 +3965,8 @@ async function urunDetay(urunId){
       ts:new Date(k.alis.tarih+'T00:00').getTime(), tarih:k.alis.tarih,
       fiyat:+k.birim_fiyat||0, miktar:+k.miktar||0, carpan:+k.birim_carpani||1,
       birim:k.birim_ad||u.birim, tutar:+k.satir_tutar||0, isk:+k.iskonto_orani||0,
-      firma:k.alis.tedarikci?.ad||'—', belge:k.alis.belge_no
+      firma:k.alis.tedarikci?.ad||'—', belge:k.alis.belge_no,
+      alisId:k.alis.id                       // grafik ve satir buradan faturayi acar
     })).sort((a,b)=>a.ts-b.ts);
 
   const nk=alim.filter(a=>a.fiyat>0);
@@ -3983,7 +3997,9 @@ async function urunDetay(urunId){
           ${fark>0.5?'▲':(fark<-0.5?'▼':'●')} ${fark>0?'+':''}${fark.toFixed(1).replace('.',',')}%</span>`:''}
       </div>
       ${nk.length
-        ? `<div class="ud-graf">${fiyatGrafigi(nk)}</div>`
+        ? `<div class="ud-graf">${fiyatGrafigi(nk)}</div>
+           ${nk.some(p=>p.alisId)?`<div class="ipucu" style="margin:-8px 0 12px">
+             Bir noktaya dokun — o alımın faturası, belgesi ve önceki fiyatla farkı açılır.</div>`:''}`
         : `<div class="ud-bos">Bu ürünün fiyat geçmişi yok — henüz fatura satırı girilmemiş.</div>`}
       ${nk.length>1 && Math.abs(fark)>0.5
         ? `<div class="ud-bos" style="margin:-10px 0 16px">${esc(u.ad)} ${tl(ilk)} → ${tl(son)}
@@ -3995,12 +4011,22 @@ async function urunDetay(urunId){
         : alim.slice().reverse().map((a,i,dizi)=>{
             const onceki=dizi[i+1];
             const zam=onceki&&a.fiyat>onceki.fiyat+0.005, ind=onceki&&a.fiyat<onceki.fiyat-0.005;
-            return `<div class="ud-satir">
+            /* "Bu artis ne kardesim" sorusunun cevabi: onceki fiyat ve fark
+               satirin uzerinde yazsin, faturayi acmadan gorunsun. */
+            const fark=onceki&&onceki.fiyat>0?((a.fiyat-onceki.fiyat)/onceki.fiyat*100):0;
+            const farkEt=(zam||ind)&&Math.abs(fark)>0.05
+              ? `<div class="ud-alt" style="color:var(--${zam?'hata':'ok'});font-weight:800">
+                  önceki ${tl(onceki.fiyat)} → ${(fark>0?'+':'')+fark.toFixed(1).replace('.',',')}%
+                  (${(a.fiyat-onceki.fiyat>0?'+':'')+tl(a.fiyat-onceki.fiyat)})</div>` : '';
+            const tik=a.alisId?` onclick="faturaDetay('${a.alisId}')" style="cursor:pointer"`:'';
+            return `<div class="ud-satir"${tik}>
               <div class="ud-trh">${new Date(a.ts).toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
               <div><div style="font-size:13px;font-weight:800">${a.miktar.toLocaleString('tr-TR')} ${esc(a.birim)}
                   × ${tl(a.fiyat)}${zam?' <span class="ud-zam">▲</span>':(ind?' <span class="ud-indi">▼</span>':'')}</div>
                 <div class="ud-alt">${esc(a.firma)}${a.isk?' · %'+a.isk+' iskonto':''}
-                  ${a.carpan>1?' · '+(a.miktar*a.carpan).toLocaleString('tr-TR')+' '+esc(u.birim):''}</div></div>
+                  ${a.carpan>1?' · '+(a.miktar*a.carpan).toLocaleString('tr-TR')+' '+esc(u.birim):''}
+                  ${a.belge?' · '+esc(a.belge):''}${a.alisId?' ›':''}</div>
+                ${farkEt}</div>
               <div class="ud-tut">${tl(a.tutar)}</div></div>`;
           }).join('')}
       ${toplamAdet>0?`<div class="ud-satir" style="border-top:2px solid var(--cizgi);border-bottom:none">
