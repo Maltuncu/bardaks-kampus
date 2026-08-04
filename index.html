@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-04-6">
+<meta name="surum" content="2026-08-04-7">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -725,6 +725,72 @@ window.addEventListener('beforeunload', e => {
   if (!FORM_KIRLI) return;
   e.preventDefault(); e.returnValue = '';
 });
+
+/* ===== SÜRÜKLE–BIRAK =====
+   Dokuz ayrı dosya alanı var, hiçbiri sürükle-bırak kabul etmiyordu.
+   Üstelik sayfaya bırakılan PDF'i tarayıcı yeni sekmede AÇIYOR — insan
+   fatura yüklüyorum sanırken uygulamadan çıkıyordu.
+   Tek yerden çözülüyor: her alanı ayrı ayrı sarmak yerine olay yakalama.
+   Hedef bulma sırası: (1) bırakılan yer dosya alanının kendisi mi,
+   (2) aynı kart içinde dosya alanı var mı, (3) ekranda görünen TEK dosya
+   alanı varsa o. Üçü de tutmazsa hiçbir şey yapma — yanlış alana dosya
+   koymak, hiç koymamaktan kötüdür. */
+(function(){
+  const gorunur = el => el && el.offsetParent !== null;
+  function hedefBul(t){
+    if (!t || !t.closest) return null;
+    if (t.matches && t.matches('input[type=file]')) return t;
+    const kart = t.closest('.kart, .ud-govde, form, #icerik');
+    if (kart){
+      const icinde = [...kart.querySelectorAll('input[type=file]')].filter(gorunur);
+      if (icinde.length === 1) return icinde[0];
+    }
+    const hepsi = [...document.querySelectorAll('input[type=file]')].filter(gorunur);
+    return hepsi.length === 1 ? hepsi[0] : null;
+  }
+  let vurgulu = null;
+  const vurgula = el => {
+    if (vurgulu === el) return;
+    if (vurgulu) vurgulu.style.outline = '';
+    vurgulu = el;
+    if (el){ el.style.outline = '2px dashed var(--ana)'; el.style.outlineOffset = '3px'; }
+  };
+  ['dragenter','dragover'].forEach(o => document.addEventListener(o, e => {
+    if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();                       // tarayici dosyayi ACMASIN
+    e.dataTransfer.dropEffect = 'copy';
+    vurgula(hedefBul(e.target));
+  }));
+  document.addEventListener('dragleave', e => { if (!e.relatedTarget) vurgula(null); });
+  document.addEventListener('drop', e => {
+    if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+    e.preventDefault();                       // her halukarda yeni sekmede acilmasin
+    const hedef = hedefBul(e.target);
+    vurgula(null);
+    if (!hedef){
+      alert('Dosyayı hangi alana koyacağımı anlayamadım.\n\n'
+        + 'Doğrudan dosya seçme kutusunun üstüne bırak.');
+      return;
+    }
+    const kabul = (hedef.accept || '').trim();
+    const dosya = e.dataTransfer.files[0];
+    if (kabul){
+      const ad = dosya.name.toLowerCase(), tur = dosya.type || '';
+      const uyar = kabul.split(',').map(x=>x.trim().toLowerCase()).some(k =>
+        k.startsWith('.') ? ad.endsWith(k)
+        : k.endsWith('/*') ? tur.startsWith(k.slice(0,-1))
+        : tur === k);
+      if (!uyar){ alert('Bu alan bu dosya türünü kabul etmiyor.\n\nKabul edilen: ' + kabul); return; }
+    }
+    const dt = new DataTransfer();
+    dt.items.add(dosya);
+    hedef.files = dt.files;
+    // Mevcut kod change/input dinliyor — elle tetikle ki fark etsin
+    hedef.dispatchEvent(new Event('change', { bubbles:true }));
+    hedef.dispatchEvent(new Event('input',  { bubbles:true }));
+    hedef.scrollIntoView({ block:'center', behavior:'smooth' });
+  });
+})();
 
 function sekmeAc(id){
   if (id !== AKTIF_SEKME && formKirliMi()) return;
