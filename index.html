@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-04-4">
+<meta name="surum" content="2026-08-04-5">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -24,8 +24,19 @@
      SRI ile doğrulanan dosyalar çalışabilir. Bir tedarik zinciri olayında
      (kütüphane ele geçirilse bile) tarayıcı hash tutmayınca dosyayı reddeder.
      script-src'ta unsafe-inline var çünkü uygulama tek dosya ve onclick
-     kullanıyor; yine de HARİCİ kaynak enjeksiyonunu kapatıyor. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'none'">
+     kullanıyor; yine de HARİCİ kaynak enjeksiyonunu kapatıyor.
+
+     connect-src'ta blob: ZORUNLU — SİLME.
+     pdf.js belgeyi okurken indirilen dosyayı blob: adresine koyup oradan
+     fetch ediyor (fileloading.js). blob: yoksa tarayıcı bağlantıyı keser ve
+     "Belgeyi oku" özelliği çalışmaz. İlk yazdığımda unutmuştum, canlıda
+     PDF okuma kırıldı.
+
+     frame-ancestors BİLEREK YOK: meta etiketiyle verildiğinde tarayıcı onu
+     yok sayıyor ve her açılışta konsola uyarı basıyordu. Gerçek koruma HTTP
+     başlığı gerektirir, GitHub Pages'te başlık ayarlanamıyor. Yani buradaki
+     satır hiçbir zaman korumuyordu — sadece gürültü yapıyordu. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
