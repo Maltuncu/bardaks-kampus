@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-03-8">
+<meta name="surum" content="2026-08-04-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -19,6 +19,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="bardak's">
+<!-- İÇERİK GÜVENLİK POLİTİKASI
+     Dışarıdan kod yüklenmesini engeller: yalnız jsdelivr'daki SABİTLENMİŞ ve
+     SRI ile doğrulanan dosyalar çalışabilir. Bir tedarik zinciri olayında
+     (kütüphane ele geçirilse bile) tarayıcı hash tutmayınca dosyayı reddeder.
+     script-src'ta unsafe-inline var çünkü uygulama tek dosya ve onclick
+     kullanıyor; yine de HARİCİ kaynak enjeksiyonunu kapatıyor. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
@@ -413,12 +420,12 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
   <div id="dahaOv" onclick="if(event.target===this)dahaKapat()"><div id="dahaKutu"></div></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.0/dist/umd/supabase.min.js" integrity="sha384-De+l/Df7qym5QBDVocD3+gW1S7IjR3epf+6KbRDjB3FCCzM/LqVTwqckT6FhFar8" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <!-- e-Fatura PDF'i metin tabanlı: tarayıcıda metni çıkarıp okuruz (fotoğraftan hatasız ve ucuz) -->
-<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
 <!-- Ay sonu mutabakatı: portaldan inen zip'i açıp içindeki PDF'leri okumak için -->
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
 <script>
 /* ================== AYAR ================== */
 const SB_URL = 'https://gbheqnxmwvabwuimzskv.supabase.co';
@@ -576,6 +583,15 @@ async function baslat(){
     alert('Hesabınız sisteme tanımlı değil. Yöneticiyle görüşün.');
     await sb.auth.signOut(); location.reload(); return;
   }
+  /* ŞUBE ZORUNLU — ekranların çoğu artık şubeye göre süzülüyor. Şubesiz bir
+     profil sessizce BOŞ ekran gösterir (kullanıcı "veri kayboldu" sanır) ve
+     uyarı sorgusunu komple hataya düşürür. Sessiz yanlış yerine gürültülü
+     dur: yukarıdaki "aktif değil" kontrolüyle aynı kapı. */
+  if (!p.sube_id){
+    alert('Kullanıcınıza şube tanımlanmamış.\n\n'
+      + 'Bu hâlde ekranlar boş görünür. Yöneticiyle görüşün.');
+    await sb.auth.signOut(); location.reload(); return;
+  }
   PROFIL = p;
   await yetkileriYukle();
   document.getElementById('girisEkran').classList.add('gizli');
@@ -672,7 +688,31 @@ async function talepRozet(){
     }
   }catch(e){}
 }
+/* KAYDEDİLMEMİŞ FORM KORUMASI
+   Sekme değişince ekran innerHTML ile baştan çiziliyor — yarım kalan uzun bir
+   fatura girişi uyarısız yok oluyordu. Artık dokunulmuş form varsa soruyor.
+   FORM_KIRLI her ekran çiziminde ve her başarılı kayıtta sıfırlanır. */
+let FORM_KIRLI = false;
+function formKirlendi(){ FORM_KIRLI = true; }
+function formTemiz(){ FORM_KIRLI = false; }
+function formKirliMi(){
+  if (!FORM_KIRLI) return false;
+  return !confirm('Bu ekranda kaydedilmemiş bilgi var.\n\n'
+    + 'Çıkarsan girdiklerin kaybolur.\n\nYine de çıkmak istiyor musun?');
+}
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (!t || !t.closest || !t.closest('#icerik')) return;
+  if (t.matches('input, textarea, select') && t.type !== 'search') formKirlendi();
+}, true);
+window.addEventListener('beforeunload', e => {
+  if (!FORM_KIRLI) return;
+  e.preventDefault(); e.returnValue = '';
+});
+
 function sekmeAc(id){
+  if (id !== AKTIF_SEKME && formKirliMi()) return;
+  formTemiz();
   AKTIF_SEKME = id;
   document.querySelectorAll('#sekmeBar button, #dahaKutu button').forEach(b=>b.classList.remove('aktif'));
   const sk = document.getElementById('sk_'+id); if (sk) sk.classList.add('aktif');
@@ -754,6 +794,7 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
     }
     if (son.error){ window.__sonRpcHataHam = son.error.message; throw new Error(hataTr(son.error.message)); }
     if (basariTxt) mesaj(msgId, 'ok', basariTxt);
+    formTemiz();                       // kayıt gitti, form artık kirli değil
     return son.data;
   }catch(e){
     mesaj(msgId, 'hata', e.message + ' — Verileriniz formda duruyor, tekrar deneyin.');
@@ -764,6 +805,8 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
 }
 function hataTr(m){
   // v33–v36 ile eklenen sunucu tarafı kurallar
+  if (m.includes('O_GUN_KAYIT_VAR')) return 'O güne ait gün sonu kaydı var — kapalı gün işaretlenemez.';
+  if (m.includes('AY_BITMEDI')) return 'Bu ay daha bitmedi — ancak biten ay kapatılabilir.';
   if (m.includes('ODEME_KAYDI_YOK')) return 'Bu vade elle "ödendi" yapılamaz — önce ödemeyi kaydet, vade kendiliğinden kapanır. Ödenecek tutar çıkmadıysa "Kapat" düğmesini kullan.';
   if (m.includes('TUTAR_POZITIF_OLMALI')) return 'Tutar sıfırdan büyük olmalı.';
   if (m.includes('MIKTAR_SIFIR_OLAMAZ')) return 'Miktar sıfır olamaz.';
@@ -1064,7 +1107,8 @@ async function vOzet(){
     sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
-    sb.from('v_uyarilar').select('*').order('tarih'),
+    sb.from('v_uyarilar').select('*')
+      .or(`sube_id.eq.${PROFIL.sube_id},sube_id.is.null`).order('tarih'),
     sb.from('duzeltme_talebi').select('created_at').eq('durum','acik').eq('is_deleted',false).order('created_at'),
     // Geçmiş aya bakılırken sınır bugün DEĞİL, o ayın son günü olmalı
     sb.from('gun_sonu').select('tarih,toplam,kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', aySon(ay)).eq('is_deleted', false),
@@ -1142,11 +1186,43 @@ async function vOzet(){
       ${u.length===0
         ? bosDurum('uyari','Bekleyen uyarı yok','Vadesi geçen fatura, biten stok veya eksik gün olduğunda burada görürsün.')
         : sirali.map(x=>`
-          <div class="${AGIR[x.tip]?'uyari-agir':'uyari-orta'} uy-sr" onclick="sekmeAc('${HEDEF[x.tip]||'ozet'}')">
+          <div class="${AGIR[x.tip]?'uyari-agir':'uyari-orta'} uy-sr"${
+              x.tip==='eksik_gun' ? '' : ` onclick="sekmeAc('${HEDEF[x.tip]||'ozet'}')"`}>
             <span class="uy-et">${ETIKET[x.tip]||'UYARI'}</span>
-            <span class="uy-mt">${esc(x.mesaj)}</span></div>`).join('')}
+            <span class="uy-mt">${esc(x.mesaj)}</span>
+            ${x.tip==='eksik_gun' ? `<button class="btn2" style="margin-left:8px"
+                onclick="event.stopPropagation();kapaliGunIsaretle('${x.tarih}')">Kapalıydı</button>
+              <button class="btn2" style="margin-left:4px"
+                onclick="event.stopPropagation();sekmeAc('gunsonu')">Gir</button>` : ''}
+          </div>`).join('')}
     </div>
 
+    ${PROFIL.rol==='owner' ? `<div class="kart">
+      ${kbaslik('KASA KÖPRÜSÜ', 'Kendi Paran', `<button class="btn2" onclick="katlaAc('ohKutu',this)">Aç</button>`)}
+      <div id="ohOzet">Yükleniyor...</div>
+      <div id="ohKutu" style="display:none">
+        <div class="ipucu">İşletmeye koyduğun ve çektiğin para. <b>Kâra girmez</b> —
+          satış değil, senin sermayen. Ama kasayı ve bankayı değiştirir.
+          Girilmezse kasa farkı açıklanamaz kalır, "kasa açığı" sanılır.</div>
+        <div class="satir">
+          <div><label>Yön</label>
+            <select id="ohYon">
+              <option value="koyus">İşletmeye PARA KOYDUM</option>
+              <option value="cekis">İşletmeden PARA ÇEKTİM</option>
+            </select></div>
+          <div><label>Nereden/nereye</label>
+            <select id="ohYontem"><option value="nakit">Kasa (nakit)</option><option value="banka">Banka</option></select></div>
+        </div>
+        <div class="satir">
+          <div><label>Tutar</label><input type="text" inputmode="decimal" id="ohTutar" placeholder="0,00"></div>
+          <div>${tarihSecici('ohTarih')}</div>
+        </div>
+        <label>Not</label><input type="text" id="ohNot" placeholder="örn: SGK ödemesi için destek">
+        <button class="btn" id="ohKaydet" onclick="ownerHareketKaydet()">Kaydet</button>
+        <div class="hata-msg" id="ohMsg"></div>
+        <div id="ohListe"></div>
+      </div>
+    </div>` : ''}
     ${o && PROFIL.rol==='owner' ? `<div class="kart">
       ${kbaslik('AY RAPORU', ayAdi(ay),
         `<button class="btn2" onclick="ayRaporuAc('${ay}')">Aç</button>`)}
@@ -1200,6 +1276,10 @@ async function vOzet(){
           : 'Şu an yalnız o ay satın alınan mal maliyet sayılıyor. Depodan kullanırsan o maliyet hiçbir yerde görünmez — iki uçlu sayım (açılış + kapanış) girilene kadar bu rakam tahmindir.'}
       </div>
     </div>`:''}`;
+  if (PROFIL.rol === 'owner'){
+    paraBaglaHepsi(['ohTutar']);
+    ownerHareketYukle(ay);
+  }
 }
 
 /* ===== SÜRÜM KONTROLÜ — telefon eski sürümde kalmasın =====
@@ -3545,7 +3625,7 @@ async function vStok(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
   const [{ data: stok }, cikis, fiyat] = await Promise.all([
-    sb.from('v_stok_durum').select('*').order('ad'),
+    sb.from('v_stok_durum').select('*').eq('sube_id', PROFIL.sube_id).order('ad'),
     // Son sayım/tüketim ne zaman? Hiç yoksa "mevcut" stok değil, toplam alımdır.
     // Bir kez sayıp bırakmak da yetmez: sayım eskidikçe rakam yine gerçeklikten kopar.
     sb.from('stok_hareket').select('tarih')
@@ -3846,7 +3926,7 @@ async function urunDetay(urunId){
     sb.from('alis_kalem')
       .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,alis!inner(tarih,belge_no,is_deleted,tedarikci(ad))')
       .eq('urun_id',urunId).eq('is_deleted',false).eq('alis.is_deleted',false),
-    sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).maybeSingle()
+    sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', PROFIL.sube_id).maybeSingle()
   ]);
   const u=ur.data, s=st.data;
   if(!u){ ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Ürün bulunamadı</div></div>
@@ -4192,7 +4272,7 @@ let TD_DUZENLENEN = null;
 async function vTedarikci(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
-  const { data: bakiye } = owner ? await sb.from('v_tedarikci_bakiye').select('*').order('ad') : { data: null };
+  const { data: bakiye } = owner ? await sb.from('v_tedarikci_bakiye').select('*').eq('sube_id', PROFIL.sube_id).order('ad') : { data: null };
   const bakiyeMap = {};
   (bakiye||[]).forEach(b => bakiyeMap[b.tedarikci_id] = b.bakiye);
   // Toplam açık: borçlu olduklarımız ile içeride malımız duranlar ayrı toplanır, netlenmez
@@ -4394,7 +4474,7 @@ async function firmaDetay(id){
   const owner = PROFIL.rol === 'owner';
 
   const [bk, af, od, kl] = await Promise.all([
-    owner ? sb.from('v_tedarikci_bakiye').select('*').eq('tedarikci_id',id).maybeSingle()
+    owner ? sb.from('v_tedarikci_bakiye').select('*').eq('tedarikci_id',id).eq('sube_id', PROFIL.sube_id).maybeSingle()
           : Promise.resolve({data:null}),
     // Mutabakat icin TUM faturalar — firma butun hesabi soyluyor, sadece acik olanlari degil
     sb.from('alis').select('id,tarih,belge_no,toplam,vade_tarihi,odendi')
@@ -4574,8 +4654,14 @@ async function dokumGoster(){
 
 /* ================== PERSONEL (SADECE OWNER) ================== */
 let PG_DONEM = null;
-// Asgari ücret yasal SGK yükü: net (hesaba yatan) → brüt = net/0,85 (asgari ücret GV+damga istisnası)
-// → işveren SGK yükü = brüt × 0,375 (işçi payı %15 + işveren primi %22,5). Teşvikliyse elle düşürülür.
+/* SGK TAHMİNİ — YASAL HESAP DEĞİL.
+   Formül: brüt = net/0,85 (asgari ücret GV+damga istisnası) → yük = brüt × %37,5
+   (işçi payı %15 + işveren primi %22,5).
+   Bu oran SABİT KODLANMIŞTIR ve MUHASEBECİ TEYİDİ ALMAMIŞTIR. Gerçek bordroda
+   şunlar değiştirir: 5 puanlık işveren indirimi, teşvikler, prime esas kazanç
+   tavanı, asgari ücret üstü maaşlar, eksik gün, kıdem/ihbar.
+   Anayasa md.4: mevzuata bağlı kurallar teyitsiz sabitlenemez, varsayım olarak
+   işaretlenir. O yüzden ekranda "yasal" değil TAHMİN yazıyor. */
 function sgkHesapla(net){ return net>0 ? +((net/0.85)*0.375).toFixed(2) : 0; }
 async function vPersonel(){
   const el = document.getElementById('icerik');
@@ -4636,9 +4722,12 @@ async function vPersonel(){
       <label>Ad Soyad</label><input type="text" id="pgAd">
       <div class="satir">
         <div><label>Maaş (hesaba yatan / net)</label><input type="text" inputmode="decimal" id="pgMaas" placeholder="0,00"></div>
-        <div><label>SGK (yasal — otomatik)</label><input type="text" inputmode="decimal" id="pgSgk" placeholder="otomatik"></div>
+        <div><label>SGK (tahmin — bordrodan doğrula)</label><input type="text" inputmode="decimal" id="pgSgk" placeholder="tahmin"></div>
       </div>
-      <div class="bilgi-not" style="margin:4px 0 0">Net maaşı yaz → SGK yasal olarak hesaplanır (asgari ücret: işçi+işveren toplam yükü). 5 puanlık teşvik alıyorsan SGK'yı elle düşür. Asgari ücret ÜSTÜ maaşta SGK'yı bordrodan elle yaz.</div>
+      <div class="uyari-orta" style="margin:4px 0 0"><b>Bu rakam tahmindir, yasal hesap değildir.</b>
+        Net maaştan kaba bir SGK yükü çıkarır (asgari ücret varsayımı, %37,5 sabit oran).
+        <b>Gerçek tutarı bordrodan yaz.</b> Teşvik, 5 puanlık indirim, tavan aşımı, eksik gün
+        ve asgari ücret üstü maaşlarda bu rakam tutmaz — muhasebeci teyidi alınmamıştır.</div>
       <div class="satir">
         <div><label>Prim</label><input type="text" inputmode="decimal" id="pgPrim" placeholder="0,00"></div>
         <div><label>Yemek</label><input type="text" inputmode="decimal" id="pgYemek" placeholder="0,00"></div>
@@ -4829,6 +4918,9 @@ async function vArac(){
       <label>Ne için?</label>
       <select id="agKategori">${KATALOG.kategoriler
         .filter(k=>/Yakıt|Araç|Taşıt|Otopark/.test(k.ad))
+        // Yakıt en sık girilen kalem — listede ilk sırada olsun. Alfabetik sırada
+        // "Araç Bakım" öne geçiyordu ve yakıt yanlış kategoriye kaydediliyordu.
+        .sort((a,b)=>(a.ad==='Yakıt'?-1:b.ad==='Yakıt'?1:a.ad.localeCompare(b.ad,'tr')))
         .map(k=>`<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select>
       ${tarihSecici('agTarih')}
       <label>Tutar</label><input type="text" inputmode="decimal" id="agTutar" placeholder="0,00">
@@ -5098,6 +5190,74 @@ async function vBelge(){
     </div>
     <input type="file" id="bgDosya" accept="image/*,application/pdf,.pdf" style="display:none">
     <div class="hata-msg" id="bgMsg"></div>`;
+}
+/* SAHİP PARA HAREKETİ — "kâr var ama para nerede?" sorusunun yarısı burada.
+   Sahibin koyduğu/çektiği para kâr değildir ama kasayı ve bankayı değiştirir. */
+/* KAPALI GÜN — kampüs kapalıysa o gün "eksik" sayılmasın.
+   Yanlış alarm, uyarıların tamamını değersizleştirir. */
+async function kapaliGunIsaretle(tarih){
+  const t = new Date(tarih+'T00:00').toLocaleDateString('tr-TR',{day:'numeric',month:'long',weekday:'long'});
+  const neden = prompt(`${t}\n\nBu gün işletme kapalı mıydı? Nedenini yaz:\n`
+    + `(örn: resmi tatil, kampüs kapalı, yıllık izin)`);
+  if (!neden || !neden.trim()) return;
+  const { data, error } = await sb.rpc('rpc_kapali_gun',
+    { p_sube: PROFIL.sube_id, p_tarih: tarih, p_neden: neden.trim(), p_geri: false });
+  if (error){ alert('İşaretlenemedi: ' + hataTr(error.message)); return; }
+  if (data && data.ok) vOzet();
+}
+async function ownerHareketYukle(ay){
+  const oz = document.getElementById('ohOzet'); if (!oz) return;
+  const [{ data: toplam }, { data: liste }] = await Promise.all([
+    sb.from('v_owner_hareket_ay').select('*').eq('donem', ay).maybeSingle(),
+    sb.from('owner_hareket').select('*').eq('is_deleted', false)
+      .gte('tarih', ay+'-01').lte('tarih', aySon(ay)).order('tarih', { ascending:false })
+  ]);
+  const t = toplam || { konulan:0, cekilen:0, net:0, net_nakit:0, net_banka:0, hareket:0 };
+  oz.innerHTML = +t.hareket === 0
+    ? '<div class="bilgi-not">Bu ay kayıt yok. Kendi cebinden para koyduysan veya çektiysen buraya gir.</div>'
+    : ozSatir('Koyduğun', tl(t.konulan))
+    + ozSatir('Çektiğin', '−'+tl(t.cekilen))
+    + ozSatir('NET', tl(t.net), true)
+    + `<div class="ipucu">Kasa ${(+t.net_nakit>=0?'+':'')+tl(t.net_nakit)} ·
+        Banka ${(+t.net_banka>=0?'+':'')+tl(t.net_banka)}</div>`;
+  const el = document.getElementById('ohListe');
+  if (el) el.innerHTML = !(liste||[]).length ? '' :
+    '<div class="yy-bas" style="margin-top:12px">BU AY</div>' + liste.map(h => `
+      <div class="liste-satir">
+        <div class="l-sol"><div class="b">${h.yon==='koyus'?'Para koydun':'Para çektin'}
+          <span class="rozet rz-gri">${h.yontem==='banka'?'banka':'kasa'}</span></div>
+          <div class="k">${new Date(h.tarih+'T00:00').toLocaleDateString('tr-TR')}${
+            h.notlar?' · '+esc(h.notlar):''}</div></div>
+        <div class="l-sag" style="color:${h.yon==='koyus'?'var(--ok)':'var(--hata)'};font-weight:800">
+          ${h.yon==='koyus'?'+':'−'}${tl(h.tutar)}
+          <button class="btn2" style="display:block;margin-top:4px"
+            onclick="ownerHareketSil('${h.id}')">Sil</button></div>
+      </div>`).join('');
+}
+async function ownerHareketKaydet(){
+  const g = id => document.getElementById(id);
+  const tutar = paraDeger('ohTutar');
+  if (tutar <= 0){ mesaj('ohMsg','hata','Tutar girilmedi.'); return; }
+  const yon = g('ohYon').value, yontem = g('ohYontem').value;
+  const ad = yon === 'koyus' ? 'İŞLETMEYE PARA KOYDUN' : 'İŞLETMEDEN PARA ÇEKTİN';
+  if (!confirm(`${ad}\n\n${tl(tutar)} · ${yontem === 'banka' ? 'banka' : 'kasa'}\n`
+    + `${new Date(g('ohTarih').value+'T00:00').toLocaleDateString('tr-TR')}\n\n`
+    + `Bu kâra girmez, sadece kasa/banka bakiyesini açıklar.\nOnaylıyor musun?`)) return;
+  const data = await rpcCagir('rpc_owner_hareket_kaydet', {
+    p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: g('ohTarih').value,
+    p_yon: yon, p_tutar: tutar, p_yontem: yontem, p_not: g('ohNot').value.trim() || null
+  }, 'ohKaydet','ohMsg','Kaydedildi ✓');
+  if (data && data.ok){
+    ['ohTutar','ohNot'].forEach(i => g(i).value = '');
+    ownerHareketYukle(OZ_AY || bugun().slice(0,7));
+  }
+}
+async function ownerHareketSil(id){
+  const neden = prompt('Bu kaydı neden siliyorsun? (kayda geçer)');
+  if (!neden || !neden.trim()) return;
+  const { error } = await sb.rpc('rpc_owner_hareket_sil', { p_id:id, p_neden:neden.trim() });
+  if (error){ mesaj('ohMsg','hata', hataTr(error.message)); return; }
+  ownerHareketYukle(OZ_AY || bugun().slice(0,7));
 }
 function bgAyDegistir(fark){
   const t = new Date((BG_AY || bugun().slice(0,7)) + '-01T00:00');
@@ -5762,15 +5922,36 @@ async function vergiOdenenYukle(){
       <div class="l-sag">${tl(v.tutar)}</div>
     </div>`).join('') + `<div class="liste-satir"><div style="font-weight:800">${yil} YILI TOPLAM</div><div class="l-sag" style="color:var(--ana)">${tl(toplam)}</div></div>`;
 }
-async function ayKapat(){
+/* AY KAPATMA
+   Eskiden kapanış hiçbir şey denetlemiyordu: eksik gün, sayılmamış kasa,
+   yapılmamış mutabakat — hiçbiri engel değildi, kilit simgesi boş bir güvence
+   veriyordu. Üstelik KDV rakamı BURADAN, tarayıcıdan gidiyordu.
+   Artık kontrol de KDV de sunucuda. Ekran yalnız sonucu gösterir. */
+async function ayKapat(zorlaNeden){
   const donem = document.getElementById('akDonem').value;
   if (!donem){ mesaj('akMsg','hata','Dönem seçilmedi.'); return; }
-  // O ayın KDV tahminini çek, kapanışa snapshot yaz
-  const { data: k } = await sb.from('v_kdv_ay').select('odenecek_kdv_tahmini').eq('donem', donem).maybeSingle();
-  const kdvTahmini = k ? k.odenecek_kdv_tahmini : 0;
-  const { data, error } = await sb.rpc('rpc_ay_kapat', { p_sube: PROFIL.sube_id, p_donem: donem, p_kdv_tahmini: kdvTahmini });
+  const { data, error } = await sb.rpc('rpc_ay_kapat_v2',
+    { p_sube: PROFIL.sube_id, p_donem: donem, p_zorla_neden: zorlaNeden || null });
   if (error){ mesaj('akMsg','hata', hataTr(error.message)); return; }
-  mesaj('akMsg','ok', `${donem} kapatıldı ✓${data && data.eksik_gun>0 ? ' — DİKKAT: '+data.eksik_gun+' gün girilmemiş!' : ''}`);
+
+  if (data && data.ok === false){
+    const engel = (data.kontrol?.engel) || [];
+    mesaj('akMsg','hata', data.mesaj || 'Ay kapatılamadı.');
+    const el = document.getElementById('akDurum');
+    if (el) el.innerHTML = akKontrolCiz(data.kontrol, donem);
+    // Zorlama yalnız gerekçeyle
+    if (confirm(`${donem} KAPATILAMADI\n\n`
+      + engel.map(x => '• ' + x).join('\n')
+      + `\n\nBunları düzeltmeden kapatmak istiyorsan gerekçe yazman gerekiyor.\n`
+      + `Gerekçe kayda geçer ve silinemez.\n\nZorlamak istiyor musun?`)){
+      const neden = prompt('Neden bu kontroller tamamlanmadan kapatıyorsun?');
+      if (neden && neden.trim().length >= 10) return ayKapat(neden.trim());
+      alert('Gerekçe en az 10 karakter olmalı — kapatma yapılmadı.');
+    }
+    return;
+  }
+  mesaj('akMsg','ok', `${donem} kapatıldı ✓${data.zorlandi ? ' (ZORLANDI — gerekçe kayıtlı)' : ''}`
+    + ` · KDV ${tl(data.kdv_tahmini)}`);
   vYonetim();
 }
 async function ayAc(){
@@ -5784,13 +5965,36 @@ async function ayAc(){
   mesaj('akMsg','ok', `${donem} açıldı ✓`);
   vYonetim();
 }
+function akKontrolCiz(k, donem){
+  if (!k) return '';
+  const engel = k.engel || [], uyari = k.uyari || [];
+  return `<div style="margin-top:10px">
+    ${engel.length
+      ? `<div class="uyari-agir"><b>Kapanışı engelleyen ${engel.length} şey:</b><br>`
+        + engel.map(x=>'• '+esc(x)).join('<br>') + '</div>'
+      : '<div class="bilgi-not">Zorunlu kontrollerin hepsi tamam.</div>'}
+    ${uyari.length
+      ? `<div class="uyari-orta"><b>Kapatır ama eksik kalır:</b><br>`
+        + uyari.map(x=>'• '+esc(x)).join('<br>') + '</div>' : ''}
+    <div class="ipucu">Bu ayın KDV'si (sunucu hesabı): <b>${tl(k.kdv_tahmini||0)}</b></div>
+  </div>`;
+}
 async function akDurumGoster(){
   const el = document.getElementById('akDurum'); if(!el) return;
   const donem = document.getElementById('akDonem').value;
-  const { data } = await sb.from('ay_kapanis').select('kapali,eksik_gun_sayisi').eq('sube_id', PROFIL.sube_id).eq('donem', donem).eq('is_deleted',false).maybeSingle();
-  el.innerHTML = data && data.kapali
-    ? `<div class="rozet rz-hata" style="margin-top:8px">🔒 ${donem} KAPALI${data.eksik_gun_sayisi>0?' · '+data.eksik_gun_sayisi+' eksik gün':''}</div>`
-    : `<div class="rozet rz-ok" style="margin-top:8px">🔓 ${donem} açık</div>`;
+  el.innerHTML = '<div class="bilgi-not" style="margin-top:8px">Kontrol ediliyor...</div>';
+  const [{ data }, { data: k }] = await Promise.all([
+    sb.from('ay_kapanis').select('kapali,eksik_gun_sayisi,zorlandi,zorlama_neden')
+      .eq('sube_id', PROFIL.sube_id).eq('donem', donem).eq('is_deleted',false).maybeSingle(),
+    sb.rpc('fn_ay_kapanis_kontrol', { p_sube: PROFIL.sube_id, p_donem: donem })
+  ]);
+  el.innerHTML = (data && data.kapali
+    ? `<div class="rozet rz-hata" style="margin-top:8px">🔒 ${donem} KAPALI${
+        data.eksik_gun_sayisi>0?' · '+data.eksik_gun_sayisi+' eksik gün':''}</div>`
+      + (data.zorlandi ? `<div class="uyari-orta" style="margin-top:6px">
+          <b>Zorlanarak kapatıldı.</b> Gerekçe: ${esc(data.zorlama_neden||'—')}</div>` : '')
+    : `<div class="rozet rz-ok" style="margin-top:8px">🔓 ${donem} açık</div>`)
+    + akKontrolCiz(k, donem);
 }
 function trDuz(s){ // jsPDF standart fontu Türkçe karakter basamıyor — güvenli çevrim
   return String(s||'').replace(/ğ/g,'g').replace(/Ğ/g,'G').replace(/ü/g,'u').replace(/Ü/g,'U')
