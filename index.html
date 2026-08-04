@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-04-2">
+<meta name="surum" content="2026-08-04-4">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -392,7 +392,12 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
     <button class="btn" id="girisBtn" onclick="girisYap()">Giriş Yap</button>
     <div class="hata-msg" id="girisHata"></div>
     <div style="text-align:center;margin-top:14px">
-      <a href="#" onclick="sifremiUnuttum();return false" style="color:var(--ana);font-size:13px;font-weight:700">Şifremi unuttum</a>
+      <!-- Dokunma hedefi 44px: telefonda parmakla basılıyor, 18px'lik bir
+           satır kaçırılıyordu. Yazı boyutu aynı, basılabilir alan büyüdü. -->
+      <a href="#" onclick="sifremiUnuttum();return false"
+         style="color:var(--ana);font-size:13px;font-weight:700;
+                display:inline-flex;align-items:center;justify-content:center;
+                min-height:44px;padding:0 16px">Şifremi unuttum</a>
     </div>
     <div class="bilgi-not" style="text-align:center">Bir kez giriş yapınca cihaz sizi hatırlar — her seferinde şifre gerekmez.</div>
   </div>
@@ -1033,7 +1038,7 @@ async function gunDetay(tarih){
     sb.from('gun_sonu')
       // z_foto_path/pos_slip_foto_path eksikti: bu panelden Z raporu açılamıyordu
       .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,oran,kdv_tutar,is_deleted)')
-      .eq('tarih',tarih).eq('is_deleted',false).maybeSingle(),
+      .eq('tarih',tarih).eq('sube_id', PROFIL.sube_id).eq('is_deleted',false).maybeSingle(),
     sb.from('gider').select('tutar,aciklama').eq('tarih',tarih).eq('kasadan',true).eq('is_deleted',false),
     sb.from('tedarikci_odeme').select('tutar,tedarikci(ad)').eq('tarih',tarih).eq('yontem','nakit').eq('is_deleted',false)
   ]);
@@ -1104,7 +1109,7 @@ async function vOzet(){
   const ay = OZ_AY || bugun().slice(0,7);
   OZ_AY = ay;
   const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme] = await Promise.all([
-    sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
+    sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('sube_id', PROFIL.sube_id).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
     sb.from('v_uyarilar').select('*')
@@ -5208,7 +5213,7 @@ async function kapaliGunIsaretle(tarih){
 async function ownerHareketYukle(ay){
   const oz = document.getElementById('ohOzet'); if (!oz) return;
   const [{ data: toplam }, { data: liste }] = await Promise.all([
-    sb.from('v_owner_hareket_ay').select('*').eq('donem', ay).maybeSingle(),
+    sb.from('v_owner_hareket_ay').select('*').eq('donem', ay).eq('sube_id', PROFIL.sube_id).maybeSingle(),
     sb.from('owner_hareket').select('*').eq('is_deleted', false)
       .gte('tarih', ay+'-01').lte('tarih', aySon(ay)).order('tarih', { ascending:false })
   ]);
@@ -5499,10 +5504,60 @@ async function kisiAktifDegistir(profil, aktif, ad){
   if (data && data.ok) yetkiYukle();
 }
 
+/* SİSTEM KONTROLÜ — fn_sistem_kontrol() sunucuda 13 tutarlılığı denetler.
+   Buradan çağrılmasının sebebi: fonksiyon Supabase SQL Editor'dan
+   çalıştırılınca yönetici oturumu olmadığı için iki kontrolü sessizce
+   atlıyor. Uygulamadan çağırınca tam çalışır — ilk satır bunu söyler. */
+async function sistemKontrolCalistir(btn){
+  const kutu = document.getElementById('sistemKontrolSonuc');
+  if (!kutu) return;
+  const eski = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = 'Bakılıyor...'; }
+  kutu.innerHTML = '<div class="bilgi-not" style="margin-top:10px">Kontrol ediliyor...</div>';
+  try{
+    const { data, error } = await sb.rpc('fn_sistem_kontrol');
+    if (error) throw new Error(hataTr(error.message));
+    const satir = data || [];
+    const hata  = satir.filter(x => x.seviye === 'HATA');
+    const uyari = satir.filter(x => x.seviye === 'UYARI');
+    const bilgi = satir.filter(x => x.seviye === 'BİLGİ' || x.seviye === 'EKSİK');
+
+    kutu.innerHTML = `<div style="margin-top:10px">
+      ${bilgi.map(b => `<div class="${b.seviye==='EKSİK'?'uyari-orta':'bilgi-not'}">${esc(b.konu)}</div>`).join('')}
+      ${!hata.length && !uyari.length
+        ? '<div class="rozet rz-ok" style="margin-top:8px">Her şey tutuyor — hata da uyarı da yok ✓</div>'
+        : ''}
+      ${hata.length ? `<div class="uyari-agir" style="margin-top:8px">
+          <b>${hata.length} HATA — bakılması gerekiyor</b><br>
+          ${hata.map(h => `• ${esc(h.konu)}${h.adet>0?' ('+h.adet+')':''}${
+              h.ayrinti?'<br><span class="k" style="margin-left:12px">'+esc(h.ayrinti)+'</span>':''}`).join('<br>')}
+        </div>` : ''}
+      ${uyari.length ? `<div class="uyari-orta" style="margin-top:8px">
+          <b>${uyari.length} uyarı — acil değil</b><br>
+          ${uyari.map(u => `• ${esc(u.konu)}${u.adet>0?' ('+u.adet+')':''}${
+              u.ayrinti?'<br><span class="k" style="margin-left:12px">'+esc(u.ayrinti)+'</span>':''}`).join('<br>')}
+        </div>` : ''}
+      <div class="ipucu">Son kontrol: ${new Date().toLocaleString('tr-TR')}</div>
+    </div>`;
+  }catch(e){
+    kutu.innerHTML = `<div class="uyari-agir" style="margin-top:10px">
+      Kontrol çalıştırılamadı: ${esc(e.message || String(e))}</div>`;
+  }finally{
+    if (btn){ btn.disabled = false; btn.textContent = eski; }
+  }
+}
+
 async function vYonetim(){
   const el = document.getElementById('icerik');
   el.innerHTML = `
     <h2 class="bolum">Yönetim</h2>
+    <div class="kart">
+      ${kbaslik('SAĞLIK', 'Sistem Kontrolü', `<button class="btn2" onclick="sistemKontrolCalistir(this)">Kontrol Et</button>`)}
+      <div class="ipucu">Sistemin kendi kendini denetlemesi: gün sonu toplamları, fatura-kalem
+        tutarlılığı, kasa ile Z raporu farkı, ödemesiz vade, belgesiz kayıt, açıkta kalan izin.
+        Ayda bir çalıştırman yeter. <b>Hiçbir şeyi değiştirmez</b>, sadece bakar.</div>
+      <div id="sistemKontrolSonuc"></div>
+    </div>
     <div class="kart">
       ${kbaslik('YETKİ', 'Kişiler ve Yetkileri', `<button class="btn2" onclick="katlaAc('yetkiKutu',this)">Aç</button>`)}
       <div id="yetkiKutu" style="display:none">
