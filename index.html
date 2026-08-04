@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-04-7">
+<meta name="surum" content="2026-08-04-8">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2762,7 +2762,11 @@ function gdTemel(){
         <input type="checkbox" id="gdKasadan" style="width:20px;height:20px;flex:none"> Kasadan nakit ödendi
       </label>
       <label>Açıklama</label><input type="text" id="gdAciklama" placeholder="örn: Temmuz elektrik faturası">
-      <label>Belge Fotoğrafı</label><input type="file" id="gdFoto" accept="image/*,application/pdf,.pdf">
+      <label>Belge (fotoğraf veya PDF)</label>
+      <input type="file" id="gdFoto" accept="image/*,application/pdf,.pdf">
+      <button type="button" class="btn2" id="gdOku" onclick="giderBelgeOku()" style="width:100%;margin-top:6px">
+        📄 Belgeyi oku — tutarı ve KDV'yi doldur</button>
+      <div class="oku-durum" id="gdOkuDurum"></div>
       <button class="btn" id="gdKaydet" onclick="giderKaydet(null)">Kaydet</button>
       <div class="hata-msg" id="gdMsg"></div>
     </div>`;
@@ -5790,6 +5794,73 @@ async function vadeKapat(id, ad){
 /* VERGİ DEKONTU OKUMA — fatura ve araç masrafındaki ile aynı okuyucu.
    Dekontlarda tutar genelde "ÖDENEN TUTAR"/"Tahsil Edilen" diye geçer;
    okuyucu bunu genel toplam olarak döndürüyor. Okunan değer ÖNERİDİR. */
+/* GİDER BELGESİ OKUMA — fatura/vergi/araç ile AYNI okuyucu.
+   Bu form tek başına okuyucusuz kalmıştı: elektrik faturasının PDF'ini
+   yüklüyordun ama tutarı, KDV'yi, tarihi elle yazman gerekiyordu.
+   Okunan değer ÖNERİDİR — üstüne yazabilirsin, kaydetmeden kontrol et. */
+async function giderBelgeOku(){
+  const inp = document.getElementById('gdFoto');
+  const drm = document.getElementById('gdOkuDurum');
+  const btn = document.getElementById('gdOku');
+  const yaz = (t,s)=>{ if(drm){ drm.className='oku-durum '+(s||''); drm.textContent=t; } };
+  if (!(inp && inp.files && inp.files[0])){ yaz('Önce belgeyi seç.','uyari'); return; }
+  btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
+  yaz('Belge okunuyor, 10-20 saniye sürebilir...','');
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
+    const f = inp.files[0];
+    let govde;
+    if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf'){
+      const c = await pdfMetinCikar(f);
+      if (!c.yeterli) throw new Error('Bu PDF taranmış görünüyor. Fotoğrafını çekip dene.');
+      govde = { metin: c.metin };
+    } else {
+      const k = await fotoKucult(f, 2000, 0.92);
+      govde = { gorsel: await new Promise((coz,red)=>{ const fr=new FileReader();
+        fr.onload=()=>coz(fr.result); fr.onerror=()=>red(new Error('Fotoğraf okunamadı')); fr.readAsDataURL(k.veri); }) };
+    }
+    const y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
+      body: JSON.stringify(govde)
+    });
+    const r = await y.json();
+    if (!y.ok || !r.ok) throw new Error(r?.hata || ('Okuma başarısız ('+y.status+')'));
+    const v = r.veri || {}, doldu = [];
+    const dld = (id, deger) => {
+      const e = document.getElementById(id);
+      if (!e || deger == null || deger === '') return false;
+      e.value = String(deger).replace('.', ',');
+      e.dispatchEvent(new Event('input',{bubbles:true}));
+      e.classList.add('oku-dolu');
+      return true;
+    };
+    if (dld('gdTutar', v.odenecek ?? v.genel_toplam)) doldu.push('Tutar');
+    /* KDV: cok oranli faturada (elektrik gibi) kirilimlarin TOPLAMI alinir —
+       tek satiri almak eksik KDV indirimi demektir. */
+    let kdv = v.kdv_tutar;
+    if (Array.isArray(v.kdv_kirilim) && v.kdv_kirilim.length)
+      kdv = v.kdv_kirilim.reduce((a,x)=>a + (+x.kdv_tutar || 0), 0);
+    if (dld('gdKdvTutar', kdv != null ? (+kdv).toFixed(2) : null)) doldu.push('KDV');
+    if (v.tarih && /^\d{4}-\d{2}-\d{2}$/.test(v.tarih)){
+      const t = document.getElementById('gdTarih');
+      if (t){ t.value = v.tarih; t.classList.add('oku-dolu'); doldu.push('Tarih'); }
+    }
+    const ac = document.getElementById('gdAciklama');
+    if (ac && !ac.value.trim() && (v.belge_no || v.tedarikci?.ad)){
+      ac.value = [v.belge_no, v.tedarikci?.ad].filter(Boolean).join(' · ');
+      ac.classList.add('oku-dolu'); doldu.push('Açıklama');
+    }
+    yaz(doldu.length
+      ? 'Dolduruldu: ' + doldu.join(', ') + ' · KATEGORİYİ sen seç, sonra kaydet.'
+      : 'Belge okundu ama tutar bulunamadı — elle yaz.', doldu.length ? 'ok' : 'uyari');
+  }catch(e){
+    yaz(hataTr(e.message || String(e)), 'uyari');
+  }finally{
+    btn.disabled = false; btn.textContent = eski;
+  }
+}
 async function vergiBelgeOku(){
   const inp = document.getElementById('voFoto');
   const drm = document.getElementById('voOkuDurum');
