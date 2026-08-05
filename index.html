@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-05-1">
+<meta name="surum" content="2026-08-05-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -890,7 +890,17 @@ async function belgeEkle(tablo, id, klasor, mevcutVar){
     document.body.style.cursor = 'progress';
     try{
       const yol = await dosyaYukle(f, klasor);
-      const { error } = await sb.from(tablo).update({ foto_path: yol }).eq('id', id);
+      /* Degistirme ise eski yolu NOT alanina yaz: yeni dosya kayda baglanirken
+         eskisi storage'da yetim kaliyor. Iz olmazsa hangisi oldugu bulunamaz. */
+      let ek = {};
+      if (mevcutVar){
+        const alan = tablo === 'vergi_odeme' ? 'notlar' : 'aciklama';
+        const { data: eski } = await sb.from(tablo).select(alan+',foto_path').eq('id', id).maybeSingle();
+        if (eski && eski.foto_path)
+          ek[alan] = ((eski[alan]||'') + ' [belge degistirildi ' + bugun()
+                      + ', eski dosya: ' + eski.foto_path + ']').slice(0, 500);
+      }
+      const { error } = await sb.from(tablo).update({ foto_path: yol, ...ek }).eq('id', id);
       if (error) throw new Error(hataTr(error.message));
       if (tablo === 'gider')       await giderListe();
       else if (tablo === 'vergi_odeme') await vergiOdenenYukle();
@@ -2889,6 +2899,9 @@ async function giderListe(){
           tutar: tl(g.tutar),
           eylem: g.foto_path
             ? belgeBtn(g.foto_path, 'Belge', (g.gider_kategori?.ad||'')+' '+g.tarih)
+              + `<button type="button" class="btn2" title="Yanlış belge eklediysen değiştir"
+                   style="padding:4px 8px;font-size:12px;margin-left:4px"
+                   onclick="belgeEkle('gider','${g.id}','gider',true)">Değiştir</button>`
             : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
                  onclick="belgeEkle('gider','${g.id}','gider',false)">+ Belge</button>`
         })).join('')}</div>`;
@@ -6202,6 +6215,9 @@ async function vergiOdenenYukle(){
       <div class="l-sag">${tl(v.tutar)}
         <div style="margin-top:4px">${v.foto_path
           ? belgeBtn(v.foto_path, 'Belge', (VERGI_AD[v.tur]||v.tur)+' '+v.donem)
+            + `<button type="button" class="btn2" title="Yanlış belge eklediysen değiştir"
+                 style="padding:4px 8px;font-size:12px;margin-left:4px"
+                 onclick="belgeEkle('vergi_odeme','${v.id}','vergi',true)">Değiştir</button>`
           : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
                onclick="belgeEkle('vergi_odeme','${v.id}','vergi',false)">+ Belge</button>`}</div>
       </div>
