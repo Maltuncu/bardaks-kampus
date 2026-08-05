@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-05-3">
+<meta name="surum" content="2026-08-05-4">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -6172,17 +6172,23 @@ async function bankaPdfAnaliz(){
       <div class="yy-bas" style="margin-top:14px">GÜN GÜN</div>
       ${farkli.length === 0
         ? '<div class="bilgi-not">31 günün hepsi tutuyor.</div>'
-        : `<div class="uyari-agir">${farkli.length} günde fark var</div>`
-          + farkli.map(x => `<div class="liste-satir">
+        : `<div class="uyari-agir">${farkli.length} günde fark var</div>
+           <div class="ipucu">Bir güne dokun — o günün gün sonu kaydı, kasa kırılımı ve
+             <b>Z raporu fotoğrafı</b> açılır. Farkın nereden geldiği orada görünür.</div>`
+          + farkli.map(x => {
+              const trh = donem + '-' + String(x.gun).padStart(2,'0');
+              return `<div class="liste-satir" style="cursor:pointer"
+                  onclick="gunDetay('${trh}')" title="O günün gün sonu kaydını ve Z raporunu aç">
               <div class="l-sol"><div class="b">${String(x.gun).padStart(2,'0')}.${donem.slice(5)} ${
                 x.adetFark ? '<span class="rozet rz-hata">'+Math.abs(x.adetFark)+' İŞLEM</span>' : ''}</div>
                 <div class="k">sistem ${x.sistem==null?'—':tl(x.sistem)} · banka ${x.banka==null?'—':tl(x.banka)}${
-                  x.sAdet!=null ? ' · adet '+x.sAdet+'/'+x.bAdet : ' · adet girilmemiş'}</div></div>
+                  x.sAdet!=null ? ' · adet '+x.sAdet+'/'+x.bAdet : ' · adet girilmemiş'} ›</div></div>
               <div class="l-sag" style="color:var(--hata);font-weight:800">${tl(x.fark)}</div>
-            </div>`).join('')}
+            </div>`;}).join('')}
       ${farkli.some(x=>x.sAdet==null) ? `<div class="ipucu">Bazı günlerde Z'deki kart
         <b>işlem adedi</b> girilmemiş. Adet girilirse fark "kaç işlem" olduğunu da söyler —
         03.08.2026'daki 960 TL'yi bulan şey buydu.</div>` : ''}
+      <div id="bmSonuc"></div>
       <button class="btn" style="margin-top:12px" id="bmKaydet" onclick="bankaMutabakatKaydet()">Mutabakatı Kaydet</button>`;
     mesaj('bmMsg','ok', `${p.gunluk.length} gün okundu · ${farkli.length} günde fark. Kontrol edip kaydet.`);
   }catch(e){
@@ -6196,11 +6202,21 @@ async function bankaMutabakatKaydet(){
   if (!MT_SON){ mesaj('bmMsg','hata','Önce PDF analiz edilmeli.'); return; }
   const o = MT_SON.ozet;
   const kesintiToplam = Math.abs((o.komisyon||0) + (o.maxipuan||0) + (o.okc_ucret||0));
-  if (!confirm(`${ayAdi(MT_SON.donem)} POS MUTABAKATI KAYDEDİLECEK\n\n`
-    + `Banka toplam satış: ${tl(o.toplam_satis)}\n`
-    + `Kesintiler: ${tl(o.kesinti_toplam)}\n`
-    + `${MT_SON.gunluk.length} günün verisi saklanacak.\n\n`
-    + `Bu dönemin önceki mutabakatı varsa üzerine yazılır.\n\nOnaylıyor musun?`)) return;
+  /* Bu donemin mutabakati daha once kaydedilmis mi — "uzerine yazilir" diye
+     genel uyari vermek yerine, gercekten varsa soyle. */
+  const { data: onceki } = await sb.from('banka_mutabakat')
+    .select('created_at').eq('sube_id', PROFIL.sube_id).eq('donem', MT_SON.donem)
+    .eq('is_deleted', false).maybeSingle();
+
+  if (!confirm(`${ayAdi(MT_SON.donem)} POS mutabakatı kaydedilecek.\n\n`
+    + `Banka toplam satış  ${tl(o.toplam_satis)}\n`
+    + `Kesintiler          ${tl(o.kesinti_toplam)}\n`
+    + `Gün sayısı          ${MT_SON.gunluk.length}\n\n`
+    + (onceki
+        ? `Bu dönem ${new Date(onceki.created_at).toLocaleDateString('tr-TR')} tarihinde `
+          + `bir kez kaydedilmişti; yenisi onun yerine geçecek.\n\n`
+        : '')
+    + `Devam edilsin mi?`)) return;
 
   const data = await rpcCagir('rpc_mutabakat_kaydet', {
     p_idem: idem(), p_sube: PROFIL.sube_id, p_donem: MT_SON.donem,
@@ -6208,17 +6224,49 @@ async function bankaMutabakatKaydet(){
   }, 'bmKaydet', 'bmMsg', null);
   if (!data || !data.ok) return;
 
+  /* Kaydedildi bilgisi kucuk bir satirda kaliyordu ve hemen ardindan gelen
+     ikinci soru kutusunun altinda gozden kaciyordu. Artik sonucu ekranin
+     ustune yaz ve oraya kaydir — "ne oldu bilmiyorum" durumu kalmasin. */
+  const sonucKutu = document.getElementById('bmSonuc');
+  if (sonucKutu){
+    sonucKutu.innerHTML = `<div class="${data.durum === 'uyumlu' ? 'bilgi-not' : 'uyari-orta'}"
+        style="margin:10px 0">
+      <b>${ayAdi(MT_SON.donem)} mutabakatı kaydedildi ✓</b><br>
+      ${data.durum === 'uyumlu'
+        ? 'Bütün günler tutuyor — banka ile sistem arasında fark yok.'
+        : data.tutmayan_gun + ' günde fark var. Aşağıdaki listeden güne dokunup Z raporuna bakabilirsin.'}
+      <span class="k" style="display:block;margin-top:4px">${new Date().toLocaleString('tr-TR')}</span>
+    </div>`;
+    sonucKutu.scrollIntoView({ block:'center', behavior:'smooth' });
+  }
   mesaj('bmMsg','ok', `Mutabakat kaydedildi · ${data.durum === 'uyumlu'
     ? 'bütün günler tutuyor ✓' : data.tutmayan_gun + ' günde fark var'}`);
 
-  // Kesintiler gider olarak yazılsın mı — mükerrer olmasın diye SORARAK
+  /* Mukerrer uyarisini kullaniciya "sen kontrol et" diye birakmak yanlisti —
+     sistem zaten bakabilir. O ayda POS komisyonu/OKC gideri var mi, say. */
+  const ayBas = MT_SON.donem + '-01', aySonu = aySon(MT_SON.donem);
+  const { data: mevcutGider } = await sb.from('gider')
+    .select('tutar, aciklama, gider_kategori(ad)')
+    .eq('sube_id', PROFIL.sube_id).eq('is_deleted', false)
+    .gte('tarih', ayBas).lte('tarih', aySonu);
+  const benzer = (mevcutGider||[]).filter(g =>
+    ['POS Komisyon','ÖKC/POS Ücreti'].includes(g.gider_kategori?.ad)
+    || /komisyon|ökc|okc/i.test(g.aciklama||''));
+  const benzerToplam = benzer.reduce((a,g)=>a + +g.tutar, 0);
+
   if (kesintiToplam > 0 && confirm(
       `Bankanın kestiği ${tl(kesintiToplam)} gider olarak kaydedilsin mi?\n\n`
-    + `Komisyon ${tl(Math.abs(o.komisyon||0))}\n`
-    + `Maxipuan ${tl(Math.abs(o.maxipuan||0))}\n`
-    + `ÖKC cihaz ücreti ${tl(Math.abs(o.okc_ucret||0))}\n\n`
-    + `DİKKAT: bu ayın komisyonunu daha önce elle girdiysen MÜKERRER olur.\n`
-    + `Giderler ekranından kontrol et.`)){
+    + `Komisyon          ${tl(Math.abs(o.komisyon||0))}\n`
+    + `Maxipuan          ${tl(Math.abs(o.maxipuan||0))}\n`
+    + `ÖKC cihaz ücreti  ${tl(Math.abs(o.okc_ucret||0))}\n\n`
+    + (benzer.length
+        ? `DİKKAT — bu ay zaten ${benzer.length} benzer gider kayıtlı `
+          + `(toplam ${tl(benzerToplam)}):\n`
+          + benzer.slice(0,4).map(g => '  · ' + tl(g.tutar) + ' — '
+              + String(g.aciklama||'').slice(0,45)).join('\n')
+          + `\n\nEklersen MÜKERRER olur. Emin değilsen İPTAL et.\n\n`
+        : `Bu ay için henüz komisyon gideri kaydı yok — ekleme güvenli.\n\n`)
+    + `Kaydedilsin mi?`)){
     const kat = KATALOG.kategoriler.find(k=>k.ad==='POS Komisyon')
              || KATALOG.kategoriler.find(k=>k.ad==='Diğer');
     if (kat){
