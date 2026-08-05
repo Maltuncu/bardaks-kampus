@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-05-2">
+<meta name="surum" content="2026-08-05-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1547,6 +1547,17 @@ async function belgeAc(yol, baslik){
   }catch(e){
     durum.textContent = 'Belge açılamadı: ' + e.message;
   }
+}
+/* Listelerde uzun notu kırp. Köşeli parantezli teknik izler ([belge
+   degistirildi ...], [SILINDI ...]) kayıtta kalsın ama ekranda görünmesin —
+   kullanıcıya bakan satır 250 karakterlik dosya yolu taşımamalı. */
+function notKisalt(t, sinir){
+  if (!t) return '';
+  const temiz = String(t).replace(/\s*\[[^\]]*\]/g, '').replace(/\s+/g,' ').trim();
+  const en = sinir || 80;
+  return temiz.length <= en
+    ? esc(temiz)
+    : `<span title="${esc(temiz)}">${esc(temiz.slice(0, en))}…</span>`;
 }
 function belgeBtn(yol, etiket, baslik){
   if(!yol) return `<span class="bo-btn yok">${etiket} yok</span>`;
@@ -5808,8 +5819,20 @@ const VADE_DURUM = {
 };
 async function vergiVadeYukle(){
   const el = document.getElementById('vergiVadeler'); if(!el) return;
-  const { data, error } = await sb.from('v_vade_liste').select('*').order('vade_tarihi');
+  /* Vadenin kendi tutari 89 kayittan 1'inde dolu — takvim vadeyi onceden
+     uretiyor, tutar odeme aninda belli oluyor. ODENMIS vadede tutar bagli
+     odemede duruyor; oradan okunur. Ikinci sorgu bunun icin. */
+  const [{ data, error }, bagli] = await Promise.all([
+    sb.from('v_vade_liste').select('*').order('vade_tarihi'),
+    sb.from('vade').select('id, vergi_odeme:odendi_vergi_id(tutar), gider:odendi_gider_id(tutar)')
+      .eq('is_deleted', false).eq('durum', 'odendi')
+  ]);
   if (error){ el.innerHTML = `<div class="uyari-agir">Vadeler yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
+  const odenenTutar = {};
+  (bagli.data || []).forEach(x => {
+    const t = x.vergi_odeme?.tutar ?? x.gider?.tutar;
+    if (t != null) odenenTutar[x.id] = +t;
+  });
   const hepsi = data||[];
   const sinir = tarihStr(new Date(Date.now()+60*864e5));
   const liste = VADE_HEPSI ? hepsi
@@ -5826,8 +5849,13 @@ async function vergiVadeYukle(){
               v.gecti ? '<span class="rozet rz-hata">GEÇTİ</span>'
               : v.yakin ? '<span class="rozet rz-uyari">'+(v.kalan_gun===0?'BUGÜN':v.kalan_gun+' GÜN')+'</span>' : ''}</div>
               <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${
-                v.tutar ? ' · '+tl(v.tutar) : ' · tutar belli değil'}${
-                v.durum_notu ? '<br>'+esc(v.durum_notu) : ''}</div></div>
+                /* Once vadenin kendi tutari, yoksa odemeden gelen; hicbiri yoksa
+                   HIC YAZMA. Gelecek vadede tutarin belli olmamasi normaldir,
+                   her satira "tutar belli degil" yazmak gurultu. */
+                v.tutar ? ' · '+tl(v.tutar)
+                : odenenTutar[v.id] != null ? ' · '+tl(odenenTutar[v.id])
+                : ''}${
+                v.durum_notu ? '<br>'+notKisalt(v.durum_notu, 90) : ''}</div></div>
             <div class="l-sag">${d
               ? `<span class="rozet ${d[0]}">${d[1]}</span>`
               : `<button class="btn2" onclick="vadeKapat('${v.id}','${esc(v.aciklama)}')">Kapat</button>`}</div>
@@ -6206,12 +6234,14 @@ async function vergiOdenenYukle(){
   const el = document.getElementById('voListe'); if(!el) return;
   const yil = bugun().slice(0,4);
   const { data } = await sb.from('vergi_odeme').select('*').eq('is_deleted',false)
-    .gte('donem', yil+'-01').order('odeme_tarihi',{ascending:false}).limit(40);
+    .gte('odeme_tarihi', yil+'-01-01').lte('odeme_tarihi', yil+'-12-31')
+    .order('odeme_tarihi',{ascending:false}).limit(40);
   const toplam = (data||[]).reduce((a,x)=>a+ +x.tutar,0);
   el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Bu yıl vergi ödemesi kaydı yok.</div>' :
     (data||[]).map(v=>`<div class="liste-satir">
       <div class="l-sol"><div class="b">${VERGI_AD[v.tur]||esc(v.tur)}</div>
-        <div class="k">${esc(v.donem)}${v.odeme_tarihi?' · '+new Date(v.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}${v.notlar?' · '+esc(v.notlar):''}</div></div>
+        <div class="k">${esc(v.donem)}${v.odeme_tarihi?' · '+new Date(v.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}${
+          v.notlar?' · '+notKisalt(v.notlar, 90):''}</div></div>
       <div class="l-sag">${tl(v.tutar)}
         <div style="margin-top:4px">${v.foto_path
           ? belgeBtn(v.foto_path, 'Belge', (VERGI_AD[v.tur]||v.tur)+' '+v.donem)
