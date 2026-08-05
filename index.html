@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-04-8">
+<meta name="surum" content="2026-08-05-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -485,7 +485,8 @@ function srSatir(o){
   return `<div class="sr${o.tikla?' sr-ac':''}"${o.tikla?` onclick="${o.tikla}"`:''}${
     o.ara?` data-ara="${esc(String(o.ara).toLocaleLowerCase('tr'))}"`:''}>
     <div><div class="sr-ad">${o.ad}</div>${o.alt?`<div class="sr-alt">${o.alt}</div>`:''}</div>
-    <div class="sr-tut">${o.tutar||''}${o.tutarAlt?`<span class="k">${o.tutarAlt}</span>`:''}</div></div>`;
+    <div class="sr-tut">${o.tutar||''}${o.tutarAlt?`<span class="k">${o.tutarAlt}</span>`:''}${
+      o.eylem?`<div style="margin-top:4px">${o.eylem}</div>`:''}</div></div>`;
 }
 /* ARAMA — uygulamada hiçbir yerde arama yoktu; 30 ürün arasında kaydırmak
    tedarikçi karşındayken çalışmaz. srSatir'ın data-ara alanında süzer. */
@@ -847,16 +848,61 @@ async function fotoKucult(file, max, kalite){
     return blob ? { veri:blob, tip:'jpg' } : { veri:file, tip:null };
   }catch(e){ return { veri:file, tip:null }; } // küçültülemezse orijinali yükle
 }
-async function fotoYukle(inputId, klasor){
-  const inp = document.getElementById(inputId);
-  if (!inp || !inp.files || !inp.files[0]) return null;
-  const f = inp.files[0];
+/* Cekirdek: elimizdeki DOSYAYI yukler. fotoYukle bunu input uzerinden cagirir,
+   belgeEkle ise dogrudan — ikisi ayni yolu kullansin, iki ayri yukleme
+   davranisi olmasin. */
+async function dosyaYukle(f, klasor){
+  if (!f) return null;
   const k = await fotoKucult(f);
   const uzanti = k.tip || (f.name.split('.').pop()||'jpg').toLowerCase();
   const yol = `${klasor}/${bugun()}_${crypto.randomUUID()}.${uzanti}`;
-  const { error } = await sb.storage.from('belgeler').upload(yol, k.veri, { upsert:false, contentType: k.tip ? 'image/jpeg' : (f.type||undefined) });
-  if (error) throw new Error('Fotoğraf yüklenemedi: ' + error.message);
+  const { error } = await sb.storage.from('belgeler').upload(yol, k.veri,
+    { upsert:false, contentType: k.tip ? 'image/jpeg' : (f.type||undefined) });
+  if (error) throw new Error('Belge yüklenemedi: ' + error.message);
   return yol;
+}
+async function fotoYukle(inputId, klasor){
+  const inp = document.getElementById(inputId);
+  if (!inp || !inp.files || !inp.files[0]) return null;
+  return dosyaYukle(inp.files[0], klasor);
+}
+
+/* ===== SONRADAN BELGE EKLEME =====
+   Gider ve vergi kayitlarinin duzenleme ekrani YOK. Bir kez girildi mi
+   belgesini iliştirmenin hicbir yolu yoktu; 10 kayit (243.143 TL vergi
+   dekontu dahil) bu yuzden belgesiz kalmisti.
+   Bu fonksiyon SADECE belge ekler: tutara, tarihe, KDV'ye DOKUNMAZ.
+   Tam duzenleme bilerek yapilmadi — tutar degistirmek KDV'yi, kari ve
+   cari bakiyeyi etkiler, ayri bir is. Belge eklemek tek yonlu ve zararsiz.
+   Uzerine yazmaz: belgesi olan kayda tekrar eklemek istersen once sorar. */
+async function belgeEkle(tablo, id, klasor, mevcutVar){
+  if (mevcutVar && !confirm('Bu kayıtta zaten belge var.\n\n'
+      + 'Yenisini eklersen eskisi kayıtla ilişkisiz kalır.\n\nDevam edilsin mi?')) return;
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*,application/pdf,.pdf';
+  inp.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.appendChild(inp);
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f){ inp.remove(); return; }
+    const eskiImlec = document.body.style.cursor;
+    document.body.style.cursor = 'progress';
+    try{
+      const yol = await dosyaYukle(f, klasor);
+      const { error } = await sb.from(tablo).update({ foto_path: yol }).eq('id', id);
+      if (error) throw new Error(hataTr(error.message));
+      if (tablo === 'gider')       await giderListe();
+      else if (tablo === 'vergi_odeme') await vergiOdenenYukle();
+      alert('Belge eklendi ✓');
+    }catch(e){
+      alert('Belge eklenemedi: ' + (e.message || String(e)));
+    }finally{
+      document.body.style.cursor = eskiImlec;
+      inp.remove();
+    }
+  };
+  inp.click();
 }
 async function rpcCagir(fn, params, btnId, msgId, basariTxt){
   // btnId olmayabilir (satır içi aç/kapa butonlarının sabit id'si yok) — null güvenli
@@ -2836,10 +2882,15 @@ async function giderListe(){
     ${list.length===0
       ? bosDurum('belge','Gider kaydı yok','Elektrik, su, tüp gibi düzenli giderleri "Temel", ufak alımları "Fiş" bölümünden gir.')
       : list.map(g=>srSatir({
-          ad: esc(g.gider_kategori?.ad||'—') + (g.kasadan?' <span class="rozet rz-uyari">kasadan</span>':''),
+          ad: esc(g.gider_kategori?.ad||'—') + (g.kasadan?' <span class="rozet rz-uyari">kasadan</span>':'')
+              + (g.foto_path?'':' <span class="rozet rz-uyari">belgesiz</span>'),
           alt: new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')
                + (g.aciklama?' · '+esc(g.aciklama):''),
-          tutar: tl(g.tutar)
+          tutar: tl(g.tutar),
+          eylem: g.foto_path
+            ? belgeBtn(g.foto_path, 'Belge', (g.gider_kategori?.ad||'')+' '+g.tarih)
+            : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
+                 onclick="belgeEkle('gider','${g.id}','gider',false)">+ Belge</button>`
         })).join('')}</div>`;
 }
 
@@ -6148,7 +6199,12 @@ async function vergiOdenenYukle(){
     (data||[]).map(v=>`<div class="liste-satir">
       <div class="l-sol"><div class="b">${VERGI_AD[v.tur]||esc(v.tur)}</div>
         <div class="k">${esc(v.donem)}${v.odeme_tarihi?' · '+new Date(v.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}${v.notlar?' · '+esc(v.notlar):''}</div></div>
-      <div class="l-sag">${tl(v.tutar)}</div>
+      <div class="l-sag">${tl(v.tutar)}
+        <div style="margin-top:4px">${v.foto_path
+          ? belgeBtn(v.foto_path, 'Belge', (VERGI_AD[v.tur]||v.tur)+' '+v.donem)
+          : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
+               onclick="belgeEkle('vergi_odeme','${v.id}','vergi',false)">+ Belge</button>`}</div>
+      </div>
     </div>`).join('') + `<div class="liste-satir"><div style="font-weight:800">${yil} YILI TOPLAM</div><div class="l-sag" style="color:var(--ana)">${tl(toplam)}</div></div>`;
 }
 /* AY KAPATMA
