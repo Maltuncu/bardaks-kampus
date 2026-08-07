@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-05-4">
+<meta name="surum" content="2026-08-06-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -869,8 +869,8 @@ async function fotoYukle(inputId, klasor){
 
 /* ===== SONRADAN BELGE EKLEME =====
    Gider ve vergi kayitlarinin duzenleme ekrani YOK. Bir kez girildi mi
-   belgesini iliştirmenin hicbir yolu yoktu; 10 kayit (243.143 TL vergi
-   dekontu dahil) bu yuzden belgesiz kalmisti.
+   belgesini iliştirmenin hicbir yolu yoktu; 10 kayit (vergi dekontlari
+   dahil) bu yuzden belgesiz kalmisti.
    Bu fonksiyon SADECE belge ekler: tutara, tarihe, KDV'ye DOKUNMAZ.
    Tam duzenleme bilerek yapilmadi — tutar degistirmek KDV'yi, kari ve
    cari bakiyeyi etkiler, ayri bir is. Belge eklemek tek yonlu ve zararsiz.
@@ -942,6 +942,13 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
   }
 }
 function hataTr(m){
+  /* Finans raporu yetki kapısı — rapora ÖZEL kodlar.
+     Genel YETKI_YOK'u burada yakalamak yasak: 36 RPC aynı kodu fırlatıyor
+     ve hepsi "Bu rapor için..." demeye başlıyordu. Genel karşılığı aşağıda,
+     kendi yerinde duruyor. Bu üçü yalnız rapor akışına ait. */
+  if (m.includes('RAPOR_YETKI_YOK')) return 'Bu rapor için yetkiniz yok.';
+  if (m.includes('RAPOR_SUBE_YETKISIZ')) return 'Bu şubenin raporunu görüntüleyemezsiniz.';
+  if (m.includes('RAPOR_DONEM_GECERSIZ')) return 'Dönem geçersiz — yıl ve ay seçimini kontrol et.';
   // v33–v36 ile eklenen sunucu tarafı kurallar
   if (m.includes('O_GUN_KAYIT_VAR')) return 'O güne ait gün sonu kaydı var — kapalı gün işaretlenemez.';
   if (m.includes('AY_BITMEDI')) return 'Bu ay daha bitmedi — ancak biten ay kapatılabilir.';
@@ -2663,6 +2670,21 @@ async function mutabakatCalistir(){
   const btn = document.getElementById('mtBtn');
   const drm = document.getElementById('mtDurum');
   const yaz = (t,s)=>{ drm.className='oku-durum '+(s||''); drm.textContent=t; };
+  /* Hangi işletmenin portalından indirildiği ARTIK SORULUYOR.
+     Eskiden faturanın metninde TCKN aranarak tahmin ediliyordu; o sabit
+     güvenlik gereği kaldırıldı. Yanlış ZIP yüklenirse LTD faturaları
+     şahıs defterine karışır — bu yüzden tahmin değil soru.
+     Bedel: ZIP başına BİR onay. Ekran zaten owner'a özel. */
+  if (!confirm('Bu ZIP hangi portaldan indirildi?\n\n'
+      + 'TAMAM  → KTÜ şahıs şirketinin portalı (devam et)\n'
+      + 'İPTAL  → başka bir işletmenin portalı / emin değilim (durdur)\n\n'
+      + 'Yanlış portalın zipi yüklenirse başka işletmenin faturaları '
+      + 'bu deftere karışır.')){
+    document.getElementById('mtDurum').className = 'oku-durum uyari';
+    document.getElementById('mtDurum').textContent =
+      'Durduruldu — doğru portalın zip dosyasıyla tekrar dene.';
+    return;
+  }
   btn.disabled = true; MUTABAKAT = [];
   document.getElementById('mtSonuc').innerHTML = '';
   try{
@@ -2681,8 +2703,12 @@ async function mutabakatCalistir(){
         const metinNo = (t.match(/Fatura\s*No\s*:?\s*([A-Z0-9]{10,20})/i)||[])[1]
                      || (t.match(/FATURA\s*ID\s*:?\s*([A-Z0-9]{10,20})/i)||[])[1];
         kayit.belge_no = (adNo || metinNo || '').toUpperCase() || null;
-        // Alıcı kontrolü: şahsın TCKN'si belgede geçiyor mu
-        kayit.bizeMi = t.replace(/\D/g,'').includes(KTU_VKN);
+        /* Alıcı kontrolü ARTIK OTOMATİK DEĞİL. Eskiden belgenin metninde
+           işletme sahibinin TCKN'si aranıyordu; o sabit kaldırıldı.
+           Eşleşmeyen fatura sessizce "başka alıcı" kutusuna düşüyordu ve
+           kimse bakmıyordu — şimdi normal sınıflandırmaya giriyor, yani
+           "SİSTEME GİRİLMEMİŞ" listesinde görünüp karar bekliyor.
+           Bize ait olmayan bir belge çıkarsa "İşletme dışı" ile dışlanır. */
         kayit.firma = t.split('\n')[0].slice(0,40);
         kayit.tarih = (t.match(/(?:Fatura\s*)?Tarihi?\s*:?\s*(\d{2}\s?[-.\/]\s?\d{2}\s?[-.\/]\s?\d{4})/i)||[])[1] || null;
       }catch(e){ kayit.hata = e.message; }
@@ -2702,7 +2728,10 @@ async function mutabakatCalistir(){
     const giderler = gv.data || [];
     MUTABAKAT.forEach(x=>{
       if (x.hata){ x.durum='hata'; return; }
-      if (!x.bizeMi){ x.durum='baska_alici'; return; }
+      /* Otomatik "baska_alici" ayıklaması kaldırıldı (TCKN sabiti gitti).
+         Artık her belge normal sınıflandırmadan geçiyor; bize ait olmayan
+         bir belge "girilmemiş" olarak görünür ve operatör "İşletme dışı"
+         diyerek gerekçesiyle dışlar. Sessiz eleme yerine görünür karar. */
       if (x.belge_no && haricMap[x.belge_no]){ x.durum='haric'; x.neden=haricMap[x.belge_no]; return; }
       const a = x.belge_no ? alisMap[x.belge_no] : null;
       const g = x.belge_no ? giderler.find(z => (z.aciklama||'').toUpperCase().includes(x.belge_no)) : null;
@@ -3218,7 +3247,25 @@ async function pdfMetinCikar(file){
 }
 
 /* ===== FATURA OKUMA — sistem doldurur, SEN doğrularsın ===== */
-const KTU_VKN = '20345231280';      // şahıs şirketi. LTD faturası buraya girmemeli.
+/* KTU_VKN SABİTİ KALDIRILDI — 06.08.2026.
+   Şahıs şirketinde VKN = işletme sahibinin TCKN'sidir. Bu dosya GitHub
+   Pages'te kimlik doğrulaması olmadan servis ediliyor; sabit, sayfa
+   kaynağında herkese açıktı.
+
+   Neden başka çözüm seçilmedi:
+     · Yapılandırma dosyasına taşımak: tarayıcıya giden her şey okunur.
+     · Hash'lemek: geçerli TCKN uzayı ~10^9, saniyeler içinde kırılır.
+     · Maskelemek: kısmi kimlik de kişisel veridir.
+   Tek gerçek çözüm değeri tarayıcıya HİÇ göndermemek.
+
+   Yerine ne geldi: sistem artık TAHMİN ETMİYOR, SORUYOR. ZIP okunmadan
+   önce "bu ZIP hangi işletmenin portalından indirildi" diye bir kez
+   sorulur; tek tek faturalarda alıcı adı gösterilip karar operatöre
+   bırakılır. Ayrıntı: SIZINTI_2026-08-06_tckn.md
+
+   Kalıcı çözüm (VKN'yi kimliği doğrulanmış olarak sube tablosundan
+   çekmek) migration gerektiriyor; aday olarak hazır:
+   supabase/aday/sube_vkn_ekle.ADAY.sql — FAZ 2'de zincire girecek. */
 function alFotoSecildi(){
   const d = document.getElementById('alOkuDurum'); if(!d) return;
   const f = document.getElementById('alFoto')?.files?.[0];
@@ -3338,13 +3385,22 @@ async function faturaOku(){
         <b>${esc(v.tedarikci?.ad || '—')}</b>${v.tedarikci?.vkn?' · VKN '+esc(v.tedarikci.vkn):''}<br>
         Tedarikçi sekmesinden ekleyip geri dön, ya da listeden doğru firmayı seç.</div>`;
     }
-    // Alıcı kontrolü — LTD faturası şahıs defterine girmesin
-    const aVkn = (v.alici?.vkn||'').replace(/\D/g,'');
+    /* Alıcı kontrolü — LTD faturası şahıs defterine girmesin.
+       Eskiden alıcının VKN'si sabit TCKN ile karşılaştırılıyordu; o sabit
+       kaldırıldı. Artık karşılaştırma yapılmıyor, alıcı GÖSTERİLİYOR ve
+       karar operatöre bırakılıyor. Alıcı adı ticari unvandır (faturanın
+       üzerinde zaten yazar), kimlik numarası değildir — gösterilmesi
+       sızıntı değil.
+       Alıcının VKN'si BİLEREK yazdırılmıyor: kendi belgemizde o numara
+       işletme sahibinin TCKN'sidir. */
     let aliciNot = '';
-    if (aVkn && aVkn !== KTU_VKN){
-      aliciNot = `<div class="bilgi-not" style="color:var(--hata)"><b>DİKKAT:</b> Bu belge
-        <b>${esc(v.alici?.ad||'başka bir alıcıya')}</b> (VKN ${esc(aVkn)}) kesilmiş.
-        KTÜ şahıs şirketinin VKN'si ${KTU_VKN}. <b>LTD faturası olabilir — buraya girme.</b></div>`;
+    if (v.alici?.ad || v.alici?.vkn){
+      aliciNot = `<div class="bilgi-not" style="color:var(--uyari)"><b>Alıcıyı doğrula:</b>
+        bu belge <b>${esc(v.alici?.ad || 'adı okunamayan bir alıcıya')}</b> adına kesilmiş.
+        KTÜ şahıs şirketine ait DEĞİLSE buraya girme — LTD defterine aittir.</div>`;
+    } else {
+      aliciNot = `<div class="bilgi-not" style="color:var(--uyari)"><b>Alıcı okunamadı.</b>
+        Belgenin KTÜ şahıs şirketine kesildiğini kendin doğrula.</div>`;
     }
     // Denetim
     let denetimNot = '';
@@ -5128,7 +5184,7 @@ async function vArac(){
       ${kbaslik('', 'Yeni Araç', `<button class="btn2" onclick="katlaAc('aracFormKutu',this)">Aç</button>`)}
       <div id="aracFormKutu" style="display:none">
         <input type="hidden" id="arId">
-        <label>Plaka *</label><input type="text" id="arPlaka" placeholder="61 AJU 850">
+        <label>Plaka *</label><input type="text" id="arPlaka" placeholder="61 ABC 123">
         <label>Marka / Model</label><input type="text" id="arMarka" placeholder="örn: Fiat Doblo 1.6">
         <div class="satir">
           <div><label>Model Yılı</label><input type="text" inputmode="numeric" id="arYil"></div>
@@ -6043,7 +6099,7 @@ function bankaMutabakatKart(){
 /* Banka/POS ekstresindeki sayı. Eskiden TÜM noktaları siliyordu:
    "1250.50" → 125050 (100 KAT hata). Ekstrede tek bir İngilizce biçimli sayı
    olsa para 100 katına çıkıyordu. Artık paraCoz ile aynı kural: SON ayraç ondalıktır. */
-function trSayi(s){ // "1.658.776,00" → 1658776.00 ; "-24.688,65" → -24688.65 ; "1250.50" → 1250.50
+function trSayi(s){ // "1.234.567,89" → 1234567.89 ; "-1.234,56" → -1234.56 ; "1250.50" → 1250.50
   if (s==null) return null;
   const t = String(s);
   const eksi = /-/.test(t.replace(/[^\d.,-]/g,'').slice(0,2));   // baştaki eksi
@@ -6053,7 +6109,7 @@ function trSayi(s){ // "1.658.776,00" → 1658776.00 ; "-24.688,65" → -24688.6
 }
 /* POS EKSTRESİ OKUMA
    Eski sürüm sayfadaki bütün metni tek satıra ezip yalnız AYLIK toplamları
-   arıyordu. O yüzden "fark 1.320 TL" diyebilirdi ama HANGİ GÜN olduğunu asla
+   arıyordu. O yüzden yalnız "aylık fark şu kadar" diyebilirdi ama HANGİ GÜN olduğunu asla
    söyleyemezdi. 03.08.2026'da farkı bulan şey gün gün karşılaştırmaydı;
    üstelik asıl ipucu tutar değil İŞLEM ADEDİ oldu.
    Artık satır satır okunuyor ve gün gün karşılaştırılıyor. */
