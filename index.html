@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-08-1">
+<meta name="surum" content="2026-08-08-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -542,6 +542,25 @@ function ayAdi(donem){            // "2026-07" → "Temmuz 2026"
 }
 const idem = () => crypto.randomUUID();
 
+/* v60 · KARARLI IDEM ANAHTARI — F4-2'nin kök nedeni
+   Yukarıdaki idem() her çağrıda YENİ anahtar üretiyor. _idem_kontrol
+   anahtarı islem_log'da arar; anahtar hep yeni olduğu için HİÇBİR ZAMAN
+   bulamaz. Mükerrer koruması kod olarak vardı, davranış olarak yoktu.
+
+   Bu üretecin anahtarı işlemin KİMLİĞİNDEN türer: aynı formu iki kez
+   göndermek AYNI anahtarı üretir ve ikincisi sunucuda takılır.
+
+   ⚠ SERBEST METİN GİRMEZ. Açıklama alanındaki tek harf değişse anahtar
+     değişir ve koruma boşa çıkardı. Yalnız kimliği belirleyen alanlar:
+     tarih, tutar, kategori/tedarikçi/ürün.
+   ⚠ Kullanıcı da anahtara girer: iki farklı personelin aynı kaydı
+     girmesi ayrı işlemdir, sunucu kontrolü onu yakalar. */
+async function idemKararli(rpc, alanlar){
+  const ham = [rpc, PROFIL?.id ?? '', ...alanlar.map(a => a ?? '')].join('|');
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ham));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
 /* ================== GİRİŞ / OTURUM ================== */
 async function girisYap(){
   const btn = document.getElementById('girisBtn'), h = document.getElementById('girisHata');
@@ -930,6 +949,23 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
       btn.textContent = 'Bağlantı koptu, tekrar deneniyor...';
       await new Promise(r=>setTimeout(r, 1200));
     }
+    /* v60 · MUKERRER_SUPHESI — sunucu yakin zamanda ayni kaydi gordu.
+       Engellemiyoruz, SORUYORUZ. Kaza (cift tiklama) burada durur: kimse
+       "evet farkli" demez. Mesru ikinci kayit ise aninda gecer.
+       Onay p_mukerrer_onay ile sunucuya gider ve audit'e iz birakir —
+       tarayicida yutulan bir confirm() degil. */
+    if (son.error && /MUKERRER_SUPHESI/.test(son.error.message)){
+      const devam = confirm(
+        'Az önce aynı tutarda ve aynı güne ait bir kayıt girilmiş görünüyor.\n\n' +
+        'Bu GERÇEKTEN ayrı bir kayıt mı?\n\n' +
+        'İptal → kaydetme (yanlışlıkla iki kez göndermiş olabilirsin)\n' +
+        'Tamam → ayrı bir kayıt, yine de kaydet');
+      if (!devam){
+        mesaj(msgId, 'hata', 'Kaydedilmedi — listeyi kontrol et, kayıt zaten girilmiş olabilir.');
+        return null;
+      }
+      son = await sb.rpc(fn, { ...params, p_mukerrer_onay: true });
+    }
     if (son.error){ window.__sonRpcHataHam = son.error.message; throw new Error(hataTr(son.error.message)); }
     if (basariTxt) mesaj(msgId, 'ok', basariTxt);
     formTemiz();                       // kayıt gitti, form artık kirli değil
@@ -954,6 +990,10 @@ function hataTr(m){
      şey değil: (a) ekran şube seçmeden çağırdı, (b) profilde şube tanımlı
      değil. Bu yüzden mesaj "yetkiniz yok" demiyor — yanlış yönlendirir;
      kullanıcı yetkisini değil, kaydını düzelttirmeli. */
+  /* v60 · MUKERRER_SUPHESI normalde rpcCagir'da yakalanip kullaniciya
+     SORULUYOR. Buraya dusmesi, onay akisinin atlandigi bir cagri yolu
+     oldugu anlamina gelir — sessiz kalmasin. */
+  if (m.includes('MUKERRER_SUPHESI')) return 'Aynı kayıt az önce girilmiş görünüyor. Listeyi kontrol et.';
   if (m.includes('RAPOR_SUBE_YOK')) return 'Şube belirlenemedi. Profilinizde şube tanımlı olmayabilir — yöneticinize bildirin.';
   /* v59 · BELGE_SUBE_YETKISIZ — belge yükleme, başka şubenin kaydına.
      KAYIT_YOK'tan AYRI tutuluyor: birincisi normal (kayıt silinmiş
@@ -2426,7 +2466,8 @@ async function odemeGirisiKaydet(){
     const ne = document.getElementById('odAciklamaDiger').value.trim();
     if (!ne){ mesaj('odMsg','hata','"Diğer" seçtiğinde ne için ödendiğini yazman gerekiyor.'); return; }
     const data = await rpcCagir('rpc_gider_kaydet',{
-      p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: tarih,
+      p_idem: await idemKararli('gider',[PROFIL.sube_id, tarih, document.getElementById('odKategori').value, tutar, yontem]),
+      p_sube: PROFIL.sube_id, p_tarih: tarih,
       p_kategori: document.getElementById('odKategori').value,
       p_aciklama: ne, p_tutar: tutar,
       p_kdv_orani: null, p_kdv_tutar: 0, p_foto: null,
@@ -2447,7 +2488,8 @@ async function odemeGirisiKaydet(){
     return;
   }
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet',{
-    p_idem: idem(), p_sube: PROFIL.sube_id, p_tedarikci: kime, p_tarih: tarih, p_tutar: tutar,
+    p_idem: await idemKararli('odeme',[PROFIL.sube_id, tarih, kime, tutar, yontem]),
+    p_sube: PROFIL.sube_id, p_tedarikci: kime, p_tarih: tarih, p_tutar: tutar,
     p_aciklama: document.getElementById('odAciklama').value.trim()||null,
     p_yontem: yontem,
     p_cek_no: cek ? (document.getElementById('odCekNo').value.trim()||null) : null,
