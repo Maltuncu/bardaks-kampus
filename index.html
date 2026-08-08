@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-06-2">
+<meta name="surum" content="2026-08-08-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -949,6 +949,16 @@ function hataTr(m){
   if (m.includes('RAPOR_YETKI_YOK')) return 'Bu rapor için yetkiniz yok.';
   if (m.includes('RAPOR_SUBE_YETKISIZ')) return 'Bu şubenin raporunu görüntüleyemezsiniz.';
   if (m.includes('RAPOR_DONEM_GECERSIZ')) return 'Dönem geçersiz — yıl ve ay seçimini kontrol et.';
+  /* v59 · RAPOR_SUBE_YOK — şube belirlenemedi.
+     İki ayrı sebebi var ve ikisi de kullanıcının kendi düzeltebileceği
+     şey değil: (a) ekran şube seçmeden çağırdı, (b) profilde şube tanımlı
+     değil. Bu yüzden mesaj "yetkiniz yok" demiyor — yanlış yönlendirir;
+     kullanıcı yetkisini değil, kaydını düzelttirmeli. */
+  if (m.includes('RAPOR_SUBE_YOK')) return 'Şube belirlenemedi. Profilinizde şube tanımlı olmayabilir — yöneticinize bildirin.';
+  /* v59 · BELGE_SUBE_YETKISIZ — belge yükleme, başka şubenin kaydına.
+     KAYIT_YOK'tan AYRI tutuluyor: birincisi normal (kayıt silinmiş
+     olabilir), bu ise başka şubenin kaydına yazma denemesidir. */
+  if (m.includes('BELGE_SUBE_YETKISIZ')) return 'Bu belge başka bir şubenin kaydına ait — yükleme yapılamaz.';
   // v33–v36 ile eklenen sunucu tarafı kurallar
   if (m.includes('O_GUN_KAYIT_VAR')) return 'O güne ait gün sonu kaydı var — kapalı gün işaretlenemez.';
   if (m.includes('AY_BITMEDI')) return 'Bu ay daha bitmedi — ancak biten ay kapatılabilir.';
@@ -6243,7 +6253,7 @@ async function bankaPdfAnaliz(){
             </div>`;}).join('')}
       ${farkli.some(x=>x.sAdet==null) ? `<div class="ipucu">Bazı günlerde Z'deki kart
         <b>işlem adedi</b> girilmemiş. Adet girilirse fark "kaç işlem" olduğunu da söyler —
-        03.08.2026'daki 960 TL'yi bulan şey buydu.</div>` : ''}
+        03.08.2026'daki farkı bulan şey buydu.</div>` : ''}
       <div id="bmSonuc"></div>
       <button class="btn" style="margin-top:12px" id="bmKaydet" onclick="bankaMutabakatKaydet()">Mutabakatı Kaydet</button>`;
     mesaj('bmMsg','ok', `${p.gunluk.length} gün okundu · ${farkli.length} günde fark. Kontrol edip kaydet.`);
