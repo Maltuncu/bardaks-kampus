@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-10-1">
+<meta name="surum" content="2026-08-10-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -448,7 +448,120 @@ const SB_URL = 'https://gbheqnxmwvabwuimzskv.supabase.co';
 const SB_KEY = 'sb_publishable_qtiCjExLIte6WJcbdB5jNg_fUJDYnxF';
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
+/* ================== ŞUBE SÜZGECİ — TEK ÇIKIŞ NOKTASI ==================
+
+   ⚠ BU BİR GÜVENLİK DENETİMİ DEĞİLDİR.
+   İstemci tarafı süzgeç yalnız UYGULAMANIN KENDİ çağrılarını etkiler.
+   Owner'ın oturumunu taşıyan biri ham fetch ile şubeler arası okumaya
+   devam eder. Güvenlik sınırı RLS'tir, burası değil.
+
+   ⚠ RLS KUSURLU DEĞİL — POLİTİKASI BU.
+   Owner'ın tüm şubeleri görmesi v59'da BİLEREK verildi (rapor_kapisi
+   owner için şube eşitliğini atlar). "Bizi tek şube kurtarıyor" demek,
+   olmayan bir açığı rapor etmek olurdu.
+
+   O HÂLDE BU NE İÇİN: GÖRÜNTÜ DOĞRULUĞU.
+   Pano şube seçmeden sessizce topluyordu. İkinci şube açıldığı gün
+   Özet, grafik ve raporlar iki şubeyi tek rakam gibi gösterirdi — kimse
+   bunu istemedi, kimse fark etmezdi. Süzgeç "hangi şubeye bakıyorum"
+   sorusunu ekranda tek ve açık tutar.
+
+   ŞUBE İZOLASYONUNUN GÜVENLİK ÖZELLİĞİ OLMASI İSTENİYORSA yeri RLS'tir
+   ve ayrı bir karardır — FAZ2_BULGULARI.md · AÇIK SORU-1'de kayıtlı.
+   Sessizce istemciye çözdürülmedi.
+
+   NEDEN BURADA, HER SORGUDA DEĞİL
+   Tarama (2026-08-09): şube taşıyan tablolara 74 okuma sorgusu, 60'ında
+   süzgeç yoktu. Elle 60 yama demek, 61.'sini yazacak kişinin unutması
+   demektir. Bu listenin şemayla uyumunu araclar/kalip-tara.mjs denetler
+   (araclar/fikstur/sube-tablolari.txt'e karşı) — düzyazı uyarı değil, kapı.
+
+   HARİTA, LİSTE DEĞİL — DEĞER: "bu ilişki ŞUBESİZ GENEL SATIR üretir mi"
+     true  -> or=(sube_id.eq.X, sube_id.is.null)   genel satır korunur
+     false -> sube_id=eq.X                          düz eşitlik
+   İlk yazımda hepsine is.null verilmişti; bu, "NULL şube_id taşıyan her
+   satır her şubeye görünür" demekti — tek bir görünüm yüzünden 33'üne
+   birden verilen bir battaniye. Ölçüldü ve daraltıldı.
+*/
+const SUBE_SUZGEC = new Map([
+  /* GENEL SATIR ÜRETİR — ölçümle: tanımında `NULL::uuid AS sube_id` var,
+     yani şubesiz "genel uyarı" satırı TASARIM. Düz eşitlik onları düşürürdü. */
+  ['v_uyarilar',          true],
+
+  /* Aşağıdakilerin hiçbiri genel satır üretmiyor. Ölçüm: şemadaki 34
+     ilişkinin tabloları için sube_id NOT NULL (üç istisna aşağıda),
+     görünümlerde sube_id taban sütunundan geliyor. */
+  ['alis',                false], ['arac',               false],
+  ['ay_kapanis',          false], ['banka_mutabakat',    false],
+  ['belge_haric',         false], ['demirbas',           false],
+  ['duzeltme_talebi',     false], ['gider',              false],
+  ['gun_sonu',            false], ['kapali_gun',         false],
+  ['personel_gider',      false], ['sayim',              false],
+  ['stok_hareket',        false], ['tedarikci_odeme',    false],
+  ['urun_alacak',         false], ['vergi_odeme',        false],
+  ['v_acik_fatura',       false], ['v_arac_maliyet',     false],
+  ['v_aylik_ozet',        false], ['v_belgeler',         false],
+  ['v_kart_taksit',       false], ['v_kdv_ay',           false],
+  ['v_kisi_yetki',        false], ['v_mutabakat_gun',    false],
+  ['v_owner_hareket_ay',  false], ['v_stok_durum',       false],
+  ['v_tedarikci_bakiye',  false], ['v_urun_alacak',      false],
+  ['v_urun_son_fiyat',    false], ['v_vade_liste',       false],
+
+  /* ⚠ ŞEMA AÇIĞI — sube_id NOT NULL DEĞİL, ama genel satır da DEĞİL.
+     Ölçüldü: bugün ikisinde de şubesiz satır YOK (0 satır). Yine de
+     kısıt olmadığı için biri oluşabilir ve düz eşitlikle HİÇBİR ekranda
+     görünmez — sessiz kayıp. Doğru çözüm NOT NULL kısıtı; şema değişikliği
+     olduğu için bu tura alınmadı, FAZ2_BULGULARI.md · AÇIK SORU-2.
+     is.null vermek açığı maskelerdi, o yüzden verilmedi. Nöbetçi bu iki
+     satırı "bilinen açık" olarak tanır; ÜÇÜNCÜSÜ çıkarsa hata verir. */
+  ['owner_hareket',       false],
+  ['vade',                false],
+]);
+/* 'profil' bilerek HARİTADA DEĞİL: açılışta AKTIF_SUBE yokken kendisi
+   sorgulanıyor (id ile, RLS koruyor). Süzgeç oraya konsaydı giriş kırılırdı.
+   Onun da sube_id'si NOT NULL değil — aynı şema açığı, aynı açık soru. */
+(function subeSuzgeciKur(){
+  const _from = sb.from.bind(sb);
+  sb.from = function(tablo){
+    const qb = _from(tablo);
+    if (!SUBE_SUZGEC.has(tablo)) return qb;
+    const genel = SUBE_SUZGEC.get(tablo);
+    const _select = qb.select.bind(qb);
+    qb.select = function(...a){
+      if (!AKTIF_SUBE)
+        throw new Error('Şube bilinmeden "'+tablo+'" okunamaz. (Açılış sırası bozuk.)');
+      const q = _select(...a);
+      return genel ? q.or('sube_id.eq.'+AKTIF_SUBE+',sube_id.is.null')
+                   : q.eq('sube_id', AKTIF_SUBE);
+    };
+    return qb;   // insert/update/delete zinciri DOKUNULMADAN geçer
+  };
+})();
 let PROFIL = null;   // {id, ad, rol, sube_id}
+
+/* AKTIF_SUBE — "şu an hangi şubeye bakıyorum".
+   Neden PROFIL.sube_id değil: v59 owner'ın herhangi bir şubeyi
+   sorgulamasına BİLEREK izin veriyor (rapor_kapisi owner için şube
+   eşitliğini atlar). Okumaları AKTIF_SUBE'ye çivilemek o yeteneği
+   istemci tarafında öldürürdü. Çivi yerine değişken.
+
+   Bugün tek şube var; değer PROFIL.sube_id'den geliyor ve DEĞİŞMİYOR.
+   Yani davranış birebir aynı. Şube seçici düğmesi bilerek YOK — tek
+   şubeyken gösterilecek bir seçim yok. */
+let AKTIF_SUBE = null;
+
+/* Şube değiştirme. Owner dışındaki roller için YASAK ve sessiz değil:
+   deneme gürültülü düşer. Veri yarı eski yarı yeni kalmasın diye aktif
+   ekran baştan çizilir. */
+function subeDegistir(id){
+  if (!PROFIL) throw new Error('Şube değiştirilemez: oturum yüklenmedi.');
+  if (PROFIL.rol !== 'owner')
+    throw new Error('Şube değiştirmek yalnız owner yetkisidir (rol: '+PROFIL.rol+').');
+  if (!id) throw new Error('Şube değiştirilemez: şube kimliği boş.');
+  if (id === AKTIF_SUBE) return;
+  AKTIF_SUBE = id;
+  if (AKTIF_SEKME) sekmeAc(AKTIF_SEKME);   // yarı eski yarı yeni ekran olmasın
+}
 /* YETKILER — hangi ekranı görebiliyorum/yazabiliyorum.
    Kaynak: rol_yetki tablosu. AYNI TABLOYU RLS de okuyor (yetki_var fonksiyonu).
    Bu yüzden burada gizlenen ekranın verisi API'den de gelmez — ekran gizlemek
@@ -629,6 +742,7 @@ async function baslat(){
     await sb.auth.signOut(); location.reload(); return;
   }
   PROFIL = p;
+  AKTIF_SUBE = p.sube_id;   // tek kaynak; bundan sonra PROFIL.sube_id doğrudan okunmaz
   await yetkileriYukle();
   document.getElementById('girisEkran').classList.add('gizli');
   document.getElementById('uygulama').classList.remove('gizli');
@@ -1245,7 +1359,7 @@ async function gunDetay(tarih){
     sb.from('gun_sonu')
       // z_foto_path/pos_slip_foto_path eksikti: bu panelden Z raporu açılamıyordu
       .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,oran,kdv_tutar,is_deleted)')
-      .eq('tarih',tarih).eq('sube_id', PROFIL.sube_id).eq('is_deleted',false).maybeSingle(),
+      .eq('tarih',tarih).eq('sube_id', AKTIF_SUBE).eq('is_deleted',false).maybeSingle(),
     sb.from('gider').select('tutar,aciklama').eq('tarih',tarih).eq('kasadan',true).eq('is_deleted',false),
     sb.from('tedarikci_odeme').select('tutar,tedarikci(ad)').eq('tarih',tarih).eq('yontem','nakit').eq('is_deleted',false)
   ]);
@@ -1316,11 +1430,12 @@ async function vOzet(){
   const ay = OZ_AY || bugun().slice(0,7);
   OZ_AY = ay;
   const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner] = await Promise.all([
-    sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('sube_id', PROFIL.sube_id).eq('is_deleted', false).maybeSingle(),
+    sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
-    sb.from('v_uyarilar').select('*')
-      .or(`sube_id.eq.${PROFIL.sube_id},sube_id.is.null`).order('tarih'),
+    // v63 · şube süzgeci artık tek çıkış noktasında (bkz. SUBE_TABLOLARI);
+    // buradaki elle konan .or kaldırıldı, iki .or çakışmasın.
+    sb.from('v_uyarilar').select('*').order('tarih'),
     sb.from('duzeltme_talebi').select('created_at').eq('durum','acik').eq('is_deleted',false).order('created_at'),
     // Geçmiş aya bakılırken sınır bugün DEĞİL, o ayın son günü olmalı
     sb.from('gun_sonu').select('tarih,toplam,kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', aySon(ay)).eq('is_deleted', false),
@@ -1330,6 +1445,11 @@ async function vOzet(){
     // z_disi_nakit'ten düşüyordu, grafik düşmüyordu — tanım ayrışıyordu.
     sb.from('owner_hareket').select('tarih,yon,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
   ]);
+  /* v63 · Bu iki görünüm dönem+şube başına TEK satır döndürür. [0] almak
+     ikinci şube açıldığında "hangisi gelirse o" demekti — sıralama garantisi
+     yok. Süzgeç artık tek çıkış noktasında; burada satır sayısı da denetleniyor. */
+  if ((ozet.data||[]).length > 1 || (kdv.data||[]).length > 1)
+    console.warn('Özet/KDV birden fazla satır döndürdü — şube süzgeci beklendiği gibi çalışmıyor.');
   const g = gs.data, k = (kdv.data||[])[0], o = (ozet.data||[])[0], u = uyari.data||[];
   // Ayın gerçek cirosu/Z dışı nakdi artık v_aylik_ozet'te hesaplanıyor (gercek_ciro,
   // z_disi_nakit). Burada yalnız BUGÜNÜN kasa çıkışı gerekiyor — günlük kutu için.
@@ -1489,6 +1609,11 @@ async function vOzet(){
         maliyeti hesaba girmiyor — kâr olduğundan <b>yüksek</b> görünüyor.
         Stok sekmesindeki <b>Sayım</b> kartından ay sonu sayımını gir.${
           o.kapanis_stok!=null&&o.acilis_stok==null ? ' (Bu ayın sayımı var, açılışı yok — ikisi de gerekiyor.)' : ''}</div>` : ''}
+      ${+(o.kapsam_disi_nakit||0) !== 0 ? `<div class="uyari-orta" style="margin-top:10px">
+        Kasası sayılmayan güne düşen ${tl(Math.abs(+o.kapsam_disi_nakit))} nakit hareketi
+        <b>gerçek ciroya katılmadı</b> — o gün kasada ne olduğu bilinmiyor,
+        uydurulmuyor. O günün kasasını girin, rakam kendiliğinden yerine otursun.
+      </div>` : ''}
       ${+o.kasa_sayilmayan_gun > 0 ? `<div class="uyari-orta" style="margin-top:10px">
         ${o.kasa_sayilmayan_gun} gün kasa sayılmamış — o günlerin Z dışı nakdi bilinmiyor,
         gerçek kâr bundan yüksek olabilir.</div>` : ''}
@@ -2236,7 +2361,7 @@ async function gunSonuKaydet(){
     return;
   }
   const data = await rpcCagir('rpc_gun_sonu_kaydet', {
-    p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: document.getElementById('gsTarih').value,
+    p_idem: idem(), p_sube: AKTIF_SUBE, p_tarih: document.getElementById('gsTarih').value,
     p_kart: kart, p_nakit: nakit, p_toplam: toplam,
     p_iptal_adet: 0, p_iptal_tutar: 0,
     p_z_no: null, p_kdv: null, p_z_foto: null, p_slip_foto: null,
@@ -2495,8 +2620,8 @@ async function odemeGirisiKaydet(){
     const ne = document.getElementById('odAciklamaDiger').value.trim();
     if (!ne){ mesaj('odMsg','hata','"Diğer" seçtiğinde ne için ödendiğini yazman gerekiyor.'); return; }
     const data = await rpcCagir('rpc_gider_kaydet',{
-      p_idem: await idemKararli('gider',[PROFIL.sube_id, tarih, document.getElementById('odKategori').value, tutar, yontem]),
-      p_sube: PROFIL.sube_id, p_tarih: tarih,
+      p_idem: await idemKararli('gider',[AKTIF_SUBE, tarih, document.getElementById('odKategori').value, tutar, yontem]),
+      p_sube: AKTIF_SUBE, p_tarih: tarih,
       p_kategori: document.getElementById('odKategori').value,
       p_aciklama: ne, p_tutar: tutar,
       p_kdv_orani: null, p_kdv_tutar: 0, p_foto: null,
@@ -2517,8 +2642,8 @@ async function odemeGirisiKaydet(){
     return;
   }
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet',{
-    p_idem: await idemKararli('odeme',[PROFIL.sube_id, tarih, kime, tutar, yontem]),
-    p_sube: PROFIL.sube_id, p_tedarikci: kime, p_tarih: tarih, p_tutar: tutar,
+    p_idem: await idemKararli('odeme',[AKTIF_SUBE, tarih, kime, tutar, yontem]),
+    p_sube: AKTIF_SUBE, p_tedarikci: kime, p_tarih: tarih, p_tutar: tutar,
     p_aciklama: document.getElementById('odAciklama').value.trim()||null,
     p_yontem: yontem,
     p_cek_no: cek ? (document.getElementById('odCekNo').value.trim()||null) : null,
@@ -2899,7 +3024,7 @@ async function mutabakatHaric(no){
   if (neden === null) return;
   if (!neden.trim()){ alert('Neden yazmak zorunlu — sonradan niye atlandığını bilmen gerekir.'); return; }
   const { error } = await sb.from('belge_haric').insert({
-    sube_id: PROFIL.sube_id, belge_no: no, firma: (x.firma||'').slice(0,80),
+    sube_id: AKTIF_SUBE, belge_no: no, firma: (x.firma||'').slice(0,80),
     neden: neden.trim(), giren_id: PROFIL.id || null });
   if (error){ alert('Kaydedilemedi: ' + hataTr(error.message)); return; }
   x.durum = 'haric'; x.neden = neden.trim();
@@ -2987,7 +3112,7 @@ async function giderKaydet(mod){
   try{ foto = await fotoYukle('gdFoto','fatura'); }
   catch(e){ mesaj('gdMsg','hata',e.message); btn.disabled=false; btn.textContent='Gideri Kaydet'; return; }
   const data = await rpcCagir('rpc_gider_kaydet',{
-    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_idem: idem(), p_sube: AKTIF_SUBE,
     p_tarih: document.getElementById('gdTarih').value,
     p_kategori: kategori,
     p_aciklama: document.getElementById('gdAciklama').value.trim()||null,
@@ -3821,7 +3946,7 @@ async function alisKaydet(){
     return;
   }
   const data = await rpcCagir('rpc_alis_kaydet',{
-    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_idem: idem(), p_sube: AKTIF_SUBE,
     p_tedarikci: document.getElementById('alTedarikci').value,
     p_tarih: document.getElementById('alTarih').value,
     p_tur: document.getElementById('alTur').value,
@@ -3923,7 +4048,7 @@ async function vStok(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
   const [{ data: stok }, cikis, fiyat] = await Promise.all([
-    sb.from('v_stok_durum').select('*').eq('sube_id', PROFIL.sube_id).order('ad'),
+    sb.from('v_stok_durum').select('*').eq('sube_id', AKTIF_SUBE).order('ad'),
     // Son sayım/tüketim ne zaman? Hiç yoksa "mevcut" stok değil, toplam alımdır.
     // Bir kez sayıp bırakmak da yetmez: sayım eskidikçe rakam yine gerçeklikten kopar.
     sb.from('stok_hareket').select('tarih')
@@ -4073,7 +4198,7 @@ async function ayRaporuAc(donem){
     <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
   ov.classList.add('acik');
   const { data, error } = await sb.rpc('fn_ay_raporu_html',
-    { p_donem: donem, p_sube: PROFIL.sube_id });
+    { p_donem: donem, p_sube: AKTIF_SUBE });
   if (error || !data){
     ic.innerHTML = `<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Rapor açılamadı</div></div>
       <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>
@@ -4237,7 +4362,7 @@ async function urunDetay(urunId){
     sb.from('alis_kalem')
       .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,alis!inner(id,tarih,belge_no,is_deleted,tedarikci(ad))')
       .eq('urun_id',urunId).eq('is_deleted',false).eq('alis.is_deleted',false),
-    sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', PROFIL.sube_id).maybeSingle()
+    sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', AKTIF_SUBE).maybeSingle()
   ]);
   const u=ur.data, s=st.data;
   if(!u){ ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Ürün bulunamadı</div></div>
@@ -4490,7 +4615,7 @@ async function alacakKaydet(){
   if (!confirm(`ÜRÜN ALACAĞI KAYDEDİLECEK\n\n${ozet}\n\nTeslimatlar bilgi fişi girildikçe buradan düşecek.\nOnaylıyor musun?`)) return;
   const btn = g('akKaydet'); btn.disabled = true;
   const { error } = await sb.from('urun_alacak').insert({
-    sube_id: PROFIL.sube_id, tedarikci_id: firma, urun_id: urun,
+    sube_id: AKTIF_SUBE, tedarikci_id: firma, urun_id: urun,
     miktar_adet: adet, birim_ad: birim, birim_carpani: carpan,
     tarih: g('akTarih').value, tutar: pt.deger > 0 ? pt.deger : null,
     kritik_adet: pk.deger > 0 ? pk.deger : null,
@@ -4566,7 +4691,7 @@ async function sayimKaydet(){
     + `\n${ayAdi(donem)} kârı bundan sonra bu sayımla hesaplanır.\n`
     + `O ay için daha önce sayım varsa üzerine yazılır.\n\nOnaylıyor musun?`)) return;
   const data = await rpcCagir('rpc_sayim_kaydet', {
-    p_idem: idem(), p_sube: PROFIL.sube_id, p_donem: donem, p_tarih: tarih,
+    p_idem: idem(), p_sube: AKTIF_SUBE, p_donem: donem, p_tarih: tarih,
     p_kalemler: kalemler, p_not: g('syNot')?.value.trim() || null
   }, 'syKaydet','syMsg','Sayım kaydedildi ✓');
   if (data && data.ok){
@@ -4582,7 +4707,7 @@ async function stokHareketKaydet(){
   if (miktar===0){ mesaj('shMsg','hata','Miktar boş olamaz.'); return; }
   if (tur==='tuketim' && miktar>0) miktar = -miktar;
   const data = await rpcCagir('rpc_stok_hareket_kaydet',{
-    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_idem: idem(), p_sube: AKTIF_SUBE,
     p_urun: document.getElementById('shUrun').value,
     p_tarih: document.getElementById('shTarih').value,
     p_tur: tur, p_miktar: miktar,
@@ -4596,7 +4721,7 @@ let TD_DUZENLENEN = null;
 async function vTedarikci(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
-  const { data: bakiye } = owner ? await sb.from('v_tedarikci_bakiye').select('*').eq('sube_id', PROFIL.sube_id).order('ad') : { data: null };
+  const { data: bakiye } = owner ? await sb.from('v_tedarikci_bakiye').select('*').eq('sube_id', AKTIF_SUBE).order('ad') : { data: null };
   const bakiyeMap = {};
   (bakiye||[]).forEach(b => bakiyeMap[b.tedarikci_id] = b.bakiye);
   // Toplam açık: borçlu olduklarımız ile içeride malımız duranlar ayrı toplanır, netlenmez
@@ -4736,7 +4861,7 @@ async function acilisBakiyeKaydet(){
     + `Tarih: ${new Date(g('abTarih').value+'T00:00').toLocaleDateString('tr-TR')}\n\n`
     + `Bu firmanın daha önce açılışı varsa üzerine yazılır.\nOnaylıyor musun?`)) return;
   const data = await rpcCagir('rpc_acilis_bakiye',{
-    p_sube: PROFIL.sube_id, p_tedarikci: g('abTedarikci').value,
+    p_sube: AKTIF_SUBE, p_tedarikci: g('abTedarikci').value,
     p_tutar: tutar, p_not: g('abNot').value.trim()||null,
     p_tarih: g('abTarih').value || null
   },'abKaydet','abMsg','Açılış bakiyesi kaydedildi ✓');
@@ -4810,7 +4935,7 @@ async function firmaDetay(id){
   const owner = PROFIL.rol === 'owner';
 
   const [bk, af, od, kl] = await Promise.all([
-    owner ? sb.from('v_tedarikci_bakiye').select('*').eq('tedarikci_id',id).eq('sube_id', PROFIL.sube_id).maybeSingle()
+    owner ? sb.from('v_tedarikci_bakiye').select('*').eq('tedarikci_id',id).eq('sube_id', AKTIF_SUBE).maybeSingle()
           : Promise.resolve({data:null}),
     // Mutabakat icin TUM faturalar — firma butun hesabi soyluyor, sadece acik olanlari degil
     sb.from('alis').select('id,tarih,belge_no,toplam,vade_tarihi,odendi')
@@ -4965,7 +5090,7 @@ async function odemeKaydet(){
   if (tutar===0){ mesaj('toMsg','hata','Tutar boş olamaz.'); return; }
   const toCek = document.getElementById('toYontem').value==='cek';
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet',{
-    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_idem: idem(), p_sube: AKTIF_SUBE,
     p_tedarikci: document.getElementById('toTedarikci').value,
     p_tarih: document.getElementById('toTarih').value,
     p_tutar: tutar,
@@ -5082,7 +5207,7 @@ async function pgEkle(){
   if (!ad){ mesaj('pgMsg','hata','Ad boş olamaz.'); return; }
   if (maas===0 && !confirm('Maaş 0 girildi — emin misiniz?')) return;
   const { error } = await sb.from('personel_gider').insert({
-    sube_id: PROFIL.sube_id, donem: PG_DONEM, personel_adi: ad,
+    sube_id: AKTIF_SUBE, donem: PG_DONEM, personel_adi: ad,
     maas, sgk: paraDeger('pgSgk'),
     prim: paraDeger('pgPrim'),
     yemek: paraDeger('pgYemek'),
@@ -5130,7 +5255,7 @@ async function talepKaydet(){
   const m = document.getElementById('tlMesaj').value.trim();
   if (!m){ mesaj('tlMsg','hata','Boş madde eklenemez.'); return; }
   const data = await rpcCagir('rpc_duzeltme_talebi_ac',{
-    p_idem: idem(), p_sube: PROFIL.sube_id, p_hedef_tablo:null, p_hedef_id:null, p_mesaj:m
+    p_idem: idem(), p_sube: AKTIF_SUBE, p_hedef_tablo:null, p_hedef_id:null, p_mesaj:m
   },'tlKaydet','tlMsg','Listeye eklendi ✓');
   if (data && data.ok){ document.getElementById('tlMesaj').value=''; talepListe(); talepRozet(); }
 }
@@ -5326,7 +5451,7 @@ async function aracKaydet(){
   if (!plaka){ mesaj('arMsg','hata','Plaka boş olamaz.'); return; }
   const id = document.getElementById('arId').value || null;
   const kayit = {
-    sube_id: PROFIL.sube_id,
+    sube_id: AKTIF_SUBE,
     plaka,
     marka_model: document.getElementById('arMarka').value.trim()||null,
     yil: parseInt(document.getElementById('arYil').value,10) || null,
@@ -5433,7 +5558,7 @@ async function aracMasrafKaydet(){
   try { foto = await fotoYukle('agFoto','fatura'); }
   catch(e){ mesaj('agMsg','hata',e.message); btn.disabled=false; btn.textContent='Masrafı Kaydet'; return; }
   const data = await rpcCagir('rpc_gider_kaydet',{
-    p_idem: idem(), p_sube: PROFIL.sube_id,
+    p_idem: idem(), p_sube: AKTIF_SUBE,
     p_tarih: document.getElementById('agTarih').value,
     p_kategori: document.getElementById('agKategori').value,
     p_aciklama: document.getElementById('agAciklama').value.trim()||null,
@@ -5537,14 +5662,14 @@ async function kapaliGunIsaretle(tarih){
     + `(örn: resmi tatil, kampüs kapalı, yıllık izin)`);
   if (!neden || !neden.trim()) return;
   const { data, error } = await sb.rpc('rpc_kapali_gun',
-    { p_sube: PROFIL.sube_id, p_tarih: tarih, p_neden: neden.trim(), p_geri: false });
+    { p_sube: AKTIF_SUBE, p_tarih: tarih, p_neden: neden.trim(), p_geri: false });
   if (error){ alert('İşaretlenemedi: ' + hataTr(error.message)); return; }
   if (data && data.ok) vOzet();
 }
 async function ownerHareketYukle(ay){
   const oz = document.getElementById('ohOzet'); if (!oz) return;
   const [{ data: toplam }, { data: liste }] = await Promise.all([
-    sb.from('v_owner_hareket_ay').select('*').eq('donem', ay).eq('sube_id', PROFIL.sube_id).maybeSingle(),
+    sb.from('v_owner_hareket_ay').select('*').eq('donem', ay).eq('sube_id', AKTIF_SUBE).maybeSingle(),
     sb.from('owner_hareket').select('*').eq('is_deleted', false)
       .gte('tarih', ay+'-01').lte('tarih', aySon(ay)).order('tarih', { ascending:false })
   ]);
@@ -5580,7 +5705,7 @@ async function ownerHareketKaydet(){
     + `${new Date(g('ohTarih').value+'T00:00').toLocaleDateString('tr-TR')}\n\n`
     + `Bu kâra girmez, sadece kasa/banka bakiyesini açıklar.\nOnaylıyor musun?`)) return;
   const data = await rpcCagir('rpc_owner_hareket_kaydet', {
-    p_idem: idem(), p_sube: PROFIL.sube_id, p_tarih: g('ohTarih').value,
+    p_idem: idem(), p_sube: AKTIF_SUBE, p_tarih: g('ohTarih').value,
     p_yon: yon, p_tutar: tutar, p_yontem: yontem, p_not: g('ohNot').value.trim() || null
   }, 'ohKaydet','ohMsg','Kaydedildi ✓');
   if (data && data.ok){
@@ -6171,7 +6296,7 @@ async function vergiOdemeKaydet(){
     p_donem: document.getElementById('voDonem').value, p_tur: document.getElementById('voTur').value,
     p_tutar: tutar, p_odeme_tarihi: document.getElementById('voTarih').value,
     p_foto: foto, p_not: document.getElementById('voNot').value.trim()||null,
-    p_sube: PROFIL.sube_id            // Samsun bağlanınca vergiler karışmasın
+    p_sube: AKTIF_SUBE            // Samsun bağlanınca vergiler karışmasın
   },'voKaydet','voMsg','Vergi ödemesi kaydedildi ✓');
   if (data && data.ok){ document.getElementById('voTutar').value=''; document.getElementById('voNot').value=''; document.getElementById('voFoto').value=''; vergiOdenenYukle(); }
 }
@@ -6354,7 +6479,7 @@ async function bankaMutabakatKaydet(){
   /* Bu donemin mutabakati daha once kaydedilmis mi — "uzerine yazilir" diye
      genel uyari vermek yerine, gercekten varsa soyle. */
   const { data: onceki } = await sb.from('banka_mutabakat')
-    .select('created_at').eq('sube_id', PROFIL.sube_id).eq('donem', MT_SON.donem)
+    .select('created_at').eq('sube_id', AKTIF_SUBE).eq('donem', MT_SON.donem)
     .eq('is_deleted', false).maybeSingle();
 
   if (!confirm(`${ayAdi(MT_SON.donem)} POS mutabakatı kaydedilecek.\n\n`
@@ -6368,7 +6493,7 @@ async function bankaMutabakatKaydet(){
     + `Devam edilsin mi?`)) return;
 
   const data = await rpcCagir('rpc_mutabakat_kaydet', {
-    p_idem: idem(), p_sube: PROFIL.sube_id, p_donem: MT_SON.donem,
+    p_idem: idem(), p_sube: AKTIF_SUBE, p_donem: MT_SON.donem,
     p_gunluk: MT_SON.gunluk, p_ozet: o, p_pdf: null, p_isyeri: MT_SON.isyeri
   }, 'bmKaydet', 'bmMsg', null);
   if (!data || !data.ok) return;
@@ -6396,7 +6521,7 @@ async function bankaMutabakatKaydet(){
   const ayBas = MT_SON.donem + '-01', aySonu = aySon(MT_SON.donem);
   const { data: mevcutGider } = await sb.from('gider')
     .select('tutar, aciklama, gider_kategori(ad)')
-    .eq('sube_id', PROFIL.sube_id).eq('is_deleted', false)
+    .eq('sube_id', AKTIF_SUBE).eq('is_deleted', false)
     .gte('tarih', ayBas).lte('tarih', aySonu);
   const benzer = (mevcutGider||[]).filter(g =>
     ['POS Komisyon','ÖKC/POS Ücreti'].includes(g.gider_kategori?.ad)
@@ -6419,7 +6544,7 @@ async function bankaMutabakatKaydet(){
     const kat = KATALOG.kategoriler.find(k=>k.ad==='POS Komisyon')
              || KATALOG.kategoriler.find(k=>k.ad==='Diğer');
     if (kat){
-      await sb.rpc('rpc_gider_kaydet', { p_idem: idem(), p_sube: PROFIL.sube_id,
+      await sb.rpc('rpc_gider_kaydet', { p_idem: idem(), p_sube: AKTIF_SUBE,
         p_tarih: aySon(MT_SON.donem), p_kategori: kat.id,
         p_aciklama: 'Banka kesintisi (' + MT_SON.donem + ') · komisyon + maxipuan + ÖKC · işyeri ' + (MT_SON.isyeri||''),
         p_tutar: kesintiToplam, p_kdv_orani: null, p_kdv_tutar: 0,
@@ -6459,7 +6584,7 @@ async function ayKapat(zorlaNeden){
   const donem = document.getElementById('akDonem').value;
   if (!donem){ mesaj('akMsg','hata','Dönem seçilmedi.'); return; }
   const { data, error } = await sb.rpc('rpc_ay_kapat_v2',
-    { p_sube: PROFIL.sube_id, p_donem: donem, p_zorla_neden: zorlaNeden || null });
+    { p_sube: AKTIF_SUBE, p_donem: donem, p_zorla_neden: zorlaNeden || null });
   if (error){ mesaj('akMsg','hata', hataTr(error.message)); return; }
 
   if (data && data.ok === false){
@@ -6488,7 +6613,7 @@ async function ayAc(){
   const neden = prompt(`${donem} ayı yeniden AÇILACAK (personel tekrar giriş yapabilir). Neden?`);
   if (neden===null) return;
   if (!neden.trim()){ mesaj('akMsg','hata','Neden zorunlu.'); return; }
-  const { error } = await sb.rpc('rpc_ay_ac', { p_sube: PROFIL.sube_id, p_donem: donem, p_neden: neden.trim() });
+  const { error } = await sb.rpc('rpc_ay_ac', { p_sube: AKTIF_SUBE, p_donem: donem, p_neden: neden.trim() });
   if (error){ mesaj('akMsg','hata', hataTr(error.message)); return; }
   mesaj('akMsg','ok', `${donem} açıldı ✓`);
   vYonetim();
@@ -6513,8 +6638,8 @@ async function akDurumGoster(){
   el.innerHTML = '<div class="bilgi-not" style="margin-top:8px">Kontrol ediliyor...</div>';
   const [{ data }, { data: k }] = await Promise.all([
     sb.from('ay_kapanis').select('kapali,eksik_gun_sayisi,zorlandi,zorlama_neden')
-      .eq('sube_id', PROFIL.sube_id).eq('donem', donem).eq('is_deleted',false).maybeSingle(),
-    sb.rpc('fn_ay_kapanis_kontrol', { p_sube: PROFIL.sube_id, p_donem: donem })
+      .eq('sube_id', AKTIF_SUBE).eq('donem', donem).eq('is_deleted',false).maybeSingle(),
+    sb.rpc('fn_ay_kapanis_kontrol', { p_sube: AKTIF_SUBE, p_donem: donem })
   ]);
   el.innerHTML = (data && data.kapali
     ? `<div class="rozet rz-hata" style="margin-top:8px">🔒 ${donem} KAPALI${
