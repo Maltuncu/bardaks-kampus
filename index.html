@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-08-2">
+<meta name="surum" content="2026-08-09-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1027,7 +1027,14 @@ function hataTr(m){
     return 'Tutar sıfırdan büyük olmalı — eksi veya sıfır kaydedilemez.';
   if (m.includes('ck_stok_isaret')) return 'Stok hareketi geçersiz: tüketim stoktan düşer, sıfır miktar kaydedilemez.';
   if (m.includes('GUN_ZATEN_GIRILMIS')) return 'Bu günün kaydı zaten girilmiş. Düzeltme gerekiyorsa talep açın.';
-  if (m.includes('AY_KAPALI')) return 'Bu ay kapatılmış — geçmişe kayıt için yöneticiye başvurun.';
+  /* v61 · Dönem kilidi artık GERÇEKTEN tutuyor: RPC'lerde ve tablo
+     trigger'larında. Eski mesaj 'yöneticiye başvurun' diyordu ama
+     yöneticinin kendisi de kilitli ve ne yapacağı yazmıyordu.
+     Artık yol var: Ay Sonu ekranından ayı aç, gir, tekrar kapat. */
+  if (m.includes('AY_KAPALI')) return 'Bu ay kapatılmış. Kayıt girmek için Ay Sonu ekranından ayı açman gerekiyor.';
+  if (m.includes('AY_COK_ESKI')) return 'Bu ay çok eski — yalnız içinde bulunulan ay ve geriye iki ay açılabilir. Daha eskisi için düzeltme kaydı gerekir.';
+  if (m.includes('AY_GELECEK')) return 'Gelecek bir ay açılamaz.';
+  if (m.includes('NEDEN_ZORUNLU')) return 'Ayı neden açtığını yazman gerekiyor — kayda geçecek.';
   if (m.includes('YETKI_YOK')) return 'Bu işlem için yetkiniz yok.';
   if (m.includes('SUBE_UYUSMUYOR')) return 'Şube uyuşmazlığı.';
   if (m.includes('NEDEN_ZORUNLU')) return 'Neden yazmak zorunlu.';
