@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-09-1">
+<meta name="surum" content="2026-08-10-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1074,14 +1074,19 @@ function tarihSecici(id, deger){
    Grafiğin çizdiği sütunlar, başlıktaki toplam ve ortalama çizgisi TEK kaynaktan
    (bu fonksiyonun döndürdüğü seri) hesaplanır — üçü ayrı yerden gelirse tutmaz.
      kart         = gun_sonu.kart_toplam
-     TOPLAM NAKİT = gun_sonu.kasa_nakit    ← kasaya ELLE YAZILAN tutar. O kadar.
-                    Kasadan ödenen EKLENMEZ (zaten gider olarak kayıtlı).
+     TOPLAM NAKİT = gun_sonu.kasa_nakit + o gün kasadan ödenen
+                    ⚠ v62: "kasadan ödenen EKLENMEZ (zaten gider)" YANLIŞTI.
+                    Gider tarafı o parayı zaten düşüyor; ciroya koymayınca
+                    kâr o kadar EKSİK çıkıyordu. Kasaya giren nakit =
+                    sayılan + ödenen. Aynı dosyanın :2464'teki yorumu bunu
+                    baştan beri doğru tarif ediyordu, kod uygulamıyordu.
+     SAHİP HAREKETİ  kasaya koyduğu/çektiği para SATIŞ DEĞİL — düşülür.
      gerçek ciro  = kart + toplam nakit
      Z'deki nakit (gun_sonu.nakit_toplam) toplam nakdi DEĞİŞTİRMEZ; tek işi
      ay sonu KDV beyanını beslemek (Temmuz'un Z nakdi → 28 Ağustos'ta ödenecek KDV).
    Kasa sayılmamışsa nakit BİLİNMEZ (uydurulmaz). Sayılan Z'dekinden azsa bu
    KASA AÇIĞIDIR — ayrı işaretlenir, sıfıra kırpılıp gizlenmez. */
-function gunlukCiro(gunler, ayStr){
+function gunlukCiro(gunler, ayStr, kasaCikis, sahipNakit){
   const yil=+ayStr.slice(0,4), ayNo=+ayStr.slice(5,7);
   const gunSayisi=new Date(yil, ayNo, 0).getDate();
   const seri=[];
@@ -1100,11 +1105,16 @@ function gunlukCiro(gunler, ayStr){
     if(k.kasa_nakit===null || k.kasa_nakit===undefined){
       g.durum='kasa_sayilmadi'; g.nakitToplam=null; g.zDisi=null; g.gercek=g.resmi; bilinmeyen++;
     }else{
-      // TOPLAM NAKİT = kasaya elle yazılan tutar. O kadar.
-      // Kasadan ödenen eklenmez (zaten gider), Z'deki nakit çıkarılmaz (o KDV hesabı için).
-      g.nakitToplam = +k.kasa_nakit;
-      g.zDisi = g.nakitToplam - g.nakit;        // KDV'ye girmeyen kısım (yalnız bilgi)
-      g.gercek = g.kart + g.nakitToplam;        // gerçek ciro = kart + elle yazılan nakit
+      // v62 · Kasaya GİREN nakit = sayılan + o gün kasadan ödenen.
+      // Sahibin koyduğu/çektiği para satış değil, düşülür (SQL zaten öyle
+      // yapıyordu; JS yapmıyordu — iki taraf tek tanıma bağlandı).
+      const cikan  = (kasaCikis && kasaCikis[ts]) || 0;
+      const sahip  = (sahipNakit && sahipNakit[ts]) || 0;
+      g.nakitToplam = +k.kasa_nakit + cikan;
+      g.zDisi = g.nakitToplam - g.nakit - sahip;
+      g.gercek = g.kart + g.nakitToplam - sahip;
+      // KASA AÇIĞI eşiği: artık kasadan ödenen düşülmüş DEĞİL, dahil.
+      // Eski hâlde meşru bir ödeme günü yapay olarak "açık" işaretleniyordu.
       g.durum = g.zDisi<0 ? 'kasa_acigi' : 'tam';
       if(g.zDisi<0) acikGun++;
     }
@@ -1305,7 +1315,7 @@ async function vOzet(){
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
   const ay = OZ_AY || bugun().slice(0,7);
   OZ_AY = ay;
-  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme] = await Promise.all([
+  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner] = await Promise.all([
     sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('sube_id', PROFIL.sube_id).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
@@ -1315,7 +1325,10 @@ async function vOzet(){
     // Geçmiş aya bakılırken sınır bugün DEĞİL, o ayın son günü olmalı
     sb.from('gun_sonu').select('tarih,toplam,kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', aySon(ay)).eq('is_deleted', false),
     sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
-    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
+    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    // v62 · Sahibin kasaya koyduğu/çektiği nakit SATIŞ DEĞİL. SQL bunu
+    // z_disi_nakit'ten düşüyordu, grafik düşmüyordu — tanım ayrışıyordu.
+    sb.from('owner_hareket').select('tarih,yon,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
   ]);
   const g = gs.data, k = (kdv.data||[])[0], o = (ozet.data||[])[0], u = uyari.data||[];
   // Ayın gerçek cirosu/Z dışı nakdi artık v_aylik_ozet'te hesaplanıyor (gercek_ciro,
@@ -1323,7 +1336,16 @@ async function vOzet(){
   const kasaCikislari = [...(ayKasadan.data||[]), ...(ayNakitOdeme.data||[])];
   const kasadanBugun = kasaCikislari.filter(x=>x.tarih===bugun()).reduce((a,x)=>a+ +x.tutar,0);
   // Grafik, başlıktaki toplam ve ortalama çizgisi hep bu tek seriden okunur
-  const GC = gunlukCiro(ayGunler.data||[], ay);
+  // v62 · Grafik artık özet ile AYNI tanımı kullanıyor. Haritalar gün
+  // bazında; ay toplamı v_aylik_ozet'ten gelir ve ikisi artık uyuşur.
+  const kasaCikisMap = {};
+  kasaCikislari.forEach(x=>{ kasaCikisMap[x.tarih] = (kasaCikisMap[x.tarih]||0) + (+x.tutar); });
+  const sahipNakitMap = {};
+  (ayOwner.data||[]).forEach(x=>{
+    const isaret = x.yon === 'koyus' ? 1 : -1;
+    sahipNakitMap[x.tarih] = (sahipNakitMap[x.tarih]||0) + isaret * (+x.tutar);
+  });
+  const GC = gunlukCiro(ayGunler.data||[], ay, kasaCikisMap, sahipNakitMap);
   const acikTalep = talep.data||[];
   if (acikTalep.length > 0){
     const gunFarki = Math.floor((Date.now() - new Date(acikTalep[0].created_at).getTime()) / 86400000);
@@ -4727,22 +4749,34 @@ async function acikFaturaYukle(){
   const gecikmis = list.filter(f=>f.gecikti);
   el.innerHTML = list.length===0
     ? bosDurum('belge','Ödenmemiş fatura yok','Vadesi gelen fatura olduğunda burada ve Özet ekranında uyarı çıkar.')
-    : (gecikmis.length ? `<div class="uyari-agir">${gecikmis.length} faturanın vadesi geçti · ${tl(gecikmis.reduce((a,x)=>a+ +x.toplam,0))}</div>` : '')
+    : (gecikmis.length ? `<div class="uyari-agir">${gecikmis.length} faturanın vadesi geçti · ${tl(gecikmis.reduce((a,x)=>a+ +x.kalan,0))}</div>` : '')
       + list.map(f=>srSatir({
           ad: esc(f.tedarikci_ad) + (f.gecikti?' <span class="rozet rz-hata">GECİKTİ</span>':''),
           alt: new Date(f.tarih+'T00:00').toLocaleDateString('tr-TR')
                + ' · ' + esc(f.belge_no||'belge no yok')
                + (f.vade_tarihi?' · vade '+new Date(f.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):''),
-          tutar: tl(f.toplam),
-          tutarAlt: `<button class="bo-btn" style="margin-top:4px" onclick="event.stopPropagation();faturaOdendi('${f.id}')">Ödendi ✓</button>`,
+          // v62 · KALAN gösteriliyor, toplam değil. View `kalan`ı zaten
+          // hesaplıyor ve select('*') ile buraya geliyordu; ekran onu
+          // atıp `toplam` basıyordu. Kısmi ödeme girilse rakam düşmüyordu.
+          tutar: tl(f.kalan),
+          tutarAlt: `<button class="bo-btn" style="margin-top:4px" onclick="event.stopPropagation();faturaOdemeyeGit('${f.id}')">Ödeme gir</button>`,
           tikla: `firmaDetay('${f.tedarikci_id}')`
         })).join('');
 }
-async function faturaOdendi(id){
-  if (!confirm('Fatura ödendi olarak işaretlensin mi? (Takip listesinden çıkar. Ödemeyi ayrıca "Ödeme Kaydet"ten girin ki bakiye düşsün.)')) return;
-  const { error } = await sb.from('alis').update({ odendi:true }).eq('id', id);
-  if (error){ alert('Güncellenemedi: '+error.message); return; }
-  acikFaturaYukle();
+/* v62 · "Ödendi ✓" butonu KALDIRILDI, yerine ödeme kaydına yönlendirme.
+   Eski hâli `alis.odendi` bayrağını doğrudan yazıyordu: RPC yok, tutar
+   yok, ödeme satırı oluşmuyordu. Kendi onay metni bunu itiraf ediyordu:
+   "Ödemeyi ayrıca 'Ödeme Kaydet'ten girin ki bakiye düşsün."
+   Yani buton faturayı listeden çıkarıyor ama borcu düşürmüyordu.
+
+   Artık fatura, ödeme kaydı girildiğinde KENDİLİĞİNDEN kapanıyor
+   (v_acik_fatura kalan>0 filtresi). Bayrak yerine türetme — v60'ta
+   fis_iptal için verilen kararın aynısı. */
+function faturaOdemeyeGit(id){
+  alert('Faturayı kapatmak için ödemeyi kaydet: Tedarikçi → Ödeme Kaydet.\n\n' +
+        'Ödeme girildiğinde fatura bu listeden kendiliğinden çıkar; ' +
+        'kısmi ödemede kalan tutar görünmeye devam eder.');
+  vTedarikci();
 }
 async function acikCekYukle(){
   const { data } = await sb.from('v_acik_cek').select('*').order('cek_vade',{nullsFirst:false});
