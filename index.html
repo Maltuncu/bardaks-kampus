@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-10-5">
+<meta name="surum" content="2026-08-10-6">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5203,7 +5203,7 @@ async function vPersonel(){
       <td style="padding:8px 6px;text-align:right">${tl(prim)}</td>
       <td style="padding:8px 6px;text-align:right">${tl(yemek)}</td>
       <td style="padding:8px 6px;text-align:right;color:var(--ana);font-weight:800">${tl(maliyet)}</td>
-      <td style="padding:8px 2px;text-align:center">${silId?`<button class="btn-kirmizi" style="padding:4px 8px" onclick="pgSil('${silId}','${ad}')">✕</button>`:''}</td>
+      <td style="padding:8px 2px;text-align:center">${silId?`<button id="pgsil_${silId}" class="btn-kirmizi" style="padding:4px 8px" onclick="pgSil('${silId}','${ad}','${tl(maliyet)}')">✕</button>`:''}</td>
     </tr>`;
   el.innerHTML = `
     <h2 class="bolum">Personel Giderleri</h2>
@@ -5276,10 +5276,37 @@ async function pgEkle(){
   if (error){ mesaj('pgMsg','hata',error.message); return; }
   vPersonel();
 }
-async function pgSil(id, ad){
-  if (!confirm(ad + ' bu aydan çıkarılsın mı? (kayıt silinmez, arşivde kalır)')) return;
-  const { error } = await sb.from('personel_gider').update({ is_deleted:true }).eq('id', id);
-  if (error){ alert('Çıkarılamadı: '+error.message); return; }
+/* v73 · H-19 · İZSİZ SİLME KAPANDI
+   Eski hâli ham `.update({is_deleted:true})` idi: gerekçe yok, RPC yok,
+   dönem kilidi UX katmanı yok. audit_log'a satır düşüyordu ama NEDEN
+   düşmüyordu — H-18'in aynısı, farklı tabloda.
+   Artık rpc_personel_gider_sil: owner kapısı, gerekçe zorunlu, gerekçe
+   AYRI SÜTUNA (H-22) — personel adı ve notlar girildiği hâlinde kalıyor. */
+async function pgSil(id, ad, maliyetMetni){
+  const btn = document.getElementById('pgsil_' + id);
+  if (btn && btn.disabled) return;          // çift tıklama kilidi
+
+  const neden = prompt(
+    ad + ' bu aydan neden çıkarılıyor?\n\n' +
+    'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
+    'Örnek: "işten ayrıldı, bu ayın maaşı ödenmedi"');
+  if (!neden || !neden.trim()){
+    if (neden !== null) alert('Gerekçe boş olamaz — çıkarılmadı.');
+    return;
+  }
+  /* Rakam metinde: H-29'un dersi — "bu kadar değişir" deyip hiçbir
+     rakama işaret etmeyen cümle eksiktir. */
+  if (!confirm(ad + ' çıkarılacak (geri alınabilir işaretleme, veri kaybolmaz).\n\n'
+             + 'Aylık maliyeti: ' + (maliyetMetni || '(bilinmiyor)') + '\n'
+             + 'Bu ayın personel maliyeti BU KADAR AZALIR.\n\nDevam?')) return;
+
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  const { error } = await sb.rpc('rpc_personel_gider_sil', { p_id:id, p_neden:neden.trim() });
+  if (error){
+    if (btn){ btn.disabled = false; btn.textContent = '✕'; }
+    alert('Çıkarılamadı: ' + hataTr(error.message));
+    return;
+  }
   vPersonel();
 }
 async function pgOncekiAydanKopyala(){
