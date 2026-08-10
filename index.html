@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-10-3">
+<meta name="surum" content="2026-08-10-4">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1148,10 +1148,16 @@ function hataTr(m){
   if (m.includes('AY_KAPALI')) return 'Bu ay kapatılmış. Kayıt girmek için Ay Sonu ekranından ayı açman gerekiyor.';
   if (m.includes('AY_COK_ESKI')) return 'Bu ay çok eski — yalnız içinde bulunulan ay ve geriye iki ay açılabilir. Daha eskisi için düzeltme kaydı gerekir.';
   if (m.includes('AY_GELECEK')) return 'Gelecek bir ay açılamaz.';
-  if (m.includes('NEDEN_ZORUNLU')) return 'Ayı neden açtığını yazman gerekiyor — kayda geçecek.';
+  /* v65 · Eskiden burada "Ayı neden açtığını..." yazıyordu ve AŞAĞIDAKİ
+     genel karşılığı GÖLGELİYORDU. rpc_gider_sil de aynı kodu fırlatıyor;
+     gider silerken "ayı neden açtın" demek operatörü yanlış yere bakmaya
+     gönderirdi. Tek ve bağlamdan bağımsız metin. */
+  if (m.includes('NEDEN_ZORUNLU')) return 'Neden yazman gerekiyor — kayda geçecek.';
   if (m.includes('YETKI_YOK')) return 'Bu işlem için yetkiniz yok.';
   if (m.includes('SUBE_UYUSMUYOR')) return 'Şube uyuşmazlığı.';
-  if (m.includes('NEDEN_ZORUNLU')) return 'Neden yazmak zorunlu.';
+  /* v65 · KAYIT_YOK'un karşılığı YOKTU — tarayıcıda ölçüldü, ham kod
+     çıkıyordu. Çift tıklamada ikinci çağrı tam olarak bunu döndürür. */
+  if (m.includes('KAYIT_YOK')) return 'Kayıt bulunamadı — silinmiş ya da başkası tarafından değiştirilmiş olabilir. Listeyi yenile.';
   if (m.includes('ux_alis_belge') || m.includes('duplicate key')) return 'Bu belge numarası bu firma için zaten girilmiş — mükerrer fatura engellendi.';
   if (m.includes('SADECE_KENDI')) return 'Sadece kendi girdiğiniz kaydı düzeltebilirsiniz.';
   if (m.includes('SURE_GECTI')) return 'Düzeltme süresi (12 saat) geçmiş — yöneticiye başvurun.';
@@ -3143,14 +3149,60 @@ async function giderListe(){
           alt: new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')
                + (g.aciklama?' · '+esc(g.aciklama):''),
           tutar: tl(g.tutar),
-          eylem: g.foto_path
+          /* v65 · H-18 · "Değiştir" gideri değil BELGEYİ değiştiriyor.
+             Gideri düzeltecek hiçbir yol yoktu; yanlış girilen her kayıt
+             kalıcıydı ve gider → gider_net → ay_kari, yani beyan.
+             Sil düğmesi yalnız owner'da: personelin kanalı düzeltme
+             talebi (Yapılacaklar), gider beyana gittiği için silme
+             yetkisi genişletilmedi. */
+          eylem: (g.foto_path
             ? belgeBtn(g.foto_path, 'Belge', (g.gider_kategori?.ad||'')+' '+g.tarih)
               + `<button type="button" class="btn2" title="Yanlış belge eklediysen değiştir"
                    style="padding:4px 8px;font-size:12px;margin-left:4px"
                    onclick="belgeEkle('gider','${g.id}','gider',true)">Değiştir</button>`
             : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
-                 onclick="belgeEkle('gider','${g.id}','gider',false)">+ Belge</button>`
+                 onclick="belgeEkle('gider','${g.id}','gider',false)">+ Belge</button>`)
+            + (PROFIL.rol === 'owner'
+              ? `<button type="button" class="btn2" id="gsil_${g.id}"
+                   title="Bu gider kaydını sil (gerekçe zorunlu, kayda geçer)"
+                   style="padding:4px 8px;font-size:12px;margin-left:4px;color:var(--hata)"
+                   onclick="giderSil('${g.id}')">Sil</button>`
+              : '')
         })).join('')}</div>`;
+}
+
+/* v65 · H-18 · GİDER SİLME
+   Ham `.update({is_deleted:true})` YOK — iz bırakmayan finansal
+   değişiklik bu turlarda kapatmaya çalıştığımız şeyin ta kendisi.
+   Kanal: rpc_gider_sil (owner-only, gerekçe zorunlu, soft delete,
+   audit_log'a otomatik iz, v61 dönem kilidi).
+
+   ÇİFT TIKLAMA KİLİDİ: düğme anında pasifleşir. RPC ikinci çağrıyı
+   zaten KAYIT_YOK ile reddediyor (arka duvar), ama operatör "olmadı"
+   sanıp tekrar basmasın diye ön tarafta da kilit var. */
+async function giderSil(id){
+  const btn = document.getElementById('gsil_' + id);
+  if (btn && btn.disabled) return;
+
+  const neden = prompt(
+    'Bu gider kaydı neden siliniyor?\n\n' +
+    'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
+    'Örnek: "aynı tutar parça parça ayrıca girilmiş, bu toplu kayıt fazla"');
+  if (!neden || !neden.trim()){
+    if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
+    return;
+  }
+  if (!confirm('Kayıt silinecek (geri alınabilir işaretleme, veri kaybolmaz).\n\n'
+             + 'Aylık kâr ve beyana giden rakam bu kadar DEĞİŞİR.\n\nDevam?')) return;
+
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  const { error } = await sb.rpc('rpc_gider_sil', { p_id:id, p_neden:neden.trim() });
+  if (error){
+    if (btn){ btn.disabled = false; btn.textContent = 'Sil'; }
+    alert('Silinemedi: ' + hataTr(error.message));
+    return;
+  }
+  vGider();
 }
 
 /* ================== ALIŞ ================== */
