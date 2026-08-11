@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-10-6">
+<meta name="surum" content="2026-08-11-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1158,6 +1158,13 @@ function hataTr(m){
   /* v65 · KAYIT_YOK'un karşılığı YOKTU — tarayıcıda ölçüldü, ham kod
      çıkıyordu. Çift tıklamada ikinci çağrı tam olarak bunu döndürür. */
   if (m.includes('KAYIT_YOK')) return 'Kayıt bulunamadı — silinmiş ya da başkası tarafından değiştirilmiş olabilir. Listeyi yenile.';
+  /* v79 · ÖZEL KARŞILIKLAR GENEL YAKALAYICIDAN ÖNCE.
+     Aşağıdaki satırda `|| m.includes('duplicate key')` bir GENEL
+     yakalayıcı: hangi indeks ihlal edilirse edilsin "mükerrer fatura"
+     diyordu. Yani `ux_belge_haric` ihlalinde kullanıcı HAM hata değil,
+     YANLIŞ hata görüyordu — daha sinsisi. Sıra önemli. */
+  if (m.includes('ux_belge_haric')) return 'Bu belge numarası zaten işletme dışı olarak işaretlenmiş.';
+  if (m.includes('ux_tedarikci_ad')) return 'Bu isimde bir firma zaten kayıtlı. Aynı isimde ikinci firma açılamaz — ayırt edici bir ek yaz (örn. şube ya da semt).';
   if (m.includes('ux_alis_belge') || m.includes('duplicate key')) return 'Bu belge numarası bu firma için zaten girilmiş — mükerrer fatura engellendi.';
   if (m.includes('SADECE_KENDI')) return 'Sadece kendi girdiğiniz kaydı düzeltebilirsiniz.';
   if (m.includes('SURE_GECTI')) return 'Düzeltme süresi (12 saat) geçmiş — yöneticiye başvurun.';
@@ -5136,14 +5143,30 @@ async function tedarikciEkleHizli(){
     email: document.getElementById('tdYeniEmail').value.trim()||null,
     adres: document.getElementById('tdYeniAdres').value.trim()||null
   };
-  const { data, error } = await sb.rpc('rpc_tedarikci_kaydet', {
-    p_id: TD_DUZENLENEN, p_ad: kayit.ad, p_unvan: kayit.unvan, p_vergi_no: kayit.vergi_no,
-    p_vergi_dairesi: kayit.vergi_dairesi, p_yetkili: kayit.yetkili_ad, p_tel: kayit.telefon,
-    p_tel2: kayit.telefon2, p_email: kayit.email, p_adres: kayit.adres
-  });
-  if (error){ mesaj('tdYeniMsg','hata',hataTr(error.message)); return; }
-  TD_DUZENLENEN = null;
-  await katalogYukle(); vTedarikci();
+  /* v79 · DÜĞME KİLİDİ — ölçüldü: `p_id` NULL iken bu çağrı INSERT yapıyor,
+     `rpc_tedarikci_kaydet`'te `p_idem` YOK ve sunucuda mükerrer koruması
+     YOKTU. Çift tıklama aynı isimde iki firma üretiyordu.
+     Kilit `rpcCagir`'ın kalıbı; `rpcCagir`'a TAŞINMADI çünkü o fonksiyon
+     ağ hatasında aynı çağrıyı TEKRARLIYOR ve bu güvenliğini `p_idem`den
+     alıyor — idem'siz bir RPC'yi oraya koymak yeni bir mükerrer yolu
+     açardı. Asıl koruma v79'un `ux_tedarikci_ad` kısıtı; bu kilit kazayı
+     erken durduruyor. */
+  const tdBtn = document.getElementById('tdYeniBtn');
+  if (tdBtn && tdBtn.disabled) return;
+  const tdEski = tdBtn ? tdBtn.textContent : null;
+  if (tdBtn){ tdBtn.disabled = true; tdBtn.textContent = 'Kaydediliyor...'; }
+  try{
+    const { error } = await sb.rpc('rpc_tedarikci_kaydet', {
+      p_id: TD_DUZENLENEN, p_ad: kayit.ad, p_unvan: kayit.unvan, p_vergi_no: kayit.vergi_no,
+      p_vergi_dairesi: kayit.vergi_dairesi, p_yetkili: kayit.yetkili_ad, p_tel: kayit.telefon,
+      p_tel2: kayit.telefon2, p_email: kayit.email, p_adres: kayit.adres
+    });
+    if (error){ mesaj('tdYeniMsg','hata',hataTr(error.message)); return; }
+    TD_DUZENLENEN = null;
+    await katalogYukle(); vTedarikci();
+  } finally {
+    if (tdBtn){ tdBtn.disabled = false; tdBtn.textContent = tdEski; }
+  }
 }
 async function odemeKaydet(){
   const tutar = paraDeger('toTutar');
@@ -6839,13 +6862,29 @@ async function urunEkle(){
   ['ynUrunAd','ynUrunKategori','ynUrunPaket','ynUrunKritik'].forEach(i=>{ const e=g(i); if(e) e.value=''; });
   await katalogYukle();
 }
+/* v79 · FİRMA YARATMANIN İKİNCİ YOLU — ölçümde İLK BAŞTA KAÇMIŞTI.
+   v79 ölçüm turunda yalnız `tedarikciEkleHizli` (RPC yolu) sayılmıştı;
+   kilit eklenirken burası bulundu: doğrudan `.insert`, kilit YOK, ve
+   hata `hataTr`'den GEÇMEDEN ham basılıyordu.
+   Bu bulgu kararı da değiştirdi: "sadece düğme kilidi" çözümü İKİ yere
+   yazılmak zorunda kalacaktı ve üçüncü bir yol eklendiği gün yine açık
+   kalırdı. Asıl koruma bu yüzden veritabanı kısıtı (v79 ·
+   ux_tedarikci_ad) — o, bütün yolları AYNI ANDA kapatıyor. */
 async function tedarikciEkle(){
   const ad = document.getElementById('ynTedAd').value.trim();
   if (!ad){ mesaj('ynTedMsg','hata','Firma adı boş.'); return; }
-  const { error } = await sb.from('tedarikci').insert({ ad, telefon: document.getElementById('ynTedTel').value.trim()||null });
-  if (error){ mesaj('ynTedMsg','hata',error.message); return; }
-  mesaj('ynTedMsg','ok','Tedarikçi eklendi ✓'); document.getElementById('ynTedAd').value='';
-  await katalogYukle();
+  const btn = document.getElementById('ynTedBtn');
+  if (btn && btn.disabled) return;
+  const eski = btn ? btn.textContent : null;
+  if (btn){ btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
+  try{
+    const { error } = await sb.from('tedarikci').insert({ ad, telefon: document.getElementById('ynTedTel').value.trim()||null });
+    if (error){ mesaj('ynTedMsg','hata',hataTr(error.message)); return; }
+    mesaj('ynTedMsg','ok','Tedarikçi eklendi ✓'); document.getElementById('ynTedAd').value='';
+    await katalogYukle();
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = eski; }
+  }
 }
 async function kategoriEkle(){
   const ad = document.getElementById('ynKatAd').value.trim();
