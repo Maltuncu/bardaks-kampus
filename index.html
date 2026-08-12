@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-12-1">
+<meta name="surum" content="2026-08-12-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4395,7 +4395,14 @@ async function faturaDetay(id){
   const kdv=(a.alis_kdv||[]).filter(x=>!x.is_deleted).sort((x,y)=>x.oran-y.oran);
   const kal=(a.alis_kalem||[]).filter(x=>!x.is_deleted);
   const matrah=kdv.reduce((s,x)=>s+ +x.matrah,0);
-  const kdvT=kdv.reduce((s,x)=>s+ +x.kdv_tutar,0);
+  /* v87 · H-66 · Beyan (v_kdv_ay) fatura KDV'sini BAŞLIK alanından okur;
+     bu ekran DÖKÜMDEN topluyordu. Başlık doluyken döküm boşsa ekran
+     "indirilecek KDV'ye girmiyor" yazıyordu — oysa GİRİYORDU. Karar artık
+     başlığa bağlı (beyanla aynı kaynak), dökümle farkı ayrıca gösteriliyor.
+     Fatura listesi (faturaListe) zaten başlığa düşüyordu; iki ekran ayrışıktı. */
+  const kdvDokum=kdv.reduce((s,x)=>s+ +x.kdv_tutar,0);
+  const kdvBaslik=+a.kdv_tutar||0;
+  const kdvAyristi=Math.abs(kdvBaslik-kdvDokum)>=0.01;
   const satirT=kal.reduce((s,x)=>s+ +x.satir_tutar,0);
   const t=new Date(a.tarih+'T00:00').toLocaleDateString('tr-TR');
   const bugunS=bugun();
@@ -4411,7 +4418,12 @@ async function faturaDetay(id){
     </div>
     <div class="ud-govde">
       ${vadeGecti?`<div class="uyari-agir">Vadesi ${new Date(a.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')} — geçti, gecikme zammı işler</div>`:''}
-      ${a.tur==='fatura' && kdvT===0?`<div class="uyari-orta">KDV dökümü yok — bu fatura indirilecek KDV'ye girmiyor</div>`:''}
+      ${a.tur!=='fatura'?''
+        : kdvBaslik===0
+          ? `<div class="uyari-orta">Belgede KDV yok — bu fatura indirilecek KDV'ye girmiyor${kdvDokum>0?` (dökümde ${tl(kdvDokum)} var ama belgenin KDV alanı boş)`:''}</div>`
+        : kdvAyristi
+          ? `<div class="uyari-orta">Belgedeki KDV ${tl(kdvBaslik)}, dökümde ${tl(kdvDokum)} — indirilecek KDV'ye <b>${tl(kdvBaslik)}</b> giriyor</div>`
+        : ''}
 
       <div class="ud-bas"><span class="ud-blk">TUTAR</span></div>
       ${matrah>0?ozSatir('Matrah', tl(matrah)):''}
