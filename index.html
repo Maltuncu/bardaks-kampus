@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-11-1">
+<meta name="surum" content="2026-08-11-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1163,6 +1163,22 @@ function hataTr(m){
      yakalayıcı: hangi indeks ihlal edilirse edilsin "mükerrer fatura"
      diyordu. Yani `ux_belge_haric` ihlalinde kullanıcı HAM hata değil,
      YANLIŞ hata görüyordu — daha sinsisi. Sıra önemli. */
+  /* v80 · BAGLI_KAYIT_VAR|alis|gider|odeme|alacak
+     Sayılar mesajın İÇİNDE geliyor: "neden silemiyorum" sorusunun cevabı
+     tek ekranda görünsün. Kalıp tutmazsa sayısız ama DOĞRU bir cümleye
+     düşüyor — yanlış sayı basmaktansa sayısız kalır. */
+  if (m.includes('BAGLI_KAYIT_VAR')){
+    const s = m.match(/BAGLI_KAYIT_VAR\|(\d+)\|(\d+)\|(\d+)\|(\d+)/);
+    if (!s) return 'Bu firmanın kayıtları var — önce onlar durduğu için firma silinemiyor.';
+    const p = [];
+    if (+s[1]) p.push(s[1] + ' fatura');
+    if (+s[2]) p.push(s[2] + ' gider');
+    if (+s[3]) p.push(s[3] + ' ödeme');
+    if (+s[4]) p.push(s[4] + ' alacak kaydı');
+    return 'Bu firma silinemez — ' + p.join(', ') + ' duruyor. '
+         + 'Silinseydi bu firmanın bakiyesi ekrandan kaybolurdu. '
+         + 'Önce kayıtları başka firmaya taşı ya da sil.';
+  }
   if (m.includes('ux_belge_haric')) return 'Bu belge numarası zaten işletme dışı olarak işaretlenmiş.';
   if (m.includes('ux_tedarikci_ad')) return 'Bu isimde bir firma zaten kayıtlı. Aynı isimde ikinci firma açılamaz — ayırt edici bir ek yaz (örn. şube ya da semt).';
   if (m.includes('ux_alis_belge') || m.includes('duplicate key')) return 'Bu belge numarası bu firma için zaten girilmiş — mükerrer fatura engellendi.';
@@ -5097,7 +5113,44 @@ async function firmaDetay(id){
         </div>`).join('')}
 
       <button class="btn" style="margin-top:18px" onclick="tedarikciDuzenle('${id}')">Firma Bilgilerini Düzenle</button>
+      <button class="btn-kirmizi" id="tdSil_${id}" style="margin-top:8px"
+        onclick="tedarikciSil('${id}','${esc(t?.ad||'')}')">Firmayı Sil</button>
     </div>`;
+}
+/* v80 · H-54 · TEDARİKÇİ SİLME KANALI
+   Silinebilenler ölçülmüştü: gun_sonu · gider · personel_gider ·
+   owner_hareket · madde · rol. Tedarikçi YOKTU — H-18/H-19'un aynı
+   sınıfı, üçüncü tablo. v79'un tekillik kısıtı sıkıştırdı: deneme amaçlı
+   açılan bir firmanın adı işgal edilmiş kalıyordu.
+
+   Bağlı mali kaydı olan firma SİLİNMEZ ve bu ölçümle karar verildi:
+   `v_tedarikci_bakiye` tanımı `WHERE NOT t.is_deleted AND t.aktif` diyor,
+   yani bakiyesi olan firmayı düşürmek borcu EKRANDAN yok ederdi. */
+async function tedarikciSil(id, ad){
+  const btn = document.getElementById('tdSil_' + id);
+  if (btn && btn.disabled) return;          // çift tıklama kilidi
+
+  const neden = prompt(
+    (ad ? ad + ' — ' : '') + 'firma neden siliniyor?\n\n' +
+    'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
+    'Örnek: "deneme amaçlı açıldı, gerçek firma değil"');
+  if (!neden || !neden.trim()){
+    if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
+    return;
+  }
+  if (!confirm((ad||'Firma') + ' listeden düşecek (geri alınabilir işaretleme, veri kaybolmaz).\n\n'
+             + 'Faturası, gideri, ödemesi veya alacağı varsa SİLİNMEZ —\n'
+             + 'o durumda kaç kaydı olduğu söylenecek.\n\nDevam?')) return;
+
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  const { error } = await sb.rpc('rpc_tedarikci_sil', { p_id:id, p_neden:neden.trim() });
+  if (error){
+    if (btn){ btn.disabled = false; btn.textContent = 'Firmayı Sil'; }
+    alert('Silinemedi: ' + hataTr(error.message));
+    return;
+  }
+  await katalogYukle();
+  vTedarikci();
 }
 /* Form artık hep açık durmuyor — ekran firma listesiyle başlıyor, form istenince geliyor */
 function firmaFormAc(){
@@ -6886,13 +6939,28 @@ async function tedarikciEkle(){
     if (btn){ btn.disabled = false; btn.textContent = eski; }
   }
 }
+/* v80 · `tedarikciEkle` ile AYNI SINIF: kilitsiz `.insert` + ham hata.
+   Kilit ve `hataTr` eklendi. SİLME KANALI EKLENMEDİ — kategori silmek
+   istenip istenmediği sorulmadı; istenmeyen bir kanal açmak, açılmayan
+   bir kanaldan kötüdür (v65'in "kanalı aç, silmeyi kullanıcı yapsın"
+   kararı bir TALEP üzerineydi).
+   ⚠ `gider_kategori`'de ad tekilliği ÖLÇÜLMEDİ; aynı adla ikinci
+   kategori açılabilir olabilir. Kaydedildi, bu turda kapsam dışı. */
 async function kategoriEkle(){
   const ad = document.getElementById('ynKatAd').value.trim();
   if (!ad){ mesaj('ynKatMsg','hata','Kategori adı boş.'); return; }
+  const btn = document.getElementById('ynKatBtn');
+  if (btn && btn.disabled) return;
+  const eski = btn ? btn.textContent : null;
+  if (btn){ btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
+  try{
   const { error } = await sb.from('gider_kategori').insert({ ad });
-  if (error){ mesaj('ynKatMsg','hata',error.message); return; }
+  if (error){ mesaj('ynKatMsg','hata',hataTr(error.message)); return; }
   mesaj('ynKatMsg','ok','Kategori eklendi ✓'); document.getElementById('ynKatAd').value='';
   await katalogYukle();
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = eski; }
+  }
 }
 
 /* ================== BAŞLAT ================== */
