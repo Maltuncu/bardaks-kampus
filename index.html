@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-11-2">
+<meta name="surum" content="2026-08-12-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1167,6 +1167,9 @@ function hataTr(m){
      Sayılar mesajın İÇİNDE geliyor: "neden silemiyorum" sorusunun cevabı
      tek ekranda görünsün. Kalıp tutmazsa sayısız ama DOĞRU bir cümleye
      düşüyor — yanlış sayı basmaktansa sayısız kalır. */
+  /* v84 · yeni kodlar */
+  if (m.includes('BELGE_NO_ZORUNLU')) return 'Belge numarasi bos olamaz.';
+  if (m.includes('SUBE_YOK')) return 'Sube belirlenemedi — sayfayi yenileyip tekrar dene.';
   if (m.includes('BAGLI_KAYIT_VAR')){
     const s = m.match(/BAGLI_KAYIT_VAR\|(\d+)\|(\d+)\|(\d+)\|(\d+)/);
     if (!s) return 'Bu firmanın kayıtları var — önce onlar durduğu için firma silinemiyor.';
@@ -3057,9 +3060,18 @@ async function mutabakatHaric(no){
   const neden = prompt(`${no} — ${x.firma||''}\n\nNeden sisteme girilmiyor? (örn: ev interneti, şahsi harcama)`);
   if (neden === null) return;
   if (!neden.trim()){ alert('Neden yazmak zorunlu — sonradan niye atlandığını bilmen gerekir.'); return; }
-  const { error } = await sb.from('belge_haric').insert({
-    sube_id: AKTIF_SUBE, belge_no: no, firma: (x.firma||'').slice(0,80),
-    neden: neden.trim(), giren_id: PROFIL.id || null });
+  /* v84 · H-51 · RPC'ye taşındı.
+     Kaydın ÇERÇEVESİ ölçüldü ve H-51'in ilk hâli iki noktada fazla
+     genişti: `trg_audit_belge_haric` ZATEN vardı (denetim izi düşüyordu)
+     ve politikalar personele yalnız SELECT veriyordu (RLS kapıyı tutuyordu).
+     Kalan gerçek kazanç DAR ama gerçek: `giren_id` istemciden geliyordu
+     (`PROFIL.id`). Denetim izinin "kim" alanı, istemcinin söylediği şey
+     olamaz — artık sunucuda `auth.uid()`.
+     `ux_belge_haric` mükerrer koruması DEĞİŞMEDİ; ihlal aynı kısıt adıyla
+     yukarı çıkıyor ve `hataTr` onu çeviriyor. */
+  const { error } = await sb.rpc('rpc_belge_haric_ekle', {
+    p_sube: AKTIF_SUBE, p_belge_no: no,
+    p_firma: (x.firma||'').slice(0,80), p_neden: neden.trim() });
   if (error){ alert('Kaydedilemedi: ' + hataTr(error.message)); return; }
   x.durum = 'haric'; x.neden = neden.trim();
   mutabakatCiz();
@@ -6213,6 +6225,20 @@ async function vYonetim(){
       <div class="kbaslik">Yeni Gider Kategorisi</div>
       <label>Kategori Adı</label><input type="text" id="ynKatAd">
       <button class="btn" id="ynKatBtn" onclick="kategoriEkle()">Kategoriyi Ekle</button>
+      <!-- v84 · Kategoriler bugüne kadar HİÇ LİSTELENMİYORDU; yalnız ekleme
+           formu vardı. Yanlış eklenen kategori listede kalıcı duruyordu.
+           Liste + silme düğmesi buraya kondu. -->
+      <div style="margin-top:14px">
+        <div class="k" style="color:var(--soluk);margin-bottom:6px">MEVCUT KATEGORİLER</div>
+        ${(KATALOG.kategoriler||[]).map(k=>`
+          <div class="liste-satir">
+            <div class="l-sol"><div class="b">${esc(k.ad)}</div></div>
+            <div class="l-sag">
+              <button class="bo-btn" id="katSil_${k.id}" style="color:var(--hata)"
+                onclick="kategoriSil('${k.id}','${esc(k.ad)}')">Sil</button>
+            </div>
+          </div>`).join('') || '<div class="bilgi-not">Kategori yok.</div>'}
+      </div>
       <div class="hata-msg" id="ynKatMsg"></div>
     </div>
     <div class="kart">
@@ -6940,12 +6966,11 @@ async function tedarikciEkle(){
   }
 }
 /* v80 · `tedarikciEkle` ile AYNI SINIF: kilitsiz `.insert` + ham hata.
-   Kilit ve `hataTr` eklendi. SİLME KANALI EKLENMEDİ — kategori silmek
-   istenip istenmediği sorulmadı; istenmeyen bir kanal açmak, açılmayan
-   bir kanaldan kötüdür (v65'in "kanalı aç, silmeyi kullanıcı yapsın"
-   kararı bir TALEP üzerineydi).
-   ⚠ `gider_kategori`'de ad tekilliği ÖLÇÜLMEDİ; aynı adla ikinci
-   kategori açılabilir olabilir. Kaydedildi, bu turda kapsam dışı. */
+   Kilit ve `hataTr` eklendi.
+   v84 · SİLME KANALI AÇILDI — kullanıcı istedi. (v80'de sorulmuştu;
+   istenmeyen kanal açmamak için beklenmişti.) Bkz. `kategoriSil`.
+   ⚠ `gider_kategori`'de ad tekilliği HÂLÂ ÖLÇÜLMEDİ; aynı adla ikinci
+   kategori açılabilir olabilir. Kaydedildi, kapsam dışı. */
 async function kategoriEkle(){
   const ad = document.getElementById('ynKatAd').value.trim();
   if (!ad){ mesaj('ynKatMsg','hata','Kategori adı boş.'); return; }
@@ -6961,6 +6986,48 @@ async function kategoriEkle(){
   } finally {
     if (btn){ btn.disabled = false; btn.textContent = eski; }
   }
+}
+/* v84 · H-62 · KATEGORİ SİLME KANALI
+   ⚠ v80'in (tedarikçi) BAĞLI KAYIT ENGELİ buraya KOPYALANMADI ve sebebi
+   ölçüldü: tedarikçide `v_tedarikci_bakiye` `WHERE NOT t.is_deleted`
+   diyordu, yani silme BORCU EKRANDAN yok ediyordu. Kategori için aynı
+   ölçüm koşuldu ve zarar ÇIKMADI —
+     v_kdv_ay        kategorinin is_deleted'ini SÜZMÜYOR (beyan etkilenmez)
+     v_belgeler      LEFT JOIN, süzmüyor
+     gider listesi   `gider_kategori(ad)` ile FK üzerinden çözüyor,
+                     silinen kategorinin ADI GÖRÜNMEYE DEVAM EDER
+   Düşen tek şey kategori SEÇİM listesi — istenen zaten bu.
+   "Simetri tek başına gerekçe değildir": engel kopyalanmadı, bunun
+   yerine RPC bağlı gider sayısını DÖNÜYOR ve ekran BİLGİLENDİRİYOR. */
+async function kategoriSil(id, ad){
+  const btn = document.getElementById('katSil_' + id);
+  if (btn && btn.disabled) return;          // çift tıklama kilidi
+
+  const neden = prompt(
+    (ad ? ad + ' — ' : '') + 'kategori neden siliniyor?\n\n' +
+    'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
+    'Örnek: "yanlışlıkla eklendi"');
+  if (!neden || !neden.trim()){
+    if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
+    return;
+  }
+  if (!confirm((ad||'Kategori') + ' silinecek.\n\n'
+             + 'Bu kategorideki GEÇMİŞ giderler etkilenmez — adları\n'
+             + 'listelerde ve KDV raporunda görünmeye devam eder.\n'
+             + 'Yalnız yeni gider bu kategoriye girilemez.\n\nDevam?')) return;
+
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  const { data, error } = await sb.rpc('rpc_gider_kategori_sil', { p_id:id, p_neden:neden.trim() });
+  if (error){
+    if (btn){ btn.disabled = false; btn.textContent = 'Sil'; }
+    alert('Silinemedi: ' + hataTr(error.message));
+    return;
+  }
+  const n = +(data && data.bagli_gider) || 0;
+  mesaj('ynKatMsg','ok', (ad||'Kategori') + ' silindi ✓'
+    + (n ? ` — ${n} geçmiş gider bu kategorideydi, kayıtları duruyor.` : ''));
+  await katalogYukle();
+  vYonetim();
 }
 
 /* ================== BAŞLAT ================== */
