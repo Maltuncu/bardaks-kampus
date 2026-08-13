@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="surum" content="borc-2026-08-13-1">
+<title>Bardaks KTÜ · Borç Takip</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* =====================================================================
+   BORC TAKIP — index.html'den BAGIMSIZ dosya.
+   Kullanicinin karari: index.html 415 KB; borc modulu onu buyutmesin ve
+   buradaki bir hata gunluk ekranlari vurmasin.
+
+   ⚠ MOBIL (index.html M-1 bulgusu): iOS, 16px ALTINDAKI bir alana
+     odaklaninca sayfayi zumler ve GERI CIKMAZ. Bu dosyada
+     input/select/textarea font-size'i 16px'in ALTINA ASLA inmez.
+   ===================================================================== */
+:root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;
+  --metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--gri);color:var(--metin);font-size:15px;padding-bottom:80px}
+.gizli{display:none!important}
+
+input,select,textarea{width:100%;padding:12px;border:1.5px solid var(--cizgi);border-radius:9px;
+  font-size:16px;background:#fff;color:var(--metin);font-family:inherit;min-height:46px}
+textarea{min-height:76px;resize:vertical}
+label{display:block;font-size:13px;font-weight:800;margin:12px 0 5px;color:var(--soluk)}
+
+button{font-family:inherit;cursor:pointer;border:none;border-radius:9px;font-weight:800}
+.btn{width:100%;padding:14px;background:var(--ana);color:#fff;font-size:16px;min-height:48px;margin-top:14px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn2{padding:0 15px;min-height:44px;background:var(--acik);color:var(--ana);font-size:14px}
+.btn-kirmizi{padding:0 15px;min-height:44px;background:#fdeceb;color:var(--hata);font-size:14px}
+.btn-mini{padding:0 12px;min-height:44px;background:var(--acik);color:var(--ana);font-size:14px}
+
+#ustBar{background:var(--kart);color:var(--ana);padding:12px 16px;display:flex;
+  justify-content:space-between;align-items:center;position:sticky;top:0;z-index:50;
+  border-bottom:1.5px solid var(--cizgi)}
+#ustBar .ad{font-weight:900;font-size:16px;min-width:0;overflow-wrap:anywhere}
+main{padding:13px;max-width:760px;margin:0 auto}
+
+#sekmeBar{position:fixed;bottom:0;left:0;right:0;background:var(--kart);display:flex;
+  border-top:1.5px solid var(--cizgi);z-index:50;padding-bottom:env(safe-area-inset-bottom,0)}
+#sekmeBar button{flex:1;min-width:0;padding:9px 2px;background:none;color:var(--soluk);
+  font-size:12px;min-height:54px;border-top:2.5px solid transparent}
+#sekmeBar button.aktif{color:var(--ana);border-top-color:var(--ana)}
+
+.kart{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:15px;margin-bottom:13px}
+.kbaslik{font-size:17px;font-weight:900;margin:0 0 12px;overflow-wrap:anywhere}
+.satir{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--cizgi)}
+.satir:last-child{border-bottom:none}
+.satir .et{color:var(--soluk);font-size:14px;min-width:0;overflow-wrap:anywhere}
+.satir .dg{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ---- UST OZET BANDI: 2x2 dort kutu ---- */
+.bant{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px}
+.kutu{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:13px;min-width:0}
+.kutu .et{font-size:11.5px;font-weight:900;color:var(--soluk);letter-spacing:.4px;line-height:1.3}
+.kutu .dg{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:6px;overflow-wrap:anywhere}
+.kutu .alt{font-size:11.5px;color:var(--soluk);margin-top:4px;line-height:1.4}
+/* kur farki: kucultulmeyecek, dipnota atilmayacak */
+.kutu.fark{border-color:var(--hata);background:#FBEAE7}
+.kutu.fark .et,.kutu.fark .dg,.kutu.fark .alt{color:var(--hata)}
+.kutu.dekont{border-color:var(--uyari)}
+.kutu.dekont .dg{color:var(--uyari)}
+
+.rozet{display:inline-block;font-size:11px;font-weight:900;padding:3px 8px;border-radius:20px;
+  letter-spacing:.3px;vertical-align:middle;white-space:nowrap}
+.rz-ticari{background:#E7F0E9;color:var(--ok)}
+.rz-sahis{background:var(--acik);color:var(--ana)}
+.rz-ltd{background:#F3EEE2;color:#7A6220}
+.rz-eksik{background:#FBEAE7;color:var(--hata)}
+.rz-yesil{background:#E7F0E9;color:var(--ok)}
+.rz-sari{background:#FBF3E4;color:#8A6316}
+
+.uyari-agir{background:#FBEAE7;border-left:3px solid var(--hata);color:var(--hata);
+  padding:11px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:800;font-size:14px;line-height:1.5}
+.uyari-orta{background:#FBF3E4;border-left:3px solid var(--uyari);color:#8A6316;
+  padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:700;font-size:13.5px;line-height:1.5}
+.bilgi{background:var(--acik);border-left:3px solid var(--ana);color:var(--ana-koyu);
+  padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-size:13.5px;line-height:1.55;white-space:pre-line}
+.bos{text-align:center;color:var(--soluk);padding:26px 12px;font-size:14.5px;line-height:1.6}
+.kucuk{font-size:12.5px;color:var(--soluk);line-height:1.55;margin-top:7px;overflow-wrap:anywhere}
+
+.msg{padding:11px 13px;border-radius:9px;margin:11px 0;font-weight:700;font-size:14px;
+  line-height:1.5;display:none;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.hata{display:block;background:#FBEAE7;color:var(--hata)}
+.msg.ok{display:block;background:#E7F0E9;color:var(--ok)}
+
+.tablo-sar{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:10px -3px}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:14px}
+th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--cizgi);white-space:nowrap}
+th{font-size:11.5px;color:var(--soluk);letter-spacing:.4px}
+td.sag,th.sag{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---- TAKVIM satiri ---- */
+.ay-bas{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  margin:18px 0 6px;padding-bottom:6px;border-bottom:2px solid var(--cizgi)}
+.ay-bas .ad{font-size:15px;font-weight:900}
+.ay-bas .tp{font-size:13px;font-weight:800;color:var(--soluk);font-variant-numeric:tabular-nums}
+.tk{border:1.5px solid var(--cizgi);border-radius:12px;padding:12px;margin-bottom:9px;background:var(--kart)}
+.tk.gecikti{border-color:var(--hata);background:#FBEAE7}
+.tk.buay{border-color:var(--uyari);background:#FBF3E4}
+.tk.odendi{opacity:.68}
+.tk-ust{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.tk-ad{font-weight:900;font-size:15px;min-width:0;overflow-wrap:anywhere}
+.tk-tutar{font-weight:900;font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Kirilim metni OKUNUR renkte; .gri ancak boyle GERCEKTEN gri gorunur.
+   Ilk yazimda .tk-orta zaten --soluk idi ve "Limited'de faiz gri" istegi
+   ekranda hicbir fark uretmiyordu (olculdu: iki renk de rgb(129,137,160)). */
+.tk-orta{font-size:12.5px;color:var(--metin);margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
+.tk-durum{font-size:13px;font-weight:800;margin-top:5px}
+.tk-durum.gecikti{color:var(--hata)}
+.tk-durum.buay{color:#8A6316}
+.tk-durum.odendi{color:var(--ok)}
+.tk-gider{font-size:12.5px;font-weight:800;color:var(--ok);margin-top:4px}
+.tk-gider.yok{color:var(--soluk);font-weight:700}
+.tk-eylem{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.gri{color:var(--soluk)}
+
+#girisEkran{max-width:380px;margin:52px auto;padding:22px}
+#surumBar{position:fixed;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;
+  justify-content:space-between;gap:12px;padding:12px 14px;background:var(--uyari);color:#fff;
+  font-size:14px;font-weight:800}
+#surumBar button{flex:none;background:#fff;color:var(--uyari);padding:10px 16px;font-size:14px;min-height:44px}
+</style>
+</head>
+<body>
+
+<div id="girisEkran" class="gizli">
+  <div class="kart">
+    <h1 class="kbaslik">Borç Takip</h1>
+    <div class="bilgi">Bu bölüm yalnızca işletme sahibine açıktır.</div>
+    <form onsubmit="girisYap(); return false;">
+      <label for="girisEmail">E-posta</label>
+      <input type="email" id="girisEmail" autocomplete="username" inputmode="email">
+      <label for="girisSifre">Şifre</label>
+      <input type="password" id="girisSifre" autocomplete="current-password">
+      <button type="submit" class="btn" id="girisBtn">Giriş Yap</button>
+    </form>
+    <div class="msg" id="girisHata"></div>
+  </div>
+</div>
+
+<div id="redEkran" class="gizli">
+  <main>
+    <div class="kart">
+      <h1 class="kbaslik">Bu bölüm yalnızca sahibe açık</h1>
+      <div class="uyari-agir" id="redMetin"></div>
+      <div class="kucuk">Borç, kredi ve maden bilgileri işletme sahibine özeldir.</div>
+      <button class="btn" onclick="cikisYap()">Çıkış yap</button>
+    </div>
+  </main>
+</div>
+
+<div id="uygulama" class="gizli">
+  <div id="ustBar">
+    <span class="ad" id="ustBaslik">Borç Takip</span>
+    <button class="btn2" onclick="cikisYap()">Çıkış</button>
+  </div>
+  <main id="icerik"></main>
+  <nav id="sekmeBar">
+    <button data-ekran="takvim"   onclick="ekranAc('takvim')">Takvim</button>
+    <button data-ekran="krediler" onclick="ekranAc('krediler')">Krediler</button>
+    <button data-ekran="maden"    onclick="ekranAc('maden')">Maden</button>
+    <button data-ekran="sahis"    onclick="ekranAc('sahis')">Şahıs</button>
+  </nav>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.0/dist/umd/supabase.min.js" integrity="sha384-De+l/Df7qym5QBDVocD3+gW1S7IjR3epf+6KbRDjB3FCCzM/LqVTwqckT6FhFar8" crossorigin="anonymous"></script>
+<script>
+/* =====================================================================
+   BORC TAKIP · borc.html
+   index.html'e HICBIR SEY EKLENMEDI. Bagimsiz calisir; ayni Supabase
+   projesi, ayni oturum, ayni 'belgeler' kovasi ve AYNI YOL BICIMI.
+   ===================================================================== */
+const SB_URL = 'https://gbheqnxmwvabwuimzskv.supabase.co';
+const SB_KEY = 'sb_publishable_qtiCjExLIte6WJcbdB5jNg_fUJDYnxF';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+const SURUM = (document.querySelector('meta[name="surum"]')?.content || '?');
+let PROFIL = null;
+let EKRAN = 'takvim';
+let SECILI_KREDI = null;
+
+/* ================== YARDIMCILAR ================== */
+const tarihStr = d => { const t = new Date(d);
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); };
+const bugun = () => tarihStr(new Date());
+const trGun = s => s ? new Date(s+'T00:00').toLocaleDateString('tr-TR') : '—';
+const AYLAR = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+const ayAdi = ym => { const [y,m] = ym.split('-'); return AYLAR[+m-1] + ' ' + y; };
+
+/* PARA — KURUS TAM SAYI. Float toplama 84 taksitte kurus kaydirir. */
+const kr  = v => Math.round((Number(v) || 0) * 100);
+const tlk = k => (k/100).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
+const tl  = v => tlk(kr(v));
+
+function paraCoz(ham){
+  const t = String(ham == null ? '' : ham);
+  const s = t.replace(/[^\d.,]/g,'');
+  if (!/\d/.test(s)) return t.trim()==='' ? {ok:true,kurus:0} : {ok:false,hata:'Geçersiz tutar.'};
+  const son = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
+  let tam, ond;
+  if (son < 0){ tam = s; ond = ''; }
+  else { const kuyruk = s.slice(son+1).replace(/[.,]/g,'');
+    if (s[son]==='.' && kuyruk.length>2){ tam = s.replace(/[.,]/g,''); ond=''; }
+    else { tam = s.slice(0,son).replace(/[.,]/g,''); ond = kuyruk.slice(0,2); } }
+  tam = tam.replace(/^0+(?=\d)/,'') || '0';
+  const d = parseFloat(tam + (ond ? '.'+ond : ''));
+  if (!isFinite(d)) return {ok:false,hata:'Geçersiz tutar.'};
+  return { ok:true, kurus: Math.round(d*100) };
+}
+function gramCoz(ham){
+  const t = String(ham==null?'':ham).replace(',','.').replace(/[^\d.]/g,'');
+  if (!/\d/.test(t)) return {ok:false,hata:'Geçersiz gram.'};
+  const d = parseFloat(t);
+  if (!isFinite(d) || d <= 0) return {ok:false,hata:'Gram sıfırdan büyük olmalı.'};
+  return { ok:true, deger: Math.round(d*1000)/1000 };
+}
+const gramYaz = g => (Number(g)||0).toLocaleString('tr-TR',{minimumFractionDigits:0,maximumFractionDigits:3})+' gr';
+const gunFarki = (a,b) => Math.round((new Date(a+'T00:00') - new Date(b+'T00:00'))/86400000);
+function ayEkle(t0, ay){
+  const [y,m,g] = t0.split('-').map(Number);
+  const t = new Date(y, m-1+ay, 1);
+  t.setDate(Math.min(g, new Date(t.getFullYear(), t.getMonth()+1, 0).getDate()));
+  return tarihStr(t);
+}
+
+/* DOM — kullanici metni ASLA innerHTML ile basilmaz */
+function el(tag, sinif, metin){
+  const d = document.createElement(tag);
+  if (sinif) d.className = sinif;
+  if (metin !== undefined && metin !== null) d.textContent = String(metin);
+  return d;
+}
+const td = (m,s) => el('td', s, m);
+
+function mesaj(id, tip, metin){
+  const m = document.getElementById(id);
+  if (!m){ alert(metin); return; }
+  m.className = 'msg ' + tip; m.textContent = metin;
+  m.scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+function mesajTemizle(id){ const m = document.getElementById(id); if (m){ m.className='msg'; m.textContent=''; } }
+
+/* SESSIZ HATA YASAK (index.html M-4: iki silme akisi hatayi yutuyordu) */
+function hataYaz(msgId, onek, error){
+  const ham = (error && (error.message || error.hint || error.details)) || 'Bilinmeyen hata';
+  mesaj(msgId, 'hata', onek + '\n' + hataTr(ham));
+  console.error(onek, error);
+}
+function hataTr(m){
+  const s = String(m || '');
+  if (/row-level security|permission denied/i.test(s)) return 'Yetkin yok (bu bölüm yalnız işletme sahibine açık).';
+  if (/kt_ayrim_chk/i.test(s))
+    return 'Kırılım tutmuyor: anapara + faiz + vergi/masraf, taksit tutarına EŞİT olmalı.\n'
+         + 'Kırılımı hiç girmeyeceksen üçünü de boş bırak.';
+  if (/kt_vergi_masraf_chk/i.test(s)) return 'Vergi/masraf eksi olamaz.';
+  if (/kt_odeme_chk/i.test(s))        return 'Ödendi işaretlemek için ödeme tarihi zorunlu.';
+  if (/ux_kredi_taksit\b/i.test(s))   return 'Bu kredide aynı sıra numarası zaten var.';
+  if (/ux_maden_fiyat/i.test(s))      return 'Bu tür için bu tarihe zaten fiyat girilmiş.';
+  if (/kredi_tur_chk/i.test(s))       return 'Kredi türü ticari, şahıs veya ltd olmalı.';
+  if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
+  if (/_chk\b/i.test(s))              return 'Girilen değer kuralları sağlamıyor: ' + s;
+  if (/duplicate key/i.test(s))       return 'Bu kayıt zaten var.';
+  if (/Failed to fetch|NetworkError/i.test(s)) return 'İnternet bağlantısı kurulamadı. Kayıt YAPILMADI, tekrar dene.';
+  return s;
+}
+
+/* ============ BELGE — index.html SOZLESMESI (birebir) ============
+   Ayni kova 'belgeler', ayni yol: <klasor>/<YYYY-AA-GG>_<uuid>.<uzanti>
+   Farkli yol kullanilsaydi dekontlar YEDEGIN DISINDA kalirdi. */
+async function fotoKucult(file){
+  try{
+    const img = await createImageBitmap(file);
+    const oran = Math.min(1, 1600/Math.max(img.width, img.height));
+    if (oran === 1 && file.size < 700*1024) return { veri:file, tip:null };
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width*oran); c.height = Math.round(img.height*oran);
+    const cx = c.getContext('2d'); cx.imageSmoothingQuality = 'high';
+    cx.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r,'image/jpeg',0.82));
+    return blob ? { veri:blob, tip:'jpg' } : { veri:file, tip:null };
+  }catch(e){ return { veri:file, tip:null }; }      // PDF: oldugu gibi
+}
+async function dosyaYukle(f, klasor){
+  if (!f) return null;
+  const k = await fotoKucult(f);
+  const uzanti = k.tip || (f.name.split('.').pop() || 'jpg').toLowerCase();
+  const yol = `${klasor}/${bugun()}_${crypto.randomUUID()}.${uzanti}`;
+  const { error } = await sb.storage.from('belgeler').upload(yol, k.veri,
+    { upsert:false, contentType: k.tip ? 'image/jpeg' : (f.type || undefined) });
+  if (error) throw new Error('Belge yüklenemedi: ' + error.message);
+  return yol;
+}
+function dekontEkle(tablo, id, klasor, msgId, mevcutVar, sonra){
+  if (mevcutVar && !confirm('Bu kayıtta zaten belge var.\n\nYenisini eklersen eskisi kayıtla ilişkisiz kalır.\n\nDevam edilsin mi?')) return;
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*,application/pdf,.pdf';
+  inp.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.appendChild(inp);
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f){ inp.remove(); return; }
+    mesaj(msgId, 'ok', 'Belge yükleniyor...');
+    try{
+      const yol = await dosyaYukle(f, klasor);
+      let ek = {};
+      if (mevcutVar){
+        const { data: eski } = await sb.from(tablo).select('aciklama,foto_path').eq('id', id).maybeSingle();
+        if (eski && eski.foto_path)
+          ek.aciklama = ((eski.aciklama||'') + ' [belge degistirildi ' + bugun()
+                        + ', eski dosya: ' + eski.foto_path + ']').slice(0,500);
+      }
+      const { error } = await sb.from(tablo).update({ foto_path: yol, ...ek }).eq('id', id);
+      if (error){ hataYaz(msgId, 'Belge kayda bağlanamadı.', error); return; }
+      mesaj(msgId, 'ok', 'Belge eklendi.');
+      if (sonra) await sonra();
+    }catch(e){ hataYaz(msgId, 'Belge yüklenemedi.', e); }
+    finally{ inp.remove(); }
+  };
+  inp.click();
+}
+async function belgeAc(yol, msgId){
+  const { data, error } = await sb.storage.from('belgeler').createSignedUrl(yol, 300);
+  if (error || !data){ hataYaz(msgId, 'Belge açılamadı.', error); return; }
+  window.open(data.signedUrl, '_blank', 'noopener');
+}
+
+/* ================== GIRIS ================== */
+async function girisYap(){
+  const btn = document.getElementById('girisBtn');
+  mesajTemizle('girisHata');
+  btn.disabled = true; btn.textContent = 'Giriş yapılıyor...';
+  const { error } = await sb.auth.signInWithPassword({
+    email: document.getElementById('girisEmail').value.trim(),
+    password: document.getElementById('girisSifre').value });
+  btn.disabled = false; btn.textContent = 'Giriş Yap';
+  if (error){ mesaj('girisHata','hata','Giriş başarısız: e-posta veya şifre hatalı.'); return; }
+  await baslat();
+}
+async function cikisYap(){ await sb.auth.signOut(); location.reload(); }
+
+async function baslat(){
+  surumKontrol(); setInterval(surumKontrol, 30*60*1000);
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session){ document.getElementById('girisEkran').classList.remove('gizli'); return; }
+  const { data:p, error } = await sb.from('profil').select('*').eq('id', session.user.id).single();
+  if (error || !p){
+    document.getElementById('girisEkran').classList.remove('gizli');
+    mesaj('girisHata','hata','Profil okunamadı: ' + hataTr(error && error.message)); return;
+  }
+  /* OWNER KAPISI — IKINCI katman. Asil koruma RLS: bu tablolarin TEK
+     politikasi auth_rol()='owner'. Buradaki kontrol ekrani bosuna
+     acmamak icin; tek basina guvenlik saymaz. */
+  if (!p.aktif || p.rol !== 'owner'){
+    PROFIL = p;
+    document.getElementById('redEkran').classList.remove('gizli');
+    document.getElementById('redMetin').textContent =
+      'Bu ekran işletme sahibine özeldir. Senin rolün: ' + (p.rol || 'tanımsız') + '.';
+    return;
+  }
+  PROFIL = p;
+  document.getElementById('girisEkran').classList.add('gizli');
+  document.getElementById('uygulama').classList.remove('gizli');
+  document.getElementById('ustBaslik').textContent = 'Borç Takip · ' + (p.ad || '');
+  await ekranAc('takvim');
+}
+async function surumKontrol(){
+  try{
+    const y = await fetch(location.pathname+'?s='+Date.now(), {cache:'no-store', headers:{'Range':'bytes=0-3000'}});
+    if (!y.ok && y.status !== 206) return;
+    const m = (await y.text()).match(/name="surum"\s+content="([^"]+)"/);
+    if (m && m[1] !== SURUM && !document.getElementById('surumBar')){
+      const d = el('div'); d.id = 'surumBar';
+      d.appendChild(el('span', null, 'Yeni sürüm var (' + m[1] + '). Eski sürümde yanlış kayıt yapabilirsin.'));
+      const b = el('button', null, 'YENİLE');
+      b.onclick = () => location.replace(location.pathname + '?v=' + Date.now());
+      d.appendChild(b); document.body.appendChild(d);
+    }
+  }catch(e){ /* ag yoksa sessiz */ }
+}
+
+/* ================== VERI OKUMA ================== */
+async function krediGetir(){
+  const { data, error } = await sb.from('kredi')
+    .select('id,banka,ad,tur,anapara,faiz_orani,taksit_sayisi,baslangic_tarihi,aciklama')
+    .eq('is_deleted', false).order('baslangic_tarihi',{ascending:false});
+  if (error) throw error; return data || [];
+}
+async function taksitGetir(krediId){
+  let q = sb.from('kredi_taksit')
+    .select('id,kredi_id,sira,vade_tarihi,anapara_tutar,faiz_tutar,vergi_masraf_tutar,vergi_masraf_notu,toplam_tutar,odendi,odeme_tarihi,foto_path,gider_id')
+    .eq('is_deleted', false);
+  if (krediId) q = q.eq('kredi_id', krediId);
+  const { data, error } = await q.order('vade_tarihi');
+  if (error) throw error; return data || [];
+}
+async function sahisGetir(){
+  const [b,o] = await Promise.all([
+    sb.from('sahis_borc').select('id,isim,tutar,tarih,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
+    sb.from('sahis_odeme').select('id,borc_id,tutar,tarih,foto_path').eq('is_deleted',false).order('tarih')]);
+  if (b.error) throw b.error; if (o.error) throw o.error;
+  return { borclar:b.data||[], odemeler:o.data||[] };
+}
+async function madenGetir(){
+  const [m,f] = await Promise.all([
+    sb.from('maden').select('id,tur,gram,kime,tarih,alis_tutar,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
+    sb.from('maden_fiyat').select('id,tur,gram_fiyat,tarih,kaynak_notu').eq('is_deleted',false).order('tarih',{ascending:false})]);
+  if (m.error) throw m.error; if (f.error) throw f.error;
+  return { kayitlar:m.data||[], fiyatlar:f.data||[] };
+}
+
+/* ---------- hesaplar (KURUS tam sayi) ---------- */
+const turAdi   = t => t==='ticari' ? 'Ticari (şahıs şirketi)' : t==='sahis' ? 'Şahsi (kişisel)' : t==='ltd' ? 'Limited şirket' : t;
+const turKisa  = t => t==='ticari' ? 'TİCARİ' : t==='sahis' ? 'ŞAHSİ' : 'LİMİTED';
+const turSinif = t => 'rozet ' + (t==='ticari' ? 'rz-ticari' : t==='sahis' ? 'rz-sahis' : 'rz-ltd');
+
+function krediOzet(taksitler){
+  let kalanKurus=0, kalanAdet=0, sonrakiVade=null, gecmis=0, dekontEksik=0;
+  const b = bugun();
+  for (const t of taksitler){
+    if (t.odendi){ if (!t.foto_path) dekontEksik++; }
+    else {
+      kalanKurus += kr(t.toplam_tutar); kalanAdet++;
+      if (t.vade_tarihi < b) gecmis++;
+      if (!sonrakiVade || t.vade_tarihi < sonrakiVade) sonrakiVade = t.vade_tarihi;
+    }
+  }
+  return { kalanKurus, kalanAdet, sonrakiVade, gecmis, dekontEksik };
+}
+/* Verilen tarihte GECERLI fiyat: o tarihten SONRAKI fiyatlar sayilmaz. */
+function fiyatAsOf(fiyatlar, tur, tarih){
+  const uygun = fiyatlar.filter(x => x.tur === tur && x.tarih <= tarih);
+  if (!uygun.length) return null;
+  return uygun.reduce((a,x) => (x.tarih > a.tarih ? x : a), uygun[0]);
+}
+const sonFiyat = (fiyatlar, tur) => fiyatAsOf(fiyatlar, tur, '9999-12-31');
+
+/* Bir maden satirinin alis / bugun / fark degeri.
+
+   ALIS DEGERI ONCELIK SIRASI:
+     1. maden.alis_tutar dolu  -> OLGU. Gercekten odenen toplam budur.
+     2. yoksa alis tarihindeki maden_fiyat'tan hesapla -> TAHMIN.
+        Kullanicinin odedigi fiyat o gunku piyasa fiyati olmak zorunda
+        DEGIL; bu yuzden ekranda "tahmini" diye ISARETLENIR.
+     3. ikisi de yoksa -> BILINMIYOR. 0 gosterilmez, uydurulmaz.
+
+   `kaynak` alani ekranin hangi durumu gosterecegini soyler. */
+function madenDeger(m, fiyatlar){
+  const bugunF = sonFiyat(fiyatlar, m.tur);
+  const gram   = Number(m.gram) || 0;
+
+  let alisKurus = null, kaynak = 'yok', alisF = null;
+  if (m.alis_tutar !== null && m.alis_tutar !== undefined && Number(m.alis_tutar) > 0){
+    alisKurus = kr(m.alis_tutar);
+    kaynak = 'olgu';
+  } else {
+    alisF = fiyatAsOf(fiyatlar, m.tur, m.tarih);
+    if (alisF){ alisKurus = Math.round(gram * kr(alisF.gram_fiyat)); kaynak = 'tahmin'; }
+  }
+  return {
+    gram, kaynak, alisKurus, alisF, bugunF,
+    bugunKurus: bugunF ? Math.round(gram * kr(bugunF.gram_fiyat)) : null
+  };
+}
+
+/* ================== EKRAN YONLENDIRME ================== */
+async function ekranAc(ad){
+  EKRAN = ad; SECILI_KREDI = null;
+  document.querySelectorAll('#sekmeBar button').forEach(b => b.classList.toggle('aktif', b.dataset.ekran === ad));
+  const c = document.getElementById('icerik');
+  c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
+  try{
+    if (ad === 'takvim')        await vTakvim();
+    else if (ad === 'krediler') await vKrediler();
+    else if (ad === 'maden')    await vMaden();
+    else if (ad === 'sahis')    await vSahis();
+  }catch(e){
+    c.textContent = '';
+    const k = el('div','kart');
+    k.appendChild(el('div','uyari-agir','Ekran açılamadı: ' + hataTr(e && e.message)));
+    c.appendChild(k); console.error(e);
+  }
+}
+
+/* ================== UST OZET BANDI (her ekranda) ================== */
+async function bantVerisi(){
+  const [krediler, taksitler, sahis, maden] = await Promise.all([
+    krediGetir(), taksitGetir(null), sahisGetir(), madenGetir()]);
+
+  const ko = krediOzet(taksitler);
+  const buAy = bugun().slice(0,7);
+  let buAyKurus = 0, buAyOdenen = 0;
+  for (const t of taksitler){
+    if (t.vade_tarihi.slice(0,7) !== buAy) continue;
+    buAyKurus += kr(t.toplam_tutar);
+    if (t.odendi) buAyOdenen += kr(t.toplam_tutar);
+  }
+
+  const odemeToplam = new Map();
+  for (const o of sahis.odemeler) odemeToplam.set(o.borc_id, (odemeToplam.get(o.borc_id)||0) + kr(o.tutar));
+  let sahisKalan = 0;
+  for (const b of sahis.borclar) sahisKalan += Math.max(0, kr(b.tutar) - (odemeToplam.get(b.id)||0));
+
+  /* ⚠ KUR FARKI yalniz IKISI DE bilinen kayitlardan hesaplanir.
+     Ilk yazimda toplam bugunku degerden toplam alis degeri cikariliyordu;
+     alis fiyati bilinmeyen bir kayit farki SISIRIYORDU (bugunku degeri
+     sayiliyor, alisi sayilmiyordu). Ust banttaki en onemli rakam bu —
+     sisirilmis hali yanlis karar verdirirdi. */
+  let madenBugun = 0;                       // TOPLAM BORC icin: fiyati olan her kayit
+  let esAlis = 0, esBugun = 0, hesaplanan = 0;   // FARK icin: yalniz eslesenler
+  let fiyatiYok = [], alisiYok = 0, tahminSayisi = 0;
+  for (const m of maden.kayitlar){
+    const d = madenDeger(m, maden.fiyatlar);
+    if (d.bugunKurus === null){
+      const ad = m.tur === 'altin' ? 'altın' : 'gümüş';
+      if (!fiyatiYok.includes(ad)) fiyatiYok.push(ad);
+      continue;
+    }
+    madenBugun += d.bugunKurus;
+    if (d.alisKurus === null){ alisiYok++; continue; }
+    /* OLGU ve TAHMIN farkin icine birlikte girer (brief: 1. ve 2. gruptan),
+       ama kac tanesinin tahmin oldugu YAZILIR — rakam tahmin tasiyorsa
+       kullanici bunu bilmeli. */
+    if (d.kaynak === 'tahmin') tahminSayisi++;
+    esAlis  += d.alisKurus;
+    esBugun += d.bugunKurus;
+    hesaplanan++;
+  }
+  const madenAlis  = esAlis;
+  const farkKurus  = (hesaplanan > 0) ? (esBugun - esAlis) : null;
+  const farkBugun  = esBugun;
+
+  return { krediler, taksitler, ko, buAyKurus, buAyOdenen, sahisKalan,
+           madenBugun, madenAlis, farkBugun, farkKurus, fiyatiYok, alisiYok,
+           hesaplanan, tahminSayisi, maden, sahis };
+}
+
+function bantCiz(v){
+  const b = el('div','bant');
+  const kutu = (sinif, etiket, deger, alt) => {
+    const k = el('div','kutu' + (sinif ? ' '+sinif : ''));
+    k.appendChild(el('div','et', etiket));
+    k.appendChild(el('div','dg', deger));
+    if (alt) k.appendChild(el('div','alt', alt));
+    b.appendChild(k);
+  };
+  const toplam = v.ko.kalanKurus + v.sahisKalan + v.madenBugun;
+  kutu(null, 'TOPLAM BORÇ', tlk(toplam),
+    v.fiyatiYok.length ? v.fiyatiYok.join(', ') + ' hariç (fiyat yok)' : 'kredi + şahıs + maden');
+
+  kutu(null, 'BU AY ÖDENECEK', tlk(v.buAyKurus - v.buAyOdenen),
+    v.buAyOdenen > 0 ? 'ayın toplamı ' + tlk(v.buAyKurus) + ', ödenen ' + tlk(v.buAyOdenen) : 'bu ayın taksitleri');
+
+  /* 3 · MADEN KUR FARKI — kucultulmez, dipnota atilmaz.
+     Kullanicinin maden borcu bir yilda buyudu ve bunu hicbir yerde
+     goremiyordu. Ust bantta olmazsa gorunmez kalir. */
+  if (v.farkKurus === null){
+    kutu('fark', 'MADEN KUR FARKI', 'hesaplanamaz',
+      v.maden.kayitlar.length ? 'alış günü fiyatı girilmemiş' : 'maden kaydı yok');
+  } else {
+    kutu('fark', 'MADEN KUR FARKI',
+      (v.farkKurus >= 0 ? '+' : '−') + tlk(Math.abs(v.farkKurus)),
+      'alışta ' + tlk(v.madenAlis) + ' → bugün ' + tlk(v.farkBugun)
+      + (v.tahminSayisi ? ' · ' + v.tahminSayisi + ' kayıt tahmini' : '')
+      + (v.alisiYok ? ' · ' + v.alisiYok + ' kayıt hariç (alış değeri yok)' : ''));
+  }
+
+  kutu('dekont', 'DEKONT EKSİK', String(v.ko.dekontEksik),
+    v.ko.dekontEksik ? 'ödendi işaretli, belgesi yok' : 'eksik yok');
+  return b;
+}
+
+/* ================== 1 · TAKVIM (varsayilan) ================== */
+async function vTakvim(){
+  const c = document.getElementById('icerik');
+  const v = await bantVerisi();
+  const krediMap = new Map(v.krediler.map(k => [k.id, k]));
+
+  c.textContent = '';
+  c.appendChild(bantCiz(v));
+  const msg = el('div','msg'); msg.id = 'takvimMsg'; c.appendChild(msg);
+
+  if (v.ko.gecmis > 0)
+    c.appendChild(el('div','uyari-agir','Vadesi geçmiş ve ödenmemiş ' + v.ko.gecmis + ' taksit var.'));
+
+  if (!v.taksitler.length){
+    const k = el('div','kart');
+    k.appendChild(el('div','kbaslik','Takvim'));
+    k.appendChild(el('div','bos','Henüz taksit yok. Krediler sekmesinden kredi ekleyip taksit üret.'));
+    c.appendChild(k); return;
+  }
+
+  const b = bugun();
+  const buAy = b.slice(0,7);
+  const gruplar = new Map();
+  for (const t of v.taksitler){
+    const ay = t.vade_tarihi.slice(0,7);
+    if (!gruplar.has(ay)) gruplar.set(ay, []);
+    gruplar.get(ay).push(t);
+  }
+  const siraliAylar = [...gruplar.keys()].sort();
+
+  for (const ay of siraliAylar){
+    const liste = gruplar.get(ay);
+    const toplamKurus = liste.reduce((s,t) => s + kr(t.toplam_tutar), 0);
+
+    const bas = el('div','ay-bas');
+    bas.appendChild(el('span','ad', ayAdi(ay) + (ay === buAy ? ' · bu ay' : '')));
+    bas.appendChild(el('span','tp', liste.length + ' taksit · ' + tlk(toplamKurus)));
+    c.appendChild(bas);
+
+    for (const t of liste) c.appendChild(taksitKarti(t, krediMap.get(t.kredi_id), b, buAy));
+  }
+}
+
+function taksitKarti(t, kredi, b, buAy){
+  const gecikti = !t.odendi && t.vade_tarihi < b;
+  const buAyMi  = !t.odendi && !gecikti && t.vade_tarihi.slice(0,7) === buAy;
+
+  const k = el('div','tk' + (t.odendi ? ' odendi' : gecikti ? ' gecikti' : buAyMi ? ' buay' : ''));
+
+  const ust = el('div','tk-ust');
+  const ad = el('div','tk-ad');
+  ad.appendChild(el('span', null, (kredi ? kredi.banka + ' · ' + kredi.ad : 'kredi bulunamadı')
+                                  + '  ' + t.sira + '. taksit'));
+  if (kredi){
+    ad.appendChild(document.createTextNode(' '));
+    ad.appendChild(el('span', turSinif(kredi.tur), turKisa(kredi.tur)));
+  }
+  ust.appendChild(ad);
+  ust.appendChild(el('div','tk-tutar', tl(t.toplam_tutar)));
+  k.appendChild(ust);
+
+  /* kirilim — anapara / faiz / vergi-masraf */
+  const orta = el('div','tk-orta');
+  if (t.anapara_tutar === null && t.faiz_tutar === null){
+    orta.appendChild(el('span','gri','kırılım girilmemiş (anapara / faiz / vergi-masraf)'));
+  } else {
+    orta.appendChild(el('span', null, 'anapara ' + tl(t.anapara_tutar)));
+    orta.appendChild(document.createTextNode(' · '));
+    /* LIMITED: faiz GRI ve "gidere yazilmaz" */
+    const faizSpan = el('span', (kredi && kredi.tur === 'ltd') ? 'gri' : null, 'faiz ' + tl(t.faiz_tutar));
+    orta.appendChild(faizSpan);
+    if (t.vergi_masraf_tutar !== null && t.vergi_masraf_tutar !== undefined){
+      orta.appendChild(document.createTextNode(' · '));
+      orta.appendChild(el('span', (kredi && kredi.tur === 'ltd') ? 'gri' : null,
+        'vergi/masraf ' + tl(t.vergi_masraf_tutar)));
+    }
+    if (t.vergi_masraf_notu){
+      orta.appendChild(document.createElement('br'));
+      orta.appendChild(el('span','gri', t.vergi_masraf_notu));   // textContent
+    }
+  }
+  k.appendChild(orta);
+
+  /* gidere yazilacak tutar — TUR'e gore */
+  if (kredi){
+    if (kredi.tur === 'ticari'){
+      if (t.faiz_tutar === null){
+        k.appendChild(el('div','tk-gider yok','gidere: kırılım girilmediği için hesaplanamaz'));
+      } else {
+        const giderKurus = kr(t.faiz_tutar) + kr(t.vergi_masraf_tutar || 0);
+        k.appendChild(el('div','tk-gider','gidere: faiz + vergi/masraf = ' + tlk(giderKurus)));
+      }
+    } else {
+      k.appendChild(el('div','tk-gider yok', turAdi(kredi.tur) + ' — gidere yazılmaz'));
+    }
+  }
+
+  /* durum satiri */
+  const d = el('div','tk-durum' + (gecikti ? ' gecikti' : buAyMi ? ' buay' : t.odendi ? ' odendi' : ''));
+  if (t.odendi){
+    d.textContent = 'ödendi · ' + trGun(t.odeme_tarihi);
+  } else if (gecikti){
+    d.textContent = 'vade ' + trGun(t.vade_tarihi) + ' · ' + gunFarki(b, t.vade_tarihi) + ' gün geçti';
+  } else {
+    const kalan = gunFarki(t.vade_tarihi, b);
+    d.textContent = 'vade ' + trGun(t.vade_tarihi) + ' · ' + kalan + ' gün kaldı';
+  }
+  k.appendChild(d);
+
+  /* dekont eksik rozeti — odenmis olsa da TAKILI KALIR */
+  if (t.odendi && !t.foto_path){
+    const r = el('div'); r.style.marginTop = '6px';
+    r.appendChild(el('span','rozet rz-eksik','DEKONT EKSİK'));
+    k.appendChild(r);
+  }
+
+  const ey = el('div','tk-eylem');
+  if (!t.odendi){
+    const bt = el('button','btn2','Ödendi');
+    bt.onclick = () => taksitOdendi(t);
+    ey.appendChild(bt);
+  }
+  const bb = el('button','btn-mini', t.foto_path ? 'Belgeyi aç' : '+ Belge');
+  bb.onclick = t.foto_path
+    ? () => belgeAc(t.foto_path, mesajKutusu())
+    : () => dekontEkle('kredi_taksit', t.id, 'kredi_taksit', mesajKutusu(), false, () => ekranAc(EKRAN));
+  ey.appendChild(bb);
+  if (t.foto_path){
+    const bd = el('button','btn-mini','Değiştir');
+    bd.onclick = () => dekontEkle('kredi_taksit', t.id, 'kredi_taksit', mesajKutusu(), true, () => ekranAc(EKRAN));
+    ey.appendChild(bd);
+  }
+  k.appendChild(ey);
+  return k;
+}
+const mesajKutusu = () => document.getElementById('takvimMsg') ? 'takvimMsg' : 'krediMsg';
+
+async function taksitOdendi(t){
+  const kutu = mesajKutusu();
+  const cevap = prompt('Ödeme tarihi (YYYY-AA-GG).\n\nÖdendi işaretlemek için tarih ZORUNLUDUR.', bugun());
+  if (cevap === null) return;
+  const tar = (cevap || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tar) || isNaN(new Date(tar+'T00:00').getTime())){
+    mesaj(kutu, 'hata', 'Ödeme tarihi YYYY-AA-GG biçiminde geçerli bir tarih olmalı. İŞARETLENMEDİ.');
+    return;
+  }
+  const { error } = await sb.from('kredi_taksit').update({ odendi:true, odeme_tarihi:tar }).eq('id', t.id);
+  if (error){ hataYaz(kutu, 'Taksit ödendi olarak işaretlenemedi.', error); return; }
+  mesaj(kutu, 'ok', 'Taksit ödendi olarak işaretlendi. Belgeyi eklemeyi unutma.');
+  await ekranAc(EKRAN);
+}
+
+/* ================== 2 · KREDILER ================== */
+async function vKrediler(){
+  const c = document.getElementById('icerik');
+  const v = await bantVerisi();
+  const grup = new Map();
+  for (const t of v.taksitler){
+    if (!grup.has(t.kredi_id)) grup.set(t.kredi_id, []);
+    grup.get(t.kredi_id).push(t);
+  }
+  c.textContent = '';
+  c.appendChild(bantCiz(v));
+  const msg = el('div','msg'); msg.id = 'krediMsg'; c.appendChild(msg);
+
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Krediler (' + v.krediler.length + ')'));
+  if (!v.krediler.length) k.appendChild(el('div','bos','Henüz kredi yok. Aşağıdaki formdan ekle.'));
+
+  for (const kredi of v.krediler){
+    const o = krediOzet(grup.get(kredi.id) || []);
+    const kart = el('div','tk'); kart.style.cursor = 'pointer';
+    kart.onclick = () => taksitEkraniAc(kredi.id);
+
+    const ust = el('div','tk-ust');
+    const ad = el('div','tk-ad');
+    ad.appendChild(el('span', null, kredi.banka + ' · ' + kredi.ad));
+    ad.appendChild(document.createTextNode(' '));
+    ad.appendChild(el('span', turSinif(kredi.tur), turKisa(kredi.tur)));
+    ust.appendChild(ad);
+    ust.appendChild(el('div','tk-tutar', tlk(o.kalanKurus)));
+    k.appendChild(kart);
+    kart.appendChild(ust);
+
+    const alt = el('div','tk-orta');
+    alt.textContent = (o.kalanAdet ? o.kalanAdet + ' taksit kaldı' : 'tüm taksitler ödendi')
+      + (o.sonrakiVade ? ' · sonraki vade ' + trGun(o.sonrakiVade) : '')
+      + ' · girilen ' + (grup.get(kredi.id) || []).length + '/' + kredi.taksit_sayisi;
+    kart.appendChild(alt);
+    if (o.gecmis || o.dekontEksik){
+      const r = el('div'); r.style.marginTop = '6px';
+      if (o.gecmis) r.appendChild(el('span','rozet rz-eksik', o.gecmis + ' GECİKMİŞ'));
+      if (o.dekontEksik){
+        r.appendChild(document.createTextNode(' '));
+        r.appendChild(el('span','rozet rz-sari', o.dekontEksik + ' dekont eksik'));
+      }
+      kart.appendChild(r);
+    }
+  }
+  c.appendChild(k);
+  c.appendChild(krediFormu());
+}
+
+function krediFormu(){
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Yeni kredi'));
+  const alan = (etiket, id, tip, ipucu, mod) => {
+    k.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input');
+    i.id = id; i.type = tip || 'text';
+    if (ipucu) i.placeholder = ipucu;
+    if (mod) i.setAttribute('inputmode', mod);
+    k.appendChild(i); return i;
+  };
+  alan('Banka','kBanka','text');
+  alan('Kredi adı','kAd','text','örn: 7 yıllık taşıt kredisi');
+  k.appendChild(el('label', null, 'Tür (zorunlu)')).setAttribute('for','kTur');
+  const s = document.createElement('select'); s.id = 'kTur';
+  [['','— seç —'],['ticari','Ticari (şahıs şirketi adına)'],['sahis','Şahsi (kişisel)'],['ltd','Limited şirket']]
+    .forEach(([val,t]) => { const o = document.createElement('option'); o.value = val; o.textContent = t; s.appendChild(o); });
+  k.appendChild(s);
+  k.appendChild(el('div','bilgi',
+    'TİCARİ: faiz + vergi/masraf işletmenin giderine yazılır. Anapara gider DEĞİLDİR.\n'
+  + 'ŞAHSİ: kişisel borç — gidere yazılmaz.\n'
+  + 'LİMİTED: ayrı tüzel kişilik — burada yalnız takip edilir, gidere yazılmaz.'));
+  alan('Anapara','kAnapara','text','0,00','decimal');
+  alan('Faiz oranı (%) — bilinmiyorsa boş bırak','kFaiz','text','örn: 2,49','decimal');
+  alan('Taksit sayısı','kAdet','text','örn: 84','numeric');
+  alan('Başlangıç tarihi','kBas','date');
+  k.appendChild(el('label', null, 'Açıklama')).setAttribute('for','kAciklama');
+  const ta = document.createElement('textarea'); ta.id = 'kAciklama'; k.appendChild(ta);
+  const b = el('button','btn','Krediyi kaydet'); b.id = 'kKaydet'; b.onclick = krediKaydet;
+  k.appendChild(b);
+  return k;
+}
+
+async function krediKaydet(){
+  const btn = document.getElementById('kKaydet');
+  mesajTemizle('krediMsg');
+  const banka = document.getElementById('kBanka').value.trim();
+  const ad    = document.getElementById('kAd').value.trim();
+  const tur   = document.getElementById('kTur').value;
+  const bas   = document.getElementById('kBas').value;
+  const anap  = paraCoz(document.getElementById('kAnapara').value);
+  const faizH = document.getElementById('kFaiz').value.trim();
+  const adet  = parseInt(document.getElementById('kAdet').value.trim(), 10);
+
+  if (!banka) return mesaj('krediMsg','hata','Banka adı zorunlu.');
+  if (!ad)    return mesaj('krediMsg','hata','Kredi adı zorunlu.');
+  if (!tur)   return mesaj('krediMsg','hata','Tür seçmelisin: ticari, şahsi ya da limited.');
+  if (!bas)   return mesaj('krediMsg','hata','Başlangıç tarihi zorunlu.');
+  if (!anap.ok) return mesaj('krediMsg','hata','Anapara: ' + anap.hata);
+  if (anap.kurus <= 0) return mesaj('krediMsg','hata','Anapara sıfırdan büyük olmalı.');
+  if (!Number.isFinite(adet) || adet <= 0) return mesaj('krediMsg','hata','Taksit sayısı sıfırdan büyük bir tam sayı olmalı.');
+  let faiz = null;
+  if (faizH){
+    const f = parseFloat(faizH.replace(',','.'));
+    if (!isFinite(f) || f < 0) return mesaj('krediMsg','hata','Faiz oranı geçersiz. Bilinmiyorsa boş bırak.');
+    faiz = f;
+  }
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('kredi').insert({
+    banka, ad, tur, anapara:(anap.kurus/100).toFixed(2), faiz_orani:faiz,
+    taksit_sayisi:adet, baslangic_tarihi:bas,
+    aciklama: document.getElementById('kAciklama').value.trim() || null,
+    giren_id: PROFIL ? PROFIL.id : null });
+  btn.disabled = false; btn.textContent = 'Krediyi kaydet';
+  if (error){ hataYaz('krediMsg','Kredi kaydedilemedi.', error); return; }
+  mesaj('krediMsg','ok','Kredi kaydedildi.');
+  await vKrediler();
+}
+
+async function krediSil(kredi){
+  const neden = prompt('"' + kredi.banka + ' · ' + kredi.ad + '" silinecek.\n\nGerekçe zorunlu ve kayda geçer:');
+  if (neden === null) return;
+  if (!neden.trim()){ mesaj('taksitMsg','hata','Gerekçe zorunlu — silinmedi.'); return; }
+  const { error } = await sb.from('kredi').update({ is_deleted:true, silme_nedeni:neden.trim() }).eq('id', kredi.id);
+  if (error){ hataYaz('taksitMsg','Kredi silinemedi.', error); return; }
+  await ekranAc('krediler');
+}
+
+/* ---------- tek kredinin taksit ekrani ---------- */
+async function taksitEkraniAc(krediId){
+  const c = document.getElementById('icerik');
+  c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
+  try{
+    const kredi = (await krediGetir()).find(x => x.id === krediId);
+    if (!kredi){ c.textContent=''; c.appendChild(el('div','uyari-agir','Kredi bulunamadı.')); return; }
+    SECILI_KREDI = kredi;
+    const taksitler = await taksitGetir(krediId);
+    const b = bugun(), buAy = b.slice(0,7);
+    const o = krediOzet(taksitler);
+
+    c.textContent = '';
+    const geri = el('button','btn2','← Kredilere dön');
+    geri.onclick = () => ekranAc('krediler');
+    c.appendChild(geri);
+
+    const bas = el('div','kart');
+    const bl = el('div','kbaslik');
+    bl.appendChild(el('span', null, kredi.banka + ' · ' + kredi.ad));
+    bl.appendChild(document.createTextNode(' '));
+    bl.appendChild(el('span', turSinif(kredi.tur), turKisa(kredi.tur)));
+    bas.appendChild(bl);
+    const sat = (e2,d) => { const s = el('div','satir');
+      s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d)); bas.appendChild(s); };
+    sat('Anapara', tl(kredi.anapara));
+    sat('Faiz oranı', (kredi.faiz_orani === null || kredi.faiz_orani === undefined)
+        ? 'girilmemiş' : String(kredi.faiz_orani).replace('.',',') + ' %');
+    sat('Taksit', taksitler.length + ' / ' + kredi.taksit_sayisi + ' girildi');
+    sat('Kalan', tlk(o.kalanKurus) + ' (' + o.kalanAdet + ' taksit)');
+    if (kredi.tur !== 'ticari')
+      bas.appendChild(el('div','bilgi', turAdi(kredi.tur) + ' — bu kredinin hiçbir kalemi gidere yazılmaz.'));
+    const sil = el('button','btn-kirmizi','Krediyi sil');
+    sil.onclick = () => krediSil(kredi);
+    bas.appendChild(sil);
+    c.appendChild(bas);
+
+    const msg = el('div','msg'); msg.id = 'taksitMsg'; c.appendChild(msg);
+    c.appendChild(topluFormu(kredi, taksitler));
+
+    const k = el('div','kart');
+    k.appendChild(el('div','kbaslik','Bu kredinin taksitleri'));
+    if (!taksitler.length) k.appendChild(el('div','bos','Bu kredide henüz taksit yok.'));
+    else for (const t of taksitler) k.appendChild(taksitKarti(t, kredi, b, buAy));
+    c.appendChild(k);
+  }catch(e){
+    c.textContent = '';
+    c.appendChild(el('div','uyari-agir','Taksitler açılamadı: ' + hataTr(e && e.message)));
+  }
+}
+
+/* Toplu taksit uretimi — PERIYOT SECILEBILIR.
+   Bir kredi 3 AYDA BIR odeniyor (esnaf); aylik varsaymak yanlis olurdu. */
+function topluFormu(kredi, mevcut){
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Toplu taksit üret'));
+  const sonSira = mevcut.reduce((a,x) => Math.max(a, x.sira), 0);
+  if (sonSira > 0)
+    k.appendChild(el('div','bilgi','Bu kredide zaten ' + sonSira + ' sıra var. Yeni satırlar ' + (sonSira+1) + '. sıradan devam eder.'));
+
+  const alan = (etiket, id, tip, deger, mod) => {
+    k.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input');
+    i.id = id; i.type = tip || 'text';
+    if (deger) i.value = deger;
+    if (mod) i.setAttribute('inputmode', mod);
+    k.appendChild(i); return i;
+  };
+  alan('İlk vade tarihi','tBas','date', kredi.baslangic_tarihi);
+  alan('Taksit tutarı (her taksit aynı)','tTutar','text','','decimal');
+  alan('Adet','tAdet','text','','numeric');
+
+  k.appendChild(el('label', null, 'Periyot — kaç ayda bir ödeniyor')).setAttribute('for','tPeriyot');
+  const sp = document.createElement('select'); sp.id = 'tPeriyot';
+  [['1','Her ay'],['3','3 ayda bir'],['6','6 ayda bir'],['12','Yılda bir']]
+    .forEach(([v,t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sp.appendChild(o); });
+  k.appendChild(sp);
+  k.appendChild(el('div','kucuk','Bütün krediler aylık değil — esnaf kredisi 3 ayda bir ödeniyor.'));
+
+  alan('Taksit başına FAİZ (isteğe bağlı)','tFaiz','text','','decimal');
+  alan('Taksit başına VERGİ / MASRAF (isteğe bağlı)','tVergi','text','','decimal');
+  k.appendChild(el('label', null, 'Vergi/masraf kırılımı — belgedeki gibi yaz')).setAttribute('for','tNot');
+  const nt = document.createElement('input'); nt.id = 'tNot'; nt.type = 'text';
+  nt.placeholder = 'BSMV ve KKDF gibi kalemleri belgedeki gibi yaz';
+  k.appendChild(nt);
+  k.appendChild(el('div','kucuk',
+    'Faiz ve vergi/masraf yazarsan anapara = tutar − faiz − vergi/masraf olarak hesaplanır.\n'
+  + 'İkisini de boş bırakırsan kırılım KAYDEDİLMEZ ve o taksitlerin gideri hesaplanamaz.'));
+
+  const on = el('button','btn2','Önce göster (kaydetme)');
+  on.onclick = () => topluOnizle(kredi, sonSira, false);
+  const kay = el('button','btn','Taksitleri kaydet'); kay.id = 'tKaydet';
+  kay.onclick = () => topluOnizle(kredi, sonSira, true);
+  k.appendChild(on); k.appendChild(kay);
+  const ov = el('div'); ov.id = 'tOnizleme'; k.appendChild(ov);
+  return k;
+}
+
+function topluSatirlariUret(kredi, sonSira){
+  const bas   = document.getElementById('tBas').value;
+  const tut   = paraCoz(document.getElementById('tTutar').value);
+  const adet  = parseInt(document.getElementById('tAdet').value.trim(), 10);
+  const per   = parseInt(document.getElementById('tPeriyot').value, 10);
+  const faizH = document.getElementById('tFaiz').value.trim();
+  const vrgH  = document.getElementById('tVergi').value.trim();
+  const not   = document.getElementById('tNot').value.trim();
+
+  if (!bas) return { ok:false, hata:'İlk vade tarihi zorunlu.' };
+  if (!tut.ok) return { ok:false, hata:'Taksit tutarı: ' + tut.hata };
+  if (tut.kurus <= 0) return { ok:false, hata:'Taksit tutarı sıfırdan büyük olmalı.' };
+  if (!Number.isFinite(adet) || adet <= 0) return { ok:false, hata:'Adet sıfırdan büyük bir tam sayı olmalı.' };
+  if (adet > 600) return { ok:false, hata:'Adet çok büyük (en fazla 600).' };
+  if (!Number.isFinite(per) || per <= 0) return { ok:false, hata:'Periyot seçilmedi.' };
+
+  let faizKurus = null, vrgKurus = null;
+  if (faizH){
+    const f = paraCoz(faizH);
+    if (!f.ok) return { ok:false, hata:'Faiz: ' + f.hata };
+    faizKurus = f.kurus;
+  }
+  if (vrgH){
+    const g = paraCoz(vrgH);
+    if (!g.ok) return { ok:false, hata:'Vergi/masraf: ' + g.hata };
+    vrgKurus = g.kurus;
+  }
+  /* kt_ayrim_chk'i EKRANDA da uygula — sunucuya hatali satir gondermeyelim */
+  if (vrgKurus !== null && faizKurus === null)
+    return { ok:false, hata:'Vergi/masraf yazdın ama faiz boş. Kırılım girilecekse faiz de zorunlu.' };
+  if (faizKurus !== null){
+    const toplamPay = faizKurus + (vrgKurus || 0);
+    if (toplamPay > tut.kurus)
+      return { ok:false, hata:'Faiz + vergi/masraf, taksit tutarından büyük olamaz.' };
+  }
+
+  const satirlar = [];
+  for (let i = 0; i < adet; i++){
+    satirlar.push({
+      kredi_id: kredi.id,
+      sira: sonSira + i + 1,
+      vade_tarihi: ayEkle(bas, i * per),
+      toplam_tutar: (tut.kurus/100).toFixed(2),
+      anapara_tutar: faizKurus === null ? null : ((tut.kurus - faizKurus - (vrgKurus||0))/100).toFixed(2),
+      faiz_tutar:    faizKurus === null ? null : (faizKurus/100).toFixed(2),
+      vergi_masraf_tutar: vrgKurus === null ? null : (vrgKurus/100).toFixed(2),
+      vergi_masraf_notu:  (vrgKurus !== null && not) ? not : null,
+      odendi: false
+    });
+  }
+  return { ok:true, satirlar, toplamKurus: tut.kurus * adet };
+}
+
+async function topluOnizle(kredi, sonSira, kaydet){
+  mesajTemizle('taksitMsg');
+  const r = topluSatirlariUret(kredi, sonSira);
+  const ov = document.getElementById('tOnizleme');
+  ov.textContent = '';
+  if (!r.ok){ mesaj('taksitMsg','hata', r.hata); return; }
+
+  ov.appendChild(el('div','bilgi',
+    r.satirlar.length + ' taksit · ilk vade ' + trGun(r.satirlar[0].vade_tarihi)
+    + ' · son vade ' + trGun(r.satirlar[r.satirlar.length-1].vade_tarihi)
+    + ' · toplam ' + tlk(r.toplamKurus)));
+
+  if (!kaydet){
+    const sar = el('div','tablo-sar');
+    const t = document.createElement('table');
+    const hr = document.createElement('tr');
+    ['#','VADE','TUTAR','ANAPARA','FAİZ','VERGİ/MASRAF'].forEach((h,i) =>
+      hr.appendChild(el('th', i>=2 ? 'sag' : null, h)));
+    t.appendChild(hr);
+    r.satirlar.slice(0,12).forEach(s => {
+      const tr = document.createElement('tr');
+      tr.appendChild(td(s.sira));
+      tr.appendChild(td(trGun(s.vade_tarihi)));
+      tr.appendChild(td(tl(s.toplam_tutar),'sag'));
+      tr.appendChild(td(s.anapara_tutar === null ? '—' : tl(s.anapara_tutar),'sag'));
+      tr.appendChild(td(s.faiz_tutar === null ? '—' : tl(s.faiz_tutar),'sag'));
+      tr.appendChild(td(s.vergi_masraf_tutar === null ? '—' : tl(s.vergi_masraf_tutar),'sag'));
+      t.appendChild(tr);
+    });
+    sar.appendChild(t); ov.appendChild(sar);
+    if (r.satirlar.length > 12)
+      ov.appendChild(el('div','kucuk','İlk 12 satır gösteriliyor; kaydedilecek toplam ' + r.satirlar.length + ' satır.'));
+    return;
+  }
+
+  if (!confirm(r.satirlar.length + ' taksit kaydedilecek.\n\nDevam edilsin mi?')) return;
+  const btn = document.getElementById('tKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('kredi_taksit').insert(r.satirlar);
+  btn.disabled = false; btn.textContent = 'Taksitleri kaydet';
+  if (error){ hataYaz('taksitMsg','Taksitler kaydedilemedi. HİÇBİRİ yazılmadı.', error); return; }
+  mesaj('taksitMsg','ok', r.satirlar.length + ' taksit kaydedildi.');
+  await taksitEkraniAc(kredi.id);
+}
+
+/* ================== 3 · MADEN ================== */
+async function vMaden(){
+  const c = document.getElementById('icerik');
+  const v = await bantVerisi();
+  const { kayitlar, fiyatlar } = v.maden;
+  c.textContent = '';
+  c.appendChild(bantCiz(v));
+  const msg = el('div','msg'); msg.id = 'madenMsg'; c.appendChild(msg);
+
+  /* fiyat yasi rozeti */
+  const fiyatRozeti = (f) => {
+    const yas = gunFarki(bugun(), f.tarih);
+    const ad = yas === 0 ? 'bugün' : yas === 1 ? 'dün' : yas + ' gün önce';
+    return el('span', 'rozet ' + (yas <= 1 ? 'rz-yesil' : yas > 7 ? 'rz-sari' : 'rz-yesil'), ad);
+  };
+
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Altın / gümüş borçları'));
+  if (!kayitlar.length) k.appendChild(el('div','bos','Kayıtlı altın/gümüş yok.'));
+  else {
+    const sar = el('div','tablo-sar');
+    const t = document.createElement('table');
+    const hr = document.createElement('tr');
+    ['TÜR','GRAM','KİME','ALIŞ GÜNÜ','ALIŞ DEĞERİ','BUGÜNKÜ DEĞER','FARK',''].forEach((h,i) =>
+      hr.appendChild(el('th', (i>=4 && i<=6) ? 'sag' : null, h)));
+    t.appendChild(hr);
+    for (const m of kayitlar){
+      const d = madenDeger(m, fiyatlar);
+      const tr = document.createElement('tr');
+      tr.appendChild(td(m.tur === 'altin' ? 'Altın' : 'Gümüş'));
+      tr.appendChild(td(gramYaz(m.gram)));
+      tr.appendChild(td(m.kime));                        // textContent
+      tr.appendChild(td(trGun(m.tarih)));
+      /* alis degeri: OLGU / TAHMIN / BILINMIYOR — hangisi oldugu yaziyor */
+      const ah = document.createElement('td'); ah.className = 'sag';
+      if (d.alisKurus === null){
+        ah.appendChild(el('span','gri','bilinmiyor'));
+      } else if (d.kaynak === 'tahmin'){
+        ah.appendChild(el('span', null, tlk(d.alisKurus) + ' '));
+        ah.appendChild(el('span','rozet rz-sari','tahmini'));
+      } else {
+        ah.appendChild(el('span', null, tlk(d.alisKurus)));
+      }
+      tr.appendChild(ah);
+      tr.appendChild(td(d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus), 'sag'));
+      const fh = document.createElement('td'); fh.className = 'sag';
+      if (d.alisKurus === null || d.bugunKurus === null){
+        fh.textContent = '—';
+      } else {
+        const fark = d.bugunKurus - d.alisKurus;
+        fh.textContent = (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark));
+        fh.style.color = fark > 0 ? 'var(--hata)' : fark < 0 ? 'var(--ok)' : '';
+        fh.style.fontWeight = '900';
+      }
+      tr.appendChild(fh);
+      const ey = document.createElement('td');
+      const bs = el('button','btn-kirmizi','Sil');
+      bs.onclick = () => madenSil(m);
+      ey.appendChild(bs); tr.appendChild(ey);
+      t.appendChild(tr);
+    }
+    sar.appendChild(t); k.appendChild(sar);
+    k.appendChild(el('div','kucuk',
+      'Fark KIRMIZI ise borç büyümüş demektir: bugün almak, aldığın güne göre daha pahalı.\n'
+    + '"tahmini" rozeti: alış tutarı girilmemiş, o tarihteki gram fiyatından hesaplandı — '
+    + 'gerçekte ödediğin tutar farklı olabilir. Kesin rakam için alış tutarını gir.'));
+    if (v.alisiYok > 0)
+      k.appendChild(el('div','uyari-orta', v.alisiYok
+        + ' kayıtta alış değeri bilinmiyor — alış tutarını gir ya da o tarihe ait gram fiyatı ekle.'));
+  }
+  c.appendChild(k);
+
+  /* guncel fiyat durumu */
+  const fk = el('div','kart');
+  fk.appendChild(el('div','kbaslik','Güncel gram fiyatı'));
+  for (const tur of ['altin','gumus']){
+    const ad = tur === 'altin' ? 'Altın' : 'Gümüş';
+    const f = sonFiyat(fiyatlar, tur);
+    const s = el('div','satir');
+    s.appendChild(el('span','et', ad));
+    const sag = el('span','dg');
+    if (!f){ sag.textContent = 'fiyat girilmedi'; }
+    else {
+      sag.appendChild(el('span', null, tl(f.gram_fiyat) + '/gr '));
+      sag.appendChild(fiyatRozeti(f));
+    }
+    s.appendChild(sag); fk.appendChild(s);
+    if (f && gunFarki(bugun(), f.tarih) > 7)
+      fk.appendChild(el('div','uyari-orta', ad + ' fiyatı ' + gunFarki(bugun(), f.tarih) + ' gün önceki — güncelle.'));
+  }
+  c.appendChild(fk);
+
+  /* formlar */
+  const f1 = el('div','kart');
+  f1.appendChild(el('div','kbaslik','Altın / gümüş ekle'));
+  f1.appendChild(el('label', null, 'Tür')).setAttribute('for','mTur');
+  const s1 = document.createElement('select'); s1.id = 'mTur';
+  [['altin','Altın'],['gumus','Gümüş']].forEach(([val,t]) => {
+    const o = document.createElement('option'); o.value = val; o.textContent = t; s1.appendChild(o); });
+  f1.appendChild(s1);
+  const ek1 = (etiket,id,tip,mod) => {
+    f1.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input'); i.id = id; i.type = tip || 'text';
+    if (mod) i.setAttribute('inputmode', mod);
+    f1.appendChild(i); return i;
+  };
+  ek1('Gram','mGram','text','decimal');
+  ek1('Kime','mKime','text');
+  ek1('Alış tarihi','mTarih','date').value = bugun();
+  ek1('Alış tutarı (TL) — zorunlu değil','mAlis','text','decimal');
+  f1.appendChild(el('div','kucuk',
+    'Alış tutarı = bu borç için GERÇEKTEN ödenen toplam. Karma alımda (kesme + gram + '
+  + 'sikke, ayrı birim fiyatlar) ortalama gram fiyatı gerçek ödemeyi tutmaz; ödenen '
+  + 'toplamı yaz.\nBoş bırakırsan alış değeri, o tarihteki gram fiyatından TAHMİN '
+  + 'edilir ve "tahmini" diye işaretlenir. O tarihe ait fiyat da yoksa "bilinmiyor" yazar.'));
+  const b1 = el('button','btn','Kaydet'); b1.id = 'mKaydet'; b1.onclick = madenKaydet;
+  f1.appendChild(b1); c.appendChild(f1);
+
+  const f2 = el('div','kart');
+  f2.appendChild(el('div','kbaslik','Gram fiyatı gir'));
+  f2.appendChild(el('div','kucuk','Fiyat elle girilir ve TARİHLİDİR. Aynı tür için aynı tarihe ikinci fiyat girilemez. Geçmiş tarihli fiyat da girilebilir — alış değerleri böyle hesaplanır.'));
+  f2.appendChild(el('label', null, 'Tür')).setAttribute('for','fTur');
+  const s2 = document.createElement('select'); s2.id = 'fTur';
+  [['altin','Altın'],['gumus','Gümüş']].forEach(([val,t]) => {
+    const o = document.createElement('option'); o.value = val; o.textContent = t; s2.appendChild(o); });
+  f2.appendChild(s2);
+  const ek2 = (etiket,id,tip,mod) => {
+    f2.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input'); i.id = id; i.type = tip || 'text';
+    if (mod) i.setAttribute('inputmode', mod);
+    f2.appendChild(i); return i;
+  };
+  ek2('Gram fiyatı','fFiyat','text','decimal');
+  ek2('Tarih','fTarih','date').value = bugun();
+  ek2('Kaynak notu','fKaynak','text');
+  const b2 = el('button','btn','Fiyatı kaydet'); b2.id = 'fKaydet'; b2.onclick = fiyatKaydet;
+  f2.appendChild(b2); c.appendChild(f2);
+
+  if (fiyatlar.length){
+    const fl = el('div','kart');
+    fl.appendChild(el('div','kbaslik','Fiyat geçmişi'));
+    const sar = el('div','tablo-sar');
+    const t = document.createElement('table');
+    const hr = document.createElement('tr');
+    ['TÜR','GRAM FİYATI','TARİH','KAYNAK'].forEach((h,i) => hr.appendChild(el('th', i===1?'sag':null, h)));
+    t.appendChild(hr);
+    for (const f of fiyatlar.slice(0,30)){
+      const tr = document.createElement('tr');
+      tr.appendChild(td(f.tur === 'altin' ? 'Altın' : 'Gümüş'));
+      tr.appendChild(td(tl(f.gram_fiyat),'sag'));
+      tr.appendChild(td(trGun(f.tarih)));
+      tr.appendChild(td(f.kaynak_notu || '—'));          // textContent
+      t.appendChild(tr);
+    }
+    sar.appendChild(t); fl.appendChild(sar); c.appendChild(fl);
+  }
+}
+
+async function madenKaydet(){
+  mesajTemizle('madenMsg');
+  const btn = document.getElementById('mKaydet');
+  const g = gramCoz(document.getElementById('mGram').value);
+  const kime = document.getElementById('mKime').value.trim();
+  const tarih = document.getElementById('mTarih').value;
+  if (!g.ok)  return mesaj('madenMsg','hata', g.hata);
+  if (!kime)  return mesaj('madenMsg','hata','"Kime" zorunlu.');
+  if (!tarih) return mesaj('madenMsg','hata','Alış tarihi zorunlu.');
+
+  /* alis_tutar ZORUNLU DEGIL. Yazildiysa 0'dan buyuk olmali —
+     maden_alis_tutar_chk'i ekranda da uygula, sunucuya hatali satir gitmesin. */
+  const alisH = document.getElementById('mAlis').value.trim();
+  let alisTutar = null;
+  if (alisH){
+    const a = paraCoz(alisH);
+    if (!a.ok)         return mesaj('madenMsg','hata','Alış tutarı: ' + a.hata);
+    if (a.kurus <= 0)  return mesaj('madenMsg','hata','Alış tutarı sıfırdan büyük olmalı. Bilinmiyorsa BOŞ bırak — 0 yazma.');
+    alisTutar = (a.kurus/100).toFixed(2);
+  }
+
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('maden').insert({
+    tur: document.getElementById('mTur').value,
+    gram: g.deger.toFixed(3), kime, tarih,
+    alis_tutar: alisTutar,
+    giren_id: PROFIL ? PROFIL.id : null });
+  btn.disabled = false; btn.textContent = 'Kaydet';
+  if (error){ hataYaz('madenMsg','Kayıt eklenemedi.', error); return; }
+  mesaj('madenMsg','ok','Kayıt eklendi.');
+  await vMaden();
+}
+
+async function fiyatKaydet(){
+  mesajTemizle('madenMsg');
+  const btn = document.getElementById('fKaydet');
+  const p = paraCoz(document.getElementById('fFiyat').value);
+  const tarih = document.getElementById('fTarih').value;
+  if (!p.ok)        return mesaj('madenMsg','hata','Gram fiyatı: ' + p.hata);
+  if (p.kurus <= 0) return mesaj('madenMsg','hata','Gram fiyatı sıfırdan büyük olmalı.');
+  if (!tarih)       return mesaj('madenMsg','hata','Fiyat tarihi zorunlu.');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('maden_fiyat').insert({
+    tur: document.getElementById('fTur').value,
+    gram_fiyat:(p.kurus/100).toFixed(2), tarih,
+    kaynak_notu: document.getElementById('fKaynak').value.trim() || null,
+    giren_id: PROFIL ? PROFIL.id : null });
+  btn.disabled = false; btn.textContent = 'Fiyatı kaydet';
+  if (error){ hataYaz('madenMsg','Fiyat kaydedilemedi.', error); return; }
+  mesaj('madenMsg','ok','Fiyat kaydedildi.');
+  await vMaden();
+}
+
+async function madenSil(m){
+  const neden = prompt('Bu kayıt silinecek.\n\nGerekçe zorunlu ve kayda geçer:');
+  if (neden === null) return;
+  if (!neden.trim()){ mesaj('madenMsg','hata','Gerekçe zorunlu — silinmedi.'); return; }
+  const { error } = await sb.from('maden').update({ is_deleted:true, silme_nedeni:neden.trim() }).eq('id', m.id);
+  if (error){ hataYaz('madenMsg','Kayıt silinemedi.', error); return; }
+  mesaj('madenMsg','ok','Kayıt silindi.');
+  await vMaden();
+}
+
+/* ================== 4 · SAHIS ================== */
+async function vSahis(){
+  const c = document.getElementById('icerik');
+  const v = await bantVerisi();
+  const { borclar, odemeler } = v.sahis;
+  const grup = new Map();
+  for (const o of odemeler){
+    if (!grup.has(o.borc_id)) grup.set(o.borc_id, []);
+    grup.get(o.borc_id).push(o);
+  }
+  c.textContent = '';
+  c.appendChild(bantCiz(v));
+  const msg = el('div','msg'); msg.id = 'sahisMsg'; c.appendChild(msg);
+
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Şahıs borçları'));
+  if (!borclar.length) k.appendChild(el('div','bos','Kayıtlı şahıs borcu yok.'));
+
+  for (const b of borclar){
+    const od = grup.get(b.id) || [];
+    const odenen = od.reduce((s,x) => s + kr(x.tutar), 0);
+    const kalan = kr(b.tutar) - odenen;
+
+    const kart = el('div','tk');
+    const ust = el('div','tk-ust');
+    ust.appendChild(el('div','tk-ad', b.isim));            // textContent
+    ust.appendChild(el('div','tk-tutar', tlk(Math.max(0, kalan))));
+    kart.appendChild(ust);
+    kart.appendChild(el('div','tk-orta',
+      'borç ' + tl(b.tutar) + ' · ' + trGun(b.tarih) + ' · ödenen ' + tlk(odenen) + ' (' + od.length + ')'));
+    if (kalan < 0) kart.appendChild(el('div','uyari-orta','Ödemeler borçtan fazla: ' + tlk(-kalan) + ' fazla ödenmiş.'));
+    if (b.aciklama) kart.appendChild(el('div','kucuk', b.aciklama));
+
+    if (od.length){
+      const sar = el('div','tablo-sar');
+      const t = document.createElement('table');
+      const hr = document.createElement('tr');
+      ['TARİH','TUTAR','BELGE',''].forEach((h,i) => hr.appendChild(el('th', i===1?'sag':null, h)));
+      t.appendChild(hr);
+      for (const o of od){
+        const tr = document.createElement('tr');
+        tr.appendChild(td(trGun(o.tarih)));
+        tr.appendChild(td(tl(o.tutar),'sag'));
+        const dk = document.createElement('td');
+        if (o.foto_path){
+          const a = el('button','btn-mini','Aç');
+          a.onclick = () => belgeAc(o.foto_path,'sahisMsg');
+          dk.appendChild(a);
+        } else { dk.appendChild(el('span','gri','belge yok')); }
+        tr.appendChild(dk);
+        const ey = document.createElement('td');
+        const bd = el('button','btn-mini', o.foto_path ? 'Değiştir' : '+ Belge');
+        bd.onclick = () => dekontEkle('sahis_odeme', o.id, 'sahis_odeme','sahisMsg', !!o.foto_path, () => vSahis());
+        ey.appendChild(bd); tr.appendChild(ey);
+        t.appendChild(tr);
+      }
+      sar.appendChild(t); kart.appendChild(sar);
+    }
+    const ey = el('div','tk-eylem');
+    const bo = el('button','btn2','Ödeme ekle'); bo.onclick = () => sahisOdemeEkle(b);
+    const bs = el('button','btn-kirmizi','Borcu sil'); bs.onclick = () => sahisBorcSil(b);
+    ey.appendChild(bo); ey.appendChild(bs);
+    kart.appendChild(ey);
+    k.appendChild(kart);
+  }
+  c.appendChild(k);
+
+  const f = el('div','kart');
+  f.appendChild(el('div','kbaslik','Yeni şahıs borcu'));
+  const ekle = (etiket,id,tip,mod) => {
+    f.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input'); i.id = id; i.type = tip || 'text';
+    if (mod) i.setAttribute('inputmode', mod);
+    f.appendChild(i); return i;
+  };
+  ekle('Kime (isim)','sbIsim','text');
+  ekle('Tutar','sbTutar','text','decimal');
+  ekle('Tarih','sbTarih','date').value = bugun();
+  f.appendChild(el('label', null, 'Açıklama')).setAttribute('for','sbAciklama');
+  const ta = document.createElement('textarea'); ta.id = 'sbAciklama'; f.appendChild(ta);
+  const bk = el('button','btn','Borcu kaydet'); bk.id = 'sbKaydet'; bk.onclick = sahisBorcKaydet;
+  f.appendChild(bk); c.appendChild(f);
+}
+
+async function sahisBorcKaydet(){
+  mesajTemizle('sahisMsg');
+  const btn = document.getElementById('sbKaydet');
+  const isim = document.getElementById('sbIsim').value.trim();
+  const tarih = document.getElementById('sbTarih').value;
+  const tut = paraCoz(document.getElementById('sbTutar').value);
+  if (!isim)  return mesaj('sahisMsg','hata','İsim zorunlu.');
+  if (!tarih) return mesaj('sahisMsg','hata','Tarih zorunlu.');
+  if (!tut.ok) return mesaj('sahisMsg','hata','Tutar: ' + tut.hata);
+  if (tut.kurus <= 0) return mesaj('sahisMsg','hata','Tutar sıfırdan büyük olmalı.');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('sahis_borc').insert({
+    isim, tutar:(tut.kurus/100).toFixed(2), tarih,
+    aciklama: document.getElementById('sbAciklama').value.trim() || null,
+    giren_id: PROFIL ? PROFIL.id : null });
+  btn.disabled = false; btn.textContent = 'Borcu kaydet';
+  if (error){ hataYaz('sahisMsg','Borç kaydedilemedi.', error); return; }
+  mesaj('sahisMsg','ok','Borç kaydedildi.');
+  await vSahis();
+}
+
+async function sahisOdemeEkle(borc){
+  const tutarH = prompt('Ödeme tutarı:');
+  if (tutarH === null) return;
+  const t = paraCoz(tutarH);
+  if (!t.ok || t.kurus <= 0){ mesaj('sahisMsg','hata','Ödeme tutarı geçersiz. Kayıt YAPILMADI.'); return; }
+  const tarihH = prompt('Ödeme tarihi (YYYY-AA-GG):', bugun());
+  if (tarihH === null) return;
+  const tarih = (tarihH || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tarih)){
+    mesaj('sahisMsg','hata','Tarih YYYY-AA-GG biçiminde olmalı. Kayıt YAPILMADI.'); return;
+  }
+  const { error } = await sb.from('sahis_odeme').insert({
+    borc_id: borc.id, tutar:(t.kurus/100).toFixed(2), tarih,
+    giren_id: PROFIL ? PROFIL.id : null });
+  if (error){ hataYaz('sahisMsg','Ödeme kaydedilemedi.', error); return; }
+  mesaj('sahisMsg','ok','Ödeme kaydedildi. Belge eklemeyi unutma.');
+  await vSahis();
+}
+
+async function sahisBorcSil(borc){
+  const neden = prompt('Bu borç kaydı silinecek.\n\nGerekçe zorunlu ve kayda geçer:');
+  if (neden === null) return;
+  if (!neden.trim()){ mesaj('sahisMsg','hata','Gerekçe zorunlu — silinmedi.'); return; }
+  const { error } = await sb.from('sahis_borc').update({ is_deleted:true, silme_nedeni:neden.trim() }).eq('id', borc.id);
+  if (error){ hataYaz('sahisMsg','Borç silinemedi.', error); return; }
+  mesaj('sahisMsg','ok','Borç silindi.');
+  await vSahis();
+}
+
+/* ================== ACILIS ================== */
+sb.auth.onAuthStateChange((olay) => { if (olay === 'SIGNED_OUT') location.reload(); });
+baslat().catch(e => {
+  document.getElementById('girisEkran').classList.remove('gizli');
+  mesaj('girisHata','hata','Açılış hatası: ' + hataTr(e && e.message));
+});
+</script>
+</body>
+</html>
