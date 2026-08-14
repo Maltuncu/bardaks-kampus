@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-13-1">
+<meta name="surum" content="2026-08-13-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -749,10 +749,15 @@ async function baslat(){
   document.getElementById('kimBilgi').textContent = p.ad + ' · ' + (ROL_AD[p.rol] || p.rol);
   await katalogYukle();
   sekmeleriKur();
-  const ilk = sekmeListesi()[0];
-  if (!ilk){ document.getElementById('icerik').innerHTML =
+  /* Adresteki #<id> bir sekmeye işaret ediyorsa ONU aç — borc.html buraya
+     böyle geri gönderiyor, kullanıcı ana sayfaya düşmüş hissetmesin.
+     Hash KULLANICI GİRDİSİDİR: yalnız sekmeListesi()'nde GÖRÜNEN id kabul
+     edilir; yetkisiz ya da olmayan id sessizce ilk sekmeye düşer. */
+  const liste = sekmeListesi();
+  if (!liste.length){ document.getElementById('icerik').innerHTML =
     '<div class="uyari-agir">Hiçbir ekran yetkiniz yok. Yöneticiyle görüşün.</div>'; return; }
-  sekmeAc(ilk.id);
+  const istenen = decodeURIComponent((location.hash || '').slice(1));
+  sekmeAc(liste.some(t => t.id === istenen) ? istenen : liste[0].id);
 }
 
 async function katalogYukle(){
@@ -787,7 +792,7 @@ const SEKMELER_TUM = [
   {id:'ozet',    ad:'Özet'},
   {id:'gunsonu', ad:'Gün Sonu'},
   {id:'gider',   ad:'Giderler'},
-  {id:'stok',    ad:'Stok'},
+  {id:'borc',    ad:'Borç'},         /* ekran AYRI DOSYADA: borc.html — bkz. sekmeAc */
   {id:'tedarikci',ad:'Tedarikçi'},
   {id:'personel',ad:'Personel'},
   {id:'talep',   ad:'Yapılacaklar'},
@@ -795,7 +800,7 @@ const SEKMELER_TUM = [
   {id:'vergi',   ad:'Vergiler'},
   {id:'belge',   ad:'Belgeler'},
   {id:'yonetim', ad:'Yönetim'},
-  {id:'borc',    ad:'Borç'}          /* ekran AYRI DOSYADA: borc.html — bkz. sekmeAc */
+  {id:'stok',    ad:'Stok'}          /* sayım yapılmıyor — sıralamada geri, SİLİNMEDİ */
 ];
 /* 375px telefonda alt çubuğa en fazla 5 yuva sığıyor. Owner'da 8 bölüm var; eskiden
    çubuk 496px olup "Yapılacaklar" ve "Yönetim" ekran dışında kalıyordu (yan kaydırma
