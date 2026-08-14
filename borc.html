@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-14-3">
+<meta name="surum" content="borc-2026-08-15-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -175,6 +175,10 @@ td.sag,th.sag{text-align:right;font-variant-numeric:tabular-nums}
 .tk-gider{font-size:12.5px;font-weight:800;color:var(--ok);margin-top:4px}
 .tk-gider.yok{color:var(--soluk);font-weight:700}
 .tk-eylem{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+/* v92 · odeme formu ve odeme listesi — taksit kartinin ICINDE acilir */
+.odeme-form,.odeme-liste{margin-top:10px;padding-top:10px;border-top:2px dashed var(--cizgi)}
+.tk.kismi{border-color:var(--uyari)}
+.tk-durum.kismi{color:#8A6316}
 .gri{color:var(--soluk)}
 
 #girisEkran{max-width:380px;margin:52px auto;padding:22px}
@@ -562,12 +566,22 @@ async function krediGetir(){
     .eq('is_deleted', false).order('baslangic_tarihi',{ascending:false});
   if (error) throw error; return data || [];
 }
+/* v92 · Taksit durumu artik ODEMELERDEN turetiliyor (v_kredi_taksit_durum).
+   `odendi` bool KAYNAK DEGIL — ekran ona BAKMIYOR. Kismi odeme burada
+   `durum='kismi'` ve `kalan` olarak goruluyor. */
 async function taksitGetir(krediId){
-  let q = sb.from('kredi_taksit')
-    .select('id,kredi_id,sira,vade_tarihi,anapara_tutar,faiz_tutar,vergi_masraf_tutar,vergi_masraf_notu,toplam_tutar,odendi,odeme_tarihi,foto_path,gider_id')
-    .eq('is_deleted', false);
+  let q = sb.from('v_kredi_taksit_durum')
+    .select('taksit_id,kredi_id,kredi_tur,sira,vade_tarihi,anapara_tutar,faiz_tutar,vergi_masraf_tutar,vergi_masraf_notu,toplam_tutar,odenen,kalan,durum,odeme_adet,dekontsuz_odeme,son_odeme_tarihi,anapara_odenen,faiz_odenen');
   if (krediId) q = q.eq('kredi_id', krediId);
   const { data, error } = await q.order('vade_tarihi');
+  if (error) throw error;
+  /* Ekranin geri kalani `id` bekliyor; gorunum `taksit_id` veriyor. */
+  return (data || []).map(x => ({ ...x, id: x.taksit_id, odendi: x.durum === 'kapali' }));
+}
+async function odemeGetir(taksitId){
+  const { data, error } = await sb.from('kredi_taksit_odeme')
+    .select('id,taksit_id,tarih,tutar,anapara_pay,faiz_pay,vergi_masraf_pay,gider_id,foto_path,aciklama')
+    .eq('taksit_id', taksitId).eq('is_deleted', false).order('tarih');
   if (error) throw error; return data || [];
 }
 async function sahisGetir(){
@@ -614,18 +628,20 @@ const turAdi   = t => t==='ticari' ? 'Ticari (şahıs şirketi)' : t==='sahis' ?
 const turKisa  = t => t==='ticari' ? 'TİCARİ' : t==='sahis' ? 'ŞAHSİ' : 'LİMİTED';
 const turSinif = t => 'rozet ' + (t==='ticari' ? 'rz-ticari' : t==='sahis' ? 'rz-sahis' : 'rz-ltd');
 
+/* v92 · KALAN artik `kalan` kolonundan; kismi odenmis taksit de sayilir.
+   Dekont eksigi ODEME BAZINDA (dekontsuz_odeme), taksit bazinda degil. */
 function krediOzet(taksitler){
-  let kalanKurus=0, kalanAdet=0, sonrakiVade=null, gecmis=0, dekontEksik=0;
+  let kalanKurus=0, kalanAdet=0, sonrakiVade=null, gecmis=0, dekontEksik=0, kismi=0;
   const b = bugun();
   for (const t of taksitler){
-    if (t.odendi){ if (!t.foto_path) dekontEksik++; }
-    else {
-      kalanKurus += kr(t.toplam_tutar); kalanAdet++;
-      if (t.vade_tarihi < b) gecmis++;
-      if (!sonrakiVade || t.vade_tarihi < sonrakiVade) sonrakiVade = t.vade_tarihi;
-    }
+    dekontEksik += Number(t.dekontsuz_odeme) || 0;
+    if (t.durum === 'kapali') continue;
+    kalanKurus += kr(t.kalan); kalanAdet++;
+    if (t.durum === 'kismi') kismi++;
+    if (t.vade_tarihi < b) gecmis++;
+    if (!sonrakiVade || t.vade_tarihi < sonrakiVade) sonrakiVade = t.vade_tarihi;
   }
-  return { kalanKurus, kalanAdet, sonrakiVade, gecmis, dekontEksik };
+  return { kalanKurus, kalanAdet, sonrakiVade, gecmis, dekontEksik, kismi };
 }
 /* Verilen tarihte GECERLI fiyat: o tarihten SONRAKI fiyatlar sayilmaz. */
 function fiyatAsOf(fiyatlar, tur, tarih){
@@ -731,16 +747,19 @@ async function bantVerisi(){
       g.buAy += kr(t.toplam_tutar);
       if (t.odendi) g.buAyOdenen += kr(t.toplam_tutar);
     }
-    if (t.odendi) continue;                       // kalan borç: ödenmemişler
-    g.nominal += kr(t.toplam_tutar);
+    if (t.durum === 'kapali') continue;            // kalan borç: kapanmamislar
+    g.nominal += kr(t.kalan);
     if (t.anapara_tutar === null || t.anapara_tutar === undefined){
       /* KIRILIMI BİLİNMEYEN: anaparaya KATILMAZ, uydurulmaz. Kendi
          bloğunda parantez notu olarak duruyor (bugün tamamı Ltd). */
-      g.kirilimsiz += kr(t.toplam_tutar); g.kirilimsizAdet++;
+      g.kirilimsiz += kr(t.kalan); g.kirilimsizAdet++;
       continue;
     }
-    g.anapara    += kr(t.anapara_tutar);
-    g.faizMasraf += kr(t.faiz_tutar) + kr(t.vergi_masraf_tutar || 0);
+    /* v92 · KISMI ODEME: kalan anapara = anapara − odenmis anapara.
+       Odemede ayrim girilmemisse (anapara_odenen 0) parcalar `kalan`i
+       asar ve IC TUTARLILIK NOBETCISI bagirir — sessiz kalmaz. */
+    g.anapara    += kr(t.anapara_tutar) - kr(t.anapara_odenen || 0);
+    g.faizMasraf += kr(t.faiz_tutar) + kr(t.vergi_masraf_tutar || 0) - kr(t.faiz_odenen || 0);
   }
   let buAyKurus = 0, buAyOdenen = 0;
   for (const t of taksitler){
@@ -1000,59 +1019,212 @@ function taksitKarti(t, kredi, b, buAy){
   }
 
   /* durum satiri */
-  const d = el('div','tk-durum' + (gecikti ? ' gecikti' : buAyMi ? ' buay' : t.odendi ? ' odendi' : ''));
-  if (t.odendi){
-    d.textContent = 'ödendi · ' + trGun(t.odeme_tarihi);
+  /* v92 · UC DURUM: acik · KISMI (odenen/kalan gorunur) · kapali */
+  const d = el('div','tk-durum' + (t.durum === 'kapali' ? ' odendi'
+              : gecikti ? ' gecikti' : buAyMi ? ' buay' : ''));
+  if (t.durum === 'kapali'){
+    d.textContent = 'ödendi · ' + trGun(t.son_odeme_tarihi);
+  } else if (t.durum === 'kismi'){
+    d.textContent = 'KISMİ ÖDENDİ · ödenen ' + tl(t.odenen) + ' · KALAN ' + tl(t.kalan)
+      + ' · vade ' + trGun(t.vade_tarihi)
+      + (gecikti ? ' (' + gunFarki(b, t.vade_tarihi) + ' gün geçti)' : '');
   } else if (gecikti){
     d.textContent = 'vade ' + trGun(t.vade_tarihi) + ' · ' + gunFarki(b, t.vade_tarihi) + ' gün geçti';
   } else {
-    const kalan = gunFarki(t.vade_tarihi, b);
-    d.textContent = 'vade ' + trGun(t.vade_tarihi) + ' · ' + kalan + ' gün kaldı';
+    d.textContent = 'vade ' + trGun(t.vade_tarihi) + ' · ' + gunFarki(t.vade_tarihi, b) + ' gün kaldı';
   }
   k.appendChild(d);
 
-  /* dekont eksik rozeti — odenmis olsa da TAKILI KALIR */
-  if (t.odendi && !t.foto_path){
+  /* Dekont eksigi ODEME BAZINDA — odenmis olsa da TAKILI KALIR */
+  if (t.dekontsuz_odeme > 0){
     const r = el('div'); r.style.marginTop = '6px';
-    r.appendChild(el('span','rozet rz-eksik','DEKONT EKSİK'));
+    r.appendChild(el('span','rozet rz-eksik',
+      t.dekontsuz_odeme === 1 ? 'DEKONT EKSİK' : t.dekontsuz_odeme + ' ÖDEMEDE DEKONT EKSİK'));
     k.appendChild(r);
   }
 
   const ey = el('div','tk-eylem');
-  if (!t.odendi){
-    const bt = el('button','btn2','Ödendi');
-    bt.onclick = () => taksitOdendi(t);
+  if (t.durum !== 'kapali'){
+    /* "Odendi" ARTIK TEK DOKUNUSLA TAM ODEME YAZMIYOR: form aciliyor.
+       prompt() de kullanilmiyor (v88/M mobil bulgusu). */
+    const bt = el('button','btn2', t.durum === 'kismi' ? 'Ödeme ekle' : 'Ödeme gir');
+    bt.onclick = () => odemeFormuAc(k, t);
     ey.appendChild(bt);
   }
-  const bb = el('button','btn-mini', t.foto_path ? 'Belgeyi aç' : '+ Belge');
-  bb.onclick = t.foto_path
-    ? () => belgeAc(t.foto_path, mesajKutusu())
-    : () => dekontEkle('kredi_taksit', t.id, 'kredi_taksit', mesajKutusu(), false, () => ekranAc(EKRAN));
-  ey.appendChild(bb);
-  if (t.foto_path){
-    const bd = el('button','btn-mini','Değiştir');
-    bd.onclick = () => dekontEkle('kredi_taksit', t.id, 'kredi_taksit', mesajKutusu(), true, () => ekranAc(EKRAN));
-    ey.appendChild(bd);
+  if (t.odeme_adet > 0){
+    const bl = el('button','btn-mini', t.odeme_adet + ' ödeme');
+    bl.onclick = () => odemeListesiAc(k, t);
+    ey.appendChild(bl);
   }
   k.appendChild(ey);
   return k;
 }
-const mesajKutusu = () => document.getElementById('takvimMsg') ? 'takvimMsg' : 'krediMsg';
 
-async function taksitOdendi(t){
-  const kutu = mesajKutusu();
-  const cevap = prompt('Ödeme tarihi (YYYY-AA-GG).\n\nÖdendi işaretlemek için tarih ZORUNLUDUR.', bugun());
-  if (cevap === null) return;
-  const tar = (cevap || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(tar) || isNaN(new Date(tar+'T00:00').getTime())){
-    mesaj(kutu, 'hata', 'Ödeme tarihi YYYY-AA-GG biçiminde geçerli bir tarih olmalı. İŞARETLENMEDİ.');
-    return;
+/* ---------- ODEME FORMU (prompt YOK) ---------- */
+function odemeFormuAc(kart, t){
+  if (kart.querySelector('.odeme-form')) return;          // zaten acik
+  const f = el('div','odeme-form');
+  const kalanKurus = kr(t.kalan);
+
+  const alan = (etiket, id, tip, deger, mod) => {
+    f.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input');
+    i.id = id; i.type = tip || 'text';
+    if (deger !== undefined && deger !== null) i.value = deger;
+    if (mod) i.setAttribute('inputmode', mod);
+    f.appendChild(i); return i;
+  };
+  const tar = alan('Ödeme tarihi', 'of_tarih_'+t.id, 'date', bugun());
+  const tut = alan('Tutar (varsayılan: kalan)', 'of_tutar_'+t.id, 'text',
+                   (kalanKurus/100).toFixed(2).replace('.', ','), 'decimal');
+
+  /* Kirilim: taksitte ayrim varsa ODENEN ORANINDA on doldurulur.
+     Ayrim yoksa alanlar bos kalir ve gider YAZILMAZ — uydurmuyoruz. */
+  const ayrimVar = t.anapara_tutar !== null && t.anapara_tutar !== undefined;
+  let an, fz, vm;
+  if (ayrimVar){
+    f.appendChild(el('div','kucuk',
+      'Kırılım ödeme tutarına ORANTILI dolduruldu; elle değiştirebilirsin. '
+    + 'Üçünün toplamı tutara eşit olmalı.'));
+    an = alan('Anapara payı', 'of_ana_'+t.id, 'text', '', 'decimal');
+    fz = alan('Faiz payı', 'of_faiz_'+t.id, 'text', '', 'decimal');
+    vm = alan('Vergi/masraf payı', 'of_vm_'+t.id, 'text', '', 'decimal');
+    const dagit = () => {
+      const p = paraCoz(tut.value); if (!p.ok || p.kurus <= 0) return;
+      const kalanA = kr(t.anapara_tutar) - kr(t.anapara_odenen || 0);
+      const kalanF = kr(t.faiz_tutar) - kr(t.faiz_odenen || 0);
+      const kalanV = kr(t.vergi_masraf_tutar || 0);
+      const top = kalanA + kalanF + kalanV;
+      if (top <= 0) return;
+      const a = Math.round(p.kurus * kalanA / top);
+      const fzz = Math.round(p.kurus * kalanF / top);
+      const v = p.kurus - a - fzz;                    // kurus artigi buraya
+      an.value = (a/100).toFixed(2).replace('.', ',');
+      fz.value = (fzz/100).toFixed(2).replace('.', ',');
+      vm.value = (v/100).toFixed(2).replace('.', ',');
+    };
+    tut.oninput = dagit; dagit();
+  } else {
+    f.appendChild(el('div','uyari-orta',
+      'Bu taksitin anapara/faiz kırılımı girilmemiş. Ödeme kaydedilir ama '
+    + 'faiz GİDERE YAZILAMAZ — hangi kısmın faiz olduğu bilinmiyor.'));
   }
-  const { error } = await sb.from('kredi_taksit').update({ odendi:true, odeme_tarihi:tar }).eq('id', t.id);
-  if (error){ hataYaz(kutu, 'Taksit ödendi olarak işaretlenemedi.', error); return; }
-  mesaj(kutu, 'ok', 'Taksit ödendi olarak işaretlendi. Belgeyi eklemeyi unutma.');
+
+  /* ⚠ MUKERRER KORUMA: 2026-07 faizleri ELLE gider olarak girildi. */
+  let israr = null;
+  const kesimUyar = () => {
+    const eski = f.querySelector('.kesim-uyari');
+    if (eski) eski.remove(); israr = null;
+    if (!ayrimVar || t.kredi_tur !== 'ticari') return;
+    if ((tar.value || '') >= '2026-08-01') return;
+    const u = el('div','uyari-agir kesim-uyari');
+    u.appendChild(document.createTextNode(
+      'Bu tarih 01.08.2026 öncesi. O dönemin faizleri ELLE gidere girilmiş '
+    + 'olabilir; otomatik yazılırsa MÜKERRER olur. Varsayılan: gider YAZILMAZ.'));
+    const et = document.createElement('label');
+    et.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.style.cssText = 'width:auto;min-height:auto;margin:0';
+    et.appendChild(cb);
+    et.appendChild(document.createTextNode('Yine de faizi gidere yaz (elle girilmediğinden eminim)'));
+    u.appendChild(et); f.appendChild(u); israr = cb;
+  };
+  tar.onchange = kesimUyar; kesimUyar();
+
+  const dk = el('div','kucuk','Dekont kaydettikten sonra eklenir.');
+  f.appendChild(dk);
+
+  const ey = el('div','tk-eylem');
+  const kay = el('button','btn2','Kaydet');
+  kay.onclick = () => odemeKaydet(t, tar, tut, an, fz, vm, israr, kay);
+  const vaz = el('button','btn-mini','Vazgeç');
+  vaz.onclick = () => f.remove();
+  ey.appendChild(kay); ey.appendChild(vaz);
+  f.appendChild(ey);
+  kart.appendChild(f);
+  tut.focus();
+}
+
+async function odemeKaydet(t, tar, tut, an, fz, vm, israr, btn){
+  const kutu = mesajKutusu();
+  mesajTemizle(kutu);
+  const tarih = (tar.value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tarih))
+    return mesaj(kutu, 'hata', 'Ödeme tarihi zorunlu.');
+  const p = paraCoz(tut.value);
+  if (!p.ok)        return mesaj(kutu, 'hata', 'Tutar: ' + p.hata);
+  if (p.kurus <= 0) return mesaj(kutu, 'hata', 'Tutar sıfırdan büyük olmalı.');
+  if (p.kurus > kr(t.kalan))
+    return mesaj(kutu, 'hata', 'Tutar kalandan büyük olamaz. Kalan: ' + tl(t.kalan)
+      + '. Fazla ödeme ayrı alacak olarak izlenmeli, buraya yazılmaz.');
+
+  let a = null, f2 = null, v = null;
+  if (an){
+    const ra = paraCoz(an.value), rf = paraCoz(fz.value), rv = paraCoz(vm.value);
+    if (!ra.ok || !rf.ok || !rv.ok) return mesaj(kutu,'hata','Kırılım tutarları geçersiz.');
+    if (ra.kurus + rf.kurus + rv.kurus !== p.kurus)
+      return mesaj(kutu, 'hata', 'Kırılım toplamı tutara eşit değil: '
+        + tlk(ra.kurus + rf.kurus + rv.kurus) + ' ≠ ' + tlk(p.kurus));
+    a = (ra.kurus/100).toFixed(2); f2 = (rf.kurus/100).toFixed(2); v = (rv.kurus/100).toFixed(2);
+  }
+
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { data, error } = await sb.rpc('rpc_taksit_odeme_kaydet', {
+    p_taksit: t.id, p_tarih: tarih, p_tutar: (p.kurus/100).toFixed(2),
+    p_anapara: a, p_faiz: f2, p_masraf: v,
+    p_foto: null, p_aciklama: null,
+    p_gider_yaz: (israr && israr.checked) ? true : null });
+  btn.disabled = false; btn.textContent = 'Kaydet';
+  if (error){ hataYaz(kutu, 'Ödeme kaydedilemedi.', error); return; }
+  mesaj(kutu, 'ok', 'Ödeme kaydedildi'
+    + (data && data.gider_yazildi ? ' · faiz gidere yazıldı' : ' · gider yazılmadı')
+    + '. Dekontu eklemeyi unutma.');
   await ekranAc(EKRAN);
 }
+
+/* ---------- ODEME LISTESI (dekont odeme bazinda) ---------- */
+async function odemeListesiAc(kart, t){
+  if (kart.querySelector('.odeme-liste')) return;
+  const kutu = mesajKutusu();
+  const liste = await odemeGetir(t.id);
+  const d = el('div','odeme-liste');
+  const sar = el('div','tablo-sar');
+  const tb = document.createElement('table');
+  const hr = document.createElement('tr');
+  ['TARİH','TUTAR','ANAPARA','FAİZ','GİDER','DEKONT',''].forEach((h,i) =>
+    hr.appendChild(el('th', (i>=1 && i<=3) ? 'sag' : null, h)));
+  tb.appendChild(hr);
+  for (const o of liste){
+    const tr = document.createElement('tr');
+    tr.appendChild(td(trGun(o.tarih)));
+    tr.appendChild(td(tl(o.tutar),'sag'));
+    tr.appendChild(td(o.anapara_pay === null ? '—' : tl(o.anapara_pay),'sag'));
+    tr.appendChild(td(o.faiz_pay === null ? '—'
+      : tlk(kr(o.faiz_pay) + kr(o.vergi_masraf_pay || 0)),'sag'));
+    tr.appendChild(td(o.gider_id ? 'yazıldı' : '—'));
+    const dh = document.createElement('td');
+    if (o.foto_path){
+      const a = el('button','btn-mini','Aç'); a.onclick = () => belgeAc(o.foto_path, kutu);
+      dh.appendChild(a);
+    } else dh.appendChild(el('span','rozet rz-eksik','DEKONT EKSİK'));
+    tr.appendChild(dh);
+    const ey = document.createElement('td');
+    const b = el('button','btn-mini', o.foto_path ? 'Değiştir' : '+ Dekont');
+    b.onclick = () => dekontEkle('kredi_taksit_odeme', o.id, 'kredi_taksit', kutu,
+                                 !!o.foto_path, () => ekranAc(EKRAN));
+    ey.appendChild(b); tr.appendChild(ey);
+    tb.appendChild(tr);
+  }
+  sar.appendChild(tb); d.appendChild(sar);
+  const kapat = el('button','btn-mini','Kapat'); kapat.onclick = () => d.remove();
+  d.appendChild(kapat);
+  kart.appendChild(d);
+}
+const mesajKutusu = () => document.getElementById('takvimMsg') ? 'takvimMsg' : 'krediMsg';
+
+/* v92 · taksitOdendi() KALDIRILDI. Tek dokunusla "tam odendi" yazmak
+   kismi odemeyi imkansiz kiliyordu ve `kredi_taksit.odendi` alanina
+   dogrudan yaziyordu. Yerine odemeFormuAc + rpc_taksit_odeme_kaydet. */
 
 /* ================== 2 · KREDILER ================== */
 async function vKrediler(){
