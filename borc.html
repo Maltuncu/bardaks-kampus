@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-14-1">
+<meta name="surum" content="borc-2026-08-14-3">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -93,17 +93,35 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .satir .et{color:var(--soluk);font-size:14px;min-width:0;overflow-wrap:anywhere}
 .satir .dg{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 
-/* ---- UST OZET BANDI: 2x2 dort kutu ---- */
-.bant{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px}
-.kutu{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:13px;min-width:0}
-.kutu .et{font-size:11.5px;font-weight:900;color:var(--soluk);letter-spacing:.4px;line-height:1.3}
-.kutu .dg{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:6px;overflow-wrap:anywhere}
-.kutu .alt{font-size:11.5px;color:var(--soluk);margin-top:4px;line-height:1.4}
-/* kur farki: kucultulmeyecek, dipnota atilmayacak */
-.kutu.fark{border-color:var(--hata);background:#FBEAE7}
-.kutu.fark .et,.kutu.fark .dg,.kutu.fark .alt{color:var(--hata)}
-.kutu.dekont{border-color:var(--uyari)}
-.kutu.dekont .dg{color:var(--uyari)}
+/* ---- UST OZET BANDI ----
+   ESKI: 2x2 dort buyuk kutu, 375px'te 288px = ekranin %35'i. Ustelik
+   "TOPLAM BORC" tek kutusu anapara + gelecek faiz + rayic maden degerini
+   TEK sayida topluyordu.
+   YENI: tek kart, sinifina ayrilmis satirlar. Kutu EKLENMEDI — satir
+   yuksekligi kucultuldu ki uc-dort rakam gosterirken bant BUYUMESIN. */
+.bant{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;
+  padding:9px 13px;margin-bottom:12px}
+/* Iki blok: sahis sirketinin borcu ile Ltd'ninki KARISMASIN */
+.bant .blok-et{font-size:10.5px;font-weight:900;color:var(--soluk);letter-spacing:.5px;
+  text-transform:uppercase;line-height:1.3}
+/* Ltd bloğu tek satır özet — iki blok bandı büyütmesin (brief 2b) */
+.bant .sr.ltd{border-top:2px solid var(--cizgi);padding-top:5px;margin-top:5px}
+.bant .bas{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.bant .bas .et{font-size:11px;font-weight:900;color:var(--soluk);letter-spacing:.4px}
+.bant .bas .dg{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bant .kirilim{font-size:11px;color:var(--soluk);line-height:1.4;margin-top:1px;overflow-wrap:anywhere}
+/* Satirlar AKAN METIN: her rakam icin ayri flex satiri kullanmak bandi
+   330px'e (ekranin %41'i) cikarmisti. Iki-uc rakam tek satirda, sayilar
+   kalin. Bilgi ayni, yer ucte bir. */
+.bant .sr{font-size:11.5px;line-height:1.4;color:var(--soluk);
+  padding-top:4px;margin-top:4px;border-top:1px solid var(--cizgi);overflow-wrap:anywhere}
+.bant .sr b{color:var(--metin);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* maden kur farki KUCULTULMEZ — kirmizi ve kalin kaliyor, kutu israf etmiyor */
+.bant .sr .fark{color:var(--hata);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bant .sr .eksik{color:var(--uyari);font-weight:800}
+.bant .dip{font-size:10.5px;color:var(--soluk);line-height:1.35;margin-top:5px;
+  border-top:1px solid var(--cizgi);padding-top:5px}
+.bant .dip b{font-variant-numeric:tabular-nums}
 
 .rozet{display:inline-block;font-size:11px;font-weight:900;padding:3px 8px;border-radius:20px;
   letter-spacing:.3px;vertical-align:middle;white-space:nowrap}
@@ -339,6 +357,8 @@ const ayAdi = ym => { const [y,m] = ym.split('-'); return AYLAR[+m-1] + ' ' + y;
 /* PARA — KURUS TAM SAYI. Float toplama 84 taksitte kurus kaydirir. */
 const kr  = v => Math.round((Number(v) || 0) * 100);
 const tlk = k => (k/100).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
+/* Birimsiz — ust bandin sikisik satirlari icin. Hepsi TL; birim baslikta. */
+const tk  = k => (k/100).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const tl  = v => tlk(kr(v));
 
 function paraCoz(ham){
@@ -672,16 +692,56 @@ async function bantVerisi(){
      Donemi hic girilmemis kart 0 SAYILMAZ; kac tane oldugu yazilir. */
   const sonDonem = kartSonDonemler(kart.donemler);
   let kartKalan = 0, kartDonemsiz = 0, kartDonemleri = new Set(), kartTutarsiz = 0;
+  /* Kart da sahibine gore dogru bloga girer — kart.sahip zaten var (v91).
+     Bugun 0 kart var; kart eklenince ayrim kendiliginden isler. */
+  let kartSahis = 0, kartLtd = 0;
   for (const k of kart.kartlar){
     const d = sonDonem.get(k.id);
     if (!d){ kartDonemsiz++; continue; }
     kartKalan += kr(d.kalan);
+    if (k.sahip === 'ltd') kartLtd += kr(d.kalan); else kartSahis += kr(d.kalan);
     kartDonemleri.add(d.donem);
     if (d.devir_tutarsiz) kartTutarsiz++;
   }
 
   const ko = krediOzet(taksitler);
   const buAy = bugun().slice(0,7);
+
+  /* ===== BORÇ SINIFLARI — tek "toplam borç" YANLIŞTI =====
+     Eski bant kredi taksitlerinin NOMİNAL toplamını (anapara + gelecek
+     faiz), madenin RAYİÇ değerini, şahıs anaparasını ve kart kalanını
+     TEK sayıda topluyordu. Bu sayı hiçbir karara yaramıyor:
+       · "bugün kapatsam ne öderim" -> anapara
+       · faiz ve masraf ancak ZAMAN GEÇERSE doğar, bugün ödenmez
+       · maden sabit borç değil, piyasayla oynayan yükümlülük
+     Artık üçü AYRI. Hesap mantığı değişmedi, gruplama değişti. */
+  /* ⚠ 2b DÜZELTMESİ — LTD ANAPARASI İKİ KEZ SAYILIYORDU.
+     İlk sürüm "ANAPARA" satırında TÜM anaparayı topluyor, altında Ltd'yi
+     AYRICA gösteriyordu; Ltd'nin anaparası iki yerde birden görünüyordu —
+     düzeltmeye çalıştığımız hata sınıfının ta kendisi.
+     Artık İKİ BLOK: şahıs şirketinin borcu ile Ltd'nin borcu KARIŞMAZ.
+     Hiçbir Ltd rakamı şahıs bloğunda görünmez, tersi de. */
+  const krediTur = new Map(krediler.map(k => [k.id, k.tur]));
+  const S = { anapara:0, faizMasraf:0, kirilimsiz:0, kirilimsizAdet:0, nominal:0, buAy:0, buAyOdenen:0 };
+  const L = { anapara:0, faizMasraf:0, kirilimsiz:0, kirilimsizAdet:0, nominal:0, buAy:0, buAyOdenen:0 };
+  const buAyD = bugun().slice(0,7);
+  for (const t of taksitler){
+    const g = krediTur.get(t.kredi_id) === 'ltd' ? L : S;
+    if (t.vade_tarihi.slice(0,7) === buAyD){
+      g.buAy += kr(t.toplam_tutar);
+      if (t.odendi) g.buAyOdenen += kr(t.toplam_tutar);
+    }
+    if (t.odendi) continue;                       // kalan borç: ödenmemişler
+    g.nominal += kr(t.toplam_tutar);
+    if (t.anapara_tutar === null || t.anapara_tutar === undefined){
+      /* KIRILIMI BİLİNMEYEN: anaparaya KATILMAZ, uydurulmaz. Kendi
+         bloğunda parantez notu olarak duruyor (bugün tamamı Ltd). */
+      g.kirilimsiz += kr(t.toplam_tutar); g.kirilimsizAdet++;
+      continue;
+    }
+    g.anapara    += kr(t.anapara_tutar);
+    g.faizMasraf += kr(t.faiz_tutar) + kr(t.vergi_masraf_tutar || 0);
+  }
   let buAyKurus = 0, buAyOdenen = 0;
   for (const t of taksitler){
     if (t.vade_tarihi.slice(0,7) !== buAy) continue;
@@ -723,52 +783,122 @@ async function bantVerisi(){
   const farkKurus  = (hesaplanan > 0) ? (esBugun - esAlis) : null;
   const farkBugun  = esBugun;
 
+  /* ŞAHIS BLOĞU · "bugün kapatsam ne öderim"
+     kredi anaparası + kişilere olan şahıs borcu + şahıs kartı.
+     Maden ve şahıs borcu SAHİBİN kendi yükümlülüğü — Ltd'nin değil. */
+  const sAnapara = S.anapara + sahisKalan + kartSahis;
+  /* LTD BLOĞU · ayrı tüzel kişilik. Nominal gösteriliyor çünkü bu
+     kredilerin büyük kısmında anapara/faiz kırılımı YOK; anapara diye
+     eksik bir rakam yazmak yanıltırdı. */
+  const lNominal = L.nominal + kartLtd;
+
+  const krediParcaToplam = S.nominal + L.nominal;
+  /* ⚠ İÇ TUTARLILIK — ÖNCEKİ HÂLİ TOTOLOJİKTİ.
+     "şahıs nominal + ltd nominal = kredi nominal" diye bakıyordu; üçü de
+     AYNI taksit listesinden toplandığı için fark her zaman sıfırdı ve
+     negatif kontrolde ATEŞLEMEDİ. Ateşlemeyen nöbetçi, nöbetçi değildir.
+
+     Anlamlı kontrol: her blokta KIRILIM toplamı NOMİNALE eşit mi.
+     anapara + faiz/masraf + kırılımsız  =  toplam_tutar toplamı
+     Bunlar FARKLI kolonlardan geliyor; biri bozuksa fark açılır. */
+  const sapma = (g) => (g.anapara + g.faizMasraf + g.kirilimsiz) - g.nominal;
+  const sSapma = sapma(S), lSapma = sapma(L);
+  const parcaSapmasi = sSapma !== 0 ? sSapma : lSapma;
+
   return { krediler, taksitler, ko, buAyKurus, buAyOdenen, sahisKalan,
            madenBugun, madenAlis, farkBugun, farkKurus, fiyatiYok, alisiYok,
            hesaplanan, tahminSayisi, maden, sahis,
-           kart, sonDonem, kartKalan, kartDonemsiz, kartTutarsiz,
-           kartDonemleri: [...kartDonemleri].sort() };
+           kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz,
+           kartDonemleri: [...kartDonemleri].sort(),
+           S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma };
 }
 
 function bantCiz(v){
   const b = el('div','bant');
-  const kutu = (sinif, etiket, deger, alt) => {
-    const k = el('div','kutu' + (sinif ? ' '+sinif : ''));
-    k.appendChild(el('div','et', etiket));
-    k.appendChild(el('div','dg', deger));
-    if (alt) k.appendChild(el('div','alt', alt));
-    b.appendChild(k);
+  /* parcalar: [metin, {v:deger, s:sinif}, metin, ...] — akan satir */
+  const satir = (...parcalar) => {
+    const s = el('div','sr');
+    for (const p of parcalar){
+      if (p === null || p === undefined) continue;
+      if (typeof p === 'string') s.appendChild(document.createTextNode(p));
+      else s.appendChild(el(p.s ? 'span' : 'b', p.s || null, p.v));
+    }
+    b.appendChild(s);
   };
-  const toplam = v.ko.kalanKurus + v.sahisKalan + v.madenBugun + v.kartKalan;
-  const notlar = [];
-  if (v.kartDonemleri.length)
-    notlar.push('kartlar: ' + (v.kartDonemleri.length === 1
-      ? v.kartDonemleri[0]
-      : v.kartDonemleri[0] + '…' + v.kartDonemleri[v.kartDonemleri.length-1]));
-  if (v.kartDonemsiz) notlar.push(v.kartDonemsiz + ' kartın dönemi girilmemiş');
-  if (v.fiyatiYok.length) notlar.push(v.fiyatiYok.join(', ') + ' hariç (fiyat yok)');
-  kutu(null, 'TOPLAM BORÇ', tlk(toplam),
-    notlar.length ? notlar.join(' · ') : 'kredi + şahıs + maden + kart');
 
-  kutu(null, 'BU AY ÖDENECEK', tlk(v.buAyKurus - v.buAyOdenen),
-    v.buAyOdenen > 0 ? 'ayın toplamı ' + tlk(v.buAyKurus) + ', ödenen ' + tlk(v.buAyOdenen) : 'bu ayın taksitleri');
+  /* ===== BLOK 1 · SENİN BORCUN (şahıs şirketi) =====
+     Hiçbir Ltd rakamı buraya girmez, tersi de. */
+  b.appendChild(el('div','blok-et','ŞAHIS ŞİRKETİ · senin borcun'));
+  const bas = el('div','bas');
+  bas.appendChild(el('span','et','Anapara bugün'));
+  bas.appendChild(el('span','dg', tlk(v.sAnapara)));
+  b.appendChild(bas);
 
-  /* 3 · MADEN KUR FARKI — kucultulmez, dipnota atilmaz.
-     Kullanicinin maden borcu bir yilda buyudu ve bunu hicbir yerde
-     goremiyordu. Ust bantta olmazsa gorunmez kalir. */
-  if (v.farkKurus === null){
-    kutu('fark', 'MADEN KUR FARKI', 'hesaplanamaz',
-      v.maden.kayitlar.length ? 'alış günü fiyatı girilmemiş' : 'maden kaydı yok');
-  } else {
-    kutu('fark', 'MADEN KUR FARKI',
-      (v.farkKurus >= 0 ? '+' : '−') + tlk(Math.abs(v.farkKurus)),
-      'alışta ' + tlk(v.madenAlis) + ' → bugün ' + tlk(v.farkBugun)
-      + (v.tahminSayisi ? ' · ' + v.tahminSayisi + ' kayıt tahmini' : '')
-      + (v.alisiYok ? ' · ' + v.alisiYok + ' kayıt hariç (alış değeri yok)' : ''));
+  /* Satir ici rakamlarda " TL" eki YOK — bant 375px'te satir kazaniyor.
+     Birim baslikta ve dipnotta duruyor, hepsi TL. */
+  const parcalar = ['kredi ' + tk(v.S.anapara)];
+  if (v.sahisKalan) parcalar.push('şahıs ' + tk(v.sahisKalan));
+  if (v.kartSahis)  parcalar.push('kart ' + tk(v.kartSahis));
+  b.appendChild(el('div','kirilim', parcalar.join(' · ')));
+
+  /* Faiz bugun odenmez, zaman gecerse dogar. Sahis tarafinda kirilimsiz
+     taksit BUGUN YOK; cikarsa sessiz kalmayalim diye kosula bagli. */
+  /* Faiz ve "bu ay" TEK SATIRDA — iki blok bandı büyütmesin.
+     "Bu ay" etiketi kapsamını söylüyor: KREDİ taksiti. */
+  satir('Gelecek faiz+masraf ', { v: tk(v.S.faizMasraf) },
+    v.S.kirilimsizAdet ? ' · kırılımsız (' + v.S.kirilimsizAdet + ') ' : null,
+    v.S.kirilimsizAdet ? { v: tk(v.S.kirilimsiz) } : null,
+    ' · bu ay kredi taksiti ', { v: tk(v.S.buAy - v.S.buAyOdenen) },
+    v.S.buAyOdenen ? ' (' + tk(v.S.buAyOdenen) + ' ödendi)' : null,
+    v.kartSahis ? ' · kart (ayrı) ' : null,
+    v.kartSahis ? { v: tk(v.kartSahis) } : null,
+    v.ko.dekontEksik ? ' · dekont eksik ' : null,
+    v.ko.dekontEksik ? { v: String(v.ko.dekontEksik), s: 'eksik' } : null);
+
+  /* Maden ve kisilere olan sahis borcu SAHIBIN yukumlulugu — Ltd'nin degil. */
+  if (v.maden.kayitlar.length){
+    satir('Maden rayiç ',
+      { v: v.madenBugun ? tk(v.madenBugun) : 'hesaplanamaz' },
+      v.fiyatiYok.length ? ' (' + v.fiyatiYok.join(', ') + ' hariç)' : null,
+      ' · kur farkı ',
+      { v: v.farkKurus === null ? 'hesaplanamaz'
+           : (v.farkKurus >= 0 ? '+' : '−') + tk(Math.abs(v.farkKurus)), s: 'fark' });
   }
 
-  kutu('dekont', 'DEKONT EKSİK', String(v.ko.dekontEksik),
-    v.ko.dekontEksik ? 'ödendi işaretli, belgesi yok' : 'eksik yok');
+  /* ===== BLOK 2 · LİMİTED =====
+     Ayri tuzel kisilik: sahibin gider/kar hesabina GIRMEZ. Nominal
+     gosteriliyor cunku bu kredilerin buyuk kisminda anapara/faiz kirilimi
+     YOK — "anapara" diye eksik bir rakam yazmak yaniltirdi. */
+  if (v.L.nominal || v.kartLtd){
+    const s = el('div','sr ltd');
+    s.appendChild(el('span','rozet rz-ltd','LTD'));
+    s.appendChild(document.createTextNode(' '));
+    s.appendChild(el('b', null, tk(v.lNominal)));
+    s.appendChild(document.createTextNode(' · bu ay '));
+    s.appendChild(el('b', null, tk(v.L.buAy - v.L.buAyOdenen)));
+    /* "ayri tuzel, gidere girmez" aciklamasi Krediler ekraninda ZATEN var
+       ("Limited sirket — bu kredinin hicbir kalemi gidere yazilmaz");
+       bantta rozet + ayirici cizgi ayrimi zaten soyluyor. */
+    if (v.L.kirilimsizAdet)
+      s.appendChild(document.createTextNode(' · kırılımsız ' + tk(v.L.kirilimsiz)));
+    b.appendChild(s);
+  }
+
+  const dip = el('div','dip');
+  dip.appendChild(document.createTextNode('Taksit nominali '));
+  dip.appendChild(el('b', null, tlk(v.krediParcaToplam)));
+  dip.appendChild(document.createTextNode(' (şahıs+Ltd)'
+    + (v.kartDonemsiz ? ' · ' + v.kartDonemsiz + ' kartın dönemi yok' : '')));
+  b.appendChild(dip);
+
+  /* Ic tutarlilik: her blokta kirilim toplami nominale ESIT olmali */
+  const bozuk = [];
+  if (v.sSapma !== 0) bozuk.push('şahıs: kırılım ' + tlk(v.S.anapara + v.S.faizMasraf + v.S.kirilimsiz)
+    + ' ≠ nominal ' + tlk(v.S.nominal) + ' (fark ' + tlk(Math.abs(v.sSapma)) + ')');
+  if (v.lSapma !== 0) bozuk.push('Ltd: kırılım ' + tlk(v.L.anapara + v.L.faizMasraf + v.L.kirilimsiz)
+    + ' ≠ nominal ' + tlk(v.L.nominal) + ' (fark ' + tlk(Math.abs(v.lSapma)) + ')');
+  if (bozuk.length)
+    b.appendChild(el('div','uyari-agir', 'Kırılım toplamı tutmuyor — ' + bozuk.join(' · ')));
   return b;
 }
 
