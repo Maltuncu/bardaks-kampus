@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-13-3">
+<meta name="surum" content="2026-08-14-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1214,6 +1214,26 @@ function hataTr(m){
   if (m.includes('Failed to fetch')) return 'İnternet bağlantısı sorunu.';
   return m;
 }
+/* ============ SESSİZ YANLIŞ RAKAM NÖBETİ ============
+   Sorgular `.data||[]` ile okunuyordu ve `.error` HİÇ bakılmıyordu:
+   RLS değişse, view kolonu kaysa ya da ağ kopsa ekran "kayıt yok" /
+   "0,00 TL" gösteriyordu. Yönetici yanlış rakama bakıp karar veriyor ve
+   yanlış olduğunu anlamasının hiçbir yolu yok.
+
+   BOŞ ile HATA ARTIK AYNI GÖRÜNMEZ. Kritik bir dilim düşerse o ekranda
+   rakam HİÇ gösterilmez — yarım veriyle KPI çizmek, yanlış rakam
+   göstermenin başka bir biçimidir. */
+function ilkHata(...cevaplar){
+  for (const c of cevaplar) if (c && c.error) return c.error;
+  return null;
+}
+function hataKutusu(hata, tekrarCagri){
+  const m = esc(hataTr((hata && hata.message) || String(hata)));
+  return `<div class="kart"><div class="uyari-agir">Veri alınamadı: ${m}</div>`
+    + `<div class="ipucu">Bu ekranda rakam <b>gösterilmedi</b>. Yanlış rakam göstermektense hiç göstermemek doğrudur.</div>`
+    + (tekrarCagri ? `<button class="btn2" style="margin-top:10px" onclick="${tekrarCagri}">TEKRAR DENE</button>` : '')
+    + `</div>`;
+}
 function tarihSecici(id, deger){
   return `<label>Tarih</label><input type="date" id="${id}" value="${deger||bugun()}" max="${bugun()}">`;
 }
@@ -1489,6 +1509,13 @@ async function vOzet(){
     // z_disi_nakit'ten düşüyordu, grafik düşmüyordu — tanım ayrışıyordu.
     sb.from('owner_hareket').select('tarih,yon,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
   ]);
+  /* KRİTİK DİLİMLER — biri düşerse Özet HİÇ çizilmez.
+     gs/ayGunler = gün sonu · ozet = v_aylik_ozet · kdv = v_kdv_ay ·
+     uyari = v_uyarilar · ayKasadan/ayNakitOdeme/ayOwner = kasa çıkışları.
+     Son üçü de kritik: sessizce boş dönerlerse kasadaki para OLDUĞUNDAN
+     ÇOK görünür. `talep` bölgesel — yalnız bir sayaç besliyor. */
+  const kritikHata = ilkHata(gs, kdv, ozet, uyari, ayGunler, ayKasadan, ayNakitOdeme, ayOwner);
+  if (kritikHata){ el.innerHTML = '<h2 class="bolum">Özet</h2>' + hataKutusu(kritikHata, 'vOzet()'); return; }
   /* v63 · Bu iki görünüm dönem+şube başına TEK satır döndürür. [0] almak
      ikinci şube açıldığında "hangisi gelirse o" demekti — sıralama garantisi
      yok. Süzgeç artık tek çıkış noktasında; burada satır sayısı da denetleniyor. */
@@ -4987,8 +5014,10 @@ async function acilisBakiyeKaydet(){
   if (data && data.ok) vTedarikci();
 }
 async function acikFaturaYukle(){
-  const { data } = await sb.from('v_acik_fatura').select('*').order('vade_tarihi',{nullsFirst:false});
+  const { data, error } = await sb.from('v_acik_fatura').select('*').order('vade_tarihi',{nullsFirst:false});
   const el = document.getElementById('acikFaturaListe'); if(!el) return;
+  /* Hata "ödenmemiş fatura yok" gibi görünüyordu — en tehlikeli sessizlik. */
+  if (error){ el.innerHTML = hataKutusu(error, 'acikFaturaYukle()'); return; }
   const list = data||[];
   const gecikmis = list.filter(f=>f.gecikti);
   el.innerHTML = list.length===0
@@ -5023,8 +5052,9 @@ function faturaOdemeyeGit(id){
   vTedarikci();
 }
 async function acikCekYukle(){
-  const { data } = await sb.from('v_acik_cek').select('*').order('cek_vade',{nullsFirst:false});
+  const { data, error } = await sb.from('v_acik_cek').select('*').order('cek_vade',{nullsFirst:false});
   const el = document.getElementById('acikCekListe'); if(!el) return;
+  if (error){ el.innerHTML = hataKutusu(error, 'acikCekYukle()'); return; }
   el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Portföyde çek yok.</div>' : (data||[]).map(c=>`
     <div class="liste-satir">
       <div class="l-sol"><div class="b">${esc(c.tedarikci_ad)} ${c.gecikti?'<span class="rozet rz-hata">VADESİ GEÇTİ</span>':''}</div>
@@ -5961,7 +5991,10 @@ async function vVergi(){
     sb.from('vergi_odeme').select('*').eq('is_deleted',false).order('odeme_tarihi',{ascending:false}),
     sb.from('v_kdv_ay').select('donem,odenecek_kdv_tahmini').order('donem',{ascending:false}).limit(12)
   ]);
-  if (vo.error){ el.innerHTML = `<div class="kart"><div class="uyari-agir">Yüklenemedi: ${esc(hataTr(vo.error.message))}</div></div>`; return; }
+  /* kdv.error eskiden HİÇ bakılmıyordu: "bekleyen KDV yok" görünüyordu.
+     Ödenecek KDV'nin sessizce kaybolması bu ekrandaki en pahalı hata. */
+  const vgHata = ilkHata(vo, kdv);
+  if (vgHata){ el.innerHTML = '<h2 class="bolum">Vergiler</h2>' + hataKutusu(vgHata, 'vVergi()'); return; }
   const hepsi = vo.data||[];
   const buYil = hepsi.filter(x=>String(x.odeme_tarihi).slice(0,4)===yil);
   const yilToplam = buYil.reduce((a,x)=>a+ +x.tutar,0);
@@ -6756,13 +6789,25 @@ async function bankaMutabakatKaydet(){
     + `Kaydedilsin mi?`)){
     const kat = KATALOG.kategoriler.find(k=>k.ad==='POS Komisyon')
              || KATALOG.kategoriler.find(k=>k.ad==='Diğer');
-    if (kat){
-      await sb.rpc('rpc_gider_kaydet', { p_idem: idem(), p_sube: AKTIF_SUBE,
-        p_tarih: aySon(MT_SON.donem), p_kategori: kat.id,
-        p_aciklama: 'Banka kesintisi (' + MT_SON.donem + ') · komisyon + maxipuan + ÖKC · işyeri ' + (MT_SON.isyeri||''),
-        p_tutar: kesintiToplam, p_kdv_orani: null, p_kdv_tutar: 0,
-        p_foto: null, p_kasadan: false, p_tedarikci: null, p_arac: null });
+    /* RPC sonucu eskiden TAMAMEN atılıyordu: gider yazılmasa da mutabakat
+       "tamam" sanılıyordu. Kategori bulunamazsa da sessizce hiçbir şey
+       olmuyordu. İkisi de artık kullanıcıya söyleniyor. */
+    if (!kat){
+      alert('Gider kaydedilemedi: "POS Komisyon" ya da "Diğer" kategorisi bulunamadı.\n\n'
+        + 'Kesinti GİDERE YAZILMADI. Yönetim ekranından kategoriyi ekleyip tekrar dene.');
+      return;
     }
+    const { error: komErr } = await sb.rpc('rpc_gider_kaydet', { p_idem: idem(), p_sube: AKTIF_SUBE,
+      p_tarih: aySon(MT_SON.donem), p_kategori: kat.id,
+      p_aciklama: 'Banka kesintisi (' + MT_SON.donem + ') · komisyon + maxipuan + ÖKC · işyeri ' + (MT_SON.isyeri||''),
+      p_tutar: kesintiToplam, p_kdv_orani: null, p_kdv_tutar: 0,
+      p_foto: null, p_kasadan: false, p_tedarikci: null, p_arac: null });
+    if (komErr){
+      alert('Gider KAYDEDİLEMEDİ: ' + hataTr(komErr.message) + '\n\n'
+        + 'Banka kesintisi giderlere YAZILMADI — mutabakat eksik. Tekrar dene.');
+      return;
+    }
+    alert('Banka kesintisi gidere kaydedildi ✓');
   }
 }
 async function vergiOdenenYukle(){
