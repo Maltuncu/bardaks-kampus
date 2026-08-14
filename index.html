@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-13-2">
+<meta name="surum" content="2026-08-13-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -502,6 +502,10 @@ const SUBE_SUZGEC = new Map([
   ['v_acik_fatura',       false], ['v_arac_maliyet',     false],
   ['v_aylik_ozet',        false], ['v_belgeler',         false],
   ['v_kart_taksit',       false], ['v_kdv_ay',           false],
+  /* v87 · gece yedegi 14.08'de SEMA KAYMASI olarak yakaladi: canlida vardi,
+     fiksturde ve burada YOKTU. Istemci bu gorunumu hic sorgulamiyor, o yuzden
+     sizinti olmadi — ama sorgulasaydi suzulmeyecekti. */
+  ['v_kdv_indirilebilir_ay', false],
   ['v_kisi_yetki',        false], ['v_mutabakat_gun',    false],
   ['v_owner_hareket_ay',  false], ['v_stok_durum',       false],
   ['v_tedarikci_bakiye',  false], ['v_urun_alacak',      false],
