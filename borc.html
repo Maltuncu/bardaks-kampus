@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-13-3">
+<meta name="surum" content="borc-2026-08-14-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -206,6 +206,7 @@ td.sag,th.sag{text-align:right;font-variant-numeric:tabular-nums}
   <nav id="bolumSerit">
     <button data-b="takvim"   onclick="ekranAc('takvim')">Takvim</button>
     <button data-b="krediler" onclick="ekranAc('krediler')">Krediler</button>
+    <button data-b="kartlar"  onclick="ekranAc('kartlar')">Kartlar</button>
     <button data-b="maden"    onclick="ekranAc('maden')">Maden</button>
     <button data-b="sahis"    onclick="ekranAc('sahis')">Şahıs</button>
   </nav>
@@ -556,6 +557,30 @@ async function sahisGetir(){
   if (b.error) throw b.error; if (o.error) throw o.error;
   return { borclar:b.data||[], odemeler:o.data||[] };
 }
+/* KART — kalan ve devir tutarsizligi GORUNUMDEN gelir, burada
+   hesaplanmaz: iki yerde hesaplanan sey ayrisir. */
+async function kartGetir(){
+  const [k, d] = await Promise.all([
+    sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama')
+      .eq('is_deleted', false).order('ad'),
+    sb.from('v_kart_donem')
+      .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path')
+      .order('donem', { ascending:false })
+  ]);
+  if (k.error) throw k.error;
+  if (d.error) throw d.error;
+  return { kartlar: k.data || [], donemler: d.data || [] };
+}
+/* Her kartin EN SON donemi — kalan bundan okunur. */
+function kartSonDonemler(donemler){
+  const m = new Map();
+  for (const x of donemler){
+    const v = m.get(x.kart_id);
+    if (!v || x.donem > v.donem) m.set(x.kart_id, x);
+  }
+  return m;
+}
+
 async function madenGetir(){
   const [m,f] = await Promise.all([
     sb.from('maden').select('id,tur,gram,kime,tarih,alis_tutar,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
@@ -627,6 +652,7 @@ async function ekranAc(ad){
   try{
     if (ad === 'takvim')        await vTakvim();
     else if (ad === 'krediler') await vKrediler();
+    else if (ad === 'kartlar')  await vKartlar();
     else if (ad === 'maden')    await vMaden();
     else if (ad === 'sahis')    await vSahis();
   }catch(e){
@@ -639,8 +665,20 @@ async function ekranAc(ad){
 
 /* ================== UST OZET BANDI (her ekranda) ================== */
 async function bantVerisi(){
-  const [krediler, taksitler, sahis, maden] = await Promise.all([
-    krediGetir(), taksitGetir(null), sahisGetir(), madenGetir()]);
+  const [krediler, taksitler, sahis, maden, kart] = await Promise.all([
+    krediGetir(), taksitGetir(null), sahisGetir(), madenGetir(), kartGetir()]);
+
+  /* KART KALANI — her kartin EN SON donemindeki kalan.
+     Donemi hic girilmemis kart 0 SAYILMAZ; kac tane oldugu yazilir. */
+  const sonDonem = kartSonDonemler(kart.donemler);
+  let kartKalan = 0, kartDonemsiz = 0, kartDonemleri = new Set(), kartTutarsiz = 0;
+  for (const k of kart.kartlar){
+    const d = sonDonem.get(k.id);
+    if (!d){ kartDonemsiz++; continue; }
+    kartKalan += kr(d.kalan);
+    kartDonemleri.add(d.donem);
+    if (d.devir_tutarsiz) kartTutarsiz++;
+  }
 
   const ko = krediOzet(taksitler);
   const buAy = bugun().slice(0,7);
@@ -687,7 +725,9 @@ async function bantVerisi(){
 
   return { krediler, taksitler, ko, buAyKurus, buAyOdenen, sahisKalan,
            madenBugun, madenAlis, farkBugun, farkKurus, fiyatiYok, alisiYok,
-           hesaplanan, tahminSayisi, maden, sahis };
+           hesaplanan, tahminSayisi, maden, sahis,
+           kart, sonDonem, kartKalan, kartDonemsiz, kartTutarsiz,
+           kartDonemleri: [...kartDonemleri].sort() };
 }
 
 function bantCiz(v){
@@ -699,9 +739,16 @@ function bantCiz(v){
     if (alt) k.appendChild(el('div','alt', alt));
     b.appendChild(k);
   };
-  const toplam = v.ko.kalanKurus + v.sahisKalan + v.madenBugun;
+  const toplam = v.ko.kalanKurus + v.sahisKalan + v.madenBugun + v.kartKalan;
+  const notlar = [];
+  if (v.kartDonemleri.length)
+    notlar.push('kartlar: ' + (v.kartDonemleri.length === 1
+      ? v.kartDonemleri[0]
+      : v.kartDonemleri[0] + '…' + v.kartDonemleri[v.kartDonemleri.length-1]));
+  if (v.kartDonemsiz) notlar.push(v.kartDonemsiz + ' kartın dönemi girilmemiş');
+  if (v.fiyatiYok.length) notlar.push(v.fiyatiYok.join(', ') + ' hariç (fiyat yok)');
   kutu(null, 'TOPLAM BORÇ', tlk(toplam),
-    v.fiyatiYok.length ? v.fiyatiYok.join(', ') + ' hariç (fiyat yok)' : 'kredi + şahıs + maden');
+    notlar.length ? notlar.join(' · ') : 'kredi + şahıs + maden + kart');
 
   kutu(null, 'BU AY ÖDENECEK', tlk(v.buAyKurus - v.buAyOdenen),
     v.buAyOdenen > 0 ? 'ayın toplamı ' + tlk(v.buAyKurus) + ', ödenen ' + tlk(v.buAyOdenen) : 'bu ayın taksitleri');
@@ -1202,7 +1249,350 @@ async function topluOnizle(kredi, sonSira, kaydet){
   await taksitEkraniAc(kredi.id);
 }
 
-/* ================== 3 · MADEN ================== */
+/* ================== 3 · KARTLAR ================== */
+const sahipKisa  = s => s === 'ltd' ? 'LİMİTED' : 'ŞAHIS';
+const sahipSinif = s => 'rozet ' + (s === 'ltd' ? 'rz-ltd' : 'rz-sahis');
+
+/* Ekranda GORUNUR olacak — kavramin kendisi bu. */
+function kartUyarisi(){
+  return el('div','bilgi',
+    'Kart ödemesi GİDER DEĞİLDİR.\n'
+  + 'Kartla yapılan harcama zaten harcandığı gün giderlere giriyor; kartı '
+  + 'ödemek borç kapatmaktır. İkisi birden gider yazılırsa aynı para iki kez '
+  + 'gider olur ve beyan bozulur.');
+}
+
+async function vKartlar(){
+  const c = document.getElementById('icerik');
+  const v = await bantVerisi();
+  const buAy = bugun().slice(0,7);
+
+  c.textContent = '';
+  c.appendChild(bantCiz(v));
+  const msg = el('div','msg'); msg.id = 'kartMsg'; c.appendChild(msg);
+  c.appendChild(kartUyarisi());
+
+  if (v.kartTutarsiz > 0)
+    c.appendChild(el('div','uyari-agir', v.kartTutarsiz
+      + ' kartta devir zinciri kırık: bu ayın devri, geçen ayın kalanına eşit değil.'));
+
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Kartlar (' + v.kart.kartlar.length + ')'));
+  if (!v.kart.kartlar.length) k.appendChild(el('div','bos','Henüz kart yok. Aşağıdaki formdan ekle.'));
+
+  for (const kart of v.kart.kartlar){
+    const son = v.sonDonem.get(kart.id);
+    const buAyKaydi = v.kart.donemler.find(d => d.kart_id === kart.id && d.donem === buAy);
+    const gosterilen = buAyKaydi || son;
+
+    const kutu = el('div','tk'); kutu.style.cursor = 'pointer';
+    kutu.onclick = () => kartDetayAc(kart.id);
+
+    const ust = el('div','tk-ust');
+    const ad = el('div','tk-ad');
+    ad.appendChild(el('span', null, kart.ad + (kart.banka ? ' · ' + kart.banka : '')));
+    ad.appendChild(document.createTextNode(' '));
+    ad.appendChild(el('span', sahipSinif(kart.sahip), sahipKisa(kart.sahip)));
+    if (!kart.aktif){
+      ad.appendChild(document.createTextNode(' '));
+      ad.appendChild(el('span','rozet rz-sari','pasif'));
+    }
+    ust.appendChild(ad);
+    ust.appendChild(el('div','tk-tutar', gosterilen ? tl(gosterilen.kalan) : '—'));
+    kutu.appendChild(ust);
+
+    const alt = el('div','tk-orta');
+    alt.textContent =
+      (kart.son_odeme_gunu ? 'her ayın ' + kart.son_odeme_gunu + '. günü son ödeme' : 'son ödeme günü girilmemiş')
+      + ' · ' + (gosterilen
+          ? (gosterilen.donem === buAy ? 'bu ayın kalanı' : gosterilen.donem + ' kalanı (bu ay girilmemiş)')
+          : 'hiç dönem girilmemiş');
+    kutu.appendChild(alt);
+
+    if (gosterilen){
+      const r = el('div'); r.style.marginTop = '6px';
+      if (gosterilen.devir_tutarsiz) r.appendChild(el('span','rozet rz-eksik','DEVİR TUTMUYOR'));
+      if (!gosterilen.foto_path){
+        if (gosterilen.devir_tutarsiz) r.appendChild(document.createTextNode(' '));
+        r.appendChild(el('span','rozet rz-sari','EKSTRE EKSİK'));
+      }
+      if (r.children.length) kutu.appendChild(r);
+    }
+    k.appendChild(kutu);
+  }
+  c.appendChild(k);
+  c.appendChild(kartFormu());
+}
+
+function kartFormu(){
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Yeni kart'));
+  const alan = (etiket, id, tip, mod, ipucu) => {
+    k.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input');
+    i.id = id; i.type = tip || 'text';
+    if (mod) i.setAttribute('inputmode', mod);
+    if (ipucu) i.placeholder = ipucu;
+    k.appendChild(i); return i;
+  };
+  alan('Kart adı','ktAd','text');
+  alan('Banka','ktBanka','text');
+  k.appendChild(el('label', null, 'Sahip (zorunlu)')).setAttribute('for','ktSahip');
+  const s = document.createElement('select'); s.id = 'ktSahip';
+  [['','— seç —'],['sahis','Şahıs şirketinin kartı'],['ltd','Bardaks Ltd kartı']]
+    .forEach(([val,t]) => { const o = document.createElement('option'); o.value = val; o.textContent = t; s.appendChild(o); });
+  k.appendChild(s);
+  alan('Son ödeme günü (ayın kaçı)','ktSonOdeme','text','numeric','1-31');
+  alan('Kesim günü (bilinmiyorsa boş)','ktKesim','text','numeric','1-31');
+  const b = el('button','btn','Kartı kaydet'); b.id = 'ktKaydet'; b.onclick = kartKaydet;
+  k.appendChild(b);
+  return k;
+}
+
+async function kartKaydet(){
+  mesajTemizle('kartMsg');
+  const btn = document.getElementById('ktKaydet');
+  const ad = document.getElementById('ktAd').value.trim();
+  const sahip = document.getElementById('ktSahip').value;
+  if (!ad)    return mesaj('kartMsg','hata','Kart adı zorunlu.');
+  if (!sahip) return mesaj('kartMsg','hata','Sahip seçmelisin: şahıs şirketi mi, Ltd mi?');
+  const gun = (id, etiket) => {
+    const h = document.getElementById(id).value.trim();
+    if (!h) return { ok:true, deger:null };
+    const n = parseInt(h, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 31) return { ok:false, hata: etiket + ' 1 ile 31 arasında olmalı.' };
+    return { ok:true, deger:n };
+  };
+  const so = gun('ktSonOdeme','Son ödeme günü'), ke = gun('ktKesim','Kesim günü');
+  if (!so.ok) return mesaj('kartMsg','hata', so.hata);
+  if (!ke.ok) return mesaj('kartMsg','hata', ke.hata);
+
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('kart').insert({
+    ad, banka: document.getElementById('ktBanka').value.trim() || null,
+    sahip, son_odeme_gunu: so.deger, kesim_gunu: ke.deger,
+    giren_id: PROFIL ? PROFIL.id : null });
+  btn.disabled = false; btn.textContent = 'Kartı kaydet';
+  if (error){ hataYaz('kartMsg','Kart kaydedilemedi.', error); return; }
+  mesaj('kartMsg','ok','Kart kaydedildi.');
+  await vKartlar();
+}
+
+/* ---------- tek kartin ay ay dokumu ---------- */
+async function kartDetayAc(kartId){
+  const c = document.getElementById('icerik');
+  c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
+  try{
+    const { kartlar, donemler } = await kartGetir();
+    const kart = kartlar.find(x => x.id === kartId);
+    if (!kart){ c.textContent=''; c.appendChild(el('div','uyari-agir','Kart bulunamadı.')); return; }
+    const liste = donemler.filter(d => d.kart_id === kartId).sort((a,b) => b.donem.localeCompare(a.donem));
+
+    c.textContent = '';
+    const geri = el('button','btn2','← Kartlara dön');
+    geri.onclick = () => ekranAc('kartlar');
+    c.appendChild(geri);
+
+    const bas = el('div','kart');
+    const bl = el('div','kbaslik');
+    bl.appendChild(el('span', null, kart.ad + (kart.banka ? ' · ' + kart.banka : '')));
+    bl.appendChild(document.createTextNode(' '));
+    bl.appendChild(el('span', sahipSinif(kart.sahip), sahipKisa(kart.sahip)));
+    bas.appendChild(bl);
+    const sat = (e2,d) => { const s = el('div','satir');
+      s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d)); bas.appendChild(s); };
+    sat('Son ödeme günü', kart.son_odeme_gunu ? 'ayın ' + kart.son_odeme_gunu + '. günü' : 'girilmemiş');
+    sat('Kesim günü', kart.kesim_gunu ? 'ayın ' + kart.kesim_gunu + '. günü' : 'girilmemiş');
+    sat('Girilen dönem', liste.length + ' ay');
+    if (liste.length) sat('Son kalan', tl(liste[0].kalan) + ' (' + liste[0].donem + ')');
+    c.appendChild(bas);
+
+    const msg = el('div','msg'); msg.id = 'kartMsg'; c.appendChild(msg);
+    c.appendChild(kartUyarisi());
+    c.appendChild(donemFormu(kart, liste));
+
+    const k = el('div','kart');
+    k.appendChild(el('div','kbaslik','Ay ay döküm'));
+    if (!liste.length){
+      k.appendChild(el('div','bos','Bu kartta henüz dönem yok. Yukarıdaki formdan ekle.'));
+    } else {
+      const sar = el('div','tablo-sar');
+      const t = document.createElement('table');
+      const hr = document.createElement('tr');
+      ['DÖNEM','DEVİR','YENİ','DÜZELTME','ÖDENEN','KALAN','EKSTRE',''].forEach((h,i) =>
+        hr.appendChild(el('th', (i>=1 && i<=5) ? 'sag' : null, h)));
+      t.appendChild(hr);
+      for (const d of liste){
+        const tr = document.createElement('tr');
+        const dh = document.createElement('td');
+        dh.appendChild(el('span', null, d.donem));
+        if (d.devir_tutarsiz){
+          dh.appendChild(document.createElement('br'));
+          dh.appendChild(el('span','rozet rz-eksik','DEVİR TUTMUYOR'));
+        }
+        tr.appendChild(dh);
+        tr.appendChild(td(tl(d.devir),'sag'));
+        tr.appendChild(td(tl(d.yeni_harcama),'sag'));
+        tr.appendChild(td(tl(d.duzeltme),'sag'));
+        tr.appendChild(td(tl(d.odenen),'sag'));
+        const kh = td(tl(d.kalan),'sag'); kh.style.fontWeight = '900'; tr.appendChild(kh);
+        const eh = document.createElement('td');
+        if (d.foto_path){
+          const a = el('button','btn-mini','Aç');
+          a.onclick = () => belgeAc(d.foto_path,'kartMsg');
+          eh.appendChild(a);
+        } else {
+          eh.appendChild(el('span','rozet rz-sari','EKSTRE EKSİK'));
+        }
+        tr.appendChild(eh);
+        const ey = document.createElement('td');
+        const be = el('button','btn-mini', d.foto_path ? 'Değiştir' : '+ Ekstre');
+        be.onclick = () => dekontEkle('kart_donem', d.donem_id, 'kart_ekstre','kartMsg',
+                                      !!d.foto_path, () => kartDetayAc(kartId));
+        ey.appendChild(be); tr.appendChild(ey);
+        t.appendChild(tr);
+      }
+      sar.appendChild(t); k.appendChild(sar);
+      k.appendChild(el('div','kucuk',
+        'KALAN = devir + yeni harcama + düzeltme − ödenen. Ayrı bir sütunda tutulmaz, '
+      + 'girdilerden hesaplanır; böylece girdilerle ayrışamaz.'));
+      const tut = liste.filter(d => d.devir_tutarsiz);
+      if (tut.length)
+        k.appendChild(el('div','uyari-agir',
+          tut.length + ' dönemde devir, önceki ayın kalanına eşit değil: '
+          + tut.map(d => d.donem).join(', ')
+          + '. Ya bir ay eksik ya da bir rakam yanlış girilmiş.'));
+    }
+    c.appendChild(k);
+  }catch(e){
+    c.textContent = '';
+    c.appendChild(el('div','uyari-agir','Kart açılamadı: ' + hataTr(e && e.message)));
+  }
+}
+
+function donemFormu(kart, liste){
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Yeni ay ekle'));
+
+  const alan = (etiket, id, deger, mod) => {
+    k.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input');
+    i.id = id; i.type = 'text';
+    if (deger !== undefined && deger !== null) i.value = deger;
+    if (mod) i.setAttribute('inputmode', mod);
+    k.appendChild(i); return i;
+  };
+
+  k.appendChild(el('label', null, 'Dönem (YYYY-AA)')).setAttribute('for','kdDonem');
+  const dn = document.createElement('input');
+  dn.id = 'kdDonem'; dn.type = 'month'; dn.value = bugun().slice(0,7);
+  k.appendChild(dn);
+
+  const dv = alan('Devir (geçen aydan kalan)', 'kdDevir', '', 'decimal');
+  const ipucu = el('div','kucuk'); ipucu.id = 'kdIpucu'; k.appendChild(ipucu);
+
+  /* Donem secilince devir ONCEKI DONEMIN KALANIYLA on doldurulur.
+     Kullanici degistirebilir; degistirir ve zincir kirilirsa asagidaki
+     uyari cikar — sessizce gecilmez. */
+  const onDoldur = () => {
+    const d = dn.value;
+    const onceki = liste.filter(x => x.donem < d).sort((a,b) => b.donem.localeCompare(a.donem))[0];
+    if (onceki){
+      dv.value = (kr(onceki.kalan)/100).toFixed(2).replace('.', ',');
+      ipucu.textContent = onceki.donem + ' kalanı ' + tl(onceki.kalan) + ' — devir olarak dolduruldu.';
+    } else {
+      ipucu.textContent = 'Bu dönemden önce kayıt yok; devir bilinen açılış tutarıdır.';
+    }
+    zinciriDenetle();
+  };
+  const zinciriDenetle = () => {
+    const d = dn.value;
+    const onceki = liste.filter(x => x.donem < d).sort((a,b) => b.donem.localeCompare(a.donem))[0];
+    const u = document.getElementById('kdZincir');
+    if (!u) return;
+    if (!onceki){ u.className = 'kucuk'; u.textContent = ''; return; }
+    const g = paraCoz(dv.value);
+    if (!g.ok){ u.className = 'kucuk'; u.textContent = ''; return; }
+    if (g.kurus !== kr(onceki.kalan)){
+      u.className = 'uyari-agir';
+      u.textContent = 'DEVİR TUTMUYOR: ' + onceki.donem + ' kalanı ' + tl(onceki.kalan)
+        + ', sen ' + tlk(g.kurus) + ' yazdın. Kaydedilir ama listede işaretli kalır.';
+    } else { u.className = 'kucuk'; u.textContent = ''; }
+  };
+  dn.onchange = onDoldur;
+  dv.oninput = zinciriDenetle;
+
+  alan('Yeni harcama', 'kdYeni', '', 'decimal');
+  alan('Düzeltme (iade/indirim eksi yazılır)', 'kdDuzeltme', '', 'decimal');
+  alan('Ödenen', 'kdOdenen', '', 'decimal');
+  const zn = el('div','kucuk'); zn.id = 'kdZincir'; k.appendChild(zn);
+
+  const on = el('button','btn2','Kalanı hesapla (kaydetme)');
+  on.onclick = () => donemOnizle(kart, liste, false);
+  const kay = el('button','btn','Ayı kaydet'); kay.id = 'kdKaydet';
+  kay.onclick = () => donemOnizle(kart, liste, true);
+  k.appendChild(on); k.appendChild(kay);
+  const ov = el('div'); ov.id = 'kdOnizleme'; k.appendChild(ov);
+
+  setTimeout(onDoldur, 0);   // ilk acilista da doldur
+  return k;
+}
+
+function donemSatiriUret(kart){
+  const donem = document.getElementById('kdDonem').value;
+  if (!/^\d{4}-\d{2}$/.test(donem || '')) return { ok:false, hata:'Dönem YYYY-AA biçiminde olmalı.' };
+  const oku = (id, etiket, eksiOlabilir) => {
+    const r = paraCoz(document.getElementById(id).value);
+    if (!r.ok) return { ok:false, hata: etiket + ': ' + r.hata };
+    if (!eksiOlabilir && r.kurus < 0) return { ok:false, hata: etiket + ' eksi olamaz.' };
+    return r;
+  };
+  const dev = oku('kdDevir','Devir', false);       if (!dev.ok) return dev;
+  const yen = oku('kdYeni','Yeni harcama', false); if (!yen.ok) return yen;
+  const odn = oku('kdOdenen','Ödenen', false);     if (!odn.ok) return odn;
+  /* Duzeltme EKSI olabilir — paraCoz eksi isareti okumaz, ayrica bakiyoruz */
+  const dzH = document.getElementById('kdDuzeltme').value.trim();
+  const eksi = /^\s*-/.test(dzH);
+  const dzR = paraCoz(dzH);
+  if (!dzR.ok) return { ok:false, hata:'Düzeltme: ' + dzR.hata };
+  const dzKurus = eksi ? -dzR.kurus : dzR.kurus;
+
+  const kalan = dev.kurus + yen.kurus + dzKurus - odn.kurus;
+  return { ok:true, donem, kalan,
+    satir: { kart_id: kart.id, donem,
+      devir:(dev.kurus/100).toFixed(2), yeni_harcama:(yen.kurus/100).toFixed(2),
+      duzeltme:(dzKurus/100).toFixed(2), odenen:(odn.kurus/100).toFixed(2),
+      giren_id: PROFIL ? PROFIL.id : null } };
+}
+
+async function donemOnizle(kart, liste, kaydet){
+  mesajTemizle('kartMsg');
+  const r = donemSatiriUret(kart);
+  const ov = document.getElementById('kdOnizleme');
+  ov.textContent = '';
+  if (!r.ok){ mesaj('kartMsg','hata', r.hata); return; }
+
+  ov.appendChild(el('div','bilgi',
+    r.donem + ' · KALAN = devir + yeni + düzeltme − ödenen = ' + tlk(r.kalan)));
+
+  const onceki = liste.filter(x => x.donem < r.donem).sort((a,b) => b.donem.localeCompare(a.donem))[0];
+  if (onceki && kr(r.satir.devir) !== kr(onceki.kalan))
+    ov.appendChild(el('div','uyari-agir',
+      'Devir tutmuyor: ' + onceki.donem + ' kalanı ' + tl(onceki.kalan)
+      + ', girilen devir ' + tl(r.satir.devir) + '. Kaydedilir ama listede işaretli kalır.'));
+
+  if (!kaydet) return;
+
+  const btn = document.getElementById('kdKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('kart_donem').insert(r.satir);
+  btn.disabled = false; btn.textContent = 'Ayı kaydet';
+  if (error){ hataYaz('kartMsg','Ay kaydedilemedi.', error); return; }
+  mesaj('kartMsg','ok', r.donem + ' kaydedildi. Ekstreyi eklemeyi unutma.');
+  await kartDetayAc(kart.id);
+}
+
+/* ================== 4 · MADEN ================== */
 async function vMaden(){
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
