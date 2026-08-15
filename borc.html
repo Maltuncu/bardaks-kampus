@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-15-5">
+<meta name="surum" content="borc-2026-08-15-6">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -255,6 +255,9 @@ main{padding:14px;max-width:640px;margin:0 auto}
   padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-size:13px;line-height:1.55;white-space:pre-line}
 .bos{text-align:center;color:var(--soluk);padding:26px 12px;font-size:15px;line-height:1.6}
 .kucuk{font-size:13px;color:var(--soluk);line-height:1.55;margin-top:7px;overflow-wrap:anywhere}
+/* Kullanici "dekont ekle yok burda" dedi. Satir VARDI ama .kucuk ile gri,
+   son alanin altina sikismisti — gorulmedi. Normal metin renginde. */
+.form-not{font-size:13px;color:var(--metin);font-weight:600;line-height:1.5;margin:12px 0 2px}
 
 .msg{padding:11px 13px;border-radius:9px;margin:11px 0;font-weight:700;font-size:15px;
   line-height:1.5;display:none;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -1324,6 +1327,7 @@ function taksitKarti(t, kredi, b, buAy){
   const buAyMi  = !t.odendi && !gecikti && t.vade_tarihi.slice(0,7) === buAy;
 
   const k = el('div','tk' + (t.odendi ? ' odendi' : gecikti ? ' gecikti' : buAyMi ? ' buay' : ''));
+  k.dataset.taksit = t.id;   // kaydetme sonrasi bu karti bulabilmek icin
 
   const ust = el('div','tk-ust');
   const ad = el('div','tk-ad');
@@ -1486,8 +1490,8 @@ function odemeFormuAc(kart, t){
   };
   tar.onchange = kesimUyar; kesimUyar();
 
-  const dk = el('div','kucuk','Dekont kaydettikten sonra eklenir.');
-  f.appendChild(dk);
+  /* Kaydet'in HEMEN USTUNDE — eskiden son alanin altinda griydi. */
+  f.appendChild(el('div','form-not','Önce ödemeyi kaydet — dekont düğmesi ondan sonra çıkar.'));
 
   const ey = el('div','tk-eylem');
   const kay = el('button','btn2','Kaydet');
@@ -1531,10 +1535,22 @@ async function odemeKaydet(t, tar, tut, an, fz, vm, israr, btn){
     p_gider_yaz: (israr && israr.checked) ? true : null });
   btn.disabled = false; btn.textContent = 'Kaydet';
   if (error){ hataYaz(kutu, 'Ödeme kaydedilemedi.', error); return; }
-  mesaj(kutu, 'ok', 'Ödeme kaydedildi'
+  await ekranAc(EKRAN);
+  /* ⚠ MESAJ EKRAN YENILENDIKTEN SONRA. Onceden once yaziliyordu ve
+     ekranAc() #icerik'i bastan kurarken takvimMsg ile birlikte mesaji
+     SILIYORDU — olculdu: kullanici hicbir onay gormuyordu. */
+  mesaj(mesajKutusu(), 'ok', 'Ödeme kaydedildi'
     + (data && data.gider_yazildi ? ' · faiz gidere yazıldı' : ' · gider yazılmadı')
     + '. Dekontu eklemeyi unutma.');
-  await ekranAc(EKRAN);
+  /* Dekont ancak odeme KAYDEDILDIKTEN sonra cikiyor ve kullanici onu
+     bulamiyordu. Artik kaydettikten sonra o taksitin odeme listesi
+     KENDILIGINDEN aciliyor ve ekran oraya kayiyor: "DEKONT EKSIK"
+     rozeti ile "+ Dekont" dugmesi dogrudan gozun onunde. */
+  const kart = document.querySelector('[data-taksit="' + t.id + '"]');
+  if (kart){
+    await odemeListesiAc(kart, { id: t.id });
+    kart.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 /* ---------- ODEME LISTESI (dekont odeme bazinda) ---------- */
