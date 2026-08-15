@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-15-1">
+<meta name="surum" content="borc-2026-08-15-2">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -116,12 +116,61 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .bant .sr{font-size:11.5px;line-height:1.4;color:var(--soluk);
   padding-top:4px;margin-top:4px;border-top:1px solid var(--cizgi);overflow-wrap:anywhere}
 .bant .sr b{color:var(--metin);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
-/* maden kur farki KUCULTULMEZ — kirmizi ve kalin kaliyor, kutu israf etmiyor */
-.bant .sr .fark{color:var(--hata);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* ⚠ D1 · KUR FARKI ARTIK KIRMIZI DEGIL.
+   Onceki hali isareti ne olursa olsun var(--hata) ile basiyordu; bugun
+   fark POZITIF (+1.09M) ve kirmizi "kayip" diye okunuyordu. Ne pozitif
+   ne negatif fark bir kayiptir — rayic degisimidir. Renk hukum vermesin;
+   isaret (+/−) zaten anlami tasiyor. Kalin ve okunur kaliyor. */
+.bant .sr .fark{color:var(--metin);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bant .sr .eksik{color:var(--uyari);font-weight:800}
 .bant .dip{font-size:10.5px;color:var(--soluk);line-height:1.35;margin-top:5px;
   border-top:1px solid var(--cizgi);padding-top:5px}
 .bant .dip b{font-variant-numeric:tabular-nums}
+
+/* ===== BORC DAGILIMI SERIDI (D1) =====
+   SVG DEGIL, div/flex. Gerekce:
+   · Etiketler >=11px ve 320px'de sigmayabiliyor. DOM'da ellipsis/akis
+     bedava; SVG <text> sarmaz, tasar ve SESSIZCE kirpilir.
+   · Dokunma hedefi >=44px gerekiyor ama serit 15px. <button>::after ile
+     gorunumu buyutmeden 44px vurus alani aciliyor; SVG'de her segment
+     icin gorunmez dikdortgen katmani gerekirdi.
+   · <button> odak, Enter/Space, aria-pressed'i kendiliginden veriyor.
+   · Yeni kutuphane yok — tek dosya mimarisi korunuyor.
+
+   ⚠ RENK TEK BASINA BILGI TASIMIYOR: her sinifin AYRI DOKUSU (cizgi
+   yonu/araligi) ve YAZILI ADI var. Renk korlugu ve siyah-beyaz baskida
+   dokular birbirinden ayirt edilebiliyor. */
+.serit{display:flex;width:100%;height:15px;margin-top:6px;background:var(--acik);
+  border-radius:4px}
+.serit .sg{position:relative;min-width:0;height:15px;padding:0;border:0;border-radius:0;
+  overflow:hidden;cursor:pointer;display:block}
+.serit .sg:first-child{border-radius:4px 0 0 4px}
+.serit .sg:last-child{border-radius:0 4px 4px 0}
+/* Dokunma hedefi 15px degil 44px — gorunum buyumeden. */
+.serit .sg::after{content:'';position:absolute;left:0;right:0;top:-15px;bottom:-14px}
+.serit .sg .ic{display:block;font-size:11px;font-weight:900;line-height:15px;
+  color:#fff;white-space:nowrap;overflow:hidden;text-align:center;
+  text-shadow:0 1px 1px rgba(0,0,0,.35)}
+.serit .sg[aria-pressed="true"]{outline:2px solid var(--metin);outline-offset:1px;z-index:1}
+/* Sinif dokulari — renk + DOKU birlikte */
+.sg-kredi{background:var(--ana)}
+.sg-sahis{background:repeating-linear-gradient(45deg,var(--ok),var(--ok) 3px,#256A42 3px,#256A42 6px)}
+.sg-maden{background:repeating-linear-gradient(-45deg,#C8952B,#C8952B 3px,#A87A1E 3px,#A87A1E 6px)}
+.sg-kart {background:repeating-linear-gradient(0deg,#6B4E9E,#6B4E9E 2px,#543D7D 2px,#543D7D 4px)}
+/* Efsane/secim TEK SATIR — bant butcesi dar. Secilince o sinif buyur. */
+.serit-lej{font-size:11px;line-height:1.4;color:var(--soluk);margin-top:3px;
+  overflow-wrap:anywhere}
+.serit-lej .ov{display:inline-block;width:9px;height:9px;border-radius:2px;
+  margin-right:3px;vertical-align:-1px}
+.serit-lej .bs{font-weight:900;letter-spacing:.2px;margin-right:6px}
+.serit-lej .pr{white-space:nowrap;margin-right:6px}
+.serit-lej .pr.sec{font-size:13px;font-weight:900;color:var(--metin)}
+.serit-lej .pr b{color:var(--metin);font-weight:800;font-variant-numeric:tabular-nums}
+/* 11px — "grafik metni en az 11px" kurali dipnota da uygulaniyor.
+   Bandin kendi .dip'i 10.5px; serit blogu ayri kurala tabi. */
+.serit-dip{font-size:11px;color:var(--soluk);line-height:1.3;margin-top:2px;
+  overflow-wrap:anywhere}
+.serit-dip b{color:var(--metin);font-variant-numeric:tabular-nums}
 
 .rozet{display:inline-block;font-size:11px;font-weight:900;padding:3px 8px;border-radius:20px;
   letter-spacing:.3px;vertical-align:middle;white-space:nowrap}
@@ -832,6 +881,120 @@ async function bantVerisi(){
            S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma };
 }
 
+/* ===== BORC DAGILIMI SERIDI (D1) =====
+   SORU: "bugun kapatsam ne oderim, hangi sinif ne kadar".
+   SERITTE OLMAYANLAR ve NEDENI:
+     · GELECEK FAIZ — bugun odenmez, zaman gecerse dogar. Bu soruya
+       girmez. Baslik bunu soyluyor.
+     · LTD — ayri tuzel kisilik, sahis sirketinin borcu degil.
+       Seridin ALTINDA ayri satirda duruyor, oranlamaya KATILMIYOR.
+   MADEN rayic: piyasa degeri, sabit borc DEGIL — hem segmentin
+   uzerinde hem efsanede "rayic" yaziyor. Pozitif fark kirmizi degil. */
+function seritCiz(v){
+  const kutu = el('div');
+  const sinif = [
+    { k:'kredi', ad:'Kredi',  ton:'sg-kredi', ov:'var(--ana)', tutar: v.S.anapara },
+    { k:'sahis', ad:'Şahıs',  ton:'sg-sahis', ov:'var(--ok)',  tutar: v.sahisKalan },
+    { k:'maden', ad:'Maden',  ton:'sg-maden', ov:'#C8952B',    tutar: v.madenBugun, rayic:true },
+    { k:'kart',  ad:'Kart',   ton:'sg-kart',  ov:'#6B4E9E',    tutar: v.kartSahis }
+  ];
+  const toplam = sinif.reduce((a,x) => a + x.tutar, 0);
+  if (toplam <= 0) return null;
+  /* 0 olan sinif CIZILMEZ — sifir genislikte segment tiklanamaz ve
+     efsanede "%0" gurultu yapar. Yoklugu asagida NOTLA soyleniyor. */
+  const cizilen = sinif.filter(x => x.tutar > 0);
+  const yuzde = x => (x.tutar / toplam) * 100;
+
+  /* ⚠ BASLIK AYRI SATIR DEGIL, efsanenin basinda. Ayri satir 14px
+     yiyordu ve bant+serit %30 sinirini asiyordu (olculdu: 97px blok).
+     Bilgi ayni yerde duruyor, satir sayisi bir eksik. */
+  const serit = el('div','serit');
+  serit.setAttribute('role','group');
+  serit.setAttribute('aria-label','Borç dağılımı');
+  const lej = el('div','serit-lej');
+
+  /* Secim KALICI SATIR — tooltip degil. Secilen sinif efsanede buyuyup
+     TUTARINI aciyor; secim yokken hepsi ad + yuzde. */
+  let secili = null;
+  const lejCiz = () => {
+    lej.textContent = '';
+    /* ⚠ Metinler 375px'te TEK SATIR kalacak sekilde OLCULEREK secildi.
+       "bugün kapatsam · faiz hariç" iki satira sariyordu (31px); soru
+       burada, kapsam dipte. Ikisi birden 50px yerine 65px ediyordu. */
+    lej.appendChild(el('span','bs','bugün kapatsam'));
+    for (const x of cizilen){
+      const p = el('span', 'pr' + (secili === x.k ? ' sec' : ''));
+      const ov = el('span','ov'); ov.style.background = x.ov;
+      p.appendChild(ov);
+      /* "rayic" normalde segmentin UZERINDE yaziyor; efsanede tekrar
+         etmek satiri sardiriyordu. AMA segment %15'in altina duserse ic
+         etiket cizilmiyor — o zaman "rayic" efsaneye TASINIR, hicbir
+         durumda kaybolmaz. */
+      p.appendChild(document.createTextNode(
+        x.ad + (x.rayic && yuzde(x) < 15 ? ' (rayiç)' : '') + ' '));
+      if (secili === x.k){
+        p.appendChild(el('b', null, tlk(x.tutar)));
+        p.appendChild(document.createTextNode(' · %' + yuzde(x).toFixed(1)
+                       + (x.rayic ? ' · rayiç' : '')));
+      } else {
+        p.appendChild(document.createTextNode('%' + Math.round(yuzde(x))));
+      }
+      lej.appendChild(p);
+    }
+  };
+
+  for (const x of cizilen){
+    const sg = el('button', 'sg ' + x.ton);
+    sg.type = 'button';
+    /* ⚠ Cok kucuk pay (%2 alti) flex ile 1-2 piksele duser: gorunmez ve
+       tiklanamaz olur. Taban genislik veriliyor; oran YAZIYLA dogru. */
+    sg.style.flex = Math.max(yuzde(x), 2) + ' 1 0';
+    sg.setAttribute('aria-pressed','false');
+    sg.setAttribute('aria-label', x.ad + (x.rayic ? ' rayiç' : '') + ' ' + tlk(x.tutar)
+                    + ', yüzde ' + yuzde(x).toFixed(1));
+    /* ⚠ ETIKET SEGMENTIN ICINE ANCAK SIGIYORSA. Esik ORANDAN hesaplaniyor,
+       DOM olcumunden DEGIL: olcum requestAnimationFrame gerektiriyor, o da
+       sekme gorunur degilse HIC CALISMIYOR (olculdu) — etiket yarim kalirdi.
+       320px'te serit ~294px; %15 ~44px, "Şahıs"/"rayiç" 11px'te ~33-35px.
+       Sigmayan sinifin adi efsanede ZATEN var; hicbir sinif adsiz kalmiyor. */
+    if (yuzde(x) >= 15) sg.appendChild(el('span','ic', x.rayic ? 'rayiç' : x.ad));
+    sg.onclick = () => {
+      secili = (secili === x.k) ? null : x.k;
+      for (const d of serit.children) d.setAttribute('aria-pressed', 'false');
+      if (secili) sg.setAttribute('aria-pressed','true');
+      lejCiz();
+    };
+    serit.appendChild(sg);
+  }
+  kutu.appendChild(serit);
+  lejCiz();
+  kutu.appendChild(lej);
+
+
+  /* Ltd oranlamaya girmiyor ama GORUNMEZ de olmuyor; kart 0 ile
+     "girilmedi" AYNI GORUNMEMELI — hangisi oldugu yaziliyor. */
+  const dip = el('div','serit-dip');
+  /* "gelecek faiz hariç" 11px'te iki satira sariyordu (olculdu 29px);
+     "faiz hariç" ayni seyi soyluyor ve tek satir. */
+  dip.appendChild(document.createTextNode('faiz hariç · '));
+  if (v.lNominal){
+    /* "seride girmez" ifadesi cikarildi: efsanenin basindaki kapsam
+       etiketi + bu satirin AYRI durusu zaten soyluyor, ve iki satira
+       sardirip %30 sinirini asiyordu (olculdu). */
+    dip.appendChild(document.createTextNode('Ltd (ayrı tüzel): '));
+    dip.appendChild(el('b', null, tk(v.lNominal)));
+  }
+  if (!v.kartSahis){
+    /* "0" ile "girilmedi" AYNI GORUNMEZ — hangisi oldugu yaziliyor. */
+    const kartNot = !v.kart.kartlar.length ? 'kart: veri girilmedi'
+      : (v.kartDonemsiz === v.kart.kartlar.length ? 'kart: veri girilmedi'
+      : 'kart: kalan 0');
+    dip.appendChild(document.createTextNode((v.lNominal ? ' · ' : '') + kartNot));
+  }
+  if (dip.childNodes.length) kutu.appendChild(dip);
+  return kutu;
+}
+
 function bantCiz(v){
   const b = el('div','bant');
   /* parcalar: [metin, {v:deger, s:sinif}, metin, ...] — akan satir */
@@ -918,6 +1081,11 @@ function bantCiz(v){
     + ' ≠ nominal ' + tlk(v.L.nominal) + ' (fark ' + tlk(Math.abs(v.lSapma)) + ')');
   if (bozuk.length)
     b.appendChild(el('div','uyari-agir', 'Kırılım toplamı tutmuyor — ' + bozuk.join(' · ')));
+
+  /* Serit EN ALTTA: once rakamlar, sonra dagilim. Dagilimi once koymak
+     "toplam borc" izlenimi verirdi — 2b turunda kaldirdigimiz sey. */
+  const serit = seritCiz(v);
+  if (serit) b.appendChild(serit);
   return b;
 }
 
