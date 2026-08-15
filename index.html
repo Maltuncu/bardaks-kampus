@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-14-1">
+<meta name="surum" content="2026-08-14-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -500,6 +500,11 @@ const SUBE_SUZGEC = new Map([
   ['stok_hareket',        false], ['tedarikci_odeme',    false],
   ['urun_alacak',         false], ['vergi_odeme',        false],
   ['v_acik_fatura',       false], ['v_arac_maliyet',     false],
+  /* v95 · kapanis snapshot'i ile bugunku hesabin farki. sube_id tasiyor,
+     bu yuzden suzgece girdi — aksi halde gece yedegi SEMA KAYMASI der
+     (v87'de aynisi oldu). Ekran ayrica elle de suzuyor; ayni sart iki kez
+     uygulanmasi zararsiz. */
+  ['v_ay_snapshot_sapma', false],
   ['v_aylik_ozet',        false], ['v_belgeler',         false],
   ['v_kart_taksit',       false], ['v_kdv_ay',           false],
   /* v87 · gece yedegi 14.08'de SEMA KAYMASI olarak yakaladi: canlida vardi,
@@ -1234,6 +1239,28 @@ function hataKutusu(hata, tekrarCagri){
     + (tekrarCagri ? `<button class="btn2" style="margin-top:10px" onclick="${tekrarCagri}">TEKRAR DENE</button>` : '')
     + `</div>`;
 }
+/* v95 · KAPANIŞ SONRASI SAPMA. Kimsenin okumadığı bekçi bekçi değildir:
+   v_ay_snapshot_sapma "sapma_var" diyordu, hiçbir ekran okumuyordu.
+   Sapma YOKSA hiç çizilmez — gürültü gerçek uyarıyı öldürür.
+   ⚠ Görünüm SUBE_SUZGEC haritasında DEĞİL (harita canlı şema fikstürüyle
+   karşılaştırılıyor, v95 henüz canlıda yok) — süzgeç bu yüzden ELLE.
+   v95 canlıya girince fikstür yenilenip haritaya taşınmalı. */
+async function sapmaCiz(donem, hedef){
+  const el = document.getElementById(hedef); if (!el || !AKTIF_SUBE) return;
+  const { data, error } = await sb.from('v_ay_snapshot_sapma')
+    .select('snap_ay_kari,bugun_ay_kari,kar_sapmasi,snap_odenecek_kdv,bugun_odenecek_kdv,kdv_sapmasi,sapma_var')
+    .eq('sube_id', AKTIF_SUBE).eq('donem', donem).maybeSingle();
+  if (error){ el.innerHTML = hataKutusu(error, `sapmaCiz('${donem}','${hedef}')`); return; }
+  if (!data || !data.sapma_var){ el.innerHTML = ''; return; }
+  const st = (ad, snap, simdi, fark) => +fark === 0 ? ''
+    : `<div>${ad} — kapanışta <b>${tl(snap)}</b> idi; bugünkü hesap <b>${tl(simdi)}</b>. Fark <b>${tl(fark)}</b>.</div>`;
+  el.innerHTML = `<div class="kart"><div class="uyari-agir">
+      ${st('Kâr', data.snap_ay_kari, data.bugun_ay_kari, data.kar_sapmasi)}
+      ${st('Ödenecek KDV', data.snap_odenecek_kdv, data.bugun_odenecek_kdv, data.kdv_sapmasi)}
+      <div style="margin-top:6px">Kapanıştan sonra bir kayıt değişmiş olabilir.</div></div>
+    <div class="ipucu">Beyan kapanış anındaki rakamla verildi; bu fark onu değiştirmez.
+      Neyin değiştiğini görmek için o ayın kayıtlarına bak.</div></div>`;
+}
 function tarihSecici(id, deger){
   return `<label>Tarih</label><input type="date" id="${id}" value="${deger||bugun()}" max="${bugun()}">`;
 }
@@ -1612,6 +1639,7 @@ async function vOzet(){
           </div>`).join('')}
     </div>
 
+    ${PROFIL.rol==='owner' ? '<div id="ozSapma"></div>' : ''}
     ${o && PROFIL.rol==='owner' ? `<div class="kart"
       style="border-color:var(--vurgu,#2E7D4F);border-width:2px">
       ${kbaslik('AY RAPORU', ayAdi(ay),
@@ -1704,6 +1732,7 @@ async function vOzet(){
   if (PROFIL.rol === 'owner'){
     paraBaglaHepsi(['ohTutar']);
     ownerHareketYukle(ay);
+    sapmaCiz(ay, 'ozSapma');   // v95 · kapanış sonrası sapma (yalnız owner: kâr/KDV rakamı)
   }
 }
 
@@ -6905,7 +6934,8 @@ async function akDurumGoster(){
       + (data.zorlandi ? `<div class="uyari-orta" style="margin-top:6px">
           <b>Zorlanarak kapatıldı.</b> Gerekçe: ${esc(data.zorlama_neden||'—')}</div>` : '')
     : `<div class="rozet rz-ok" style="margin-top:8px">🔓 ${donem} açık</div>`)
-    + akKontrolCiz(k, donem);
+    + akKontrolCiz(k, donem) + '<div id="akSapma"></div>';
+  if (PROFIL.rol === 'owner') sapmaCiz(donem, 'akSapma');   // v95 · kâr/KDV rakamı: yalnız owner
 }
 function trDuz(s){ // jsPDF standart fontu Türkçe karakter basamıyor — güvenli çevrim
   return String(s||'').replace(/ğ/g,'g').replace(/Ğ/g,'G').replace(/ü/g,'u').replace(/Ü/g,'U')
