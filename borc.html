@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-15-2">
+<meta name="surum" content="borc-2026-08-15-5">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,33 +26,46 @@ body{margin:0;font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',R
 .gizli{display:none!important}
 
 input,select,textarea{width:100%;padding:12px;border:1.5px solid var(--cizgi);border-radius:9px;
-  font-size:16px;background:#fff;color:var(--metin);font-family:inherit;min-height:46px}
+  font-size:17px;background:#fff;color:var(--metin);font-family:inherit;min-height:46px}
 textarea{min-height:76px;resize:vertical}
-label{display:block;font-size:13px;font-weight:800;margin:12px 0 5px;color:var(--soluk)}
+label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px;color:var(--soluk)}
+/* ===== D6 · RAKAM HIZASI — TEK YERDE =====
+   124.897,80 ile 48.584,30 orantili rakamla alt alta HIZALANMIYORDU.
+   Para ekraninda en buyuk okunabilirlik kaybi buydu. Onceden 11 ayri
+   bildirim vardi ve yeni eklenen her yer unutuluyordu; artik tek kural.
+   Kapsayicilara veriliyor: font-variant-numeric MIRAS ALINIR, yani
+   icine sonradan eklenen her rakam da hizali cikar. Tarih ve yuzde dahil. */
+.para,.satir .dg,.bant,.serit-lej,.serit-dip,.tkv-bas .ort,.tkv-izgara,
+.tkv-panel,.tt-sr,.ay-bas,.tk,td.sag,th.sag,#ustBar .kim{
+  font-variant-numeric:tabular-nums}
 
-button{font-family:inherit;cursor:pointer;border:none;border-radius:9px;font-weight:800}
-.btn{width:100%;padding:14px;background:var(--ana);color:#fff;font-size:16px;min-height:48px;margin-top:14px}
+/* ⚠ font-size VERILMEZSE dugme TARAYICI VARSAYILANINA duser (13.3333px,
+   olculdu: 39 dugme). Olcek disi bir deger ve 11px kuralindan bagimsiz.
+   Govde boyutuna baglandi; farkli boyut isteyen dugme kendi ezer. */
+button{font-family:inherit;cursor:pointer;border:none;border-radius:9px;
+  font-size:15px;font-weight:600}
+.btn{width:100%;padding:14px;background:var(--ana);color:#fff;font-size:17px;min-height:48px;margin-top:14px}
 .btn:disabled{opacity:.55;cursor:not-allowed}
-.btn2{padding:0 15px;min-height:44px;background:var(--acik);color:var(--ana);font-size:14px}
-.btn-kirmizi{padding:0 15px;min-height:44px;background:#fdeceb;color:var(--hata);font-size:14px}
-.btn-mini{padding:0 12px;min-height:44px;background:var(--acik);color:var(--ana);font-size:14px}
+.btn2{padding:0 15px;min-height:44px;background:var(--acik);color:var(--ana);font-size:15px}
+.btn-kirmizi{padding:0 15px;min-height:44px;background:#fdeceb;color:var(--hata);font-size:15px}
+.btn-mini{padding:0 12px;min-height:44px;background:var(--acik);color:var(--ana);font-size:15px}
 
 /* ⚠ KABUK KURALLARI · index.html'den BİREBİR KOPYA — başlangıç.
    Amaç: üst ve alt çubuk iki sayfada AYNI görünsün; kullanıcı ayrı bir
    siteye geçtiğini hissetmesin. Kopya olduğu için AYRIŞMA RİSKİ var;
    araclar/kalip-tara.mjs iki dosyayı karşılaştırıp uyarıyor. */
 #ustBar{background:var(--kart);color:var(--ana);padding:11px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:50;border-bottom:1.5px solid var(--cizgi)}
-#ustBar .ad{font-weight:900;font-size:18px;letter-spacing:-0.5px;line-height:1.1}
+#ustBar .ad{font-weight:700;font-size:17px;letter-spacing:-0.5px;line-height:1.1}
 #ustBar .ad .kmp{font-family:'Caveat',cursive;font-weight:600;font-size:15px;letter-spacing:0;margin-left:4px}
-#ustBar .kim{font-size:11.5px;color:var(--soluk);font-weight:600}
-#cikisBtn{background:var(--acik);color:var(--ana);padding:7px 12px;font-size:12.5px}
+#ustBar .kim{font-size:11px;color:var(--soluk);font-weight:600}
+#cikisBtn{background:var(--acik);color:var(--ana);padding:7px 12px;font-size:13px}
 main{padding:14px;max-width:640px;margin:0 auto}
 
 #sekmeBar{position:fixed;bottom:0;left:0;right:0;background:var(--kart);
   border-top:1.5px solid var(--cizgi);display:flex;z-index:50;
   padding-bottom:env(safe-area-inset-bottom,0)}
 #sekmeBar button{flex:1;min-width:0;padding:7px 2px 6px;background:none;color:var(--soluk);
-  font-size:10.5px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:3px;
   border-top:2.5px solid transparent;position:relative;min-height:52px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #sekmeBar button.aktif{color:var(--ana);border-top-color:var(--ana)}
@@ -67,9 +80,9 @@ main{padding:14px;max-width:640px;margin:0 auto}
   box-shadow:0 -8px 28px rgba(28,24,18,.28);border-top:1px solid var(--cizgi)}
 #dahaKutu::before{content:'';display:block;width:38px;height:4px;border-radius:3px;
   background:var(--cizgi);margin:2px auto 6px}
-#dahaKutu .db-bas{font-size:11px;font-weight:900;letter-spacing:.8px;color:var(--soluk);padding:12px 20px 8px}
+#dahaKutu .db-bas{font-size:11px;font-weight:700;letter-spacing:.8px;color:var(--soluk);padding:12px 20px 8px}
 #dahaKutu button{width:100%;display:flex;align-items:center;gap:14px;padding:0 20px;min-height:54px;
-  background:none;color:var(--metin);font-size:15px;font-weight:800;text-align:left;position:relative}
+  background:none;color:var(--metin);font-size:15px;font-weight:600;text-align:left;position:relative}
 #dahaKutu button .iko{width:22px;height:22px;flex:none;color:var(--ana)}
 #dahaKutu button .iko svg{width:100%;height:100%}
 #dahaKutu button.aktif{color:var(--ana);background:var(--acik)}
@@ -82,16 +95,16 @@ main{padding:14px;max-width:640px;margin:0 auto}
   position:sticky;top:52px;z-index:40;scrollbar-width:none}
 #bolumSerit::-webkit-scrollbar{display:none}
 #bolumSerit button{flex:none;min-height:44px;padding:0 16px;border-radius:22px;
-  background:var(--gri);color:var(--soluk);font-size:14px;font-weight:800;
+  background:var(--gri);color:var(--soluk);font-size:15px;font-weight:600;
   border:1.5px solid var(--cizgi);white-space:nowrap}
 #bolumSerit button.aktif{background:var(--ana);color:#fff;border-color:var(--ana)}
 
 .kart{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:15px;margin-bottom:13px}
-.kbaslik{font-size:17px;font-weight:900;margin:0 0 12px;overflow-wrap:anywhere}
+.kbaslik{font-size:17px;font-weight:700;margin:0 0 12px;overflow-wrap:anywhere}
 .satir{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--cizgi)}
 .satir:last-child{border-bottom:none}
-.satir .et{color:var(--soluk);font-size:14px;min-width:0;overflow-wrap:anywhere}
-.satir .dg{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.satir .et{color:var(--soluk);font-size:15px;min-width:0;overflow-wrap:anywhere}
+.satir .dg{font-weight:600;white-space:nowrap}
 
 /* ---- UST OZET BANDI ----
    ESKI: 2x2 dort buyuk kutu, 375px'te 288px = ekranin %35'i. Ustelik
@@ -102,30 +115,30 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .bant{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;
   padding:9px 13px;margin-bottom:12px}
 /* Iki blok: sahis sirketinin borcu ile Ltd'ninki KARISMASIN */
-.bant .blok-et{font-size:10.5px;font-weight:900;color:var(--soluk);letter-spacing:.5px;
+.bant .blok-et{font-size:11px;font-weight:700;color:var(--soluk);letter-spacing:.5px;
   text-transform:uppercase;line-height:1.3}
 /* Ltd bloğu tek satır özet — iki blok bandı büyütmesin (brief 2b) */
 .bant .sr.ltd{border-top:2px solid var(--cizgi);padding-top:5px;margin-top:5px}
 .bant .bas{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-.bant .bas .et{font-size:11px;font-weight:900;color:var(--soluk);letter-spacing:.4px}
-.bant .bas .dg{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bant .bas .et{font-size:11px;font-weight:700;color:var(--soluk);letter-spacing:.4px}
+.bant .bas .dg{font-size:22px;font-weight:600;white-space:nowrap}
 .bant .kirilim{font-size:11px;color:var(--soluk);line-height:1.4;margin-top:1px;overflow-wrap:anywhere}
 /* Satirlar AKAN METIN: her rakam icin ayri flex satiri kullanmak bandi
    330px'e (ekranin %41'i) cikarmisti. Iki-uc rakam tek satirda, sayilar
    kalin. Bilgi ayni, yer ucte bir. */
-.bant .sr{font-size:11.5px;line-height:1.4;color:var(--soluk);
+.bant .sr{font-size:11px;line-height:1.4;color:var(--soluk);
   padding-top:4px;margin-top:4px;border-top:1px solid var(--cizgi);overflow-wrap:anywhere}
-.bant .sr b{color:var(--metin);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bant .sr b{color:var(--metin);font-weight:600;white-space:nowrap}
 /* ⚠ D1 · KUR FARKI ARTIK KIRMIZI DEGIL.
    Onceki hali isareti ne olursa olsun var(--hata) ile basiyordu; bugun
    fark POZITIF (+1.09M) ve kirmizi "kayip" diye okunuyordu. Ne pozitif
    ne negatif fark bir kayiptir — rayic degisimidir. Renk hukum vermesin;
    isaret (+/−) zaten anlami tasiyor. Kalin ve okunur kaliyor. */
-.bant .sr .fark{color:var(--metin);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
-.bant .sr .eksik{color:var(--uyari);font-weight:800}
-.bant .dip{font-size:10.5px;color:var(--soluk);line-height:1.35;margin-top:5px;
+.bant .sr .fark{color:var(--metin);font-weight:600;white-space:nowrap}
+.bant .sr .eksik{color:var(--uyari);font-weight:600}
+.bant .dip{font-size:11px;color:var(--soluk);line-height:1.35;margin-top:5px;
   border-top:1px solid var(--cizgi);padding-top:5px}
-.bant .dip b{font-variant-numeric:tabular-nums}
+.bant .dip b{}
 
 /* ===== BORC DAGILIMI SERIDI (D1) =====
    SVG DEGIL, div/flex. Gerekce:
@@ -148,7 +161,7 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .serit .sg:last-child{border-radius:0 4px 4px 0}
 /* Dokunma hedefi 15px degil 44px — gorunum buyumeden. */
 .serit .sg::after{content:'';position:absolute;left:0;right:0;top:-15px;bottom:-14px}
-.serit .sg .ic{display:block;font-size:11px;font-weight:900;line-height:15px;
+.serit .sg .ic{display:block;font-size:11px;font-weight:600;line-height:15px;
   color:#fff;white-space:nowrap;overflow:hidden;text-align:center;
   text-shadow:0 1px 1px rgba(0,0,0,.35)}
 .serit .sg[aria-pressed="true"]{outline:2px solid var(--metin);outline-offset:1px;z-index:1}
@@ -162,17 +175,70 @@ main{padding:14px;max-width:640px;margin:0 auto}
   overflow-wrap:anywhere}
 .serit-lej .ov{display:inline-block;width:9px;height:9px;border-radius:2px;
   margin-right:3px;vertical-align:-1px}
-.serit-lej .bs{font-weight:900;letter-spacing:.2px;margin-right:6px}
+.serit-lej .bs{font-weight:700;letter-spacing:.2px;margin-right:6px}
 .serit-lej .pr{white-space:nowrap;margin-right:6px}
-.serit-lej .pr.sec{font-size:13px;font-weight:900;color:var(--metin)}
-.serit-lej .pr b{color:var(--metin);font-weight:800;font-variant-numeric:tabular-nums}
+.serit-lej .pr.sec{font-size:13px;font-weight:600;color:var(--metin)}
+.serit-lej .pr b{color:var(--metin);font-weight:600}
 /* 11px — "grafik metni en az 11px" kurali dipnota da uygulaniyor.
    Bandin kendi .dip'i 10.5px; serit blogu ayri kurala tabi. */
 .serit-dip{font-size:11px;color:var(--soluk);line-height:1.3;margin-top:2px;
   overflow-wrap:anywhere}
-.serit-dip b{color:var(--metin);font-variant-numeric:tabular-nums}
 
-.rozet{display:inline-block;font-size:11px;font-weight:900;padding:3px 8px;border-radius:20px;
+/* ===== TAKVIM AY IZGARASI (D5) =====
+   Duz grid — takvim bileseni/kutuphane YOK.
+   ⚠ RENK TEK BASINA BILGI TASIMIYOR: gun sayisinin altindaki isaret
+   DESENI ile ayrisiyor (duz / noktali / kesikli), gecikmiste ayrica
+   sayi kalin + altı cizili. Gri tonlamada desen ve kalinlik kaliyor. */
+.tkv-bas{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.tkv-bas button{min-width:44px;min-height:44px;padding:0;background:var(--gri);
+  color:var(--metin);font-size:17px;font-weight:600;border-radius:10px}
+.tkv-bas button[disabled]{opacity:.35}
+.tkv-bas .ort{flex:1;min-width:0;text-align:center}
+.tkv-bas .ort .ay{font-size:15px;font-weight:700;line-height:1.2}
+.tkv-bas .ort .oz{font-size:11px;color:var(--soluk);font-weight:700}
+.tkv-hafta,.tkv-izgara{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.tkv-hafta div{text-align:center;font-size:11px;font-weight:600;color:var(--soluk);padding-bottom:3px}
+.tkv-g{min-height:44px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;border:0;padding:0;background:var(--kart);
+  border-radius:8px;cursor:pointer}
+.tkv-g.bos{visibility:hidden;pointer-events:none}
+/* ⚠ D6 · Gun sayilari 400. Onceden HEPSI 700'du — her sey kalinsa
+   hicbir sey vurgulu degildir; gecikmis gun otekilerden ayrilmiyordu. */
+.tkv-g .sy{font-size:13px;font-weight:400;color:var(--metin);line-height:1}
+/* ⚠ D6 · ISARETLER DOLU-BOS KARSITLIGIYLA AYRILIYOR.
+   Onceki hali nokta/kesik desenine dayaniyordu; gri tonlamada
+   "bekliyor" 133, "Ltd" 137 cikti — 4 puan fark AYIRT ETMEZ (olculdu).
+   Yeni ayrim YAPISAL: dolu kalin / dolu ince / ici bos cerceve. */
+/* ⚠ Burada border-top-color VERILMEZ: `.tkv-g .im` ozgullugu (0,2,0)
+   `.im-*` (0,1,0) sinifini EZIYORDU ve dort isaret de ayni renge
+   dusuyordu (olculdu). Renk yalnizca .im-* siniflarindan gelir. */
+.tkv-g .im{width:58%}
+.tkv-g.bugun{outline:2px solid var(--ana);outline-offset:-2px}
+.tkv-g[aria-pressed="true"]{background:var(--acik);outline:2px solid var(--metin);outline-offset:-2px}
+.im-odendi  {border-top:4px solid var(--ok)}                       /* dolu KALIN */
+.im-bekliyor{border-top:2px solid var(--uyari)}                    /* dolu INCE  */
+.im-gecikmis{border-top:4px solid var(--hata)}                     /* dolu kalin + sayi alti cizili */
+.im-ltd     {height:7px;border:1.5px solid var(--soluk);border-radius:2px;
+             background:none}                                      /* ICI BOS CERCEVE */
+/* Gecikmis gun sayisi TEK vurgulu gun: 700 + alti cizili. Diger gunler
+   400 oldugu icin bu fark gri tonlamada da gorunuyor. */
+.tkv-g.gecikmis .sy{font-weight:700;color:var(--hata);text-decoration:underline}
+.tkv-panel{margin-top:10px;border-top:2px solid var(--cizgi);padding-top:9px}
+.tkv-panel .pb{font-size:15px;font-weight:700}
+.tkv-panel .pu{font-size:11px;color:var(--soluk);font-weight:700;margin-bottom:8px}
+.tkv-alt{margin-top:8px;font-size:11px;text-align:center}
+.tkv-alt button{background:none;color:var(--ana);font-weight:600;font-size:11px;
+  text-decoration:underline;min-height:44px;padding:0 8px}
+/* "Tum taksitler" — 2 satirlik sade satir, 84 kartlik yigin degil */
+.tt-sr{display:flex;justify-content:space-between;gap:8px;padding:9px 2px;
+  border-bottom:1px solid var(--cizgi);cursor:pointer;min-height:44px;align-items:center}
+.tt-sr .sol{min-width:0}
+.tt-sr .s1{font-size:13px;font-weight:600;color:var(--metin)}
+.tt-sr .s2{font-size:11px;color:var(--soluk);font-weight:700}
+.tt-sr .sag{font-size:13px;font-weight:600;white-space:nowrap}
+.serit-dip b{color:var(--metin)}
+
+.rozet{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;
   letter-spacing:.3px;vertical-align:middle;white-space:nowrap}
 .rz-ticari{background:#E7F0E9;color:var(--ok)}
 .rz-sahis{background:var(--acik);color:var(--ana)}
@@ -182,46 +248,46 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .rz-sari{background:#FBF3E4;color:#8A6316}
 
 .uyari-agir{background:#FBEAE7;border-left:3px solid var(--hata);color:var(--hata);
-  padding:11px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:800;font-size:14px;line-height:1.5}
+  padding:11px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:600;font-size:15px;line-height:1.5}
 .uyari-orta{background:#FBF3E4;border-left:3px solid var(--uyari);color:#8A6316;
-  padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:700;font-size:13.5px;line-height:1.5}
+  padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:700;font-size:13px;line-height:1.5}
 .bilgi{background:var(--acik);border-left:3px solid var(--ana);color:var(--ana-koyu);
-  padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-size:13.5px;line-height:1.55;white-space:pre-line}
-.bos{text-align:center;color:var(--soluk);padding:26px 12px;font-size:14.5px;line-height:1.6}
-.kucuk{font-size:12.5px;color:var(--soluk);line-height:1.55;margin-top:7px;overflow-wrap:anywhere}
+  padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-size:13px;line-height:1.55;white-space:pre-line}
+.bos{text-align:center;color:var(--soluk);padding:26px 12px;font-size:15px;line-height:1.6}
+.kucuk{font-size:13px;color:var(--soluk);line-height:1.55;margin-top:7px;overflow-wrap:anywhere}
 
-.msg{padding:11px 13px;border-radius:9px;margin:11px 0;font-weight:700;font-size:14px;
+.msg{padding:11px 13px;border-radius:9px;margin:11px 0;font-weight:700;font-size:15px;
   line-height:1.5;display:none;white-space:pre-wrap;overflow-wrap:anywhere}
 .msg.hata{display:block;background:#FBEAE7;color:var(--hata)}
 .msg.ok{display:block;background:#E7F0E9;color:var(--ok)}
 
 .tablo-sar{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:10px -3px}
-table{border-collapse:collapse;width:100%;min-width:520px;font-size:14px}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:15px}
 th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--cizgi);white-space:nowrap}
-th{font-size:11.5px;color:var(--soluk);letter-spacing:.4px}
-td.sag,th.sag{text-align:right;font-variant-numeric:tabular-nums}
+th{font-size:11px;color:var(--soluk);letter-spacing:.4px}
+td.sag,th.sag{text-align:right}
 
 /* ---- TAKVIM satiri ---- */
 .ay-bas{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
   margin:18px 0 6px;padding-bottom:6px;border-bottom:2px solid var(--cizgi)}
-.ay-bas .ad{font-size:15px;font-weight:900}
-.ay-bas .tp{font-size:13px;font-weight:800;color:var(--soluk);font-variant-numeric:tabular-nums}
+.ay-bas .ad{font-size:15px;font-weight:700}
+.ay-bas .tp{font-size:13px;font-weight:600;color:var(--soluk)}
 .tk{border:1.5px solid var(--cizgi);border-radius:12px;padding:12px;margin-bottom:9px;background:var(--kart)}
 .tk.gecikti{border-color:var(--hata);background:#FBEAE7}
 .tk.buay{border-color:var(--uyari);background:#FBF3E4}
 .tk.odendi{opacity:.68}
 .tk-ust{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
-.tk-ad{font-weight:900;font-size:15px;min-width:0;overflow-wrap:anywhere}
-.tk-tutar{font-weight:900;font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tk-ad{font-weight:700;font-size:15px;min-width:0;overflow-wrap:anywhere}
+.tk-tutar{font-weight:600;font-size:17px;white-space:nowrap}
 /* Kirilim metni OKUNUR renkte; .gri ancak boyle GERCEKTEN gri gorunur.
    Ilk yazimda .tk-orta zaten --soluk idi ve "Limited'de faiz gri" istegi
    ekranda hicbir fark uretmiyordu (olculdu: iki renk de rgb(129,137,160)). */
-.tk-orta{font-size:12.5px;color:var(--metin);margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
-.tk-durum{font-size:13px;font-weight:800;margin-top:5px}
+.tk-orta{font-size:13px;color:var(--metin);margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
+.tk-durum{font-size:13px;font-weight:600;margin-top:5px}
 .tk-durum.gecikti{color:var(--hata)}
 .tk-durum.buay{color:#8A6316}
 .tk-durum.odendi{color:var(--ok)}
-.tk-gider{font-size:12.5px;font-weight:800;color:var(--ok);margin-top:4px}
+.tk-gider{font-size:13px;font-weight:600;color:var(--ok);margin-top:4px}
 .tk-gider.yok{color:var(--soluk);font-weight:700}
 .tk-eylem{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 /* v92 · odeme formu ve odeme listesi — taksit kartinin ICINDE acilir */
@@ -233,8 +299,8 @@ td.sag,th.sag{text-align:right;font-variant-numeric:tabular-nums}
 #girisEkran{max-width:380px;margin:52px auto;padding:22px}
 #surumBar{position:fixed;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;
   justify-content:space-between;gap:12px;padding:12px 14px;background:var(--uyari);color:#fff;
-  font-size:14px;font-weight:800}
-#surumBar button{flex:none;background:#fff;color:var(--uyari);padding:10px 16px;font-size:14px;min-height:44px}
+  font-size:15px;font-weight:600}
+#surumBar button{flex:none;background:#fff;color:var(--uyari);padding:10px 16px;font-size:15px;min-height:44px}
 </style>
 </head>
 <body>
@@ -591,7 +657,17 @@ async function baslat(){
   document.getElementById('uygulama').classList.remove('gizli');
   document.getElementById('kimBilgi').textContent = (p.ad || '') + ' · Borç';
   uygulamaCubuguKur();
-  await ekranAc('takvim');
+  /* D3 · Hash ile bölüm açma — index.html'deki kalıbın AYNISI (bkz. baslat()).
+     index.html'den gelen "Takvim" bağlantısı borc.html#takvim'e gidiyordu ama
+     burada hash HİÇ OKUNMUYORDU; doğru yere gitmesinin tek sebebi Takvim'in
+     varsayılan olmasıydı. Varsayılan değişse bağlantı SESSİZCE başka yere
+     giderdi. ⚠ Hash KULLANICI GİRDİSİDİR: yalnız bilinen beş bölüm kabul
+     edilir, başkası sessizce varsayılana düşer. Bilinen bölümler ELLE
+     listelenmiyor, bölüm şeridinin KENDİSİNDEN okunuyor — iki liste tutmak
+     iki listenin ayrışması demek. */
+  const BOLUMLER = [...document.querySelectorAll('#bolumSerit button[data-b]')].map(b => b.dataset.b);
+  const istenen = decodeURIComponent((location.hash || '').slice(1));
+  await ekranAc(BOLUMLER.includes(istenen) ? istenen : EKRAN);
 }
 async function surumKontrol(){
   try{
@@ -974,22 +1050,18 @@ function seritCiz(v){
   /* Ltd oranlamaya girmiyor ama GORUNMEZ de olmuyor; kart 0 ile
      "girilmedi" AYNI GORUNMEMELI — hangisi oldugu yaziliyor. */
   const dip = el('div','serit-dip');
-  /* "gelecek faiz hariç" 11px'te iki satira sariyordu (olculdu 29px);
-     "faiz hariç" ayni seyi soyluyor ve tek satir. */
-  dip.appendChild(document.createTextNode('faiz hariç · '));
-  if (v.lNominal){
-    /* "seride girmez" ifadesi cikarildi: efsanenin basindaki kapsam
-       etiketi + bu satirin AYRI durusu zaten soyluyor, ve iki satira
-       sardirip %30 sinirini asiyordu (olculdu). */
-    dip.appendChild(document.createTextNode('Ltd (ayrı tüzel): '));
-    dip.appendChild(el('b', null, tk(v.lNominal)));
-  }
+  /* ⚠ D3 · Ltd RAKAMI BURADAN KALDIRILDI — MÜKERRERDİ. Bant zaten bir üst
+     satırda "LTD <tutar> · bu ay ..." gösteriyor. Aynı rakamı iki kez yazmak
+     yer yiyor; ikisi bir gün ayrışırsa hangisinin doğru olduğu belli olmaz.
+     Ltd'nin ŞERİDE GİRMEME kuralı AYNEN duruyor — `sinif` dizisinde Ltd yok,
+     oranlamaya katılmıyor; bu satır artık onu SÖYLÜYOR, tekrar etmiyor.
+     "gelecek faiz hariç" 11px'te iki satıra sarıyordu; "faiz hariç" yeter. */
+  dip.appendChild(document.createTextNode('faiz hariç · Ltd hariç'));
   if (!v.kartSahis){
     /* "0" ile "girilmedi" AYNI GORUNMEZ — hangisi oldugu yaziliyor. */
-    const kartNot = !v.kart.kartlar.length ? 'kart: veri girilmedi'
-      : (v.kartDonemsiz === v.kart.kartlar.length ? 'kart: veri girilmedi'
-      : 'kart: kalan 0');
-    dip.appendChild(document.createTextNode((v.lNominal ? ' · ' : '') + kartNot));
+    const kartNot = (v.kart.kartlar.length && v.kartDonemsiz < v.kart.kartlar.length)
+      ? 'kart: kalan 0' : 'kart: veri girilmedi';
+    dip.appendChild(document.createTextNode(' · ' + kartNot));
   }
   if (dip.childNodes.length) kutu.appendChild(dip);
   return kutu;
@@ -1090,6 +1162,11 @@ function bantCiz(v){
 }
 
 /* ================== 1 · TAKVIM (varsayilan) ================== */
+/* D5 · Ay gorunumu. 84 satirlik yigin yerine gunler; detay dokununca acilir. */
+let TAKVIM_AY = null, TAKVIM_GUN = null, TAKVIM_LISTE = false;
+/* Ay adlari icin MEVCUT `AYLAR` kullaniliyor — ikinci liste tutmak
+   iki listenin ayrismasi demek (D3'te ayni karar verildi). */
+const GUN_ADLARI = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
 async function vTakvim(){
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
@@ -1109,27 +1186,137 @@ async function vTakvim(){
     c.appendChild(k); return;
   }
 
-  const b = bugun();
-  const buAy = b.slice(0,7);
-  const gruplar = new Map();
+  const b = bugun(), buAy = b.slice(0,7);
+  /* Yeni sorgu YOK — zaten cekilmis taksitler gune gore gruplaniyor. */
+  const gunMap = new Map();
   for (const t of v.taksitler){
-    const ay = t.vade_tarihi.slice(0,7);
-    if (!gruplar.has(ay)) gruplar.set(ay, []);
-    gruplar.get(ay).push(t);
+    if (!gunMap.has(t.vade_tarihi)) gunMap.set(t.vade_tarihi, []);
+    gunMap.get(t.vade_tarihi).push(t);
   }
-  const siraliAylar = [...gruplar.keys()].sort();
+  const aylar = [...new Set(v.taksitler.map(t => t.vade_tarihi.slice(0,7)))].sort();
+  if (!TAKVIM_AY || !aylar.includes(TAKVIM_AY))
+    TAKVIM_AY = aylar.includes(buAy) ? buAy : aylar[0];
 
-  for (const ay of siraliAylar){
-    const liste = gruplar.get(ay);
-    const toplamKurus = liste.reduce((s,t) => s + kr(t.toplam_tutar), 0);
+  const kap = el('div','kart'); c.appendChild(kap);
+  const ctx = { kap, gunMap, aylar, krediMap, b, buAy, taksitler: v.taksitler };
+  takvimYenile(ctx);
+}
 
-    const bas = el('div','ay-bas');
-    bas.appendChild(el('span','ad', ayAdi(ay) + (ay === buAy ? ' · bu ay' : '')));
-    bas.appendChild(el('span','tp', liste.length + ' taksit · ' + tlk(toplamKurus)));
-    c.appendChild(bas);
+/* Ay izgarasi + gun paneli. Ay/gun degisince yalniz bu kap yeniden cizilir. */
+function takvimYenile(ctx){
+  const { kap, gunMap, aylar, krediMap, b, buAy } = ctx;
+  kap.textContent = '';
+  const ay = TAKVIM_AY, [yil, aySira] = ay.split('-').map(Number);
+  const i = aylar.indexOf(ay);
 
-    for (const t of liste) c.appendChild(taksitKarti(t, krediMap.get(t.kredi_id), b, buAy));
+  /* --- baslik: ‹ Ay Yil › + o ayin ozeti --- */
+  const bas = el('div','tkv-bas');
+  const ok = (yon, etiket, hedef) => {
+    const d = el('button', null, etiket);
+    d.type = 'button'; d.setAttribute('aria-label', yon);
+    if (hedef === undefined) d.disabled = true;
+    else d.onclick = () => { TAKVIM_AY = hedef; TAKVIM_GUN = null; takvimYenile(ctx); };
+    return d;
+  };
+  bas.appendChild(ok('Önceki ay','‹', aylar[i-1]));
+  const ort = el('div','ort');
+  ort.appendChild(el('div','ay', ayAdi(ay) + (ay === buAy ? ' · bu ay' : '')));
+  const ayT = [...gunMap.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
+  ort.appendChild(el('div','oz', ayT.length
+    /* ⚠ D6 · NOMINAL degil KALAN. Kismi odenmis taksitte "bu ay ne kadar
+       odeyecegim" sorusunun cevabi nominal degil kalandir. */
+    ? ayT.length + ' ödeme · ' + tlk(ayT.reduce((s,t) => s + kr(t.kalan), 0)) + ' kalan'
+    : 'ödeme yok'));
+  bas.appendChild(ort);
+  bas.appendChild(ok('Sonraki ay','›', aylar[i+1]));
+  kap.appendChild(bas);
+
+  /* --- hafta basliklari + gun izgarasi --- */
+  const hf = el('div','tkv-hafta');
+  for (const g of ['Pt','Sa','Ça','Pe','Cu','Ct','Pz']) hf.appendChild(el('div', null, g));
+  kap.appendChild(hf);
+
+  const izg = el('div','tkv-izgara');
+  const ilk = new Date(yil, aySira - 1, 1);
+  const bosluk = (ilk.getDay() + 6) % 7;                 // Pazartesi = 0
+  const gunSayisi = new Date(yil, aySira, 0).getDate();
+  for (let n = 0; n < bosluk; n++){
+    const h = el('div','tkv-g bos'); h.setAttribute('aria-hidden','true'); izg.appendChild(h);
   }
+  for (let g = 1; g <= gunSayisi; g++){
+    const tar = ay + '-' + String(g).padStart(2,'0');
+    const liste = gunMap.get(tar) || [];
+    const h = el('button','tkv-g' + (tar === b ? ' bugun' : '')); h.type = 'button';
+    /* ⚠ ISARET TEK, panel hepsini listeler. Oncelik: gecikmis > Ltd >
+       bekleyen > odendi — en aciliyeti olan gorunur. */
+    const acik = liste.filter(t => t.durum !== 'kapali');
+    const im = !liste.length ? null
+      : acik.some(t => t.vade_tarihi < b)      ? 'gecikmis'
+      : acik.some(t => t.kredi_tur === 'ltd')  ? 'ltd'
+      : acik.length                            ? 'bekliyor' : 'odendi';
+    if (im === 'gecikmis') h.classList.add('gecikmis');
+    h.appendChild(el('span','sy', String(g)));
+    if (im) h.appendChild(el('span','im im-' + im));
+    h.setAttribute('aria-pressed', String(tar === TAKVIM_GUN));
+    h.setAttribute('aria-label', g + ' ' + ayAdi(ay) + (liste.length
+      ? ' · ' + liste.length + ' ödeme · ' + tlk(liste.reduce((s,t)=>s+kr(t.kalan),0)) + ' kalan'
+      : ' · ödeme yok'));
+    h.onclick = () => { TAKVIM_GUN = (TAKVIM_GUN === tar) ? null : tar; takvimYenile(ctx); };
+    izg.appendChild(h);
+  }
+  kap.appendChild(izg);
+
+  /* --- gun paneli: izgaranin ALTINDA, modal DEGIL --- */
+  if (TAKVIM_GUN){
+    const p = el('div','tkv-panel');
+    const d = new Date(TAKVIM_GUN + 'T00:00');
+    p.appendChild(el('div','pb', d.getDate() + ' ' + AYLAR[d.getMonth()] + ', ' + GUN_ADLARI[d.getDay()]));
+    p.appendChild(el('div','pu', TAKVIM_GUN === b ? 'bugün'
+      : TAKVIM_GUN < b ? gunFarki(b, TAKVIM_GUN) + ' gün geçti'
+      : gunFarki(TAKVIM_GUN, b) + ' gün sonra'));
+    const liste = gunMap.get(TAKVIM_GUN) || [];
+    if (!liste.length) p.appendChild(el('div','bos','Bu gün ödeme yok.'));
+    /* Gun paneli taksitKarti'yi YENIDEN KULLANIYOR: kirilim, "Ltd gidere
+       yazilmaz", Odeme gir ve dekont dugmeleri orada ZATEN dogru. */
+    else for (const t of liste)
+      p.appendChild(taksitKarti(t, krediMap.get(t.kredi_id), b, buAy));
+    kap.appendChild(p);
+  }
+
+  /* --- LISTE KAYBOLMASIN: ay gorunumu "ne kadar borcum kaldi"yi yanitlamaz --- */
+  const alt = el('div','tkv-alt');
+  const bt = el('button', null, TAKVIM_LISTE ? 'ay görünümüne dön' : 'tüm taksitler');
+  bt.type = 'button';
+  bt.onclick = () => { TAKVIM_LISTE = !TAKVIM_LISTE; takvimYenile(ctx); };
+  alt.appendChild(bt);
+  kap.appendChild(alt);
+  if (TAKVIM_LISTE) kap.appendChild(tumTaksitlerCiz(ctx));
+}
+
+/* Tum kalan taksitler — 2 satirlik sade satir. Dokununca o gune gider. */
+function tumTaksitlerCiz(ctx){
+  const { taksitler, krediMap, b } = ctx;
+  const kutu = el('div');
+  const kalanlar = taksitler.filter(t => t.durum !== 'kapali')
+    .sort((x,y) => x.vade_tarihi < y.vade_tarihi ? -1 : 1);
+  kutu.appendChild(el('div','pu', kalanlar.length + ' ödenmemiş taksit · '
+    + tlk(kalanlar.reduce((s,t) => s + kr(t.kalan), 0)) + ' kalan'));
+  for (const t of kalanlar){
+    const k = krediMap.get(t.kredi_id);
+    const s = el('div','tt-sr');
+    const sol = el('div','sol');
+    sol.appendChild(el('div','s1', trGun(t.vade_tarihi) + ' · ' + (k ? k.banka : 'kredi yok')));
+    sol.appendChild(el('div','s2', t.sira + '. taksit'
+      + (k && k.tur === 'ltd' ? ' · Limited (gidere yazılmaz)' : '')
+      + (t.vade_tarihi < b ? ' · VADESİ GEÇTİ' : '')));
+    s.appendChild(sol);
+    s.appendChild(el('div','sag', tl(t.kalan)));
+    s.onclick = () => { TAKVIM_AY = t.vade_tarihi.slice(0,7); TAKVIM_GUN = t.vade_tarihi;
+                        TAKVIM_LISTE = false; takvimYenile(ctx);
+                        ctx.kap.scrollIntoView({behavior:'smooth', block:'start'}); };
+    kutu.appendChild(s);
+  }
+  return kutu;
 }
 
 function taksitKarti(t, kredi, b, buAy){

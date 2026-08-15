@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-14-4">
+<meta name="surum" content="2026-08-14-5">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -200,7 +200,11 @@ body{font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,san
    başlık boyu değişmesin (30'dan fazla yerde kullanılıyor, tek tek dokunmuyorum) */
 .kbaslik{font-size:16px;font-weight:900;line-height:1.25;letter-spacing:-.2px;margin-bottom:12px}
 label{display:block;font-size:12.5px;color:var(--soluk);font-weight:700;margin:10px 0 4px}
-input,select,textarea{width:100%;padding:11px 12px;border:1.5px solid var(--cizgi);border-radius:9px;font-size:15px;background:#fff;color:var(--metin);font-family:inherit}
+/* ⚠ M-1 · 16px ALTINA INMEYIN. iOS, font-size 16px'in altindaki bir alana
+   dokunuldugunda sayfayi ZUMLUYOR ve geri cikmiyor — personel her alanda
+   ekranin ziplamasini yasiyordu. borc.html'de duzeltilmisti, ASIL KULLANILAN
+   dosyada acik kalmisti (D6'da kapatildi). */
+input,select,textarea{width:100%;padding:11px 12px;border:1.5px solid var(--cizgi);border-radius:9px;font-size:16px;background:#fff;color:var(--metin);font-family:inherit}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--ana);border-color:var(--ana)}
 button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:800;font-family:inherit}
 .btn{width:100%;padding:13px;background:var(--ana);color:#fff;margin-top:14px}
