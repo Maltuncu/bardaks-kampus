@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-14-3">
+<meta name="surum" content="2026-08-14-4">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -92,6 +92,14 @@
   padding:10px 12px;border-radius:0 10px 10px 0;margin:0 0 8px;font-size:13px;font-weight:800;line-height:1.5}
 .uyari-orta{background:#FBF3E4;border-left:3px solid var(--uyari);color:#8A6316;
   padding:9px 12px;border-radius:0 10px 10px 0;margin:0 0 8px;font-size:12.5px;font-weight:700;line-height:1.5}
+/* D2 · karar bloğu: kart kabuğu YOK (32px padding + 12px kenar boşluğu
+   yiyordu), satırlar sıkı, düğme satır İÇİNDE — ayrı düğme satırı 52px
+   ediyordu. Ölçüldü: 295px -> aşağıdaki rapordaki değer. */
+#kararBlok .kb-sr{padding:7px 10px;margin:0 0 6px;font-size:12.5px;line-height:1.4}
+/* Düğme GÖRÜNÜR 28px ama VURUŞ ALANI 44px — satır başına 16px kazanç.
+   Görünür 44px satırları %20 sınırının üstüne çıkarıyordu. */
+#kararBlok .kb-bt{margin-left:10px;vertical-align:middle;min-height:28px;position:relative}
+#kararBlok .kb-bt::after{content:'';position:absolute;left:0;right:0;top:-8px;bottom:-8px}
 /* Uyarı satırı: etiket + metin, dokununca ilgili bölüme gider */
 .uy-sr{display:flex;align-items:baseline;gap:9px;cursor:pointer;min-height:44px;
   -webkit-tap-highlight-color:transparent}
@@ -1261,6 +1269,41 @@ async function sapmaCiz(donem, hedef){
     <div class="ipucu">Beyan kapanış anındaki rakamla verildi; bu fark onu değiştirmez.
       Neyin değiştiğini görmek için o ayın kayıtlarına bak.</div></div>`;
 }
+/* D2 · KARAR ÖNCE — ekranı açan "ne oldu" değil "ne yapmalıyım" görsün.
+   Blok BOŞSA hiç çizilmez: temiz günde gürültü, gerçek uyarıyı öldürür.
+   5b'nin sapma uyarısı da buraya alındı — uyarı üç yere dağılmasın. */
+async function kararBlogu(gunSonuVar, donem){
+  const el = document.getElementById('kararBlok'); if (!el) return;
+  let ic = gunSonuVar ? '' : `<div class="uyari-agir kb-sr">Bugünün gün sonu girilmedi`
+    + `<button class="btn2 kb-bt" onclick="sekmeAc('gunsonu')">Gir</button></div>`;
+  if (PROFIL.rol === 'owner'){
+    /* TEK sorgu; sayı ve toplam BURADA hesaplanıyor. Liste/detay yok —
+       borç modülü index.html'e girmiyor, yalnız sayaç ve bağlantı.
+       ⚠ v_kredi_taksit_durum sube_id TAŞIMAZ: SUBE_SUZGEC haritasına
+       girmez, fikstür değişmez, nöbetçi UYUMLU kalır. */
+    const sinir = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
+    const t = await sb.from('v_kredi_taksit_durum')
+      .select('vade_tarihi,kalan,kredi_tur').gt('kalan', 0).lte('vade_tarihi', sinir);
+    if (t.error){ el.innerHTML = hataKutusu(t.error, 'vOzet()'); return; }
+    const b = bugun(), k = {};
+    for (const x of (t.data||[])){
+      /* Ltd AYRI tüzel kişilik — şahıs toplamına KARIŞMAZ (borc.html ile aynı kural) */
+      const a = (x.vade_tarihi < b ? 'gec' : 'haf') + (x.kredi_tur === 'ltd' ? 'L' : 'S');
+      (k[a] = k[a] || { n:0, t:0 }).n++; k[a].t += +x.kalan;
+    }
+    const sr = (a, s, m) => k[a] ? `<div class="${s} kb-sr">${k[a].n} ${m} · ${tl(k[a].t)}</div>` : '';
+    const sat = [sr('gecS','uyari-agir','taksit VADESİ GEÇTİ'),
+                 sr('gecL','uyari-agir','Ltd taksiti VADESİ GEÇTİ (ayrı tüzel)'),
+                 sr('hafS','uyari-orta','taksit bu hafta'),
+                 sr('hafL','uyari-orta','Ltd taksiti bu hafta (ayrı tüzel)')].filter(Boolean);
+    /* Takvim düğmesi SON SATIRIN İÇİNDE — ayrı satır 52px ediyordu. */
+    if (sat.length) sat[sat.length-1] = sat[sat.length-1].replace(/<\/div>$/,
+      `<button class="btn2 kb-bt" onclick="location.href='borc.html#takvim'">Takvim</button></div>`);
+    ic += sat.join('');
+  }
+  el.innerHTML = ic + '<div id="ozSapma"></div>';
+  if (PROFIL.rol === 'owner') sapmaCiz(donem, 'ozSapma');
+}
 function tarihSecici(id, deger){
   return `<label>Tarih</label><input type="date" id="${id}" value="${deger||bugun()}" max="${bugun()}">`;
 }
@@ -1585,6 +1628,7 @@ async function vOzet(){
           : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
       <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
     </div>
+    <div id="kararBlok"></div>
     <div class="ozet-grid">
       <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
         <div class="d">${g?tl(g.toplam):'—'}</div>
@@ -1639,7 +1683,6 @@ async function vOzet(){
           </div>`).join('')}
     </div>
 
-    ${PROFIL.rol==='owner' ? '<div id="ozSapma"></div>' : ''}
     ${o && PROFIL.rol==='owner' ? `<div class="kart"
       style="border-color:var(--vurgu,#2E7D4F);border-width:2px">
       ${kbaslik('AY RAPORU', ayAdi(ay),
@@ -1729,10 +1772,10 @@ async function vOzet(){
           : 'Şu an yalnız o ay satın alınan mal maliyet sayılıyor. Depodan kullanırsan o maliyet hiçbir yerde görünmez — iki uçlu sayım (açılış + kapanış) girilene kadar bu rakam tahmindir.'}
       </div>
     </div>`:''}`;
+  kararBlogu(!!g, ay);   // D2 · sapma uyarısı da bunun içinde
   if (PROFIL.rol === 'owner'){
     paraBaglaHepsi(['ohTutar']);
     ownerHareketYukle(ay);
-    sapmaCiz(ay, 'ozSapma');   // v95 · kapanış sonrası sapma (yalnız owner: kâr/KDV rakamı)
   }
 }
 
