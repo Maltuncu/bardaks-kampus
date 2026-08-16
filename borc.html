@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-15-6">
+<meta name="surum" content="borc-2026-08-15-7">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -258,6 +258,37 @@ main{padding:14px;max-width:640px;margin:0 auto}
 /* Kullanici "dekont ekle yok burda" dedi. Satir VARDI ama .kucuk ile gri,
    son alanin altina sikismisti — gorulmedi. Normal metin renginde. */
 .form-not{font-size:13px;color:var(--metin);font-weight:600;line-height:1.5;margin:12px 0 2px}
+
+/* ===== P0-A1 · YIKICI EYLEM ANA EYLEMDEN AYRILDI =====
+   Onceden [Odeme ekle] ile [Borcu sil] YAN YANA ve ESIT agirliktaydi.
+   21.08'de ilk gercek odeme girilecek; parmak yanlis dugmeye 8px uzakta.
+   Yikici eylem artik "⋯" menusunun icinde, birincil eylemden 12px uzakta. */
+.dm{position:relative;display:inline-block;margin-left:12px}
+.dm-bt{min-width:44px;min-height:44px;font-size:17px;line-height:1;background:var(--gri);color:var(--metin)}
+.dm-mn{display:none;position:absolute;right:0;top:48px;z-index:65;background:var(--kart);
+  border:1.5px solid var(--cizgi);border-radius:10px;min-width:196px;overflow:hidden;
+  box-shadow:0 6px 20px rgba(28,24,18,.18)}
+.dm-mn.acik{display:block}
+.dm-o{width:100%;min-height:44px;padding:0 14px;background:none;color:var(--hata);
+  font-size:15px;font-weight:600;text-align:left}
+/* Guvenli onay penceresi — gercek <dialog>, prompt() yerine.
+   Tehlike YALNIZ renkle anlatilmiyor: ikon + baslik + etki metni birlikte. */
+.pm{border:none;border-radius:16px;padding:16px;width:calc(100% - 32px);max-width:340px;
+  max-height:88vh;overflow:auto;background:var(--kart);color:var(--metin)}
+.pm::backdrop{background:rgba(28,24,18,.55)}
+.pm-bas{font-size:17px;font-weight:700;line-height:1.3;color:var(--hata)}
+.pm-ikon{font-size:17px}
+.pm-ad{font-size:15px;font-weight:600;margin-top:6px;overflow-wrap:anywhere}
+.pm-kim{font-size:13px;color:var(--soluk);font-weight:600}
+.pm-tutar{font-size:17px;font-weight:600;margin-top:2px}
+.pm-etki{font-size:13px;color:var(--metin);line-height:1.5;margin-top:10px}
+.pm-hata{font-size:13px;color:var(--hata);font-weight:600;margin-top:4px}
+.pm textarea,.pm input{font-size:17px}
+.pm-ey{display:flex;gap:10px;margin-top:14px}
+.pm-ey button{flex:1;min-height:44px}
+.pm-ey button[disabled]{opacity:.4}
+.pm :focus-visible,.dm-bt:focus-visible,.dm-o:focus-visible{
+  outline:3px solid var(--ana);outline-offset:2px}
 
 .msg{padding:11px 13px;border-radius:9px;margin:11px 0;font-weight:700;font-size:15px;
   line-height:1.5;display:none;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -1717,13 +1748,132 @@ async function krediKaydet(){
   await vKrediler();
 }
 
-async function krediSil(kredi){
-  const neden = prompt('"' + kredi.banka + ' · ' + kredi.ad + '" silinecek.\n\nGerekçe zorunlu ve kayda geçer:');
-  if (neden === null) return;
-  if (!neden.trim()){ mesaj('taksitMsg','hata','Gerekçe zorunlu — silinmedi.'); return; }
-  const { error } = await sb.from('kredi').update({ is_deleted:true, silme_nedeni:neden.trim() }).eq('id', kredi.id);
-  if (error){ hataYaz('taksitMsg','Kredi silinemedi.', error); return; }
-  await ekranAc('krediler');
+/* ===== P0-A1 · "⋯ diger islemler" menusu =====
+   Yikici eylem birincil eylemin YANINDA durmayacak. */
+function digerMenu(ogeler){
+  const sar = el('div','dm');
+  const bt = el('button','dm-bt','⋯'); bt.type = 'button';
+  bt.setAttribute('aria-label','Diğer işlemler'); bt.setAttribute('aria-expanded','false');
+  const mn = el('div','dm-mn');
+  const kapat = () => { mn.classList.remove('acik'); bt.setAttribute('aria-expanded','false'); };
+  for (const [metin, islev] of ogeler){
+    const o = el('button','dm-o', metin); o.type = 'button';
+    o.onclick = (e) => { e.stopPropagation(); kapat(); islev(bt); };
+    mn.appendChild(o);
+  }
+  bt.onclick = (e) => { e.stopPropagation();
+    const a = mn.classList.toggle('acik');
+    bt.setAttribute('aria-expanded', String(a));
+    if (a) mn.querySelector('button').focus(); };
+  document.addEventListener('click', kapat);
+  sar.appendChild(bt); sar.appendChild(mn);
+  return sar;
+}
+
+/* ===== P0-A1 · GUVENLI PASIFE ALMA (prompt() YOK) =====
+   ⚠ "SIL" DEGIL "PASIFE AL": islem soft-delete (is_deleted=true).
+   Satir fiziksel olarak silinmiyor, audit_log'da old_data/new_data ile
+   duruyor. "Silinecek" demek kullaniciya yalan soylemekti.
+   Gerekce `silme_nedeni` SUTUNU oldugu icin new_data ile audit'e dusuyor.
+   ⚠ Bu kapi ARAYUZ kapisidir; sunucuda gerekce hala ZORUNLU DEGIL (P0-A2). */
+const PM_ETKI = 'Bu kayıt aktif listelerden kaldırılacak ve ilgili aktif toplamların '
+  + 'dışında tutulacaktır. Kayıt denetim amacıyla sistemde korunacaktır.';
+const PM_TOKEN = 'PASİF';
+/* Turkce noktali/noktasiz I: kullanici hangisini yazarsa yazsin kabul. */
+const pmNorm = s => (s||'').trim().toLocaleUpperCase('tr').replace(/İ/g,'I');
+
+function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
+  let n = 0; const kimlik = (e) => (e.id = 'pm' + (++n));
+  const d = document.createElement('dialog'); d.className = 'pm';
+  d.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas'); kimlik(bas);
+  bas.appendChild(el('span','pm-ikon','⚠'));        // renk TEK BASINA tehlike degil
+  bas.appendChild(document.createTextNode(' ' + tur + ' pasife alınacak'));
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  d.appendChild(el('div','pm-ad', ad));
+  if (kim)   d.appendChild(el('div','pm-kim', kim));
+  if (tutar) d.appendChild(el('div','pm-tutar', tutar));
+  const etki = el('div','pm-etki', PM_ETKI); kimlik(etki);
+  d.setAttribute('aria-describedby', etki.id); d.appendChild(etki);
+
+  const alan = (etiket, tag) => {
+    const g = document.createElement(tag); kimlik(g);
+    const l = el('label', null, etiket); l.setAttribute('for', g.id);
+    const h = el('div','pm-hata'); kimlik(h); h.hidden = true;
+    g.setAttribute('aria-describedby', h.id);
+    d.appendChild(l); d.appendChild(g); d.appendChild(h);
+    return [g, h];
+  };
+  const [ta, taH] = alan('Gerekçe (zorunlu)', 'textarea'); ta.rows = 2;
+  const [dg, dgH] = alan('Onaylamak için "' + PM_TOKEN + '" yazın', 'input');
+
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn-kirmizi','Kaydı pasife al');
+  vaz.type = ona.type = 'button'; ona.disabled = true;
+  ey.appendChild(vaz); ey.appendChild(ona);          // Vazgec SOLDA
+  const hataK = el('div','uyari-agir'); hataK.hidden = true; kimlik(hataK);
+  ona.setAttribute('aria-describedby', hataK.id);
+  d.appendChild(ey); d.appendChild(hataK);
+  document.body.appendChild(d); d.showModal();       // gercek <dialog>
+
+  const denetle = () => {
+    const g = ta.value.trim(), t = pmNorm(dg.value);
+    taH.hidden = !(g.length > 0 && g.length < 10);
+    taH.textContent = 'Gerekçe çok kısa — ne olduğunu yaz (en az 10 karakter).';
+    dgH.hidden = !(t.length > 0 && t !== pmNorm(PM_TOKEN));
+    dgH.textContent = 'Doğrulama metni eşleşmiyor.';
+    ona.disabled = !(g.length >= 10 && t === pmNorm(PM_TOKEN));
+  };
+  ta.oninput = dg.oninput = denetle;
+  /* Enter TEK BASINA islem yapmaz: dogrulama alaninda Enter yutulur. */
+  dg.onkeydown = (e) => { if (e.key === 'Enter') e.preventDefault(); };
+  const kapat = () => { d.close(); d.remove();
+                        if (acan && acan.isConnected) acan.focus(); };
+  vaz.onclick = kapat;
+  /* ⚠ ESCAPE ELDE ELE ALINIYOR. Olculdu: bu Chromium'da <dialog>'un
+     yerel `cancel` olayi Escape'te ATESLENMEDI (keydown geldi, cancel
+     gelmedi) — yerel davranisa guvenmek kapatilamayan modal demekti.
+     `cancel` yine de dinleniyor; iki yol da mutation URETMEZ.
+     Arka alan tiklamasi <dialog>'da varsayilan olarak islem yapmaz. */
+  d.addEventListener('cancel', (e) => { e.preventDefault(); kapat(); });
+  d.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape'){ e.preventDefault(); kapat(); return; }
+    if (e.key !== 'Tab') return;                     // odak tuzagi
+    const od = [...d.querySelectorAll('textarea,input,button')].filter(x => !x.disabled);
+    const i = od.indexOf(document.activeElement); e.preventDefault();
+    od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+  });
+
+  let gonderildi = false;
+  ona.onclick = async () => {
+    if (gonderildi || ona.disabled) return;          // cift tiklama TEK mutation
+    gonderildi = true;
+    ona.disabled = vaz.disabled = ta.disabled = dg.disabled = true;
+    ona.textContent = 'İşleniyor...'; hataK.hidden = true;
+    /* SUNUCU SONUCU KESINLESMEDEN basari YOK; hatada modal ve
+       kullanicinin yazdigi gerekce KORUNUR. */
+    const s = await uygula(ta.value.trim());
+    if (s && s.ok){ kapat(); return; }
+    gonderildi = false;
+    ona.disabled = false; vaz.disabled = ta.disabled = dg.disabled = false;
+    ona.textContent = 'Kaydı pasife al';
+    hataK.hidden = false; hataK.textContent = (s && s.mesaj) || 'İşlem tamamlanamadı.';
+    ta.focus();
+  };
+  vaz.focus();                                       // acilista odak VAZGEC
+  return { d, ta, dg, vaz, ona, hataK, taH, dgH };
+}
+
+async function krediSil(kredi, acan){
+  pasifeAlAc(acan, { tur:'Kredi', ad: kredi.ad, kim: kredi.banka, tutar: tl(kredi.anapara),
+    uygula: async (neden) => {
+      /* ⚠ Ham update BILEREK korunuyor — RPC'ye cevirmek P0-A2'nin isi. */
+      const { error } = await sb.from('kredi').update({ is_deleted:true, silme_nedeni:neden }).eq('id', kredi.id);
+      if (error) return { ok:false, mesaj: hataTr(error.message) };
+      await ekranAc('krediler');          // liste SUNUCUDAN yeniden okunuyor
+      mesaj('krediMsg','ok','Kredi pasife alındı.');
+      return { ok:true };
+    }});
 }
 
 /* ---------- tek kredinin taksit ekrani ---------- */
@@ -1758,9 +1908,7 @@ async function taksitEkraniAc(krediId){
     sat('Kalan', tlk(o.kalanKurus) + ' (' + o.kalanAdet + ' taksit)');
     if (kredi.tur !== 'ticari')
       bas.appendChild(el('div','bilgi', turAdi(kredi.tur) + ' — bu kredinin hiçbir kalemi gidere yazılmaz.'));
-    const sil = el('button','btn-kirmizi','Krediyi sil');
-    sil.onclick = () => krediSil(kredi);
-    bas.appendChild(sil);
+    bas.appendChild(digerMenu([['Krediyi pasife al', (a) => krediSil(kredi, a)]]));
     c.appendChild(bas);
 
     const msg = el('div','msg'); msg.id = 'taksitMsg'; c.appendChild(msg);
@@ -2321,9 +2469,8 @@ async function vMaden(){
       }
       tr.appendChild(fh);
       const ey = document.createElement('td');
-      const bs = el('button','btn-kirmizi','Sil');
-      bs.onclick = () => madenSil(m);
-      ey.appendChild(bs); tr.appendChild(ey);
+      ey.appendChild(digerMenu([['Maden borcunu pasife al', (a) => madenSil(m, a, d.bugunKurus === null ? null : tlk(d.bugunKurus))]]));
+      tr.appendChild(ey);
       t.appendChild(tr);
     }
     sar.appendChild(t); k.appendChild(sar);
@@ -2476,14 +2623,16 @@ async function fiyatKaydet(){
   await vMaden();
 }
 
-async function madenSil(m){
-  const neden = prompt('Bu kayıt silinecek.\n\nGerekçe zorunlu ve kayda geçer:');
-  if (neden === null) return;
-  if (!neden.trim()){ mesaj('madenMsg','hata','Gerekçe zorunlu — silinmedi.'); return; }
-  const { error } = await sb.from('maden').update({ is_deleted:true, silme_nedeni:neden.trim() }).eq('id', m.id);
-  if (error){ hataYaz('madenMsg','Kayıt silinemedi.', error); return; }
-  mesaj('madenMsg','ok','Kayıt silindi.');
-  await vMaden();
+async function madenSil(m, acan, deger){
+  pasifeAlAc(acan, { tur:'Maden borcu', ad: turAdi(m.tur) + ' · ' + trGun(m.tarih),
+    kim: m.saflik ? 'saflık ' + m.saflik : null, tutar: deger || null,
+    uygula: async (neden) => {
+      const { error } = await sb.from('maden').update({ is_deleted:true, silme_nedeni:neden }).eq('id', m.id);
+      if (error) return { ok:false, mesaj: hataTr(error.message) };
+      await vMaden();                     // liste SUNUCUDAN yeniden okunuyor
+      mesaj('madenMsg','ok','Maden borcu pasife alındı.');
+      return { ok:true };
+    }});
 }
 
 /* ================== 4 · SAHIS ================== */
@@ -2546,8 +2695,8 @@ async function vSahis(){
     }
     const ey = el('div','tk-eylem');
     const bo = el('button','btn2','Ödeme ekle'); bo.onclick = () => sahisOdemeEkle(b);
-    const bs = el('button','btn-kirmizi','Borcu sil'); bs.onclick = () => sahisBorcSil(b);
-    ey.appendChild(bo); ey.appendChild(bs);
+    ey.appendChild(bo);
+    ey.appendChild(digerMenu([['Şahıs borcunu pasife al', (a) => sahisBorcSil(b, a)]]));
     kart.appendChild(ey);
     k.appendChild(kart);
   }
@@ -2610,14 +2759,16 @@ async function sahisOdemeEkle(borc){
   await vSahis();
 }
 
-async function sahisBorcSil(borc){
-  const neden = prompt('Bu borç kaydı silinecek.\n\nGerekçe zorunlu ve kayda geçer:');
-  if (neden === null) return;
-  if (!neden.trim()){ mesaj('sahisMsg','hata','Gerekçe zorunlu — silinmedi.'); return; }
-  const { error } = await sb.from('sahis_borc').update({ is_deleted:true, silme_nedeni:neden.trim() }).eq('id', borc.id);
-  if (error){ hataYaz('sahisMsg','Borç silinemedi.', error); return; }
-  mesaj('sahisMsg','ok','Borç silindi.');
-  await vSahis();
+async function sahisBorcSil(borc, acan){
+  pasifeAlAc(acan, { tur:'Şahıs borcu', ad: borc.isim, kim: trGun(borc.tarih) + ' tarihli',
+    tutar: tl(borc.tutar),
+    uygula: async (neden) => {
+      const { error } = await sb.from('sahis_borc').update({ is_deleted:true, silme_nedeni:neden }).eq('id', borc.id);
+      if (error) return { ok:false, mesaj: hataTr(error.message) };
+      await vSahis();                     // liste SUNUCUDAN yeniden okunuyor
+      mesaj('sahisMsg','ok','Şahıs borcu pasife alındı.');
+      return { ok:true };
+    }});
 }
 
 /* ================== ACILIS ================== */
