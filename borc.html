@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-15-9">
+<meta name="surum" content="borc-2026-08-17-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -564,13 +564,22 @@ function mesajTemizle(id){ const m = document.getElementById(id); if (m){ m.clas
 
 /* SESSIZ HATA YASAK (index.html M-4: iki silme akisi hatayi yutuyordu) */
 function hataYaz(msgId, onek, error){
-  const ham = (error && (error.message || error.hint || error.details)) || 'Bilinmeyen hata';
+  const ham = error ? [error.message,error.details,error.hint].filter(Boolean).join('\n') : 'Bilinmeyen hata';
   mesaj(msgId, 'hata', onek + '\n' + hataTr(ham));
   console.error(onek, error);
 }
 function hataTr(m){
   const s = String(m || '');
   if (/row-level security|permission denied/i.test(s)) return 'Yetkin yok (bu bölüm yalnız işletme sahibine açık).';
+  if (/FAZLA_ODEME/i.test(s)){
+    const b = s.match(/BAKIYE=([\d.]+)/i), i = s.match(/ISTENEN=([\d.]+)/i);
+    return b && i ? 'Hesap bakiyesi ' + tl(Number(b[1])) + '. ' + tl(Number(i[1])) + ' ödeme kabul edilmez.'
+                  : 'Ödeme hesap bakiyesini aşamaz.';
+  }
+  if (/SUBE_YOK/i.test(s)) return 'Profilin geçerli bir şubeye bağlı değil; ödeme kaydedilmedi.';
+  if (/BORC_HESAP_UYUSMAZ/i.test(s)) return 'Seçilen borç bu hesaba ait değil.';
+  if (/BORC_PASIF_BAKIYE_EKSI/i.test(s)) return 'Bu borç pasife alınırsa hesap bakiyesi eksiye düşer.';
+  if (/HESAP_YOK/i.test(s)) return 'Borç hesabı bulunamadı veya pasif.';
   if (/kt_ayrim_chk/i.test(s))
     return 'Kırılım tutmuyor: anapara + faiz + vergi/masraf, taksit tutarına EŞİT olmalı.\n'
          + 'Kırılımı hiç girmeyeceksen üçünü de boş bırak.';
@@ -744,11 +753,12 @@ async function odemeGetir(taksitId){
   if (error) throw error; return data || [];
 }
 async function sahisGetir(){
-  const [b,o] = await Promise.all([
-    sb.from('sahis_borc').select('id,isim,tutar,tarih,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
-    sb.from('sahis_odeme').select('id,borc_id,tutar,tarih,foto_path').eq('is_deleted',false).order('tarih')]);
-  if (b.error) throw b.error; if (o.error) throw o.error;
-  return { borclar:b.data||[], odemeler:o.data||[] };
+  const [h,b,o] = await Promise.all([
+    sb.from('v_sahis_hesap_bakiye').select('hesap_id,ad,tur,aciklama,borc_toplam,odeme_toplam,bakiye,borc_adet,odeme_adet').order('ad'),
+    sb.from('sahis_borc').select('id,hesap_id,isim,tutar,tarih,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
+    sb.from('sahis_odeme').select('id,hesap_id,borc_id,tutar,tarih,foto_path,aciklama').eq('is_deleted',false).order('tarih')]);
+  if (h.error) throw h.error; if (b.error) throw b.error; if (o.error) throw o.error;
+  return { hesaplar:h.data||[], borclar:b.data||[], odemeler:o.data||[] };
 }
 /* KART — kalan ve devir tutarsizligi GORUNUMDEN gelir, burada
    hesaplanmaz: iki yerde hesaplanan sey ayrisir. */
@@ -927,10 +937,9 @@ async function bantVerisi(){
     if (t.odendi) buAyOdenen += kr(t.toplam_tutar);
   }
 
-  const odemeToplam = new Map();
-  for (const o of sahis.odemeler) odemeToplam.set(o.borc_id, (odemeToplam.get(o.borc_id)||0) + kr(o.tutar));
-  let sahisKalan = 0;
-  for (const b of sahis.borclar) sahisKalan += Math.max(0, kr(b.tutar) - (odemeToplam.get(b.id)||0));
+  /* Cari bakiye TEK DB gorunumunden gelir. Borc/odeme sorgularini istemcide
+     yeniden toplamak ayri REST snapshot'larinda gecici fark uretebilirdi. */
+  const sahisKalan = sahis.hesaplar.reduce((s,h) => s + Math.max(0,kr(h.bakiye)),0);
 
   /* ⚠ KUR FARKI yalniz IKISI DE bilinen kayitlardan hesaplanir.
      Ilk yazimda toplam bugunku degerden toplam alis degeri cikariliyordu;
@@ -2747,78 +2756,101 @@ async function madenSil(m, acan, deger){
 async function vSahis(){
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
-  const { borclar, odemeler } = v.sahis;
-  const grup = new Map();
+  const { hesaplar, borclar, odemeler } = v.sahis;
+  const borcGrup = new Map(), odemeGrup = new Map();
+  for (const b of borclar){
+    if (!borcGrup.has(b.hesap_id)) borcGrup.set(b.hesap_id, []);
+    borcGrup.get(b.hesap_id).push(b);
+  }
   for (const o of odemeler){
-    if (!grup.has(o.borc_id)) grup.set(o.borc_id, []);
-    grup.get(o.borc_id).push(o);
+    if (!odemeGrup.has(o.hesap_id)) odemeGrup.set(o.hesap_id, []);
+    odemeGrup.get(o.hesap_id).push(o);
   }
   c.textContent = '';
   c.appendChild(bantCiz(v));
   const msg = el('div','msg'); msg.id = 'sahisMsg'; c.appendChild(msg);
 
   const k = el('div','kart');
-  k.appendChild(el('div','kbaslik','Şahıs borçları'));
-  if (!borclar.length) k.appendChild(el('div','bos','Kayıtlı şahıs borcu yok.'));
+  k.appendChild(el('div','kbaslik','Borç hesapları'));
+  if (!hesaplar.length) k.appendChild(el('div','bos','Kayıtlı borç hesabı yok.'));
 
-  for (const b of borclar){
-    const od = grup.get(b.id) || [];
-    const odenen = od.reduce((s,x) => s + kr(x.tutar), 0);
-    const kalan = kr(b.tutar) - odenen;
-
+  for (const h of hesaplar){
+    const hb = borcGrup.get(h.hesap_id) || [], ho = odemeGrup.get(h.hesap_id) || [];
+    const kalan = kr(h.bakiye);
     const kart = el('div','tk');
     const ust = el('div','tk-ust');
-    ust.appendChild(el('div','tk-ad', b.isim));            // textContent
-    ust.appendChild(el('div','tk-tutar', tlk(Math.max(0, kalan))));
+    const ad = el('div','tk-ad',h.ad); ad.appendChild(el('span','rozet '+(h.tur==='diger'?'rz-ltd':'rz-sahis'),h.tur==='diger'?'DİĞER':'KİŞİ'));
+    ust.appendChild(ad);
+    ust.appendChild(el('div','tk-tutar', tlk(kalan)));
     kart.appendChild(ust);
     kart.appendChild(el('div','tk-orta',
-      'borç ' + tl(b.tutar) + ' · ' + trGun(b.tarih) + ' · ödenen ' + tlk(odenen) + ' (' + od.length + ')'));
-    if (kalan < 0) kart.appendChild(el('div','uyari-orta','Ödemeler borçtan fazla: ' + tlk(-kalan) + ' fazla ödenmiş.'));
-    if (b.aciklama) kart.appendChild(el('div','kucuk', b.aciklama));
+      'toplam borç ' + tlk(kr(h.borc_toplam)) + ' · ödenen ' + tlk(kr(h.odeme_toplam)) +
+      ' · ' + hb.length + ' borç / ' + ho.length + ' ödeme'));
+    if (h.aciklama) kart.appendChild(el('div','kucuk',h.aciklama));
 
-    if (od.length){
+    const hareketler = [
+      ...hb.map(x => ({...x,_tur:'borc'})),
+      ...ho.map(x => ({...x,_tur:'odeme'}))
+    ].sort((a,b) => b.tarih.localeCompare(a.tarih));
+    if (hareketler.length){
       const sar = el('div','tablo-sar');
       const t = document.createElement('table');
       const hr = document.createElement('tr');
-      ['TARİH','TUTAR','BELGE',''].forEach((h,i) => hr.appendChild(el('th', i===1?'sag':null, h)));
+      ['TARİH','HAREKET','TUTAR','AÇIKLAMA','BELGE',''].forEach((x,i) => hr.appendChild(el('th', i===2?'sag':null, x)));
       t.appendChild(hr);
-      for (const o of od){
+      for (const x of hareketler){
         const tr = document.createElement('tr');
-        tr.appendChild(td(trGun(o.tarih)));
-        tr.appendChild(td(tl(o.tutar),'sag'));
+        tr.appendChild(td(trGun(x.tarih)));
+        tr.appendChild(td(x._tur==='borc'?'Borç':'Ödeme'));
+        tr.appendChild(td((x._tur==='borc'?'+ ':'− ')+tl(x.tutar),'sag'));
+        tr.appendChild(td(x.aciklama||'—'));
         const dk = document.createElement('td');
-        if (o.foto_path){
+        if (x._tur==='odeme' && x.foto_path){
           const a = el('button','btn-mini','Aç');
-          a.onclick = () => belgeAc(o.foto_path,'sahisMsg');
+          a.onclick = () => belgeAc(x.foto_path,'sahisMsg');
           dk.appendChild(a);
-        } else { dk.appendChild(el('span','gri','belge yok')); }
+        } else { dk.appendChild(el('span','gri',x._tur==='odeme'?'belge yok':'—')); }
         tr.appendChild(dk);
         const ey = document.createElement('td');
-        const bd = el('button','btn-mini', o.foto_path ? 'Değiştir' : '+ Belge');
-        bd.onclick = () => dekontEkle('sahis_odeme', o.id, 'sahis_odeme','sahisMsg', !!o.foto_path, () => vSahis());
-        ey.appendChild(bd); tr.appendChild(ey);
+        if (x._tur==='odeme'){
+          const bd = el('button','btn-mini', x.foto_path ? 'Değiştir' : '+ Belge');
+          bd.onclick = () => dekontEkle('sahis_odeme', x.id, 'sahis_odeme','sahisMsg', !!x.foto_path, () => vSahis());
+          ey.appendChild(bd);
+        } else {
+          ey.appendChild(digerMenu([['Borç hareketini pasife al',(a) => sahisBorcSil(x,a)]]));
+        }
+        tr.appendChild(ey);
         t.appendChild(tr);
       }
       sar.appendChild(t); kart.appendChild(sar);
     }
     const ey = el('div','tk-eylem');
-    const bo = el('button','btn2','Ödeme ekle'); bo.onclick = () => sahisOdemeEkle(b);
+    const bo = el('button','btn2','Ödeme ekle'); bo.disabled = kalan<=0; bo.onclick = () => sahisOdemeEkle(h);
     ey.appendChild(bo);
-    ey.appendChild(digerMenu([['Şahıs borcunu pasife al', (a) => sahisBorcSil(b, a)]]));
     kart.appendChild(ey);
     k.appendChild(kart);
   }
   c.appendChild(k);
 
   const f = el('div','kart');
-  f.appendChild(el('div','kbaslik','Yeni şahıs borcu'));
+  f.appendChild(el('div','kbaslik','Borç hareketi ekle'));
   const ekle = (etiket,id,tip,mod) => {
     f.appendChild(el('label', null, etiket)).setAttribute('for', id);
     const i = document.createElement('input'); i.id = id; i.type = tip || 'text';
     if (mod) i.setAttribute('inputmode', mod);
     f.appendChild(i); return i;
   };
-  ekle('Kime (isim)','sbIsim','text');
+  f.appendChild(el('label',null,'Borç hesabı')).setAttribute('for','sbHesap');
+  const hs = document.createElement('select'); hs.id='sbHesap';
+  hs.appendChild(new Option('— yeni hesap oluştur —',''));
+  for (const h of hesaplar) hs.appendChild(new Option(h.ad,h.hesap_id));
+  f.appendChild(hs);
+  const yeniAd = ekle('Yeni hesap adı','sbYeniAd','text');
+  f.appendChild(el('label',null,'Yeni hesap türü')).setAttribute('for','sbYeniTur');
+  const yeniTur = document.createElement('select'); yeniTur.id='sbYeniTur';
+  yeniTur.appendChild(new Option('Kişi','kisi')); yeniTur.appendChild(new Option('Diğer yükümlülük','diger')); f.appendChild(yeniTur);
+  const yeniDurum = () => { const yeni=!hs.value; yeniAd.disabled=!yeni; yeniTur.disabled=!yeni; };
+  hs.onchange=yeniDurum; yeniDurum();
   ekle('Tutar','sbTutar','text','decimal');
   ekle('Tarih','sbTarih','date').value = bugun();
   f.appendChild(el('label', null, 'Açıklama')).setAttribute('for','sbAciklama');
@@ -2830,25 +2862,28 @@ async function vSahis(){
 async function sahisBorcKaydet(){
   mesajTemizle('sahisMsg');
   const btn = document.getElementById('sbKaydet');
-  const isim = document.getElementById('sbIsim').value.trim();
+  const hesap = document.getElementById('sbHesap').value || null;
+  const yeniAd = document.getElementById('sbYeniAd').value.trim() || null;
+  const yeniTur = document.getElementById('sbYeniTur').value;
   const tarih = document.getElementById('sbTarih').value;
   const tut = paraCoz(document.getElementById('sbTutar').value);
-  if (!isim)  return mesaj('sahisMsg','hata','İsim zorunlu.');
+  if (!hesap && !yeniAd) return mesaj('sahisMsg','hata','Mevcut bir hesap seç veya yeni hesap adı yaz.');
   if (!tarih) return mesaj('sahisMsg','hata','Tarih zorunlu.');
   if (!tut.ok) return mesaj('sahisMsg','hata','Tutar: ' + tut.hata);
   if (tut.kurus <= 0) return mesaj('sahisMsg','hata','Tutar sıfırdan büyük olmalı.');
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
-  const { error } = await sb.from('sahis_borc').insert({
-    isim, tutar:(tut.kurus/100).toFixed(2), tarih,
-    aciklama: document.getElementById('sbAciklama').value.trim() || null,
-    giren_id: PROFIL ? PROFIL.id : null });
+  const { error } = await sb.rpc('rpc_sahis_borc_kaydet',{
+    p_idem:crypto.randomUUID(), p_hesap:hesap, p_yeni_ad:yeniAd,
+    p_yeni_tur:hesap?null:yeniTur, p_tarih:tarih,
+    p_tutar:(tut.kurus/100).toFixed(2),
+    p_aciklama:document.getElementById('sbAciklama').value.trim() || null });
   btn.disabled = false; btn.textContent = 'Borcu kaydet';
   if (error){ hataYaz('sahisMsg','Borç kaydedilemedi.', error); return; }
   mesaj('sahisMsg','ok','Borç kaydedildi.');
   await vSahis();
 }
 
-async function sahisOdemeEkle(borc){
+async function sahisOdemeEkle(hesap){
   const tutarH = prompt('Ödeme tutarı:');
   if (tutarH === null) return;
   const t = paraCoz(tutarH);
@@ -2859,20 +2894,20 @@ async function sahisOdemeEkle(borc){
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tarih)){
     mesaj('sahisMsg','hata','Tarih YYYY-AA-GG biçiminde olmalı. Kayıt YAPILMADI.'); return;
   }
-  const { error } = await sb.from('sahis_odeme').insert({
-    borc_id: borc.id, tutar:(t.kurus/100).toFixed(2), tarih,
-    giren_id: PROFIL ? PROFIL.id : null });
+  const { error } = await sb.rpc('rpc_sahis_odeme_kaydet',{
+    p_idem:crypto.randomUUID(), p_hesap:hesap.hesap_id, p_borc:null,
+    p_tutar:(t.kurus/100).toFixed(2), p_tarih:tarih, p_foto:null, p_aciklama:null });
   if (error){ hataYaz('sahisMsg','Ödeme kaydedilemedi.', error); return; }
   mesaj('sahisMsg','ok','Ödeme kaydedildi. Belge eklemeyi unutma.');
   await vSahis();
 }
 
 async function sahisBorcSil(borc, acan){
-  pasifeAlAc(acan, { tur:'Şahıs borcu', ad: borc.isim, kim: trGun(borc.tarih) + ' tarihli',
+  pasifeAlAc(acan, { tur:'Borç hareketi', ad: borc.isim, kim: trGun(borc.tarih) + ' tarihli',
     tutar: tl(borc.tutar),
     uygula: (neden) => pasifeAlUygula(
-      () => sb.from('sahis_borc').update({ is_deleted:true, silme_nedeni:neden }).eq('id', borc.id),
-      async () => { await vSahis(); mesaj('sahisMsg','ok','Şahıs borcu pasife alındı.'); },
+      () => sb.rpc('rpc_sahis_borc_pasife_al',{p_borc:borc.id,p_neden:neden}),
+      async () => { await vSahis(); mesaj('sahisMsg','ok','Borç hareketi pasife alındı.'); },
       'sahis_borc')});
 }
 
