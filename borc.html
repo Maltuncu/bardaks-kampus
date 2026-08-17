@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-17-8">
+<meta name="surum" content="borc-2026-08-17-9">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -282,6 +282,8 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .pm-kim{font-size:13px;color:var(--soluk);font-weight:600}
 .pm-tutar{font-size:17px;font-weight:600;margin-top:2px}
 .pm-etki{font-size:13px;color:var(--metin);line-height:1.5;margin-top:10px}
+.pm-bas.sakin{color:var(--metin)}
+.os-metin{font-size:15px;color:var(--metin);line-height:1.5;margin-top:10px}
 .pm-hata{font-size:13px;color:var(--hata);font-weight:600;margin-top:4px}
 .pm textarea,.pm input{font-size:17px}
 .pm-ey{display:flex;gap:10px;margin-top:14px}
@@ -632,8 +634,67 @@ async function dosyaYukle(f, klasor){
   if (error) throw new Error('Belge yüklenemedi: ' + error.message);
   return yol;
 }
-function dekontEkle(tablo, id, klasor, msgId, mevcutVar, sonra){
-  if (mevcutVar && !confirm('Bu kayıtta zaten belge var.\n\nYenisini eklersen eskisi kayıtla ilişkisiz kalır.\n\nDevam edilsin mi?')) return;
+/* ⚠ UCUNCU MODAL. pasifeAlAc ve odeme penceresiyle AYNI mekanik ucuncu
+   kez yaziliyor. Ortak yardimciya cikarmak daha temiz olurdu AMA iki
+   calisan ve canlida sinanmis akisi degistirmek demekti — BIRLESTIRME
+   AYRI IS, kaybolmasin.
+   ⚠ Bu pencere MUTATION YAPMIYOR: soru sorar, cevabi dondurur. Bu yuzden
+   pasifeAlAc'in yedi ozelliginden yalniz DORDU var. Gerekmeyenler ve
+   nedenleri: `isleniyor` kilidi (islem suresi yok), iki fazli sonuc
+   (tazeleme yok), hata sonrasi form korunumu (form yok). */
+let OS_SAYAC = 0;
+function onaySor({ baslik, metin, onayMetni, tehlikeli }){
+  return new Promise((cevapla) => {
+    const acan = document.activeElement;          // (d) odak devri icin
+    const no = ++OS_SAYAC;
+    const d = document.createElement('dialog'); d.className = 'pm';   // (a) gercek <dialog>
+    d.setAttribute('aria-modal','true');
+    const bas = el('div','pm-bas' + (tehlikeli ? '' : ' sakin')); bas.id = 'os' + no + 'b';
+    if (tehlikeli) bas.appendChild(el('span','pm-ikon','⚠'));   // renk TEK BASINA tehlike degil
+    bas.appendChild(document.createTextNode((tehlikeli ? ' ' : '') + baslik));
+    const met = el('div','os-metin', metin); met.id = 'os' + no + 'm';
+    d.setAttribute('aria-labelledby', bas.id); d.setAttribute('aria-describedby', met.id);
+    d.appendChild(bas); d.appendChild(met);
+    const ey = el('div','pm-ey');
+    const hayir = el('button','btn2','Vazgeç');
+    const evet  = el('button', tehlikeli ? 'btn-kirmizi' : 'btn', onayMetni);
+    hayir.type = evet.type = 'button';
+    ey.appendChild(hayir); ey.appendChild(evet);  // Vazgec SOLDA
+    d.appendChild(ey); document.body.appendChild(d); d.showModal();
+
+    let bitti = false;
+    const kapat = (sonuc) => {
+      if (bitti) return; bitti = true;            // Promise IKI KEZ cozulmez
+      d.close(); d.remove();
+      if (acan && acan.isConnected && acan.focus) acan.focus();
+      else { const h = document.querySelector('#bolumSerit button.aktif')
+                    || document.querySelector('#bolumSerit button'); if (h) h.focus(); }
+      cevapla(sonuc);
+    };
+    hayir.onclick = () => kapat(false);           // olay nesnesi GECMEZ
+    evet.onclick  = () => kapat(true);
+    /* ⚠ (b) ESCAPE ELDE: bu Chromium'da <dialog>'un yerel `cancel` olayi
+       Escape'te ATESLENMIYOR (olculdu). Escape = HAYIR. Ikisi de dinleniyor. */
+    d.addEventListener('cancel', (e) => { e.preventDefault(); kapat(false); });
+    d.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape'){ e.preventDefault(); kapat(false); return; }
+      if (e.key !== 'Tab') return;                // (c) odak tuzagi
+      const od = [...d.querySelectorAll('button')].filter(x => !x.disabled);
+      if (!od.length) return;                     // ⚠ bos dizide od[NaN].focus() -> TypeError
+      const i = od.indexOf(document.activeElement); e.preventDefault();
+      od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+    });
+    hayir.focus();                                // varsayilan odak YIKICI OLMAYAN secimde
+  });
+}
+
+/* ⚠ confirm() kalkinca ASYNC oldu. Uc cagirani da `() => dekontEkle(...)`
+   bicimindeydi; donen Promise kullanilmiyor, davranis degismiyor. */
+async function dekontEkle(tablo, id, klasor, msgId, mevcutVar, sonra){
+  if (mevcutVar && !(await onaySor({
+        baslik:'Belge değiştirilecek',
+        metin:'Bu kayıtta zaten bir belge var. Yenisini eklersen eski belge kayıtla ilişkisiz kalır.',
+        onayMetni:'Yeni belgeyi yükle', tehlikeli:true }))) return;
   const inp = document.createElement('input');
   inp.type = 'file';
   inp.accept = 'image/*,application/pdf,.pdf';
@@ -2198,7 +2259,11 @@ async function topluOnizle(kredi, sonSira, kaydet){
     return;
   }
 
-  if (!confirm(r.satirlar.length + ' taksit kaydedilecek.\n\nDevam edilsin mi?')) return;
+  if (!(await onaySor({
+        baslik:'Taksitler kaydedilecek',
+        metin: r.satirlar.length + ' taksit kaydedilecek. Toplam '
+             + tl(r.satirlar.reduce((s,x) => s + Number(x.toplam_tutar || 0), 0)) + '.',
+        onayMetni:'Kaydet', tehlikeli:false }))) return;
   const btn = document.getElementById('tKaydet');
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
   const { error } = await sb.from('kredi_taksit').insert(r.satirlar);
