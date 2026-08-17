@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-17-7">
+<meta name="surum" content="borc-2026-08-17-8">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -574,13 +574,13 @@ function hataTr(m){
   /* v98 · sunucu gerekce sozlesmesi. Ham kodu kullaniciya GOSTERME. */
   if (/YETKI_YOK/i.test(s))     return 'Bu işlem için yetkiniz yok.';
   if (/GEREKCE_KISA/i.test(s))  return 'Gerekçe en az 10 karakter olmalı.';
-  if (/KAYIT_YOK/i.test(s))     return 'Kayıt bulunamadı ya da zaten pasife alınmış.';
-  if (/TAKSIT_YOK/i.test(s))    return 'Taksit bulunamadı ya da kredi pasife alınmış. Ekranı yenileyin.';
+  if (/KAYIT_YOK/i.test(s))     return 'Kayıt bulunamadı ya da zaten arşivlenmiş.';
+  if (/TAKSIT_YOK/i.test(s))    return 'Taksit bulunamadı ya da kredi arşivlenmiş. Ekranı yenileyin.';
   if (/NEDEN_ZORUNLU/i.test(s)) return 'Gerekçe zorunlu.';
   if (/ODEME_VAR/i.test(s)){
     const n = s.match(/ODEME_VAR\|(\d+)/i);
-    return n ? 'Bu kredide ' + n[1] + ' ödeme kaydı var. Ödemesi olan kredi pasife alınamaz.'
-             : 'Ödemesi olan kredi pasife alınamaz.';
+    return n ? 'Bu kredide ' + n[1] + ' ödeme kaydı var. Ödemesi olan kredi arşivlenemez.'
+             : 'Ödemesi olan kredi arşivlenemez.';
   }
   if (/FAZLA_ODEME/i.test(s)){
     const b = s.match(/BAKIYE=([\d.]+)/i), i = s.match(/ISTENEN=([\d.]+)/i);
@@ -589,7 +589,7 @@ function hataTr(m){
   }
   if (/SUBE_YOK/i.test(s)) return 'Profilin geçerli bir şubeye bağlı değil; ödeme kaydedilmedi.';
   if (/BORC_HESAP_UYUSMAZ/i.test(s)) return 'Seçilen borç bu hesaba ait değil.';
-  if (/BORC_PASIF_BAKIYE_EKSI/i.test(s)) return 'Bu borç pasife alınırsa hesap bakiyesi eksiye düşer.';
+  if (/BORC_PASIF_BAKIYE_EKSI/i.test(s)) return 'Bu borç arşivlenirse hesap bakiyesi eksiye düşer.';
   if (/HESAP_YOK/i.test(s)) return 'Borç hesabı bulunamadı veya pasif.';
   if (/kt_ayrim_chk/i.test(s))
     return 'Kırılım tutmuyor: anapara + faiz + vergi/masraf, taksit tutarına EŞİT olmalı.\n'
@@ -1837,9 +1837,15 @@ function digerMenu(ogeler){
    ⚠ Bu kapi ARAYUZ kapisidir; sunucuda gerekce hala ZORUNLU DEGIL (P0-A2). */
 const PM_ETKI = 'Bu kayıt aktif listelerden kaldırılacak ve ilgili aktif toplamların '
   + 'dışında tutulacaktır. Kayıt denetim amacıyla sistemde korunacaktır.';
-const PM_TOKEN = 'PASİF';
+const PM_TOKEN = 'ARŞİV';
 /* Turkce noktali/noktasiz I: kullanici hangisini yazarsa yazsin kabul. */
 const pmNorm = s => (s||'').trim().toLocaleUpperCase('tr').replace(/İ/g,'I');
+/* ⚠ 'ş'SIZ YAZIM DA KABUL. pmNorm yalniz I/İ'yi esitler; 'arsiv' -> 'ARSIV'
+   ile 'arşiv' -> 'ARŞIV' AYRI kalir ve Turkce klavyesi olmayan bir cihazda
+   kullanici kapiya takilirdi. pmNorm'a DOKUNULMUYOR (kredi/maden/sahis
+   hepsinde ortak); kabul edilen yazimlar listeyle cozuluyor. Kasitli
+   yazma kapisi zayiflamiyor: iki yazim da bilincli yazmayi gerektiriyor. */
+const PM_KABUL = ['ARŞİV','ARSIV'].map(pmNorm);
 
 function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   let n = 0; const kimlik = (e) => (e.id = 'pm' + (++n));
@@ -1847,7 +1853,7 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   d.setAttribute('aria-modal','true');
   const bas = el('div','pm-bas'); kimlik(bas);
   bas.appendChild(el('span','pm-ikon','⚠'));        // renk TEK BASINA tehlike degil
-  bas.appendChild(document.createTextNode(' ' + tur + ' pasife alınacak'));
+  bas.appendChild(document.createTextNode(' ' + tur + ' arşivlenecek'));
   d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
   d.appendChild(el('div','pm-ad', ad));
   if (kim)   d.appendChild(el('div','pm-kim', kim));
@@ -1867,7 +1873,7 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   const [dg, dgH] = alan('Onaylamak için "' + PM_TOKEN + '" yazın', 'input');
 
   const ey = el('div','pm-ey');
-  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn-kirmizi','Kaydı pasife al');
+  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn-kirmizi','Arşive kaldır');
   vaz.type = ona.type = 'button'; ona.disabled = true;
   ey.appendChild(vaz); ey.appendChild(ona);          // Vazgec SOLDA
   const hataK = el('div','uyari-agir'); hataK.hidden = true; kimlik(hataK);
@@ -1879,9 +1885,9 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
     const g = ta.value.trim(), t = pmNorm(dg.value);
     taH.hidden = !(g.length > 0 && g.length < 10);
     taH.textContent = 'Gerekçe çok kısa — ne olduğunu yaz (en az 10 karakter).';
-    dgH.hidden = !(t.length > 0 && t !== pmNorm(PM_TOKEN));
+    dgH.hidden = !(t.length > 0 && !PM_KABUL.includes(t));
     dgH.textContent = 'Doğrulama metni eşleşmiyor.';
-    ona.disabled = !(g.length >= 10 && t === pmNorm(PM_TOKEN));
+    ona.disabled = !(g.length >= 10 && PM_KABUL.includes(t));
   };
   ta.oninput = dg.oninput = denetle;
   /* Enter TEK BASINA islem yapmaz: dogrulama alaninda Enter yutulur. */
@@ -1963,12 +1969,12 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
        tazeleme hatasi AYNI SEY DEGILDIR. */
     let s = null;
     try { s = await uygula(ta.value.trim()); }
-    catch(e){ console.error('P0-A1 pasife alma', e);
+    catch(e){ console.error('P0-A1 arsivleme', e);
               s = { ok:false, mesaj:'Beklenmeyen hata — ayrıntı konsolda.' }; }
     finally {
       isleniyor = false;
       vaz.disabled = ta.disabled = dg.disabled = false;
-      ona.textContent = 'Kaydı pasife al';
+      ona.textContent = 'Arşive kaldır';
       denetle();                       // onay dugmesinin DOGRU durumu geri gelir
     }
     if (s && s.ok){ kapat(s.uyari); return; }
@@ -1993,7 +1999,7 @@ async function pasifeAlUygula(mutasyon, tazele, tabloAdi){
   /* Buraya gelindiyse kayit ZATEN pasife alinmistir. */
   try { await tazele(); }
   catch(e){ console.error('P0-A1 tazeleme ' + tabloAdi, e);
-            return { ok:true, uyari:'Kayıt pasife alındı. Liste tazelenemedi — sayfayı yenileyin.' }; }
+            return { ok:true, uyari:'Kayıt arşivlendi. Liste tazelenemedi — sayfayı yenileyin.' }; }
   return { ok:true };
 }
 
@@ -2004,7 +2010,7 @@ async function krediSil(kredi, acan){
          Kural sunucuda: gerekce >=10 karakter, odeme varsa RED, taksitler de pasif. */
       () => sb.rpc('rpc_kredi_pasife_al',{p_kredi:kredi.id,p_neden:neden}),
       /* FAZ 2 · tazeleme. Buradaki hata mutation hatasi DEGIL. */
-      async () => { await ekranAc('krediler'); mesaj('krediMsg','ok','Kredi pasife alındı.'); },
+      async () => { await ekranAc('krediler'); mesaj('krediMsg','ok','Kredi arşivlendi.'); },
       'kredi')});
 }
 
@@ -2040,7 +2046,7 @@ async function taksitEkraniAc(krediId){
     sat('Kalan', tlk(o.kalanKurus) + ' (' + o.kalanAdet + ' taksit)');
     if (kredi.tur !== 'ticari')
       bas.appendChild(el('div','bilgi', turAdi(kredi.tur) + ' — bu kredinin hiçbir kalemi gidere yazılmaz.'));
-    bas.appendChild(digerMenu([['Krediyi pasife al', (a) => krediSil(kredi, a)]]));
+    bas.appendChild(digerMenu([['Krediyi arşivle', (a) => krediSil(kredi, a)]]));
     c.appendChild(bas);
 
     const msg = el('div','msg'); msg.id = 'taksitMsg'; c.appendChild(msg);
@@ -2601,7 +2607,7 @@ async function vMaden(){
       }
       tr.appendChild(fh);
       const ey = document.createElement('td');
-      ey.appendChild(digerMenu([['Maden borcunu pasife al', (a) => madenSil(m, a, d.bugunKurus === null ? null : tlk(d.bugunKurus))]]));
+      ey.appendChild(digerMenu([['Maden borcunu arşivle', (a) => madenSil(m, a, d.bugunKurus === null ? null : tlk(d.bugunKurus))]]));
       tr.appendChild(ey);
       t.appendChild(tr);
     }
@@ -2760,7 +2766,7 @@ async function madenSil(m, acan, deger){
     kim: m.saflik ? 'saflık ' + m.saflik : null, tutar: deger || null,
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_maden_pasife_al',{p_maden:m.id,p_neden:neden}),
-      async () => { await vMaden(); mesaj('madenMsg','ok','Maden borcu pasife alındı.'); },
+      async () => { await vMaden(); mesaj('madenMsg','ok','Maden borcu arşivlendi.'); },
       'maden')});
 }
 
@@ -2829,7 +2835,7 @@ async function vSahis(){
           bd.onclick = () => dekontEkle('sahis_odeme', x.id, 'sahis_odeme','sahisMsg', !!x.foto_path, () => vSahis());
           ey.appendChild(bd);
         } else {
-          ey.appendChild(digerMenu([['Borç hareketini pasife al',(a) => sahisBorcSil(x,a)]]));
+          ey.appendChild(digerMenu([['Borç hareketini arşivle',(a) => sahisBorcSil(x,a)]]));
         }
         tr.appendChild(ey);
         t.appendChild(tr);
@@ -2838,7 +2844,8 @@ async function vSahis(){
     }
     const ey = el('div','tk-eylem');
     const bo = el('button','btn2','Ödeme ekle'); bo.disabled = kalan<=0; bo.onclick = () => sahisOdemeAc(h, bo);
-    ey.appendChild(bo);
+    const bb = el('button','btn2','Borç ekle'); bb.onclick = () => sahisBorcFormunaGit(h.hesap_id);
+    ey.appendChild(bo); ey.appendChild(bb);
     kart.appendChild(ey);
     k.appendChild(kart);
   }
@@ -2877,6 +2884,20 @@ async function vSahis(){
      sonra vSahis() formu yeniden cizer ve YENI anahtar uretilir. */
   bk.dataset.idem = crypto.randomUUID();
   f.appendChild(bk); c.appendChild(f);
+}
+
+/* ⚠ YENI FORM YAZILMIYOR — sayfanin dibindeki MEVCUT forma goturuluyor.
+   Ayni formun ikinci bir kopyasi iki dogrulama ve iki hata yolu demekti;
+   sikayet formun kendisi degil, BULUNAMAMASIYDI. */
+function sahisBorcFormunaGit(hesapId){
+  const hs = document.getElementById('sbHesap'); if (!hs) return;
+  hs.value = hesapId;
+  /* ⚠ Programatik secim `change` uretmez: elle atesle, yoksa yeniDurum()
+     kosmaz ve "Yeni hesap adı/türü" alanlari ACIK kalir. */
+  hs.dispatchEvent(new Event('change', { bubbles:true }));
+  (hs.closest('.kart') || hs).scrollIntoView({ behavior:'smooth', block:'center' });
+  const tut = document.getElementById('sbTutar');
+  if (tut) tut.focus({ preventScroll:true });   // odak kendi kaydirmasiyla yumusak kaydirmayi bozmasin
 }
 
 async function sahisBorcKaydet(){
@@ -3044,7 +3065,7 @@ async function sahisBorcSil(borc, acan){
     tutar: tl(borc.tutar),
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_sahis_borc_pasife_al',{p_borc:borc.id,p_neden:neden}),
-      async () => { await vSahis(); mesaj('sahisMsg','ok','Borç hareketi pasife alındı.'); },
+      async () => { await vSahis(); mesaj('sahisMsg','ok','Borç hareketi arşivlendi.'); },
       'sahis_borc')});
 }
 
