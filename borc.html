@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-17-9">
+<meta name="surum" content="borc-2026-08-17-10">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2013,6 +2013,7 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
     if (e.key === 'Escape'){ e.preventDefault(); kapat(); return; }
     if (e.key !== 'Tab') return;                     // odak tuzagi
     const od = [...d.querySelectorAll('textarea,input,button')].filter(x => !x.disabled);
+    if (!od.length) return;                          // ⚠ islem surerken od BOS: od[NaN].focus() -> TypeError
     const i = od.indexOf(document.activeElement); e.preventDefault();
     od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
   });
@@ -2021,6 +2022,13 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
     if (isleniyor || ona.disabled) return;           // cift tiklama TEK mutation
     isleniyor = true;
     ona.disabled = vaz.disabled = ta.disabled = dg.disabled = true;
+    /* ⚠ ODAK PENCEREYE ALINIYOR. Olculdu: odaklanan oge disabled olunca
+       tarayici odagi <body>'ye tasiyor; dinleyici <dialog>'a bagli ve
+       olaylar YUKARI kabardigi icin keydown pencereye HIC ULASMIYORDU
+       (0/2 olculdu) — odak tuzagi islem suresince etkisizdi ve ekran
+       okuyucu yerini kaybediyordu. Pencerenin kendisi odaklanabilir
+       yapilip odak ona veriliyor; olay artik ULASIYOR. */
+    d.tabIndex = -1; d.focus();
     ona.textContent = 'İşleniyor...'; hataK.hidden = true;
     /* ⚠ EXCEPTION GUVENLIGI. Onceki hal ciplakti: uygula() firlatirsa
        isleniyor=true kaliyor, dort kontrol de disabled kaliyor ve buton
@@ -3087,6 +3095,7 @@ function sahisOdemeAc(hesap, acan){
     if (isleniyor || kay.disabled) return;        // cift tiklama TEK mutation
     isleniyor = true;
     kay.disabled = vaz.disabled = tut.disabled = trh.disabled = acx.disabled = true;
+    d.tabIndex = -1; d.focus();   // ⚠ ayni sebep: kontroller disabled olunca odak <body>'ye dusuyordu
     kay.textContent = 'İşleniyor...'; hataK.hidden = true;
     let s = null;
     try { s = await sahisOdemeUygula(idem, hesap, paraCoz(tut.value).kurus, trh.value, acx.value.trim()); }
