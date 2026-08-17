@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-15-7">
+<meta name="surum" content="borc-2026-08-15-9">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1749,23 +1749,62 @@ async function krediKaydet(){
 }
 
 /* ===== P0-A1 · "⋯ diger islemler" menusu =====
-   Yikici eylem birincil eylemin YANINDA durmayacak. */
+   Yikici eylem birincil eylemin YANINDA durmayacak.
+
+   ⚠ DINLEYICI YASAM DONGUSU — olculmus kusurun duzeltmesi.
+   Onceki hal her digerMenu() cagrisinda document'a bir click dinleyicisi
+   EKLIYOR ve HICBIRINI kaldirmiyordu. Olculdu: 101 render sonrasi 202
+   click dinleyicisi; her kapali menunun closure'i kopmus DOM dugumlerini
+   canli tutuyordu (bellek sizintisi).
+   AbortController KULLANILMADI: bu dosyada abort()'u cagiracak bir yikim
+   yasam dongusu YOK — ekranlar `c.textContent=''` ile siliniyor, yani
+   abort hicbir zaman calismazdi. Cozum: modul duzeyinde BIR KEZ kurulan
+   delege dinleyici + tek ACIK_MENU referansi. */
+let ACIK_MENU = null, MENU_SON_KAPANAN = null, DM_SAYAC = 0;
+function menuKapat(odakla){
+  if (!ACIK_MENU) return;
+  const { mn, bt } = ACIK_MENU;
+  mn.classList.remove('acik'); bt.setAttribute('aria-expanded','false');
+  ACIK_MENU = null;
+  if (odakla && bt.isConnected) bt.focus();
+}
+/* YAKALAMA (capture) evresinde: dugmenin kendi isleyicisinden ONCE calisir,
+   boylece "acik olan onceki menu kapansin" kurali YAPISAL olur — her
+   menuye ayrica kod yazmak gerekmez. */
+document.addEventListener('click', () => {
+  MENU_SON_KAPANAN = ACIK_MENU ? ACIK_MENU.mn : null;
+  menuKapat(false);
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') menuKapat(true); });
+
 function digerMenu(ogeler){
   const sar = el('div','dm');
   const bt = el('button','dm-bt','⋯'); bt.type = 'button';
   bt.setAttribute('aria-label','Diğer işlemler'); bt.setAttribute('aria-expanded','false');
+  bt.setAttribute('aria-haspopup','true');
   const mn = el('div','dm-mn');
-  const kapat = () => { mn.classList.remove('acik'); bt.setAttribute('aria-expanded','false'); };
+  /* ⚠ role="menu"/"menuitem" BILEREK YOK. WAI-ARIA sozlesmesi geregi
+     role="menu" ok tuslariyla gezinmeyi (roving tabindex ya da
+     aria-activedescendant) ZORUNLU kilar. Ok tuslari olmadan role="menu"
+     koymak hic koymamaktan DAHA KOTU: ekran okuyucu kullanicisina
+     calismayan bir menu vaat eder. Tam desen kapsam disi. */
+  mn.id = 'dm' + (++DM_SAYAC);
+  bt.setAttribute('aria-controls', mn.id);
   for (const [metin, islev] of ogeler){
     const o = el('button','dm-o', metin); o.type = 'button';
-    o.onclick = (e) => { e.stopPropagation(); kapat(); islev(bt); };
+    /* stopPropagation YOK: yakalama evresi menuyu zaten kapatti. */
+    o.onclick = () => islev(bt);
     mn.appendChild(o);
   }
-  bt.onclick = (e) => { e.stopPropagation();
-    const a = mn.classList.toggle('acik');
-    bt.setAttribute('aria-expanded', String(a));
-    if (a) mn.querySelector('button').focus(); };
-  document.addEventListener('click', kapat);
+  /* ⚠ stopPropagation KALDIRILDI. Onceki hal tiklamayi document'a hic
+     ulastirmiyordu, bu yuzden ACIK olan diger menu KAPANMIYORDU —
+     olculdu: iki menu ayni anda ACIK kalabiliyordu. */
+  bt.onclick = () => {
+    if (MENU_SON_KAPANAN === mn) return;      // ayni dugme: kapat-ac degil, kapali kal
+    mn.classList.add('acik'); bt.setAttribute('aria-expanded','true');
+    ACIK_MENU = { mn, bt };
+    mn.querySelector('button').focus();
+  };
   sar.appendChild(bt); sar.appendChild(mn);
   return sar;
 }
@@ -1827,9 +1866,56 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   ta.oninput = dg.oninput = denetle;
   /* Enter TEK BASINA islem yapmaz: dogrulama alaninda Enter yutulur. */
   dg.onkeydown = (e) => { if (e.key === 'Enter') e.preventDefault(); };
-  const kapat = () => { d.close(); d.remove();
-                        if (acan && acan.isConnected) acan.focus(); };
-  vaz.onclick = kapat;
+  /* ⚠ ODAK: basari yolunda liste tazelendigi icin acan ⋯ dugmesi YOK
+     EDILIYOR; odak <body>'ye dusuyordu ve ekran okuyucu yerini
+     kaybediyordu. Dugme yoksa odak icerik kapsayicisina tasiniyor. */
+  let isleniyor = false;      // kapat() bunu okur, kapat'tan ONCE tanimli olmali
+  const kapat = (uyari) => {
+    /* ⚠ ISLEM SURERKEN KAPANMAZ. Olculdu: mutation yoldayken Escape
+       modali kapatiyordu; kullanici IPTAL ETTIGINI saniyor, PATCH yine
+       de tamamlaniyor ve sonuc KOPMUS dugumlere yaziliyordu — sessiz,
+       istenmeyen finansal durum degisikligi. `isleniyor` finally'de
+       false'a cekilir ve finally kendisinden SONRAKI kapat() cagrisindan
+       ONCE calisir; bu yuzden basari yolu dogal olarak kapanir, yaris
+       durumu olusmaz. `zorla` parametresi YOK — olsaydi ayni deligi
+       ikinci bir yoldan geri acardi. */
+    if (isleniyor) return;
+    d.close(); d.remove();
+    if (acan && acan.isConnected) acan.focus();
+    else {
+      /* Gecici tabindex: #icerik odaklanabilir degil, odagi devretmek
+         icin bir kereligine veriliyor. Devirden sonra GERI ALINIYOR —
+         kalici birakmak sekme sirasina sahte bir durak eklerdi.
+         Onceden gercek bir deger varsa EZILMEZ. */
+      /* ⚠ GECICI tabindex HIC KULLANILMIYOR — sorun yonetilmedi, ORTADAN
+         KALDIRILDI. Olculdu: odaktan hemen sonra kaldirmak odagi <body>'ye
+         dusuruyor; `blur`/`focusout` ile kaldirmak ise bu ortamda HIC
+         atesle(n)miyor (ikisi de olculdu, tabindex="-1" KALICI kaliyordu).
+         Onun yerine ZATEN odaklanabilir ve anlamli bir oge seciliyor:
+         bulundugumuz bolumun serit dugmesi. Boylece DOM'a hicbir gecici
+         oznitelik yazilmiyor ve ekran okuyucu yerini kaybetmiyor. */
+      const hedef = document.querySelector('#bolumSerit button.aktif')
+                 || document.querySelector('#bolumSerit button');
+      if (hedef) hedef.focus();
+    }
+    /* ⚠ YALNIZ GERCEK STRING. Onceki hal `vaz.onclick = kapat` yuzunden
+       PointerEvent aliyor ve "[object PointerEvent]" diye KIRMIZI AGIR
+       HATA bandi basiyordu (olculdu, uc kez tekrarlandiginda uc bant). */
+    const gercekUyari = (typeof uyari === 'string' && uyari.trim()) ? uyari.trim() : null;
+    if (gercekUyari){
+      const c = document.getElementById('icerik');
+      if (c){
+        /* TEKIL: P0-A1'in KENDI bandi. Baska modullerin uyarilari ve
+           finansal hata mesajlari SILINMEZ. */
+        c.querySelectorAll('.pm-sonuc').forEach(n => n.remove());
+        const b = el('div','uyari-agir pm-sonuc');
+        b.setAttribute('role','alert');
+        b.textContent = gercekUyari;          // HTML degil, duz metin
+        c.prepend(b);
+      }
+    }
+  };
+  vaz.onclick = () => kapat();               // olay nesnesi GECMEZ
   /* ⚠ ESCAPE ELDE ELE ALINIYOR. Olculdu: bu Chromium'da <dialog>'un
      yerel `cancel` olayi Escape'te ATESLENMEDI (keydown geldi, cancel
      gelmedi) — yerel davranisa guvenmek kapatilamayan modal demekti.
@@ -1844,19 +1930,28 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
     od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
   });
 
-  let gonderildi = false;
   ona.onclick = async () => {
-    if (gonderildi || ona.disabled) return;          // cift tiklama TEK mutation
-    gonderildi = true;
+    if (isleniyor || ona.disabled) return;           // cift tiklama TEK mutation
+    isleniyor = true;
     ona.disabled = vaz.disabled = ta.disabled = dg.disabled = true;
     ona.textContent = 'İşleniyor...'; hataK.hidden = true;
-    /* SUNUCU SONUCU KESINLESMEDEN basari YOK; hatada modal ve
-       kullanicinin yazdigi gerekce KORUNUR. */
-    const s = await uygula(ta.value.trim());
-    if (s && s.ok){ kapat(); return; }
-    gonderildi = false;
-    ona.disabled = false; vaz.disabled = ta.disabled = dg.disabled = false;
-    ona.textContent = 'Kaydı pasife al';
+    /* ⚠ EXCEPTION GUVENLIGI. Onceki hal ciplakti: uygula() firlatirsa
+       isleniyor=true kaliyor, dort kontrol de disabled kaliyor ve buton
+       "İşleniyor..." donuyordu — CIKIS YOLU YOKTU, sayfa yenilemek
+       gerekiyordu. finally kontrollerin HER iki yolda da acilmasini
+       garanti eder. Faz ayrimi uygula() icinde: mutation hatasi ile
+       tazeleme hatasi AYNI SEY DEGILDIR. */
+    let s = null;
+    try { s = await uygula(ta.value.trim()); }
+    catch(e){ console.error('P0-A1 pasife alma', e);
+              s = { ok:false, mesaj:'Beklenmeyen hata — ayrıntı konsolda.' }; }
+    finally {
+      isleniyor = false;
+      vaz.disabled = ta.disabled = dg.disabled = false;
+      ona.textContent = 'Kaydı pasife al';
+      denetle();                       // onay dugmesinin DOGRU durumu geri gelir
+    }
+    if (s && s.ok){ kapat(s.uyari); return; }
     hataK.hidden = false; hataK.textContent = (s && s.mesaj) || 'İşlem tamamlanamadı.';
     ta.focus();
   };
@@ -1864,16 +1959,32 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   return { d, ta, dg, vaz, ona, hataK, taH, dgH };
 }
 
+/* ⚠ IKI FAZ AYRI. Duz bir try/catch koymak BASARILI islemi
+   "Islem tamamlanamadi" diye gosterirdi ve kullanici ayni kaydi IKINCI
+   KEZ pasife alirdi — cunku firlatan sey mutation degil, ondan SONRAKI
+   tazelemedir (vMaden/vSahis ciplak, ekranAc kendi try/catch'ine sahip). */
+async function pasifeAlUygula(mutasyon, tazele, tabloAdi){
+  try {
+    const { error } = await mutasyon();
+    if (error){ console.error('P0-A1 mutation ' + tabloAdi, error);
+                return { ok:false, mesaj: hataTr(error.message) }; }
+  } catch(e){ console.error('P0-A1 mutation ' + tabloAdi, e);
+              return { ok:false, mesaj: hataTr(e.message || String(e)) }; }
+  /* Buraya gelindiyse kayit ZATEN pasife alinmistir. */
+  try { await tazele(); }
+  catch(e){ console.error('P0-A1 tazeleme ' + tabloAdi, e);
+            return { ok:true, uyari:'Kayıt pasife alındı. Liste tazelenemedi — sayfayı yenileyin.' }; }
+  return { ok:true };
+}
+
 async function krediSil(kredi, acan){
   pasifeAlAc(acan, { tur:'Kredi', ad: kredi.ad, kim: kredi.banka, tutar: tl(kredi.anapara),
-    uygula: async (neden) => {
-      /* ⚠ Ham update BILEREK korunuyor — RPC'ye cevirmek P0-A2'nin isi. */
-      const { error } = await sb.from('kredi').update({ is_deleted:true, silme_nedeni:neden }).eq('id', kredi.id);
-      if (error) return { ok:false, mesaj: hataTr(error.message) };
-      await ekranAc('krediler');          // liste SUNUCUDAN yeniden okunuyor
-      mesaj('krediMsg','ok','Kredi pasife alındı.');
-      return { ok:true };
-    }});
+    uygula: (neden) => pasifeAlUygula(
+      /* FAZ 1 · mutation. Ham update BILEREK korunuyor — P0-A2'nin isi. */
+      () => sb.from('kredi').update({ is_deleted:true, silme_nedeni:neden }).eq('id', kredi.id),
+      /* FAZ 2 · tazeleme. Buradaki hata mutation hatasi DEGIL. */
+      async () => { await ekranAc('krediler'); mesaj('krediMsg','ok','Kredi pasife alındı.'); },
+      'kredi')});
 }
 
 /* ---------- tek kredinin taksit ekrani ---------- */
@@ -2626,13 +2737,10 @@ async function fiyatKaydet(){
 async function madenSil(m, acan, deger){
   pasifeAlAc(acan, { tur:'Maden borcu', ad: turAdi(m.tur) + ' · ' + trGun(m.tarih),
     kim: m.saflik ? 'saflık ' + m.saflik : null, tutar: deger || null,
-    uygula: async (neden) => {
-      const { error } = await sb.from('maden').update({ is_deleted:true, silme_nedeni:neden }).eq('id', m.id);
-      if (error) return { ok:false, mesaj: hataTr(error.message) };
-      await vMaden();                     // liste SUNUCUDAN yeniden okunuyor
-      mesaj('madenMsg','ok','Maden borcu pasife alındı.');
-      return { ok:true };
-    }});
+    uygula: (neden) => pasifeAlUygula(
+      () => sb.from('maden').update({ is_deleted:true, silme_nedeni:neden }).eq('id', m.id),
+      async () => { await vMaden(); mesaj('madenMsg','ok','Maden borcu pasife alındı.'); },
+      'maden')});
 }
 
 /* ================== 4 · SAHIS ================== */
@@ -2762,13 +2870,10 @@ async function sahisOdemeEkle(borc){
 async function sahisBorcSil(borc, acan){
   pasifeAlAc(acan, { tur:'Şahıs borcu', ad: borc.isim, kim: trGun(borc.tarih) + ' tarihli',
     tutar: tl(borc.tutar),
-    uygula: async (neden) => {
-      const { error } = await sb.from('sahis_borc').update({ is_deleted:true, silme_nedeni:neden }).eq('id', borc.id);
-      if (error) return { ok:false, mesaj: hataTr(error.message) };
-      await vSahis();                     // liste SUNUCUDAN yeniden okunuyor
-      mesaj('sahisMsg','ok','Şahıs borcu pasife alındı.');
-      return { ok:true };
-    }});
+    uygula: (neden) => pasifeAlUygula(
+      () => sb.from('sahis_borc').update({ is_deleted:true, silme_nedeni:neden }).eq('id', borc.id),
+      async () => { await vSahis(); mesaj('sahisMsg','ok','Şahıs borcu pasife alındı.'); },
+      'sahis_borc')});
 }
 
 /* ================== ACILIS ================== */
