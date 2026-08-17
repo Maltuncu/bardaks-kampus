@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-17-4">
+<meta name="surum" content="borc-2026-08-17-7">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -285,7 +285,7 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .pm-hata{font-size:13px;color:var(--hata);font-weight:600;margin-top:4px}
 .pm textarea,.pm input{font-size:17px}
 .pm-ey{display:flex;gap:10px;margin-top:14px}
-.pm-ey button{flex:1;min-height:44px}
+.pm-ey button{flex:1;min-height:44px;margin-top:0}
 .pm-ey button[disabled]{opacity:.4}
 .pm :focus-visible,.dm-bt:focus-visible,.dm-o:focus-visible{
   outline:3px solid var(--ana);outline-offset:2px}
@@ -2837,7 +2837,7 @@ async function vSahis(){
       sar.appendChild(t); kart.appendChild(sar);
     }
     const ey = el('div','tk-eylem');
-    const bo = el('button','btn2','Ödeme ekle'); bo.disabled = kalan<=0; bo.onclick = () => sahisOdemeEkle(h);
+    const bo = el('button','btn2','Ödeme ekle'); bo.disabled = kalan<=0; bo.onclick = () => sahisOdemeAc(h, bo);
     ey.appendChild(bo);
     kart.appendChild(ey);
     k.appendChild(kart);
@@ -2868,6 +2868,14 @@ async function vSahis(){
   f.appendChild(el('label', null, 'Açıklama')).setAttribute('for','sbAciklama');
   const ta = document.createElement('textarea'); ta.id = 'sbAciklama'; f.appendChild(ta);
   const bk = el('button','btn','Borcu kaydet'); bk.id = 'sbKaydet'; bk.onclick = sahisBorcKaydet;
+  /* ⚠ IDEMPOTENCY ANAHTARI FORM CIZILIRKEN BIR KEZ URETILIYOR — odeme
+     formundaki kalibin ayni. Gonderim aninda uretilseydi: kayit gitti,
+     ag koptu, kullanici sonucu bilmeden tekrar denedi -> YENI anahtar
+     -> IKI BORC KAYDI. Sunucunun mukerrer korumasi ancak AYNI anahtar
+     gelirse devreye girer. Anahtar DUGMEYE bagli: hata yolunda form
+     yeniden cizilmedigi icin ayni dugme ve AYNI anahtar kalir; basaridan
+     sonra vSahis() formu yeniden cizer ve YENI anahtar uretilir. */
+  bk.dataset.idem = crypto.randomUUID();
   f.appendChild(bk); c.appendChild(f);
 }
 
@@ -2885,33 +2893,150 @@ async function sahisBorcKaydet(){
   if (tut.kurus <= 0) return mesaj('sahisMsg','hata','Tutar sıfırdan büyük olmalı.');
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
   const { error } = await sb.rpc('rpc_sahis_borc_kaydet',{
-    p_idem:crypto.randomUUID(), p_hesap:hesap, p_yeni_ad:yeniAd,
+    p_idem:btn.dataset.idem, p_hesap:hesap, p_yeni_ad:yeniAd,
     p_yeni_tur:hesap?null:yeniTur, p_tarih:tarih,
     p_tutar:(tut.kurus/100).toFixed(2),
     p_aciklama:document.getElementById('sbAciklama').value.trim() || null });
   btn.disabled = false; btn.textContent = 'Borcu kaydet';
   if (error){ hataYaz('sahisMsg','Borç kaydedilemedi.', error); return; }
-  mesaj('sahisMsg','ok','Borç kaydedildi.');
-  await vSahis();
+  await vSahis();                                   // once tazele: #sahisMsg SIFIRDAN yaratilir
+  mesaj('sahisMsg','ok','Borç kaydedildi.');        // sonra yaz, yoksa mesaj SILINIRDI
 }
 
-async function sahisOdemeEkle(hesap){
-  const tutarH = prompt('Ödeme tutarı:');
-  if (tutarH === null) return;
-  const t = paraCoz(tutarH);
-  if (!t.ok || t.kurus <= 0){ mesaj('sahisMsg','hata','Ödeme tutarı geçersiz. Kayıt YAPILMADI.'); return; }
-  const tarihH = prompt('Ödeme tarihi (YYYY-AA-GG):', bugun());
-  if (tarihH === null) return;
-  const tarih = (tarihH || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(tarih)){
-    mesaj('sahisMsg','hata','Tarih YYYY-AA-GG biçiminde olmalı. Kayıt YAPILMADI.'); return;
-  }
-  const { error } = await sb.rpc('rpc_sahis_odeme_kaydet',{
-    p_idem:crypto.randomUUID(), p_hesap:hesap.hesap_id, p_borc:null,
-    p_tutar:(t.kurus/100).toFixed(2), p_tarih:tarih, p_foto:null, p_aciklama:null });
-  if (error){ hataYaz('sahisMsg','Ödeme kaydedilemedi.', error); return; }
+/* ⚠ IKI PROMPT KUTUSU KALDIRILDI. Mekanik pasifeAlAc'tan KOPYALANDI —
+   ortak yardimci cikarmak pasifeAlAc'in kanitlanmis davranisini riske
+   atardi. Yedi guvenlik ozelliginin hepsi burada da var. */
+function sahisOdemeAc(hesap, acan){
+  const kalanK = kr(hesap.bakiye);
+  /* ⚠ IDEMPOTENCY ANAHTARI FORM BASINA BIR KEZ URETILIYOR.
+     Onceki hal anahtari cagrinin ICINDE uretiyordu: odeme gonderildi,
+     ag koptu, kullanici sonucu bilmeden tekrar denedi -> YENI anahtar
+     -> IKI ODEME KAYDI. Sunucunun mukerrer korumasi ancak AYNI anahtar
+     gelirse devreye girer. Hata sonrasi tekrar denemede bu anahtar
+     AYNI kalir; yeni anahtar yalnizca form YENIDEN acilinca uretilir. */
+  const idem = crypto.randomUUID();
+
+  let n = 0; const kimlik = (e) => (e.id = 'so' + (++n));
+  const d = document.createElement('dialog'); d.className = 'pm';   // gercek <dialog>
+  d.setAttribute('aria-modal','true');
+  const bas = el('div','pm-ad', hesap.ad + ' · ödeme'); kimlik(bas);
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  /* ⚠ BAKIYE ZORUNLU GORUNUR: sunucu fazla odemeyi reddediyor, kullanici
+     siniri ONCEDEN gormeli — deneme yanilmaya girmemeli. */
+  const bak = el('div','pm-tutar','Kalan bakiye: ' + tlk(kalanK)); kimlik(bak);
+  d.setAttribute('aria-describedby', bak.id); d.appendChild(bak);
+
+  const alan = (etiket, tag, tip) => {
+    const g = document.createElement(tag); kimlik(g);
+    if (tip) g.type = tip;
+    const l = el('label', null, etiket); l.setAttribute('for', g.id);
+    const h = el('div','pm-hata'); kimlik(h); h.hidden = true;
+    g.setAttribute('aria-describedby', h.id);
+    d.appendChild(l); d.appendChild(g); d.appendChild(h);
+    return [g, h];
+  };
+  const [tut, tutH] = alan('Tutar (zorunlu)','input'); tut.inputMode = 'decimal';
+  const [trh, trhH] = alan('Tarih (zorunlu)','input','date'); trh.value = bugun();
+  const [acx]       = alan('Açıklama (isteğe bağlı)','textarea'); acx.rows = 2;
+
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), kay = el('button','btn','Ödemeyi kaydet');
+  vaz.type = kay.type = 'button'; kay.disabled = true;
+  ey.appendChild(vaz); ey.appendChild(kay);                 // Vazgec SOLDA
+  const hataK = el('div','uyari-agir'); hataK.hidden = true; kimlik(hataK);
+  kay.setAttribute('aria-describedby', hataK.id);
+  d.appendChild(ey); d.appendChild(hataK);
+  document.body.appendChild(d); d.showModal();
+
+  /* Istemci dogrulamasi sunucuyu TEKRARLAMAK icin degil, kullaniciyi
+     ERKEN uyarmak icin. Sunucu reddederse hata yine gosterilir. */
+  const denetle = () => {
+    const p = paraCoz(tut.value), gecerli = p.ok && p.kurus > 0;
+    const asiyor = gecerli && p.kurus > kalanK;
+    tutH.hidden = !(tut.value.trim() && (!gecerli || asiyor));
+    tutH.textContent = asiyor ? 'Bakiyeyi aşıyor — en çok ' + tlk(kalanK) + ' ödenebilir.'
+                              : 'Tutar geçersiz.';
+    trhH.hidden = !!trh.value; trhH.textContent = 'Tarih zorunlu.';
+    kay.disabled = !(gecerli && !asiyor && trh.value);
+  };
+  tut.oninput = trh.oninput = trh.onchange = denetle;
+  tut.onkeydown = (e) => { if (e.key === 'Enter') e.preventDefault(); };
+
+  let isleniyor = false;            // kapat() bunu okur, kapat'tan ONCE tanimli
+  const kapat = (uyari) => {
+    /* ⚠ ISLEM SURERKEN KAPANMAZ — kapanirsa kullanici iptal ettigini
+       sanir ama istek tamamlanir: sessiz finansal degisiklik. */
+    if (isleniyor) return;
+    d.close(); d.remove();
+    if (acan && acan.isConnected) acan.focus();
+    else {
+      const hedef = document.querySelector('#bolumSerit button.aktif')
+                 || document.querySelector('#bolumSerit button');
+      if (hedef) hedef.focus();
+    }
+    const gercekUyari = (typeof uyari === 'string' && uyari.trim()) ? uyari.trim() : null;
+    if (gercekUyari){
+      const c = document.getElementById('icerik');
+      if (c){
+        c.querySelectorAll('.so-sonuc').forEach(x => x.remove());
+        const b = el('div','uyari-agir so-sonuc'); b.setAttribute('role','alert');
+        b.textContent = gercekUyari; c.prepend(b);
+      }
+    }
+  };
+  vaz.onclick = () => kapat();                    // olay nesnesi GECMEZ
+  /* ⚠ ESCAPE ELDE: bu Chromium'da <dialog>'un yerel `cancel` olayi
+     Escape'te ATESLENMIYOR (olculdu). Ikisi de dinleniyor. */
+  d.addEventListener('cancel', (e) => { e.preventDefault(); kapat(); });
+  d.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape'){ e.preventDefault(); kapat(); return; }
+    if (e.key !== 'Tab') return;                  // odak tuzagi
+    const od = [...d.querySelectorAll('textarea,input,button')].filter(x => !x.disabled);
+    if (!od.length) return;                       // ⚠ hepsi disabled iken od[NaN] TypeError
+    const i = od.indexOf(document.activeElement); e.preventDefault();
+    od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+  });
+
+  kay.onclick = async () => {
+    if (isleniyor || kay.disabled) return;        // cift tiklama TEK mutation
+    isleniyor = true;
+    kay.disabled = vaz.disabled = tut.disabled = trh.disabled = acx.disabled = true;
+    kay.textContent = 'İşleniyor...'; hataK.hidden = true;
+    let s = null;
+    try { s = await sahisOdemeUygula(idem, hesap, paraCoz(tut.value).kurus, trh.value, acx.value.trim()); }
+    catch(e){ console.error('sahis odeme', e);
+              s = { ok:false, mesaj:'Beklenmeyen hata — ayrıntı konsolda.' }; }
+    finally {
+      /* Hata yolunda form KORUNUR: yazilan tutar/tarih/aciklama silinmez. */
+      isleniyor = false;
+      vaz.disabled = tut.disabled = trh.disabled = acx.disabled = false;
+      kay.textContent = 'Ödemeyi kaydet'; denetle();
+    }
+    if (s && s.ok){ kapat(s.uyari); return; }
+    hataK.hidden = false; hataK.textContent = (s && s.mesaj) || 'İşlem tamamlanamadı.';
+    tut.focus();
+  };
+  tut.focus();
+  return { d, tut, trh, acx, vaz, kay, hataK, tutH, trhH, idem };
+}
+
+/* ⚠ IKI FAZ AYRI: mutation hatasi ile tazeleme hatasi AYNI SEY DEGIL.
+   Tazeleme patlarsa odeme KAYDEDILMISTIR — "kaydedilemedi" DENMEZ. */
+async function sahisOdemeUygula(idem, hesap, kurus, tarih, aciklama){
+  try {
+    const { error } = await sb.rpc('rpc_sahis_odeme_kaydet',{
+      p_idem:idem, p_hesap:hesap.hesap_id, p_borc:null,
+      p_tutar:(kurus/100).toFixed(2), p_tarih:tarih,
+      p_foto:null, p_aciklama:aciklama || null });
+    if (error){ console.error('sahis odeme mutation', error);
+                return { ok:false, mesaj: hataTr(error.message) }; }
+  } catch(e){ console.error('sahis odeme mutation', e);
+              return { ok:false, mesaj: hataTr(e.message || String(e)) }; }
+  try { await vSahis(); }
+  catch(e){ console.error('sahis odeme tazeleme', e);
+            return { ok:true, uyari:'Ödeme kaydedildi. Liste tazelenemedi — sayfayı yenileyin.' }; }
   mesaj('sahisMsg','ok','Ödeme kaydedildi. Belge eklemeyi unutma.');
-  await vSahis();
+  return { ok:true };
 }
 
 async function sahisBorcSil(borc, acan){
