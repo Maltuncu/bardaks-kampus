@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-18-1">
+<meta name="surum" content="borc-2026-08-18-4">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -357,6 +357,68 @@ td.sag,th.sag{text-align:right}
 .gri{color:var(--soluk)}
 
 #girisEkran{max-width:380px;margin:52px auto;padding:22px}
+/* ===================== FAZ 1 · MASAUSTU KABUGU =====================
+   ⚠ HICBIR SAYI UYDURULMADI — index.html'den OKUNDU. Kaynak satirlar:
+     index.html:275     @media(min-width:900px)
+     index.html:276-277 #sekmeBar width:214px · padding:70px 0 0
+     index.html:279     buton padding:0 18px · min-height:46px · 13.5px
+     index.html:280     border-left:3px solid transparent
+     index.html:281     aktif: border-left-color var(--ana) · bg var(--acik)
+     index.html:282     .iko 19px
+     index.html:284     #ustBar z-index:60
+     index.html:285     body padding-bottom:0
+     index.html:286     main margin-left:214px · max-width:1080px · 22px 28px 40px
+     index.html:287-288 sk-daha gizli · sk-gizli gorunur
+     index.html:298-302 tablet 768-899: main max-width:860px · 18px 20px 40px
+   ⚠ TEK KAYNAK SAGLANMADI. Bu, kabugun IKINCI KOPYASIDIR. Gercek tek
+     kaynak ortak bir CSS dosyasina cikarmakla olur ve o index.html'e
+     dokunmayi gerektirir — AYRI KARAR, bu gorevin yetkisi disinda. */
+@media(min-width:768px) and (max-width:899px){
+  main{max-width:860px;padding:18px 20px 40px}
+  #sekmeBar button.sk-daha{display:none}
+  #sekmeBar button.sk-gizli{display:flex}
+}
+@media(min-width:900px){
+  #sekmeBar{top:0;bottom:0;left:0;right:auto;width:214px;flex-direction:column;
+    border-top:none;border-right:1.5px solid var(--cizgi);padding:70px 0 0}
+  #sekmeBar button{flex:none;flex-direction:row;justify-content:flex-start;gap:13px;
+    padding:0 18px;min-height:46px;font-size:13.5px;border-top:none;
+    border-left:3px solid transparent;text-align:left}
+  #sekmeBar button.aktif{border-left-color:var(--ana);background:var(--acik)}
+  #sekmeBar .iko{width:19px;height:19px}
+  #ustBar{z-index:60}                 /* marka blogu sol menunun ustunde kalsin */
+  /* ⚠ D1 · ONCEKI YORUM YANLISTI: "masaustunde alt cubuk YOK" dedim ve
+     padding'i KOSULSUZ sifirladim. #surumBar (borc.html:405) HER
+     genislikte tam genislikte dibe oturuyor — sol ray suzgecinden GECER.
+     Olculdu (1280px, surum uyarisi acikken): bes ekranda da son oge
+     cubugun 15px ALTINDA kaldi. Tam da o uyarinin okunmasi gereken an.
+     Sifir yerine OLCULEN degere baglaniyor: cubuk yokken --alt-cubuk 0
+     olur ve yalniz 24px pay kalir; uyari cikinca kendiliginden buyur.
+     Mobil taban kurali (:root'taki 80px yedegi) AYNEN duruyor. */
+  body{padding-bottom:calc(var(--alt-cubuk, 0px) + 24px)}
+  /* ⚠ D4 · index.html'DE OLMAYAN TEK KURAL — icerik RAYDAN SONRAKI
+     alanda ortalanir. index.html'in duz margin-left:214px'i cok genis
+     ekranda icerigi sola yapistiriyor (olculdu 1920px: sag pay 413px,
+     ray sonrasi sol pay 199px). Kalici sol ray bir KABUK ogesidir;
+     icerik onun BIRAKTIGI alanda ortalanir.
+     (1) 100vw DEGIL 100%: 100vw kaydirma cubugunu ICERIR ve icerigi
+         ~15px sola kaydirirdi. 100%, main'in kapsayan blogunun inline
+         boyutuna gore cozulur — cubuk DISARIDA (olculdu 1920px'te
+         100% = 1905, 1920 DEGIL).
+     (2) +107 = ray genisliginin YARISI. Raydan sonraki alanin ortasi
+         214 + (G - 214 - 1080)/2 = (G - 1080)/2 + 107   (G = body eni)
+     (3) MEDYA SORGUSU YOK — esigi max()'in kendisi tasiyor:
+         (100%-1080)/2 + 107 > 214  <=>  100% > 1294 = 214 + 1080,
+         yani icerigin buyumeyi biraktigi NOKTANIN TA KENDISI. Iki
+         taraf da ayni referansi (body eni) kullandigi icin olu bant
+         matematiksel olarak IMKANSIZ. Ayri bir @media esigi vw ile
+         % arasindaki farktan dolayi hep kayardi (onceki 1508'lik
+         hal olu bandi 68px'ten 15px'e DUSURMUSTU, KAPATMAMISTI). */
+  main{margin-left:max(214px, calc((100% - 1080px)/2 + 107px));
+       max-width:1080px;padding:22px 28px 40px}
+  #sekmeBar button.sk-daha{display:none}
+  #sekmeBar button.sk-gizli{display:flex}
+}
 #surumBar{position:fixed;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;
   justify-content:space-between;gap:12px;padding:12px 14px;background:var(--uyari);color:#fff;
   font-size:15px;font-weight:600}
@@ -493,7 +555,7 @@ function uygulamaCubuguKur(){
     const b = document.createElement('button');
     b.id = 'sk_' + s.id;
     if (tasiyor && i >= MOBIL_GORUNUR) b.className = 'sk-gizli';
-    if (s.id === 'borc') b.classList.add('aktif');
+    if (s.id === 'borc'){ b.classList.add('aktif'); b.setAttribute('aria-current','page'); }
     const ik = document.createElement('span'); ik.className = 'iko'; ik.innerHTML = IKON[s.id];  // sabit SVG
     b.appendChild(ik);
     b.appendChild(document.createTextNode(s.ad));
@@ -515,7 +577,7 @@ function uygulamaCubuguKur(){
   liste.forEach(s => {
     const b = document.createElement('button');
     b.id = 'db_' + s.id;
-    if (s.id === 'borc') b.className = 'aktif';
+    if (s.id === 'borc'){ b.className = 'aktif'; b.setAttribute('aria-current','page'); }
     const ik = document.createElement('span'); ik.className = 'iko'; ik.innerHTML = IKON[s.id];
     b.appendChild(ik); b.appendChild(document.createTextNode(s.ad));
     b.onclick = () => sekmeyeGit(s.id);
@@ -532,9 +594,14 @@ function uygulamaCubuguKur(){
 function altCubukOlc(){
   const yuk = ['sekmeBar','surumBar']
     .map(id => document.getElementById(id)).filter(Boolean)
-    .map(e => e.getBoundingClientRect().height).filter(h => h > 0);
+    .map(e => e.getBoundingClientRect())
+    /* ⚠ FAZ 1: 900px ustunde #sekmeBar SOL RAY oluyor — tam yukseklikte
+       ve dar. O hali "alt cubuk" sayilirsa --alt-cubuk ~800px olur.
+       Dip cubugu, EKRAN GENISLIGINI kaplayan cubuktur; ray degildir. */
+    .filter(k => k.height > 0 && k.width > innerWidth * 0.8)
+    .map(k => k.height);
   const en = yuk.length ? Math.ceil(Math.max(...yuk)) : 0;
-  if (en > 0) document.documentElement.style.setProperty('--alt-cubuk', en + 'px');
+  document.documentElement.style.setProperty('--alt-cubuk', en + 'px');
   return en;
 }
 addEventListener('resize', altCubukOlc);
@@ -965,7 +1032,14 @@ function madenDeger(m, fiyatlar){
 /* ================== EKRAN YONLENDIRME ================== */
 async function ekranAc(ad){
   EKRAN = ad; SECILI_KREDI = null;
-  document.querySelectorAll('#bolumSerit button').forEach(b => b.classList.toggle('aktif', b.dataset.b === ad));
+  /* ⚠ AC-05: aktif bolum EKRAN OKUYUCUYA da bildirilir. Olculdu: aktiflik
+     yalniz `.aktif` sinifiyla, yani GORSEL olarak tasiniyordu; ekran
+     okuyucu hangi bolumde oldugunu HIC ogrenemiyordu. */
+  document.querySelectorAll('#bolumSerit button').forEach(b => {
+    const secili = b.dataset.b === ad;
+    b.classList.toggle('aktif', secili);
+    if (secili) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
+  });
   const c = document.getElementById('icerik');
   c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
   try{
