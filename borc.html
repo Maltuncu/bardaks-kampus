@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-17-10">
+<meta name="surum" content="borc-2026-08-18-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,10 +19,26 @@
      input/select/textarea font-size'i 16px'in ALTINA ASLA inmez.
    ===================================================================== */
 :root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;
-  --metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
+  --metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8;
+  /* AC-02 · dip cubuk yuksekligi. Bu deger OLCULMEDEN ONCEKI baslangictir;
+     altCubukOlc() sayfa kurulunca gercek olcumle uzerine yazar. Burada
+     tanimli olmasi sart: yoksa CSS sessizce yedege duser ve token kapisi
+     "tanimsiz" diye isaretler. */
+  --alt-cubuk:80px}
 *{box-sizing:border-box}
 body{margin:0;font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  background:var(--gri);color:var(--metin);font-size:15px;padding-bottom:80px}
+  background:var(--gri);color:var(--metin);font-size:15px;
+  /* ⚠ AC-02 · SABIT 80px KALDIRILDI. Olculdu (320px): en yuksek dip
+     cubugu #surumBar = 84px, yani sabit 80px ENGELDEN KUCUKTU. Bugun
+     tasma olusmuyordu ama pay eksiye dusmustu; safe-area'li gercek
+     cihazda (~34px) kesin ortecekti. Deger artik OLCULEREK geliyor:
+     --alt-cubuk'u JS her yeniden boyutlandirmada gorunur dip cubuklarin
+     EN YUKSEGINDEN yaziyor. Cubuk yuksekligi ileride degisirse bosluk
+     kendiliginden uyar; kimsenin sayiyi guncellemesi gerekmez.
+     ⚠ env(safe-area-inset-bottom) BURAYA IKINCI KEZ EKLENMIYOR:
+     #sekmeBar'in kendi padding-bottom'u onu zaten tasiyor ve olculen
+     yukseklige DAHIL. Iki kez eklemek bosluğu cift sayardi. */
+  padding-bottom:calc(var(--alt-cubuk, 80px) + 24px)}
 .gizli{display:none!important}
 
 input,select,textarea{width:100%;padding:12px;border:1.5px solid var(--cizgi);border-radius:9px;
@@ -75,7 +91,15 @@ main{padding:14px;max-width:640px;margin:0 auto}
 #dahaOv{position:fixed;inset:0;z-index:60;background:rgba(28,24,18,.55);display:none;
   align-items:flex-end}
 #dahaOv.acik{display:flex}
-#dahaKutu{background:var(--kagit);width:100%;border-radius:20px 20px 0 0;
+/* ⚠ C · TANIMSIZ TOKEN. Burada var(--kagit) yaziliydi; --kagit dosyada
+   HIC TANIMLI DEGIL (olculdu: 1 kullanim, 0 tanim). Tarayici ozelligi
+   sessizce dusuruyordu ve panel SEFFAF kaliyordu — olculdu, hesaplanan
+   arka plan rgba(0,0,0,0) idi; koyu ortunun uzerinde okunmuyordu.
+   YENI TOKEN TANIMLANMADI, var olan DOGRU token kullanildi: --kart.
+   Sebep: bu panel #sekmeBar'in uzerine oturan yukseltilmis bir yuzey ve
+   #sekmeBar zaten var(--kart) kullaniyor; ikisi gorsel olarak surekli.
+   Tek kullanicisi olan yeni bir token olu agirlik olurdu. */
+#dahaKutu{background:var(--kart);width:100%;border-radius:20px 20px 0 0;
   padding:8px 0 calc(18px + env(safe-area-inset-bottom,0));
   box-shadow:0 -8px 28px rgba(28,24,18,.28);border-top:1px solid var(--cizgi)}
 #dahaKutu::before{content:'';display:block;width:38px;height:4px;border-radius:3px;
@@ -497,7 +521,24 @@ function uygulamaCubuguKur(){
     b.onclick = () => sekmeyeGit(s.id);
     ku.appendChild(b);
   });
+  altCubukOlc();                   // AC-02 · cubuk kurulur kurulmaz olc
 }
+/* AC-02 · icerik alt cubugun ALTINDA KALMASIN. Sabit sayi YAZILMIYOR:
+   gorunur dip cubuklarin (#sekmeBar ve varsa #surumBar) EN YUKSEGI
+   olculup --alt-cubuk'a yaziliyor; CSS ustune 24px ekliyor. Cubuk
+   yuksekligi degisirse bosluk kendiliginden uyar.
+   ⚠ position:fixed ogede offsetParent NULL doner (olculdu, ilk
+     olcumumu bozmustu) — gorunurluk YUKSEKLIKLE sinaniyor. */
+function altCubukOlc(){
+  const yuk = ['sekmeBar','surumBar']
+    .map(id => document.getElementById(id)).filter(Boolean)
+    .map(e => e.getBoundingClientRect().height).filter(h => h > 0);
+  const en = yuk.length ? Math.ceil(Math.max(...yuk)) : 0;
+  if (en > 0) document.documentElement.style.setProperty('--alt-cubuk', en + 'px');
+  return en;
+}
+addEventListener('resize', altCubukOlc);
+addEventListener('orientationchange', altCubukOlc);
 function dahaAc(){ document.getElementById('dahaOv').classList.add('acik'); }
 function dahaKapat(){ document.getElementById('dahaOv').classList.remove('acik'); }
 
@@ -795,6 +836,7 @@ async function surumKontrol(){
       const b = el('button', null, 'YENİLE');
       b.onclick = () => location.replace(location.pathname + '?v=' + Date.now());
       d.appendChild(b); document.body.appendChild(d);
+      altCubukOlc();               // AC-02 · surum cubugu sekmeBar'dan YUKSEK (84px olculdu)
     }
   }catch(e){ /* ag yoksa sessiz */ }
 }
