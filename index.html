@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-19-7">
+<meta name="surum" content="2026-08-19-8">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -222,6 +222,14 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 .pm-hata{font-size:13px;color:var(--hata);font-weight:600;margin-top:4px}
 .pm-aciklama{font-size:13.5px;color:var(--metin);line-height:1.5;margin:8px 0 10px;white-space:pre-line}
 .pm-sayac{font-size:12.5px;color:var(--soluk);font-weight:600;margin-top:4px}
+/* AB · bloklamayan bildirim seridi — icerigin EN USTUNDE */
+.bildirim{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;
+  margin:0 0 12px;font-size:14px;line-height:1.45;white-space:pre-line}
+.bildirim-hata{background:#fdeceb;color:var(--hata);border-left:3px solid var(--hata)}
+.bildirim-ok{background:#eafaf1;color:var(--ok);border-left:3px solid var(--ok)}
+.bildirim-metin{flex:1;min-width:0;overflow-wrap:anywhere}
+.bildirim-kapat{flex:none;background:transparent;color:inherit;font-size:16px;
+  min-width:44px;min-height:44px;margin:-11px -8px -11px 0;padding:0}
 .pm input{font-size:17px}
 .pm-ey{display:flex;gap:10px;margin-top:14px}
 .pm-ey button{flex:1;min-height:44px;margin-top:0}
@@ -831,6 +839,39 @@ function sifreDegistir(acan){
    yanlislikla acilan bir baglantida kullaniciyi ekrana hapsederdi. Ama
    kapatan insan sifresiz kalmasin: donus yolu ekranin en ustunde DURUR ve
    ancak sifre gercekten degisince kalkar. */
+/* ===== AB · BLOKLAMAYAN BILDIRIM · bildir() =====
+   alert() sayfayi KILITLIYOR: hatayi okumak icin once kapatmak gerekiyor,
+   yani "Tutar hatali" yazan kutuyu kapatmadan hangi tutari yazdigini
+   goremiyorsun. Serit icerigin ustune biner, sayfa kullanilabilir kalir.
+   ⚠ HATA KENDILIGINDEN KAYBOLMAZ. Otomatik kaybolan hata mesaji,
+     gormedigin hata demektir; kapatmasi kullaniciya birakildi.
+   ⚠ 'ok' 5 saniyede kalkar — basari bilgisi ekranda birikmemeli.
+   ⚠ scrollIntoView block:'nearest': serit zaten gorunuyorsa sayfa
+     KIMILDAMAZ; ancak gorunur alanin disindaysa oraya kayar.
+   ⚠ bildir() BEKLEMEZ. alert'in aksine akisi durdurmaz — bu yuzden
+     yalniz sonrasinda `return` gelen (akisin zaten durdugu) yerlerde
+     kullanildi; kod DEVAM eden alert'lere dokunulmadi. */
+let BILDIR_ZAMAN = null;
+function bildir(metin, tur){
+  const c = document.getElementById('icerik'); if (!c) return null;
+  c.querySelectorAll('.bildirim').forEach(x => x.remove());   // ust uste BIRIKMEZ
+  clearTimeout(BILDIR_ZAMAN);
+  const d = document.createElement('div');
+  d.className = 'bildirim ' + (tur === 'ok' ? 'bildirim-ok' : 'bildirim-hata');
+  d.setAttribute('role','alert');                             // ekran okuyucu duyursun
+  const m = document.createElement('div'); m.className = 'bildirim-metin';
+  m.textContent = metin; d.appendChild(m);
+  if (tur === 'ok'){ BILDIR_ZAMAN = setTimeout(() => d.remove(), 5000); }
+  else {
+    const k = document.createElement('button'); k.type = 'button'; k.className = 'bildirim-kapat';
+    k.setAttribute('aria-label','Bildirimi kapat'); k.textContent = '✕';
+    k.onclick = () => d.remove(); d.appendChild(k);
+  }
+  c.prepend(d);
+  d.scrollIntoView({ block:'nearest' });
+  return d;
+}
+
 /* ===== AA · YIKICI ISLEM ONAYI · onaySor() =====
    Sekiz confirm kutusu bunu cagiriyordu. Tez AC-06: "Tek dokunus silmez; kayit
    adi/tutar dogrulanir; varsayilan eylem Vazgec." confirm bu ucunu de
@@ -1169,8 +1210,8 @@ window.addEventListener('beforeunload', e => {
     const hedef = hedefBul(e.target);
     vurgula(null);
     if (!hedef){
-      alert('Dosyayı hangi alana koyacağımı anlayamadım.\n\n'
-        + 'Doğrudan dosya seçme kutusunun üstüne bırak.');
+      bildir('Dosyayı hangi alana koyacağımı anlayamadım.\n\n'
+        + 'Doğrudan dosya seçme kutusunun üstüne bırak.', 'hata');
       return;
     }
     const kabul = (hedef.accept || '').trim();
@@ -1181,7 +1222,7 @@ window.addEventListener('beforeunload', e => {
         k.startsWith('.') ? ad.endsWith(k)
         : k.endsWith('/*') ? tur.startsWith(k.slice(0,-1))
         : tur === k);
-      if (!uyar){ alert('Bu alan bu dosya türünü kabul etmiyor.\n\nKabul edilen: ' + kabul); return; }
+      if (!uyar){ bildir('Bu alan bu dosya türünü kabul etmiyor.\n\nKabul edilen: ' + kabul, 'hata'); return; }
     }
     const dt = new DataTransfer();
     dt.items.add(dosya);
@@ -2153,14 +2194,14 @@ function belgeKutusu(){
   return ov;
 }
 async function belgeAc(yol, baslik){
-  if(!yol){ alert('Bu belge yüklenmemiş.'); return; }
+  if(!yol){ bildir('Bu belge yüklenmemiş.', 'hata'); return; }
   // PDF resim olarak açılmaz — imzalı bağlantıyı yeni sekmede aç
   if (/\.pdf$/i.test(yol)){
     try{
       const { data, error } = await sb.storage.from('belgeler').createSignedUrl(yol, 300);
       if (error || !data?.signedUrl) throw new Error(error?.message || 'bağlantı alınamadı');
       window.open(data.signedUrl, '_blank', 'noopener');
-    }catch(e){ alert('Belge açılamadı: ' + hataTr(e.message)); }
+    }catch(e){ bildir('Belge açılamadı: ' + hataTr(e.message), 'hata'); }
     return;
   }
   const ov=belgeKutusu();
@@ -2339,7 +2380,7 @@ async function gunSonuDuzenle(id){
   const { data, error } = await sb.from('gun_sonu')
     .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,z_foto_path,pos_slip_foto_path,notlar,is_deleted), gun_sonu_kdv(kasa_no,sira,oran,satis_toplam,kdv_tutar,is_deleted)')
     .eq('id', id).maybeSingle();
-  if (error || !data){ alert('Kayıt yüklenemedi: ' + hataTr(error?.message || 'bulunamadı')); return; }
+  if (error || !data){ bildir('Kayıt yüklenemedi: ' + hataTr(error?.message || 'bulunamadı'), 'hata'); return; }
   const ks = (data.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
   const kd = (data.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
   // Kayıtta bir kasadan kaç Z varsa o kadar blok aç
@@ -2440,7 +2481,7 @@ function kasaPanelHtml(n){
 }
 /* Aynı kasaya ikinci/üçüncü Z — cihaz arızasında gün kaydedilebilsin diye */
 function zBlokEkle(n){
-  if (ZLISTE[n].length >= 9){ alert('Bir kasaya en fazla 9 Z raporu girilebilir.'); return; }
+  if (ZLISTE[n].length >= 9){ bildir('Bir kasaya en fazla 9 Z raporu girilebilir.', 'hata'); return; }
   const s = Math.max(...ZLISTE[n]) + 1;
   const eski = {};
   ZLISTE[n].forEach(x=>{ eski[x] = zBlokTopla(n, x); });   // yeniden çizmeden ÖNCE yedekle
@@ -2800,7 +2841,7 @@ async function gunSonuKaydet(){
   // AKIL KONTROLLERİ (KÜM. TOPLAM tuzağı + KDV tutarlılığı)
   const kdvSatisToplami = kdv.reduce((a,x)=>a+x.satis_toplam,0);
   if (kdvSatisToplami > toplam*1.5 + 100){
-    alert(`HATALI GİRİŞ OLABİLİR: KDV dökümündeki satış toplamı (${tl(kdvSatisToplami)}) günün cirosundan (${tl(toplam)}) çok büyük.\n\nZ kağıdındaki "KÜM. TOPLAM" satırını yazmış olabilirsiniz — o satır kasanın TÜM GEÇMİŞ toplamıdır, kullanılmaz.\n\n"%10 TOPLAM" gibi GÜNLÜK satırı girin.`);
+    bildir(`HATALI GİRİŞ OLABİLİR: KDV dökümündeki satış toplamı (${tl(kdvSatisToplami)}) günün cirosundan (${tl(toplam)}) çok büyük.\n\nZ kağıdındaki "KÜM. TOPLAM" satırını yazmış olabilirsiniz — o satır kasanın TÜM GEÇMİŞ toplamıdır, kullanılmaz.\n\n"%10 TOPLAM" gibi GÜNLÜK satırı girin.`, 'hata');
     return;
   }
   for (const x of kdv){
@@ -2999,9 +3040,9 @@ async function gunSonuListe(){
 async function gunSil(id, tarih){
   const neden = await nedenSor(`${tarih} günü SİLİNECEK (kayıt audit'te kalır) ve yeniden girilebilir olacak. Neden?`, null, 1);
   if (neden===null) return;
-  if (!neden.trim()){ alert('Neden yazmak zorunlu.'); return; }
+  if (!neden.trim()){ bildir('Neden yazmak zorunlu.', 'hata'); return; }
   const { error } = await sb.rpc('rpc_gun_sonu_sil', { p_id:id, p_neden:neden.trim() });
-  if (error){ alert('Silinemedi: '+hataTr(error.message)); return; }
+  if (error){ bildir('Silinemedi: '+hataTr(error.message), 'hata'); return; }
   try{ localStorage.removeItem('sonGunSonu'); }catch(e){}
   vGunSonu();
 }
@@ -3533,7 +3574,7 @@ async function mutabakatHaric(no){
   const x = MUTABAKAT.find(z=>z.belge_no===no); if(!x) return;
   const neden = await nedenSor(`${no} — ${x.firma||''}`, 'Neden sisteme girilmiyor? (örn: ev interneti, şahsi harcama)', 1);
   if (neden === null) return;
-  if (!neden.trim()){ alert('Neden yazmak zorunlu — sonradan niye atlandığını bilmen gerekir.'); return; }
+  if (!neden.trim()){ bildir('Neden yazmak zorunlu — sonradan niye atlandığını bilmen gerekir.', 'hata'); return; }
   /* v84 · H-51 · RPC'ye taşındı.
      Kaydın ÇERÇEVESİ ölçüldü ve H-51'in ilk hâli iki noktada fazla
      genişti: `trg_audit_belge_haric` ZATEN vardı (denetim izi düşüyordu)
@@ -3546,7 +3587,7 @@ async function mutabakatHaric(no){
   const { error } = await sb.rpc('rpc_belge_haric_ekle', {
     p_sube: AKTIF_SUBE, p_belge_no: no,
     p_firma: (x.firma||'').slice(0,80), p_neden: neden.trim() });
-  if (error){ alert('Kaydedilemedi: ' + hataTr(error.message)); return; }
+  if (error){ bildir('Kaydedilemedi: ' + hataTr(error.message), 'hata'); return; }
   x.durum = 'haric'; x.neden = neden.trim();
   mutabakatCiz();
   mesaj('mtMsg','ok', `${no} işletme dışı olarak işaretlendi — bir daha uyarmayacak.`);
@@ -3554,7 +3595,7 @@ async function mutabakatHaric(no){
 /* Girilmemiş faturayı forma taşı — PDF'i de dosya alanına koyar, tek tuşla okutulur */
 function mutabakatGir(no){
   const x = MUTABAKAT.find(z=>z.belge_no===no);
-  if (!x){ alert('Belge bulunamadı.'); return; }
+  if (!x){ bildir('Belge bulunamadı.', 'hata'); return; }
   GIDER_BOLUM = 'fatura';
   vGider();
   setTimeout(()=>{
@@ -3708,7 +3749,7 @@ async function giderSil(id, tutarMetni){
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
     'Örnek: "aynı tutar parça parça ayrıca girilmiş, bu toplu kayıt fazla"', 1);
   if (!neden || !neden.trim()){
-    if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
+    if (neden !== null) bildir('Gerekçe boş olamaz — silinmedi.', 'hata');
     return;
   }
   /* v70 · H-29 · Eski metin "bu kadar DEĞİŞİR" diyordu ama hiçbir rakama
@@ -3721,7 +3762,7 @@ async function giderSil(id, tutarMetni){
   const { error } = await sb.rpc('rpc_gider_sil', { p_id:id, p_neden:neden.trim() });
   if (error){
     if (btn){ btn.disabled = false; btn.textContent = 'Sil'; }
-    alert('Silinemedi: ' + hataTr(error.message));
+    bildir('Silinemedi: ' + hataTr(error.message), 'hata');
     return;
   }
   vGider();
@@ -3767,7 +3808,7 @@ async function alisDuzenle(id){
   const { data, error } = await sb.from('alis')
     .select('*, alis_kdv(oran,matrah,kdv_tutar,is_deleted), alis_kalem(urun_id,miktar,birim_fiyat,ham_ad,ham_kod,birim_ad,birim_carpani,satir_tutar,kdv_orani,iskonto_orani,iskonto_tutar,is_deleted)')
     .eq('id', id).maybeSingle();
-  if (error || !data){ alert('Fatura yüklenemedi: ' + hataTr(error?.message || 'bulunamadı')); return; }
+  if (error || !data){ bildir('Fatura yüklenemedi: ' + hataTr(error?.message || 'bulunamadı'), 'hata'); return; }
   AL_DUZENLE = null;
   gdFatura();                                        // formu temiz kur
   AL_DUZENLE = { id: data.id, foto: data.foto_path || null };
@@ -4788,7 +4829,7 @@ function ayRaporuYazdir(){
   const ic = document.getElementById('ayRaporIcerik');
   if (!ic) return;
   const w = window.open('', '_blank');
-  if (!w){ alert('Tarayıcı yeni sekmeyi engelledi — açılır pencere iznini ver.'); return; }
+  if (!w){ bildir('Tarayıcı yeni sekmeyi engelledi — açılır pencere iznini ver.', 'hata'); return; }
   w.document.write('<!doctype html><html lang="tr"><head><meta charset="utf-8">'
     + '<title>Bardaks KTÜ — Ay Raporu</title>'
     + '<style>body{margin:24px;background:#fff}@media print{body{margin:0}}</style>'
@@ -5215,7 +5256,7 @@ async function alacakKaydet(){
 async function alacakKapat(id){
   if (!await onaySor('Bu alacak KAPATILACAK (listeden çıkar, kayıt silinmez).', 'Mal tamamen geldiyse veya anlaşma bittiyse kapat.', 'Kapat')) return;
   const { error } = await sb.from('urun_alacak').update({ aktif:false }).eq('id', id);
-  if (error){ alert('Kapatılamadı: ' + hataTr(error.message)); return; }
+  if (error){ bildir('Kapatılamadı: ' + hataTr(error.message), 'hata'); return; }
   vStok();
 }
 /* SAYIM
@@ -5509,7 +5550,7 @@ async function cekDurum(id, durum){
   const msg = durum==='karsiliksiz' ? 'Çek KARŞILIKSIZ işaretlenecek — ödeme iptal olur, borç geri gelir. Emin misin?' : 'Çek tahsil edildi olarak işaretlensin mi?';
   if (!confirm(msg)) return;
   const { error } = await sb.rpc('rpc_cek_durum', { p_id:id, p_durum:durum });
-  if (error){ alert('Güncellenemedi: '+hataTr(error.message)); return; }
+  if (error){ bildir('Güncellenemedi: '+hataTr(error.message), 'hata'); return; }
   vTedarikci();
 }
 /* FİRMA MERKEZİ — bakiye, açık faturalar, ödemeler ve o firmadan aldığın ürünler tek yerde.
@@ -5640,7 +5681,7 @@ async function tedarikciSil(id, ad){
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
     'Örnek: "deneme amaçlı açıldı, gerçek firma değil"', 1);
   if (!neden || !neden.trim()){
-    if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
+    if (neden !== null) bildir('Gerekçe boş olamaz — silinmedi.', 'hata');
     return;
   }
   if (!confirm((ad||'Firma') + ' listeden düşecek (geri alınabilir işaretleme, veri kaybolmaz).\n\n'
@@ -5651,7 +5692,7 @@ async function tedarikciSil(id, ad){
   const { error } = await sb.rpc('rpc_tedarikci_sil', { p_id:id, p_neden:neden.trim() });
   if (error){
     if (btn){ btn.disabled = false; btn.textContent = 'Firmayı Sil'; }
-    alert('Silinemedi: ' + hataTr(error.message));
+    bildir('Silinemedi: ' + hataTr(error.message), 'hata');
     return;
   }
   await katalogYukle();
@@ -5871,7 +5912,7 @@ async function pgSil(id, ad, maliyetMetni){
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
     'Örnek: "işten ayrıldı, bu ayın maaşı ödenmedi"', 1);
   if (!neden || !neden.trim()){
-    if (neden !== null) alert('Gerekçe boş olamaz — çıkarılmadı.');
+    if (neden !== null) bildir('Gerekçe boş olamaz — çıkarılmadı.', 'hata');
     return;
   }
   /* Rakam metinde: H-29'un dersi — "bu kadar değişir" deyip hiçbir
@@ -5884,7 +5925,7 @@ async function pgSil(id, ad, maliyetMetni){
   const { error } = await sb.rpc('rpc_personel_gider_sil', { p_id:id, p_neden:neden.trim() });
   if (error){
     if (btn){ btn.disabled = false; btn.textContent = '✕'; }
-    alert('Çıkarılamadı: ' + hataTr(error.message));
+    bildir('Çıkarılamadı: ' + hataTr(error.message), 'hata');
     return;
   }
   vPersonel();
@@ -5893,7 +5934,7 @@ async function pgOncekiAydanKopyala(){
   const [y, a] = PG_DONEM.split('-').map(Number);
   const onceki = a===1 ? (y-1)+'-12' : y+'-'+String(a-1).padStart(2,'0');
   const { data } = await sb.from('personel_gider').select('*').eq('donem', onceki).eq('is_deleted', false);
-  if (!data || data.length===0){ alert('Önceki ayda ('+onceki+') kayıt yok.'); return; }
+  if (!data || data.length===0){ bildir('Önceki ayda ('+onceki+') kayıt yok.', 'hata'); return; }
   for (const p of data){
     await sb.from('personel_gider').insert({
       sube_id: p.sube_id, donem: PG_DONEM, personel_adi: p.personel_adi,
@@ -5966,13 +6007,13 @@ async function talepListe(){
 }
 async function yapildiIsaretle(id, geri){
   const { error } = await sb.rpc('rpc_yapildi_isaretle', { p_id:id, p_geri:geri });
-  if (error){ alert('Güncellenemedi: '+hataTr(error.message)); return; }
+  if (error){ bildir('Güncellenemedi: '+hataTr(error.message), 'hata'); return; }
   talepListe(); talepRozet();
 }
 async function maddeSil(id){
   if (!await onaySor('Bu madde silinsin mi?', null, 'Sil')) return;
   const { error } = await sb.rpc('rpc_madde_sil', { p_id:id });
-  if (error){ alert('Silinemedi: '+hataTr(error.message)); return; }
+  if (error){ bildir('Silinemedi: '+hataTr(error.message), 'hata'); return; }
   talepListe(); talepRozet();
 }
 
@@ -6336,7 +6377,7 @@ async function kapaliGunIsaretle(tarih){
   if (!neden || !neden.trim()) return;
   const { data, error } = await sb.rpc('rpc_kapali_gun',
     { p_sube: AKTIF_SUBE, p_tarih: tarih, p_neden: neden.trim(), p_geri: false });
-  if (error){ alert('İşaretlenemedi: ' + hataTr(error.message)); return; }
+  if (error){ bildir('İşaretlenemedi: ' + hataTr(error.message), 'hata'); return; }
   if (data && data.ok) vOzet();
 }
 async function ownerHareketYukle(ay){
@@ -6842,11 +6883,11 @@ async function vadeKapat(id, ad){
     + `1 veya 2 yaz:`);
   if (!secim) return;
   const durum = secim.trim() === '1' ? 'tutar_yok' : secim.trim() === '2' ? 'iptal' : null;
-  if (!durum){ alert('1 veya 2 yazmalısın.'); return; }
+  if (!durum){ bildir('1 veya 2 yazmalısın.', 'hata'); return; }
   const neden = await nedenSor('Nedenini yaz (kayda geçecek):', null, 1);
-  if (!neden || !neden.trim()){ alert('Neden zorunlu.'); return; }
+  if (!neden || !neden.trim()){ bildir('Neden zorunlu.', 'hata'); return; }
   const { error } = await sb.rpc('rpc_vade_durum', { p_id:id, p_durum:durum, p_not:neden.trim() });
-  if (error){ alert('Kapatılamadı: '+hataTr(error.message)); return; }
+  if (error){ bildir('Kapatılamadı: '+hataTr(error.message), 'hata'); return; }
   vergiVadeYukle();
 }
 /* VERGİ DEKONTU OKUMA — fatura ve araç masrafındaki ile aynı okuyucu.
@@ -7239,8 +7280,8 @@ async function bankaMutabakatKaydet(){
        "tamam" sanılıyordu. Kategori bulunamazsa da sessizce hiçbir şey
        olmuyordu. İkisi de artık kullanıcıya söyleniyor. */
     if (!kat){
-      alert('Gider kaydedilemedi: "POS Komisyon" ya da "Diğer" kategorisi bulunamadı.\n\n'
-        + 'Kesinti GİDERE YAZILMADI. Yönetim ekranından kategoriyi ekleyip tekrar dene.');
+      bildir('Gider kaydedilemedi: "POS Komisyon" ya da "Diğer" kategorisi bulunamadı.\n\n'
+        + 'Kesinti GİDERE YAZILMADI. Yönetim ekranından kategoriyi ekleyip tekrar dene.', 'hata');
       return;
     }
     /* ⚠ KARARLI ANAHTAR. idem() her cagrida YENI anahtar uretiyordu; sunucu
@@ -7257,8 +7298,8 @@ async function bankaMutabakatKaydet(){
       p_tutar: kesintiToplam, p_kdv_orani: null, p_kdv_tutar: 0,
       p_foto: null, p_kasadan: false, p_tedarikci: null, p_arac: null });
     if (komErr){
-      alert('Gider KAYDEDİLEMEDİ: ' + hataTr(komErr.message) + '\n\n'
-        + 'Banka kesintisi giderlere YAZILMADI — mutabakat eksik. Tekrar dene.');
+      bildir('Gider KAYDEDİLEMEDİ: ' + hataTr(komErr.message) + '\n\n'
+        + 'Banka kesintisi giderlere YAZILMADI — mutabakat eksik. Tekrar dene.', 'hata');
       return;
     }
     alert('Banka kesintisi gidere kaydedildi ✓');
@@ -7311,7 +7352,7 @@ async function ayKapat(zorlaNeden){
       + `Gerekçe kayda geçer ve silinemez.\n\nZorlamak istiyor musun?`, 'Zorla kapat')){
       const neden = await nedenSor('Neden bu kontroller tamamlanmadan kapatıyorsun?', null, 10);
       if (neden && neden.trim().length >= 10) return ayKapat(neden.trim());
-      alert('Gerekçe en az 10 karakter olmalı — kapatma yapılmadı.');
+      bildir('Gerekçe en az 10 karakter olmalı — kapatma yapılmadı.', 'hata');
     }
     return;
   }
@@ -7531,7 +7572,7 @@ async function kategoriSil(id, ad){
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
     'Örnek: "yanlışlıkla eklendi"', 1);
   if (!neden || !neden.trim()){
-    if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
+    if (neden !== null) bildir('Gerekçe boş olamaz — silinmedi.', 'hata');
     return;
   }
   if (!await onaySor((ad||'Kategori') + ' silinecek.',
@@ -7543,7 +7584,7 @@ async function kategoriSil(id, ad){
   const { data, error } = await sb.rpc('rpc_gider_kategori_sil', { p_id:id, p_neden:neden.trim() });
   if (error){
     if (btn){ btn.disabled = false; btn.textContent = 'Sil'; }
-    alert('Silinemedi: ' + hataTr(error.message));
+    bildir('Silinemedi: ' + hataTr(error.message), 'hata');
     return;
   }
   const n = +(data && data.bagli_gider) || 0;
