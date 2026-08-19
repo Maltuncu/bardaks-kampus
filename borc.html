@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-18-4">
+<meta name="surum" content="borc-2026-08-18-9">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -160,6 +160,23 @@ main{padding:14px;max-width:640px;margin:0 auto}
    isaret (+/−) zaten anlami tasiyor. Kalin ve okunur kaliyor. */
 .bant .sr .fark{color:var(--metin);font-weight:600;white-space:nowrap}
 .bant .sr .eksik{color:var(--uyari);font-weight:600}
+/* ===== FAZ 2a · UC KARAR KATMANI GORSEL OLARAK AYRISIR =====
+   Tez sayfa 6: anapara, bu ayin nakit cikisi ve ileri donem yuku AYRI
+   kararlardir; bugun ucu de ayni bantta, ayni tipografide, alt alta
+   akiyordu ve hangisinin karar degeri oldugu okunmuyordu.
+   ⚠ Tezin ozel uyarisi: "Anapara, nominal gelecek odeme ve rayic deger
+     ayni aciklamasiz toplam veya eksende BIRLESTIRILEMEZ." Bu yuzden
+     bloklar ayrilir ama TOPLAMLARI ALINMAZ — hicbir yerde uc katmanin
+     toplami yazmaz. */
+.bant .kat{margin-top:12px;padding-top:10px;border-top:1px solid var(--cizgi)}
+.bant .kat:first-of-type{margin-top:0;padding-top:0;border-top:none}
+.bant .kat-et{font-size:10px;font-weight:800;letter-spacing:.7px;color:var(--soluk);
+  margin-bottom:3px;text-transform:uppercase}
+/* Kavram uyarisi: rakamin YANINDA, kucuk puntoda, tek cumle. */
+.bant .kat-kapsam{font-weight:600;letter-spacing:.3px;text-transform:none;opacity:.85}
+.bant .kavram{font-size:10.5px;color:var(--soluk);line-height:1.4;margin-top:2px;font-style:italic}
+/* Dagilimda PAYDA gorunur — neyin yuzdesi oldugu okunsun. */
+.serit-payda{font-size:10.5px;color:var(--soluk);line-height:1.4;margin-top:4px}
 .bant .dip{font-size:11px;color:var(--soluk);line-height:1.35;margin-top:5px;
   border-top:1px solid var(--cizgi);padding-top:5px}
 .bant .dip b{}
@@ -237,8 +254,54 @@ main{padding:14px;max-width:640px;margin:0 auto}
    `.im-*` (0,1,0) sinifini EZIYORDU ve dort isaret de ayni renge
    dusuyordu (olculdu). Renk yalnizca .im-* siniflarindan gelir. */
 .tkv-g .im{width:58%}
+/* ===== FAZ 2b·B · DORT ISARET · AC-04 =====
+   ⚠ GRI TONLU CIKTIDA DA AYRISACAK. Onceki hal "bugün" ve "seçili"yi
+     AYNI outline ile (2px solid) yalniz RENKLE ayiriyordu; --ana ve
+     --metin gri tonda birbirine cok yakin. Her cift artik EN AZ BIR
+     RENK DISI ozellikte farkli:
+       bugün          outline-style: solid  · width 2px
+       seçili         outline-style: double · width 4px + font-weight 800
+       ödeme günü     outline YOK; .im border-top-width 2/4/7px
+       klavye odağı   outline-style: dashed · width 3px · offset DISA (+2px)
+     Boylece renk kaldirilsa bile dorduu ayirt edilebilir. */
 .tkv-g.bugun{outline:2px solid var(--ana);outline-offset:-2px}
-.tkv-g[aria-pressed="true"]{background:var(--acik);outline:2px solid var(--metin);outline-offset:-2px}
+.tkv-g[aria-selected="true"]{background:var(--acik);
+  outline:4px double var(--metin);outline-offset:-4px}
+.tkv-g[aria-selected="true"] .sy{font-weight:800}
+/* Klavye odagi: TEK renk disi ozelligi dashed + DISA tasan offset. */
+.tkv-g:focus-visible{outline:3px dashed var(--ana);outline-offset:2px}
+
+/* ===== FAZ 2b·A · TAKVIM SOLDA, AJANDA SAGDA (>=900px) =====
+   <900px: panel ayin ALTINDA, secili gun tek odak (tez sayfa 16). */
+/* ===== FAZ 2b·G4 · MOBILDE IZGARA TAM GENISLIK =====
+   ⚠ OLCULDU: 320px'te izgara 260px, gerekli 7x44+6x2 = 320px. Eksik
+     60px, main (14+14) + kart (15+15) + kenarlik yatay boslugudur.
+     Aritmetik: (320-12)/7 = 44,00 TAM. Yani izgara ekran kenarina
+     uzanirsa hedef TAM tutuyor.
+   ⚠ GLOBAL BOSLUK DEGISMEDI: main'e, .kart'a, diger ekranlara
+     DOKUNULMADI. Yalniz gun izgarasi ve hafta basliklari kendi
+     kapsayicisinin boslugunun disina cikiyor.
+   ⚠ 100vw + calc(-50vw + 50%) kullanildi, SABIT 30px degil: padding
+     ileride degisirse kural kendiliginden uyar.
+   ⚠ Ay oklari ve ajanda paneli TAM GENISLIGE CIKMIYOR — onlar kendi
+     boslugunda kaliyor. Yalniz izgara ve hafta basliklari. */
+/* ⚠ OLCULDU (768px): 100vw KAYDIRMA CUBUGUNU ICERIR — vw 768, clientWidth
+   753, izgara 15px TASTI ve yatay kaydirma cikti. Kapsayiciya kirpma
+   gerekti. `clip` secildi, `hidden` DEGIL: hidden bir kaydirma baglami
+   yaratir ve #ustBar'in position:sticky davranisini bozar (clip yaratmaz).
+   Kirpma YALNIZ yatayda; dikey kaydirma etkilenmiyor. */
+#uygulama{overflow-x:clip}
+@media(max-width:899px){
+  .tkv-hafta,.tkv-izgara{width:100vw;margin-left:calc(-50vw + 50%);margin-right:calc(-50vw + 50%)}
+}
+.tkv-duzen{display:block}
+.tkv-duzen>.tkv-sol{min-width:0}
+@media(min-width:900px){
+  .tkv-duzen{display:flex;align-items:flex-start;gap:18px}
+  .tkv-duzen>.tkv-sol{flex:1 1 0;min-width:0}
+  .tkv-duzen>.tkv-panel{flex:1 1 0;min-width:0;margin-top:0;border-top:none;
+    border-left:2px solid var(--cizgi);padding-top:0;padding-left:16px}
+}
 .im-odendi  {border-top:4px solid var(--ok)}                       /* dolu KALIN */
 .im-bekliyor{border-top:2px solid var(--uyari)}                    /* dolu INCE  */
 .im-gecikmis{border-top:4px solid var(--hata)}                     /* dolu kalin + sayi alti cizili */
@@ -889,7 +952,13 @@ async function baslat(){
      listelenmiyor, bölüm şeridinin KENDİSİNDEN okunuyor — iki liste tutmak
      iki listenin ayrışması demek. */
   const BOLUMLER = [...document.querySelectorAll('#bolumSerit button[data-b]')].map(b => b.dataset.b);
-  const istenen = decodeURIComponent((location.hash || '').slice(1));
+  /* ⚠ FAZ 2b·E · hash artik "takvim/2026-08-18" olabilir. Bolum cozumu
+     ILK PARCAYA bakiyor — eski davranis AYNEN duruyor, ikinci parca
+     yoksa hicbir sey degismiyor. Gun de KULLANICI GIRDISIDIR:
+     yalniz YYYY-AA-GG bicimi kabul edilir. */
+  const parcali = decodeURIComponent((location.hash || '').slice(1)).split('/');
+  const istenen = parcali[0];
+  if (parcali[1] && /^\d{4}-\d{2}-\d{2}$/.test(parcali[1])) TAKVIM_GUN = parcali[1];
   await ekranAc(BOLUMLER.includes(istenen) ? istenen : EKRAN);
 }
 async function surumKontrol(){
@@ -1287,6 +1356,12 @@ function seritCiz(v){
      Ltd'nin ŞERİDE GİRMEME kuralı AYNEN duruyor — `sinif` dizisinde Ltd yok,
      oranlamaya katılmıyor; bu satır artık onu SÖYLÜYOR, tekrar etmiyor.
      "gelecek faiz hariç" 11px'te iki satıra sarıyordu; "faiz hariç" yeter. */
+  /* ⚠ FAZ 2a·B · PAYDA ACIK YAZILIR. Yuzdeler zaten hesaplaniyordu ama
+     NEYIN yuzdesi oldugu ekranda yoktu. Yeni bir toplam UYDURULMUYOR:
+     `toplam` bu fonksiyonun yukarisinda zaten cizilen siniflarin
+     toplami olarak duruyor ve seridin paydasi odur. */
+  dip.appendChild(el('div','serit-payda',
+    'Yüzdeler ' + tlk(toplam) + ' üzerinden — bugün kapatılsa ödenecek tutarın dağılımı.'));
   dip.appendChild(document.createTextNode('faiz hariç · Ltd hariç'));
   if (!v.kartSahis){
     /* "0" ile "girilmedi" AYNI GORUNMEZ — hangisi oldugu yaziliyor. */
@@ -1300,37 +1375,77 @@ function seritCiz(v){
 
 function bantCiz(v){
   const b = el('div','bant');
+  /* ⚠ FAZ 2a · UC KARAR KATMANI. Hicbir hesap degismedi; ayni dugumler
+     ayni degerlerle, yalniz AYRI kapsayicilara giriyor. `hedef` eklendi:
+     satir() artik hangi katmana yazacagini biliyor. */
+  /* ⚠ KAPSAM NOTU KATMANIN ICINDE. Bant dipnotu "faiz hariç · Ltd hariç"
+     diyordu ve BANDIN TAMAMI icin gecerliymis gibi duruyordu. Oysa orta
+     katman Ltd'yi ICERIYOR, ust katman DISLIYOR. Ayni bandin bir katmani
+     Ltd'yi disliyor digeri iceriyorsa bu ACIKCA yazilmali; yoksa ekran
+     yalan soyler. Her katman kendi kapsamini tasiyor. */
+  const katman = (etiket, kapsam) => {
+    const k = el('div','kat');
+    if (etiket){
+      const e = el('div','kat-et', etiket);
+      if (kapsam) e.appendChild(el('span','kat-kapsam', ' · ' + kapsam));
+      k.appendChild(e);
+    }
+    b.appendChild(k);
+    return k;
+  };
   /* parcalar: [metin, {v:deger, s:sinif}, metin, ...] — akan satir */
-  const satir = (...parcalar) => {
+  const satir = (hedef, ...parcalar) => {
     const s = el('div','sr');
     for (const p of parcalar){
       if (p === null || p === undefined) continue;
       if (typeof p === 'string') s.appendChild(document.createTextNode(p));
       else s.appendChild(el(p.s ? 'span' : 'b', p.s || null, p.v));
     }
-    b.appendChild(s);
+    (hedef || b).appendChild(s);
   };
 
   /* ===== BLOK 1 · SENİN BORCUN (şahıs şirketi) =====
      Hiçbir Ltd rakamı buraya girmez, tersi de. */
   b.appendChild(el('div','blok-et','ŞAHIS ŞİRKETİ · senin borcun'));
+
+  /* ---- KATMAN 1 · BUGUNKU YUK ---- */
+  const k1 = katman('Bugünkü yük', 'faiz hariç · Ltd hariç');
   const bas = el('div','bas');
   bas.appendChild(el('span','et','Anapara bugün'));
   bas.appendChild(el('span','dg', tlk(v.sAnapara)));
-  b.appendChild(bas);
+  k1.appendChild(bas);
 
   /* Satir ici rakamlarda " TL" eki YOK — bant 375px'te satir kazaniyor.
      Birim baslikta ve dipnotta duruyor, hepsi TL. */
   const parcalar = ['kredi ' + tk(v.S.anapara)];
   if (v.sahisKalan) parcalar.push('şahıs ' + tk(v.sahisKalan));
   if (v.kartSahis)  parcalar.push('kart ' + tk(v.kartSahis));
-  b.appendChild(el('div','kirilim', parcalar.join(' · ')));
+  k1.appendChild(el('div','kirilim', parcalar.join(' · ')));
 
   /* Faiz bugun odenmez, zaman gecerse dogar. Sahis tarafinda kirilimsiz
      taksit BUGUN YOK; cikarsa sessiz kalmayalim diye kosula bagli. */
   /* Faiz ve "bu ay" TEK SATIRDA — iki blok bandı büyütmesin.
      "Bu ay" etiketi kapsamını söylüyor: KREDİ taksiti. */
-  satir('Gelecek faiz+masraf ', { v: tk(v.S.faizMasraf) },
+  /* ---- KATMAN 2 · BU AY CIKACAK NAKIT ----
+     ⚠ YENI HESAP YOK. Takvim ekranindaki "301.156,14 · 4 ödeme" rakami,
+       bandin ZATEN GOSTERDIGI iki sayinin toplamidir — olculdu (18.08,
+       canli): sahis 251.769,95 + Ltd 49.386,19 = 301.156,14, takvim
+       kapsamiyla BIREBIR. Taksitler yeniden dolasilmiyor, elde olan iki
+       deger toplaniyor.
+     ⚠ Bu toplama tezin YASAKLADIGI toplama DEGIL: tez uyumsuz kavramlarin
+       (anapara + nominal + rayic) birlestirilmesini yasakliyor. Burada iki
+       taraf da AYNI kavram — bu ay cikacak nakit.
+     ⚠ BILESENLER ALTTA GORUNUR KALIR. Toplami gosterip bilesenleri
+       gizlemek "kapsami belli KPI" sartini bozardi. */
+  const sBuAy = v.S.buAy - v.S.buAyOdenen;
+  const lBuAy = v.L.buAy - v.L.buAyOdenen;
+  const k2 = katman('Bu ay çıkacak nakit', 'şahıs + Ltd');
+  const bas2 = el('div','bas');
+  bas2.appendChild(el('span','et','Bu ay'));
+  bas2.appendChild(el('span','dg', tlk(sBuAy + lBuAy)));
+  k2.appendChild(bas2);
+  k2.appendChild(el('div','kirilim', 'şahıs ' + tk(sBuAy) + ' · Ltd ' + tk(lBuAy)));
+  satir(k2, 'Gelecek faiz+masraf ', { v: tk(v.S.faizMasraf) },
     v.S.kirilimsizAdet ? ' · kırılımsız (' + v.S.kirilimsizAdet + ') ' : null,
     v.S.kirilimsizAdet ? { v: tk(v.S.kirilimsiz) } : null,
     ' · bu ay kredi taksiti ', { v: tk(v.S.buAy - v.S.buAyOdenen) },
@@ -1342,12 +1457,18 @@ function bantCiz(v){
 
   /* Maden ve kisilere olan sahis borcu SAHIBIN yukumlulugu — Ltd'nin degil. */
   if (v.maden.kayitlar.length){
-    satir('Maden rayiç ',
+    satir(k1, 'Maden rayiç ',
       { v: v.madenBugun ? tk(v.madenBugun) : 'hesaplanamaz' },
       v.fiyatiYok.length ? ' (' + v.fiyatiYok.join(', ') + ' hariç)' : null,
       ' · kur farkı ',
       { v: v.farkKurus === null ? 'hesaplanamaz'
            : (v.farkKurus >= 0 ? '+' : '−') + tk(Math.abs(v.farkKurus)), s: 'fark' });
+    /* ⚠ KAVRAM UYARISI · tez: "maden deger artisi YATIRIM KAZANCI
+       DEGILDIR; borc yukundeki rayic degisimidir." Rakam DEGISMIYOR,
+       yanina ne oldugu yaziliyor. */
+    if (v.farkKurus !== null)
+      k1.appendChild(el('div','kavram',
+        'Rayiç farkı yatırım kazancı değildir — borç yükünün bugünkü değerindeki değişimdir.'));
   }
 
   /* ===== BLOK 2 · LİMİTED =====
@@ -1359,22 +1480,30 @@ function bantCiz(v){
     s.appendChild(el('span','rozet rz-ltd','LTD'));
     s.appendChild(document.createTextNode(' '));
     s.appendChild(el('b', null, tk(v.lNominal)));
-    s.appendChild(document.createTextNode(' · bu ay '));
-    s.appendChild(el('b', null, tk(v.L.buAy - v.L.buAyOdenen)));
+    /* ⚠ "bu ay" BURADAN KALDIRILDI. Ayni sayi iki yerdeydi: burada ve
+       2. katmanin kiriliminda. Ayni sayi iki yerde tutulursa ileride
+       birbirinden AYRI DUSER. "Bu ay cikacak nakit" artik 2. KATMANIN
+       isi; Ltd blogu Ltd'ye OZEL olani tutuyor — nominal ve kirilimsiz.
+       ⚠ DEGER KAYBI YOK: lBuAy 2. katmanin kiriliminda gorunuyor,
+         kurus kumesi testi bunu kanitliyor. */
     /* "ayri tuzel, gidere girmez" aciklamasi Krediler ekraninda ZATEN var
        ("Limited sirket — bu kredinin hicbir kalemi gidere yazilmaz");
        bantta rozet + ayirici cizgi ayrimi zaten soyluyor. */
     if (v.L.kirilimsizAdet)
       s.appendChild(document.createTextNode(' · kırılımsız ' + tk(v.L.kirilimsiz)));
-    b.appendChild(s);
+    /* Ltd AYRI YUKUMLULUK — dagilimin da, uc katmanin da DISINDA. */
+    const kl = katman('Ayrı yükümlülük · Limited', 'nominal · dağılımın dışında');
+    kl.appendChild(s);
   }
 
+  /* ---- KATMAN 3 · ILERI DONEM YUKU ---- */
+  const k3 = katman('İleri dönem yükü', 'şahıs + Ltd');
   const dip = el('div','dip');
   dip.appendChild(document.createTextNode('Taksit nominali '));
   dip.appendChild(el('b', null, tlk(v.krediParcaToplam)));
   dip.appendChild(document.createTextNode(' (şahıs+Ltd)'
     + (v.kartDonemsiz ? ' · ' + v.kartDonemsiz + ' kartın dönemi yok' : '')));
-  b.appendChild(dip);
+  k3.appendChild(dip);
 
   /* Ic tutarlilik: her blokta kirilim toplami nominale ESIT olmali */
   const bozuk = [];
@@ -1395,6 +1524,30 @@ function bantCiz(v){
 /* ================== 1 · TAKVIM (varsayilan) ================== */
 /* D5 · Ay gorunumu. 84 satirlik yigin yerine gunler; detay dokununca acilir. */
 let TAKVIM_AY = null, TAKVIM_GUN = null, TAKVIM_LISTE = false;
+
+/* ===== FAZ 2b·E · SECILI GUN URL'DE =====
+   ⚠ MEVCUT ROUTE MANTIGI BOZULMADI. Router `location.hash.slice(1)`
+     okuyup BOLUMLER'de ariyordu; hash artik "takvim/2026-08-18" olabilir
+     ve router ilk parcaya bakiyor — bolum cozumu AYNEN calisiyor.
+   ⚠ pushState/replaceState kullaniliyor, location.hash'e yazilmiyor:
+     hash'e yazmak hashchange tetikler ve ekrani yeniden acardi.
+   ⚠ Bu bir DAVRANIS degisikligi; hicbir tutar etkilenmiyor. */
+function takvimGunSec(tar, ctx){
+  TAKVIM_GUN = tar;
+  const yeni = '#takvim' + (tar ? '/' + tar : '');
+  if (location.hash !== yeni) history.pushState({ gun: tar }, '', yeni);
+  takvimYenile(ctx);
+}
+/* Geri/ileri: secimi geri getirir. Ekran zaten takvimse yalniz izgara
+   tazelenir; baska ekrandaysa ekranAc devreye girer (asagidaki dinleyici
+   yalniz takvimdeyken is yapar, digerlerinde mevcut akis surer). */
+addEventListener('popstate', () => {
+  if (EKRAN !== 'takvim') return;
+  const p = decodeURIComponent((location.hash || '').slice(1)).split('/');
+  TAKVIM_GUN = (p[0] === 'takvim' && p[1]) ? p[1] : null;
+  if (TAKVIM_CTX) takvimYenile(TAKVIM_CTX);
+});
+let TAKVIM_CTX = null;
 /* Ay adlari icin MEVCUT `AYLAR` kullaniliyor — ikinci liste tutmak
    iki listenin ayrismasi demek (D3'te ayni karar verildi). */
 const GUN_ADLARI = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
@@ -1430,6 +1583,7 @@ async function vTakvim(){
 
   const kap = el('div','kart'); c.appendChild(kap);
   const ctx = { kap, gunMap, aylar, krediMap, b, buAy, taksitler: v.taksitler };
+  TAKVIM_CTX = ctx;              // FAZ 2b·E · popstate bunu kullanir
   takvimYenile(ctx);
 }
 
@@ -1460,12 +1614,16 @@ function takvimYenile(ctx){
     : 'ödeme yok'));
   bas.appendChild(ort);
   bas.appendChild(ok('Sonraki ay','›', aylar[i+1]));
-  kap.appendChild(bas);
+  /* FAZ 2b·A · takvim SOL sutun, ajanda SAG sutun (>=900px) */
+  const duzen = el('div','tkv-duzen');
+  const sol = el('div','tkv-sol');
+  kap.appendChild(duzen); duzen.appendChild(sol);
+  sol.appendChild(bas);
 
   /* --- hafta basliklari + gun izgarasi --- */
   const hf = el('div','tkv-hafta');
   for (const g of ['Pt','Sa','Ça','Pe','Cu','Ct','Pz']) hf.appendChild(el('div', null, g));
-  kap.appendChild(hf);
+  sol.appendChild(hf);          // hafta basliklari da SOL sutunda
 
   const izg = el('div','tkv-izgara');
   const ilk = new Date(yil, aySira - 1, 1);
@@ -1488,14 +1646,27 @@ function takvimYenile(ctx){
     if (im === 'gecikmis') h.classList.add('gecikmis');
     h.appendChild(el('span','sy', String(g)));
     if (im) h.appendChild(el('span','im im-' + im));
-    h.setAttribute('aria-pressed', String(tar === TAKVIM_GUN));
-    h.setAttribute('aria-label', g + ' ' + ayAdi(ay) + (liste.length
-      ? ' · ' + liste.length + ' ödeme · ' + tlk(liste.reduce((s,t)=>s+kr(t.kalan),0)) + ' kalan'
-      : ' · ödeme yok'));
-    h.onclick = () => { TAKVIM_GUN = (TAKVIM_GUN === tar) ? null : tar; takvimYenile(ctx); };
+    /* ⚠ FAZ 2b·C · aria-pressed YERINE aria-selected. aria-pressed
+       "acik/kapali dugme" der; burada bir GUN SECIMI var. Ayrica bugun
+       aria-current="date" ile bildiriliyor — bolum seridindeki
+       aria-current="page" ile KARISMAZ, iki ayri deger. */
+    if (tar === TAKVIM_GUN) h.setAttribute('aria-selected','true');
+    if (tar === b) h.setAttribute('aria-current','date');
+    /* Tam tarih: gun + ay + YIL + gun adi. Ekran okuyucu "18" degil
+       "18 Ağustos 2026, Salı" okusun. */
+    const gd = new Date(tar + 'T00:00');
+    /* ⚠ ayAdi(ay) YILI ZATEN ICERIYOR — olculdu: "10 Ağustos 2026 2026"
+       cikti. Yil ikinci kez eklenmiyor. */
+    h.setAttribute('aria-label',
+      g + ' ' + ayAdi(ay) + ', ' + GUN_ADLARI[gd.getDay()]
+      + (tar === b ? ' · bugün' : '')
+      + (liste.length
+         ? ' · ' + liste.length + ' ödeme · ' + tlk(liste.reduce((s,t)=>s+kr(t.kalan),0)) + ' kalan'
+         : ' · ödeme yok'));
+    h.onclick = () => { takvimGunSec((TAKVIM_GUN === tar) ? null : tar, ctx); };
     izg.appendChild(h);
   }
-  kap.appendChild(izg);
+  sol.appendChild(izg);
 
   /* --- gun paneli: izgaranin ALTINDA, modal DEGIL --- */
   if (TAKVIM_GUN){
@@ -1511,7 +1682,7 @@ function takvimYenile(ctx){
        yazilmaz", Odeme gir ve dekont dugmeleri orada ZATEN dogru. */
     else for (const t of liste)
       p.appendChild(taksitKarti(t, krediMap.get(t.kredi_id), b, buAy));
-    kap.appendChild(p);
+    duzen.appendChild(p);
   }
 
   /* --- LISTE KAYBOLMASIN: ay gorunumu "ne kadar borcum kaldi"yi yanitlamaz --- */
