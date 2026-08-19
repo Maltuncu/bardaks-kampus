@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-18-9">
+<meta name="surum" content="borc-2026-08-18-11">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -174,7 +174,16 @@ main{padding:14px;max-width:640px;margin:0 auto}
   margin-bottom:3px;text-transform:uppercase}
 /* Kavram uyarisi: rakamin YANINDA, kucuk puntoda, tek cumle. */
 .bant .kat-kapsam{font-weight:600;letter-spacing:.3px;text-transform:none;opacity:.85}
-.bant .kavram{font-size:10.5px;color:var(--soluk);line-height:1.4;margin-top:2px;font-style:italic}
+/* ⚠ .bant'a BAGLI DEGIL: ayni uyari maden ekraninda da kullaniliyor.
+   Bant icinde kucuk kalir, tek basina biraz daha okunakli. */
+.kavram{font-size:10.5px;color:var(--soluk);line-height:1.4;margin-top:2px;font-style:italic}
+.kbaslik + .kavram{font-size:12px;margin:-4px 0 10px}
+/* FAZ 2c·C · BOS DURUM. Sahte veri, ornek kart, yaniltici "0,00 TL" YOK. */
+.bos-durum{border:1.5px dashed var(--cizgi);border-radius:12px;padding:18px 16px;
+  text-align:left;line-height:1.6}
+.bos-durum .bd-bas{font-size:15px;font-weight:700;color:var(--metin);margin-bottom:4px}
+.bos-durum .bd-ac{font-size:13px;color:var(--soluk)}
+.bos-durum .bd-ne{font-size:13px;color:var(--metin);font-weight:600;margin-top:8px}
 /* Dagilimda PAYDA gorunur — neyin yuzdesi oldugu okunsun. */
 .serit-payda{font-size:10.5px;color:var(--soluk);line-height:1.4;margin-top:4px}
 .bant .dip{font-size:11px;color:var(--soluk);line-height:1.35;margin-top:5px;
@@ -273,6 +282,43 @@ main{padding:14px;max-width:640px;margin:0 auto}
 
 /* ===== FAZ 2b·A · TAKVIM SOLDA, AJANDA SAGDA (>=900px) =====
    <900px: panel ayin ALTINDA, secili gun tek odak (tez sayfa 16). */
+/* ===== FAZ 2c·A · MADEN TABLOSU <768px'TE KARTLASIR =====
+   Tez A-P1 bulgusu: yatay tablo dar ekranda tasiyordu. Tablo YAPISI
+   korunuyor (DOM ayni, degerler ayni); yalniz gorunum degisiyor —
+   her satir bir KART, her hucre kendi etiketini data-et'ten aliyor.
+   ⚠ Tez sayfa 16: "ek yuk buyuk, kaynak/tarih ikinci satir" — KIME ve
+     ALIS GUNU basligin hemen altinda, tek satirda, kucuk puntoda.
+   ⚠ Hicbir sey DB'ye yazilmiyor; bu salt gosterim. */
+@media(max-width:767px){
+  /* ⚠ min-width:0 SART. Olculdu: global tablo kurali min-width:520px
+     veriyor; kartlasinca da duruyordu ve satirlar 375px'te 520px
+     genisligindeydi. #uygulama'daki overflow-x:clip bunu GIZLIYORDU —
+     yani icerik kirpiliyordu, sigmiyordu. Kirpilan icerik, tasan
+     icerikten daha tehlikelidir: kimse fark etmez. */
+  .tablo-sar:has(.maden-t){overflow-x:visible}
+  .maden-t, .maden-t tbody, .maden-t tr, .maden-t td{display:block;width:auto;min-width:0}
+  .maden-t tr:first-child{display:none}          /* baslik satiri kartta gereksiz */
+  .maden-t tr{border:1.5px solid var(--cizgi);border-radius:12px;
+    padding:10px 12px;margin:0 0 10px;background:var(--kart);position:relative}
+  .maden-t td{border:none;padding:2px 0;text-align:left!important;
+    display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+  .maden-t td::before{content:attr(data-et);font-size:10px;font-weight:800;
+    letter-spacing:.5px;color:var(--soluk);flex:none}
+  /* 1. satir: TUR + GRAM birlikte, baslik gibi */
+  .maden-t td[data-et="TÜR"]{font-size:17px;font-weight:700;padding-bottom:0}
+  .maden-t td[data-et="TÜR"]::before{display:none}
+  .maden-t td[data-et="GRAM"]{font-size:13px;color:var(--soluk);font-weight:600;
+    margin-top:-2px;padding-bottom:4px}
+  .maden-t td[data-et="GRAM"]::before{display:none}
+  /* 2. satir: KIME + ALIS GUNU — kaynak/tarih ikinci satirda */
+  .maden-t td[data-et="KİME"],.maden-t td[data-et="ALIŞ GÜNÜ"]{
+    font-size:11.5px;color:var(--soluk);display:inline-flex;width:auto;margin-right:12px}
+  .maden-t td[data-et="ALIŞ GÜNÜ"]{margin-bottom:6px}
+  /* menu hucresi sag ust kosede */
+  .maden-t td:last-child{position:absolute;top:8px;right:8px;padding:0}
+  .maden-t td:last-child::before{display:none}
+}
+
 /* ===== FAZ 2b·G4 · MOBILDE IZGARA TAM GENISLIK =====
    ⚠ OLCULDU: 320px'te izgara 260px, gerekli 7x44+6x2 = 320px. Eksik
      60px, main (14+14) + kart (15+15) + kenarlik yatay boslugudur.
@@ -1362,12 +1408,17 @@ function seritCiz(v){
      toplami olarak duruyor ve seridin paydasi odur. */
   dip.appendChild(el('div','serit-payda',
     'Yüzdeler ' + tlk(toplam) + ' üzerinden — bugün kapatılsa ödenecek tutarın dağılımı.'));
-  dip.appendChild(document.createTextNode('faiz hariç · Ltd hariç'));
+  /* ⚠ M3 · "faiz hariç · Ltd hariç" BURADAN CIKARILDI. Bu satir bandin
+     TAMAMI icin gecerliymis gibi duruyordu; oysa katman 2 ve katman 4
+     Ltd'yi ICERIYOR ve kendi kapsam notlarinda oyle yaziyor. Ayni
+     ekranda iki celisen beyan vardi. Ifade katman 1'in KENDI notunda
+     zaten duruyor — orasi dogru yer, cunku dagilim seridi de yalniz
+     o kapsami cizer. "kart: veri girilmedi" KALDI: dogru ve gerekli. */
   if (!v.kartSahis){
     /* "0" ile "girilmedi" AYNI GORUNMEZ — hangisi oldugu yaziliyor. */
     const kartNot = (v.kart.kartlar.length && v.kartDonemsiz < v.kart.kartlar.length)
       ? 'kart: kalan 0' : 'kart: veri girilmedi';
-    dip.appendChild(document.createTextNode(' · ' + kartNot));
+    dip.appendChild(document.createTextNode(kartNot));
   }
   if (dip.childNodes.length) kutu.appendChild(dip);
   return kutu;
@@ -1445,15 +1496,22 @@ function bantCiz(v){
   bas2.appendChild(el('span','dg', tlk(sBuAy + lBuAy)));
   k2.appendChild(bas2);
   k2.appendChild(el('div','kirilim', 'şahıs ' + tk(sBuAy) + ' · Ltd ' + tk(lBuAy)));
-  satir(k2, 'Gelecek faiz+masraf ', { v: tk(v.S.faizMasraf) },
-    v.S.kirilimsizAdet ? ' · kırılımsız (' + v.S.kirilimsizAdet + ') ' : null,
-    v.S.kirilimsizAdet ? { v: tk(v.S.kirilimsiz) } : null,
-    ' · bu ay kredi taksiti ', { v: tk(v.S.buAy - v.S.buAyOdenen) },
-    v.S.buAyOdenen ? ' (' + tk(v.S.buAyOdenen) + ' ödendi)' : null,
-    v.kartSahis ? ' · kart (ayrı) ' : null,
-    v.kartSahis ? { v: tk(v.kartSahis) } : null,
-    v.ko.dekontEksik ? ' · dekont eksik ' : null,
-    v.ko.dekontEksik ? { v: String(v.ko.dekontEksik), s: 'eksik' } : null);
+  /* ⚠ M1 · "Gelecek faiz+masraf" BU KATMANDAN CIKARILDI. Basligi
+     "Bu ay çıkacak nakit" olan bir blogun icinde durunca ekran YANLIS
+     BEYAN ediyordu: o tutar bu ay degil, GELECEKTE dogacak faiz ve
+     masraf. Tezin ozellikle yasakladigi sey — uyumsuz kavramlarin ayni
+     baslik altinda birlesmesi. Artik ILERI DONEM katmaninda (asagida).
+     ⚠ M2 · "bu ay kredi taksiti" SILINDI: ayni kurus iki satir yukarida
+     "şahıs 251.769,95" olarak zaten duruyor. Deger KAYBOLMUYOR.
+     Kalanlar bu katmana AITTIR: bu ay odenen, kart, dekont eksik. */
+  if (v.S.buAyOdenen || v.kartSahis || v.ko.dekontEksik){
+    const ay = [];
+    if (v.S.buAyOdenen) ay.push('bu ay ödenen ', { v: tk(v.S.buAyOdenen) });
+    if (v.kartSahis)    ay.push((ay.length ? ' · ' : '') + 'kart (ayrı) ', { v: tk(v.kartSahis) });
+    if (v.ko.dekontEksik) ay.push((ay.length ? ' · ' : '') + 'dekont eksik ',
+                                  { v: String(v.ko.dekontEksik), s: 'eksik' });
+    satir(k2, ...ay);
+  }
 
   /* Maden ve kisilere olan sahis borcu SAHIBIN yukumlulugu — Ltd'nin degil. */
   if (v.maden.kayitlar.length){
@@ -1498,6 +1556,13 @@ function bantCiz(v){
 
   /* ---- KATMAN 3 · ILERI DONEM YUKU ---- */
   const k3 = katman('İleri dönem yükü', 'şahıs + Ltd');
+  /* ⚠ M1 · buraya TASINDI. Nominal taksit ile faiz+masraf ikisi de
+     gelecege ait — YAN YANA dururlar ama TOPLANMAZLAR: biri odenecek
+     taksitin nominali, digeri o taksitler icinde dogacak faiz/masraf.
+     Ayri satir, ayri etiket, toplam YOK. */
+  satir(k3, 'Gelecek faiz+masraf ', { v: tk(v.S.faizMasraf) },
+    v.S.kirilimsizAdet ? ' · kırılımsız (' + v.S.kirilimsizAdet + ') ' : null,
+    v.S.kirilimsizAdet ? { v: tk(v.S.kirilimsiz) } : null);
   const dip = el('div','dip');
   dip.appendChild(document.createTextNode('Taksit nominali '));
   dip.appendChild(el('b', null, tlk(v.krediParcaToplam)));
@@ -2597,7 +2662,23 @@ async function vKartlar(){
 
   const k = el('div','kart');
   k.appendChild(el('div','kbaslik','Kartlar (' + v.kart.kartlar.length + ')'));
-  if (!v.kart.kartlar.length) k.appendChild(el('div','bos','Henüz kart yok. Aşağıdaki formdan ekle.'));
+  /* ⚠ FAZ 2c·C · BOS DURUM TASARLANDI. Olculdu: bu ekranin kendine ait
+     DEGERI SIFIR — gorunen tum tutarlar ust banttan geliyor. Ekran
+     GERCEKTEN bos. Uc soruya cevap veriyor: ne oldugu, neden bos,
+     ne yapilmasi gerektigi.
+     ⚠ SAHTE VERI YOK: ornek kart, "0,00 TL" gibi yaniltici bir rakam
+       KONMADI. Bos, bos gorunuyor — cunku "0" ile "girilmedi" ayni
+       sey degil ve bant dipnotu da "kart: veri girilmedi" diyor. */
+  if (!v.kart.kartlar.length){
+    const bd = el('div','bos-durum');
+    bd.appendChild(el('div','bd-bas','Kayıtlı kredi kartı yok'));
+    bd.appendChild(el('div','bd-ac',
+      'Kart borcu bu ekrandan takip edilir: her kartın dönem dönem kalanı, '
+      + 'son ödeme günü ve ekstre belgesi. Henüz hiçbir kart girilmediği için '
+      + 'kart borcu toplamlara ve dağılıma DAHİL DEĞİL.'));
+    bd.appendChild(el('div','bd-ne','Yapılacak: aşağıdaki formdan kartı ekle, sonra dönem kalanını gir.'));
+    k.appendChild(bd);
+  }
 
   for (const kart of v.kart.kartlar){
     const son = v.sonDonem.get(kart.id);
@@ -2929,12 +3010,19 @@ async function vMaden(){
 
   const k = el('div','kart');
   k.appendChild(el('div','kbaslik','Altın / gümüş borçları'));
+  /* ⚠ FAZ 2c·B · KAVRAM UYARISI BURADA DA. Bantta yaziyordu ama maden
+     ekraninin KENDISINDE yoktu; "FARK" sutunu tek basina bir yatirim
+     kazanci gibi okunabiliyordu. Tez: "maden deger artisi yatirim
+     kazanci DEGILDIR; borc yukundeki rayic degisimidir." */
+  k.appendChild(el('div','kavram',
+    'Rayiç farkı yatırım kazancı değildir — borç yükünün bugünkü değerindeki değişimdir.'));
   if (!kayitlar.length) k.appendChild(el('div','bos','Kayıtlı altın/gümüş yok.'));
   else {
     const sar = el('div','tablo-sar');
-    const t = document.createElement('table');
+    const t = document.createElement('table'); t.className = 'maden-t';
+    const BASLIK = ['TÜR','GRAM','KİME','ALIŞ GÜNÜ','ALIŞ DEĞERİ','BUGÜNKÜ DEĞER','FARK',''];
     const hr = document.createElement('tr');
-    ['TÜR','GRAM','KİME','ALIŞ GÜNÜ','ALIŞ DEĞERİ','BUGÜNKÜ DEĞER','FARK',''].forEach((h,i) =>
+    BASLIK.forEach((h,i) =>
       hr.appendChild(el('th', (i>=4 && i<=6) ? 'sag' : null, h)));
     t.appendChild(hr);
     for (const m of kayitlar){
@@ -2969,6 +3057,10 @@ async function vMaden(){
       const ey = document.createElement('td');
       ey.appendChild(digerMenu([['Maden borcunu arşivle', (a) => madenSil(m, a, d.bugunKurus === null ? null : tlk(d.bugunKurus))]]));
       tr.appendChild(ey);
+      /* ⚠ FAZ 2c·A · KARTLASMA ICIN ETIKET. <768px'te tablo basligi
+         gizlenir ve her hucre kendi etiketini ::before ile tasir.
+         Yalniz GORUNUM — hicbir deger, sira veya hesap degismedi. */
+      [...tr.children].forEach((c,i) => { if (BASLIK[i]) c.dataset.et = BASLIK[i]; });
       t.appendChild(tr);
     }
     sar.appendChild(t); k.appendChild(sar);
