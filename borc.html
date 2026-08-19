@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-19-1">
+<meta name="surum" content="borc-2026-08-19-2">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,6 +26,7 @@
               (#surumBar'in beyaz yazisi) 3.34->4.68 — tek degisiklik ikisini kapatir
      --ok     #2E7D4F -> #2A7449 : rozet zemini #E7F0E9 uzerinde 4.33->4.88 */
   --metin:#1F3354;--soluk:#5F6880;--hata:#B3402F;--uyari:#A9631F;--ok:#2A7449;--cizgi:#E7DEC8;
+  --cizgi-form:#9E8340;   /* YALNIZ girdi cercevesi — gerekcesi input kuralinda */
   /* AC-02 · dip cubuk yuksekligi. Bu deger OLCULMEDEN ONCEKI baslangictir;
      altCubukOlc() sayfa kurulunca gercek olcumle uzerine yazar. Burada
      tanimli olmasi sart: yoksa CSS sessizce yedege duser ve token kapisi
@@ -47,7 +48,15 @@ body{margin:0;font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',R
   padding-bottom:calc(var(--alt-cubuk, 80px) + 24px)}
 .gizli{display:none!important}
 
-input,select,textarea{width:100%;padding:12px;border:1.5px solid var(--cizgi);border-radius:9px;
+/* ⚠ --cizgi-form AYRI bir token; --cizgi'ye DOKUNULMADI. 1.4.11 yalniz
+   ARAYUZ BILESENI sinirini 3:1 ister — girdi cercevesi bilesendir, ama
+   --cizgi'nin diger 24 kullanimi (kart cercevesi, tablo satir cizgisi,
+   .bant ayraci, #ustBar/#sekmeBar kenari, .tkv-panel, .dm-kutu, sol ray)
+   SUSLEMEDIR ve kapsam disidir; toptan koyulastirmak butun ekrani hardal
+   cizgiye boyardi. Kenarlik IKI komsusuna karsi olculur, belirleyici olan
+   EN DUSUK olan: girdi ici #fff 3.64 · kart #FFFEF8 3.60 · sayfa zemini
+   #FAF4E3 3.31 <- hukum bu. #A58A48 de gecerdi (3.02) ama kil payi. */
+input,select,textarea{width:100%;padding:12px;border:1.5px solid var(--cizgi-form);border-radius:9px;
   font-size:17px;background:#fff;color:var(--metin);font-family:inherit;min-height:46px}
 textarea{min-height:76px;resize:vertical}
 label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px;color:var(--soluk)}
