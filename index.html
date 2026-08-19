@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-14-5">
+<meta name="surum" content="2026-08-19-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -674,6 +674,11 @@ function ayAdi(donem){            // "2026-07" → "Temmuz 2026"
   const p = String(donem||'').split('-');
   return (AY_ADI[(+p[1]||1)-1] || '') + ' ' + (p[0]||'');
 }
+/* ⚠ ARTIK YALNIZ IDEMPOTENT ISLEMLER ICIN. Her cagrida YENI anahtar
+   uretir; sunucunun mukerrer kontrolu onu ASLA bulamaz. Bu, ikinci kez
+   calistirmasi ZARARSIZ olan islerde (silme, durum guncellemesi, salt
+   okuma raporu) sorun degildir. Yeni bir YAZMA cagrisinda kullanma —
+   idemKararli() kullan. */
 const idem = () => crypto.randomUUID();
 
 /* v60 · KARARLI IDEM ANAHTARI — F4-2'nin kök nedeni
@@ -2496,7 +2501,10 @@ async function gunSonuKaydet(){
   // DÜZENLEME: kaydı silmeden güncelle
   if (DUZENLE){
     const gData = await rpcCagir('rpc_gun_sonu_guncelle', {
-      p_idem: idem(), p_id: DUZENLE.id,
+      /* ⚠ GUNCELLEME kaydin KIMLIGINE baglanir, ICERIGINE degil. Icerik
+         anahtara girseydi kullanici rakami duzeltip tekrar gonderdiginde
+         anahtar degisir ve koruma bosa cikardi. */
+      p_idem: await idemKararli('gun_sonu_guncelle',[DUZENLE.id]), p_id: DUZENLE.id,
       p_not: document.getElementById('gsNot').value.trim()||null,
       p_kasa: kasa > 0 ? kasa : null,
       p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
@@ -2513,7 +2521,12 @@ async function gunSonuKaydet(){
     return;
   }
   const data = await rpcCagir('rpc_gun_sonu_kaydet', {
-    p_idem: idem(), p_sube: AKTIF_SUBE, p_tarih: document.getElementById('gsTarih').value,
+    /* ⚠ TUTAR ANAHTARA GIRMEZ. Gun sonu zaten sube+tarih icin tekil
+       (sunucu GUN_ZATEN_GIRILMIS firlatiyor). Tutari anahtara katarsak,
+       kullanici rakami duzeltip tekrar gonderdiginde anahtar degisir ve
+       koruma bosa cikar — tam da onlemek istedigimiz sey. */
+    p_idem: await idemKararli('gun_sonu',[AKTIF_SUBE, document.getElementById('gsTarih').value]),
+    p_sube: AKTIF_SUBE, p_tarih: document.getElementById('gsTarih').value,
     p_kart: kart, p_nakit: nakit, p_toplam: toplam,
     p_iptal_adet: 0, p_iptal_tutar: 0,
     p_z_no: null, p_kdv: null, p_z_foto: null, p_slip_foto: null,
@@ -3273,7 +3286,13 @@ async function giderKaydet(mod){
   try{ foto = await fotoYukle('gdFoto','fatura'); }
   catch(e){ mesaj('gdMsg','hata',e.message); btn.disabled=false; btn.textContent='Gideri Kaydet'; return; }
   const data = await rpcCagir('rpc_gider_kaydet',{
-    p_idem: idem(), p_sube: AKTIF_SUBE,
+    /* ⚠ gdKasadan ANAHTARDA: ayni tutari kasadan ve bankadan girmek AYRI
+       islemdir; disarida birakmak ikinci mesru kaydi engellerdi.
+       ⚠ gdAciklama GIRMEZ — serbest metin, tek harf degisse koruma bosa
+       cikardi. Etiket 'gider': sunucu _idem_kontrol'u bununla arar. */
+    p_idem: await idemKararli('gider',[AKTIF_SUBE, document.getElementById('gdTarih').value,
+            kategori, tutar, document.getElementById('gdKasadan').checked]),
+    p_sube: AKTIF_SUBE,
     p_tarih: document.getElementById('gdTarih').value,
     p_kategori: kategori,
     p_aciklama: document.getElementById('gdAciklama').value.trim()||null,
@@ -5863,7 +5882,13 @@ async function aracMasrafKaydet(){
   try { foto = await fotoYukle('agFoto','fatura'); }
   catch(e){ mesaj('agMsg','hata',e.message); btn.disabled=false; btn.textContent='Masrafı Kaydet'; return; }
   const data = await rpcCagir('rpc_gider_kaydet',{
-    p_idem: idem(), p_sube: AKTIF_SUBE,
+    /* ⚠ arac ANAHTARDA: ayni gun ayni tutarda iki FARKLI araca masraf
+       girilebilir; disarida birakmak ikincisini engellerdi.
+       ⚠ agAciklama GIRMEZ — serbest metin. Etiket 'gider': bes gider
+       cagrisinin hepsinde AYNI, sunucu _idem_kontrol'u bununla arar. */
+    p_idem: await idemKararli('gider',[AKTIF_SUBE, document.getElementById('agTarih').value,
+            document.getElementById('agKategori').value, tutar, arac]),
+    p_sube: AKTIF_SUBE,
     p_tarih: document.getElementById('agTarih').value,
     p_kategori: document.getElementById('agKategori').value,
     p_aciklama: document.getElementById('agAciklama').value.trim()||null,
@@ -6873,7 +6898,15 @@ async function bankaMutabakatKaydet(){
         + 'Kesinti GİDERE YAZILMADI. Yönetim ekranından kategoriyi ekleyip tekrar dene.');
       return;
     }
-    const { error: komErr } = await sb.rpc('rpc_gider_kaydet', { p_idem: idem(), p_sube: AKTIF_SUBE,
+    /* ⚠ KARARLI ANAHTAR. idem() her cagrida YENI anahtar uretiyordu; sunucu
+       anahtari islem_log'da arar ve hep yeni oldugu icin ASLA bulamazdi —
+       koruma kod olarak vardi, davranis olarak yoktu. Alanlar 2775'teki
+       dogru ornekle ayni desen: sube + tarih + kategori + tutar.
+       ⚠ p_aciklama ANAHTARA GIRMEZ: serbest metin, icinde donem ve isyeri
+         var; tek harf degisse anahtar degisir ve koruma bosa cikardi. */
+    const { error: komErr } = await sb.rpc('rpc_gider_kaydet', {
+      p_idem: await idemKararli('gider',[AKTIF_SUBE, aySon(MT_SON.donem), kat.id, kesintiToplam, 'banka']),
+      p_sube: AKTIF_SUBE,
       p_tarih: aySon(MT_SON.donem), p_kategori: kat.id,
       p_aciklama: 'Banka kesintisi (' + MT_SON.donem + ') · komisyon + maxipuan + ÖKC · işyeri ' + (MT_SON.isyeri||''),
       p_tutar: kesintiToplam, p_kdv_orani: null, p_kdv_tutar: 0,
