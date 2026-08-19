@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-19-4">
+<meta name="surum" content="2026-08-19-5">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -808,8 +808,12 @@ function sifreDegistir(acan){
          geri veriyor (satir 1237: `return m`), o yuzden korlemesine
          kullanilamaz: yalnizca GERCEKTEN cevirdiyse gosteriliyor. */
       window.__sonHataHam = error.message;  // tani icin degiskende kalir
+      /* ⚠ Y1 sonrasi kiyas HATA_GENEL ile yapilir: hataTr artik ham metni
+         geri vermiyor, ceviremediginde GENEL cumleyi veriyor. Eski kiyas
+         (tr !== error.message) hep dogru cikar ve bu pencerenin KENDI
+         cumlesi hic gorunmezdi. */
       const tr = hataTr(error.message || '');
-      hata.textContent = (tr && tr !== error.message) ? tr
+      hata.textContent = (tr && tr !== HATA_GENEL) ? tr
         : 'Şifre değiştirilemedi. Tekrar deneyin; sürerse yöneticiye bildirin.';
       hata.hidden = false;
       vaz.disabled = y1.disabled = y2.disabled = false;
@@ -841,7 +845,7 @@ async function sifremiUnuttum(){
   const email = document.getElementById('girisEmail').value.trim() || prompt('E-posta adresiniz:');
   if (!email) return;
   const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
-  alert(error ? ('Gönderilemedi: ' + error.message)
+  alert(error ? ('Gönderilemedi: ' + hataTr(error.message))
     : 'Şifre sıfırlama bağlantısı e-postanıza gönderildi. Maildeki linke tıklayın — uygulamaya dönünce yeni şifrenizi belirleyeceksiniz.');
 }
 // Sıfırlama mailindeki linkle dönüldüğünde yeni şifre iste
@@ -1182,12 +1186,12 @@ async function belgeEkle(tablo, id, klasor, mevcutVar){
                       + ', eski dosya: ' + eski.foto_path + ']').slice(0, 500);
       }
       const { error } = await sb.from(tablo).update({ foto_path: yol, ...ek }).eq('id', id);
-      if (error) throw new Error(hataTr(error.message));
+      if (error) throw new Error(error.message);   // ⚠ Y2 · HAM firlatilir; ceviri GOSTERIM aninda
       if (tablo === 'gider')       await giderListe();
       else if (tablo === 'vergi_odeme') await vergiOdenenYukle();
       alert('Belge eklendi ✓');
     }catch(e){
-      alert('Belge eklenemedi: ' + (e.message || String(e)));
+      alert('Belge eklenemedi: ' + hataTr(e.message || String(e)));
     }finally{
       document.body.style.cursor = eskiImlec;
       inp.remove();
@@ -1228,18 +1232,36 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
       }
       son = await sb.rpc(fn, { ...params, p_mukerrer_onay: true });
     }
-    if (son.error){ window.__sonRpcHataHam = son.error.message; throw new Error(hataTr(son.error.message)); }
+    if (son.error){ window.__sonRpcHataHam = son.error.message; throw new Error(son.error.message); }
     if (basariTxt) mesaj(msgId, 'ok', basariTxt);
     formTemiz();                       // kayıt gitti, form artık kirli değil
     return son.data;
   }catch(e){
-    mesaj(msgId, 'hata', e.message + ' — Verileriniz formda duruyor, tekrar deneyin.');
+    mesaj(msgId, 'hata', hataTr(e.message) + ' — Verileriniz formda duruyor, tekrar deneyin.');
     return null;
   }finally{
     if (btn){ btn.disabled = false; btn.textContent = eski; }
   }
 }
+/* ⚠ Y2 · CIFT CEVIRI KAPISI. Dort kod yolundaki ic ceviri kaldirildi, ama
+   koruma AUDIT'e degil YAPIYA baglanmali: bir metin bir kez cevrildiyse
+   ikinci cagri onu OLDUGU GIBI geri verir. Yoksa ileride biri yeniden
+   hataTr(hataTr(x)) yazdiginda "Bu ay kapatilmis." sessizce genel cumleye
+   donusur — iyi mesaj kaybolur ve kimse fark etmez.
+   KURAL: HATA METNI TAM BIR KEZ CEVRILIR: GOSTERIM ANINDA.
+          Ara katmanlar HAM metni tasir, ceviri YAPMAZ. */
+const HATA_GENEL = 'İşlem tamamlanamadı. Tekrar deneyin; sürerse bu ekranı yöneticiye bildirin.';
+const HATA_CEVRILMIS = new Set([HATA_GENEL]);
 function hataTr(m){
+  /* ⚠ 22 gosterim noktasi buraya bagli; biri undefined gecerse m.includes
+     patlar ve hata mesaji YERINE cokme olurdu. */
+  m = String(m == null ? '' : m);
+  if (HATA_CEVRILMIS.has(m)) return m;         // zaten cevrilmis — DOKUNMA
+  const c = hataTrIc(m);
+  if (c !== m) HATA_CEVRILMIS.add(c);
+  return c;
+}
+function hataTrIc(m){
   /* Finans raporu yetki kapısı — rapora ÖZEL kodlar.
      Genel YETKI_YOK'u burada yakalamak yasak: 36 RPC aynı kodu fırlatıyor
      ve hepsi "Bu rapor için..." demeye başlıyordu. Genel karşılığı aşağıda,
@@ -1348,7 +1370,17 @@ function hataTr(m){
   if (m.includes('TOPLAM_SIFIR')) return 'Toplam 0 olamaz — kart/nakit girin.';
   if (m.includes('KDV_TUTARSIZ')) return 'KDV dökümü günün cirosuyla tutarsız — "KÜM. TOPLAM" satırını girmiş olabilirsiniz.';
   if (m.includes('Failed to fetch')) return 'İnternet bağlantısı sorunu.';
-  return m;
+  /* ⚠ Y1 · DUSME SATIRI ARTIK HAM METIN VERMIYOR.
+     Onceki hal `return m` idi: ceviremedigi her sey ekrana OLDUGU GIBI
+     cikiyordu. Cevrilemeyen sey uygulamanin kendi kodlari DEGIL — onlarin
+     61'i yukarida karsilaniyor; dusenler veritabaninin ic mesajlari:
+     tablo/kisit adlari, "permission denied for ...", PostgREST sema
+     metinleri. Yani tam da gizlenmesi gerekenler.
+     KURAL: HATA METNI TAM BIR KEZ CEVRILIR: GOSTERIM ANINDA.
+            Ara katmanlar HAM metni tasir, ceviri YAPMAZ. */
+  window.__sonHataHam = m;
+  console.warn('ham hata:', m);            // ekranda degil, konsolda
+  return HATA_GENEL;
 }
 /* ============ SESSİZ YANLIŞ RAKAM NÖBETİ ============
    Sorgular `.data||[]` ile okunuyordu ve `.error` HİÇ bakılmıyordu:
@@ -2012,7 +2044,7 @@ async function belgeAc(yol, baslik){
       const { data, error } = await sb.storage.from('belgeler').createSignedUrl(yol, 300);
       if (error || !data?.signedUrl) throw new Error(error?.message || 'bağlantı alınamadı');
       window.open(data.signedUrl, '_blank', 'noopener');
-    }catch(e){ alert('Belge açılamadı: ' + e.message); }
+    }catch(e){ alert('Belge açılamadı: ' + hataTr(e.message)); }
     return;
   }
   const ov=belgeKutusu();
@@ -2027,7 +2059,7 @@ async function belgeAc(yol, baslik){
     img.onerror = ()=>{ durum.textContent='Görsel açılamadı.'; };
     img.src = data.signedUrl;
   }catch(e){
-    durum.textContent = 'Belge açılamadı: ' + e.message;
+    durum.textContent = 'Belge açılamadı: ' + hataTr(e.message);
   }
 }
 /* Listelerde uzun notu kırp. Köşeli parantezli teknik izler ([belge
@@ -2176,7 +2208,7 @@ async function zRaporuOku(k){
     if (v.uyari) msj += ' (' + v.uyari + ')';
     yaz(msj, dolduruldu.length ? 'ok' : 'uyari');
   }catch(e){
-    yaz('Okunamadı: ' + e.message + ' — alanları elle yaz.', 'uyari');
+    yaz('Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
   }finally{
     btn.disabled = false; btn.textContent = eski;
   }
@@ -2631,7 +2663,7 @@ async function gunSonuKaydet(){
     for (const b of d.bloklar){
       let kdvSatir;
       try { kdvSatir = kdvOku(b.k); }
-      catch(e){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} / ${b.s}. Z: `+e.message); return; }
+      catch(e){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} / ${b.s}. Z: `+hataTr(e.message)); return; }
       kasalar.push({ n, s:b.s, k:b.k, zno:b.zno, kart:b.kart, nakit:b.nakit, kdv:kdvSatir,
         kadet:b.kadet, iadet:b.iadet, itutar:b.itutar,
         knot:(document.getElementById('gsKNot_'+b.k)?.value||'').trim()||null });
@@ -2690,7 +2722,7 @@ async function gunSonuKaydet(){
   }catch(e){
     const kalan = await fotoTemizle(yuklenen);
     if (kalan.length) console.warn('YETİM DOSYA (temizlenemedi):', kalan);
-    mesaj('gsMsg','hata', e.message + (kalan.length ? ` — ${kalan.length} dosya temizlenemedi (yönetici bilgilendirilmeli)` : ' — yüklenenler temizlendi'));
+    mesaj('gsMsg','hata', hataTr(e.message) + (kalan.length ? ` — ${kalan.length} dosya temizlenemedi (yönetici bilgilendirilmeli)` : ' — yüklenenler temizlendi'));
     btn.disabled=false; btn.textContent='Gün Sonunu Kaydet'; return;
   }
   btn.textContent = eskiBtnMetin;
@@ -3312,7 +3344,7 @@ async function mutabakatCalistir(){
     yaz(`${MUTABAKAT.length} belge okundu.`, 'ok');
     mutabakatCiz();
   }catch(e){
-    yaz('Hata: ' + e.message, 'uyari');
+    yaz('Hata: ' + hataTr(e.message), 'uyari');
   }finally{ btn.disabled = false; }
 }
 function mutabakatCiz(){
@@ -3354,7 +3386,7 @@ function mutabakatCiz(){
     ${hata.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--hata)">
         OKUNAMADI (${hata.length})</div>
       ${hata.map(x=>`<div class="liste-satir"><div class="l-sol"><div class="b">${esc(x.ad)}</div>
-        <div class="k">${esc(x.hata)}</div></div><div class="l-sag"></div></div>`).join('')}`:''}
+        <div class="k">${esc(hataTr(x.hata))}</div></div><div class="l-sag"></div></div>`).join('')}`:''}
   </div>`;
 }
 async function mutabakatBelgeEkle(){
@@ -3482,7 +3514,7 @@ async function giderKaydet(mod){
   btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
   let foto=null;
   try{ foto = await fotoYukle('gdFoto','fatura'); }
-  catch(e){ mesaj('gdMsg','hata',e.message); btn.disabled=false; btn.textContent='Gideri Kaydet'; return; }
+  catch(e){ mesaj('gdMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Gideri Kaydet'; return; }
   const data = await rpcCagir('rpc_gider_kaydet',{
     /* ⚠ gdKasadan ANAHTARDA: ayni tutari kasadan ve bankadan girmek AYRI
        islemdir; disarida birakmak ikinci mesru kaydi engellerdi.
@@ -4061,7 +4093,7 @@ async function faturaOku(){
     if (v.uyari) msj += ' (' + v.uyari + ')';
     yaz(msj, doldu.length ? 'ok' : 'uyari');
   }catch(e){
-    yaz('Okunamadı: ' + e.message + ' — alanları elle yaz.', 'uyari');
+    yaz('Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
   }finally{
     btn.disabled = false; btn.textContent = eski;
   }
@@ -4305,7 +4337,7 @@ async function alisKaydet(){
   const toplam = pT.deger;
   let kdvKirilim;
   try { kdvKirilim = alKdvOku(); }
-  catch(e){ mesaj('alMsg','hata', e.message); return; }
+  catch(e){ mesaj('alMsg','hata', hataTr(e.message)); return; }
   const kdvT = +kdvKirilim.reduce((a,x)=>a+x.kdv_tutar,0).toFixed(2);
   const matrah = +kdvKirilim.reduce((a,x)=>a+x.matrah,0).toFixed(2);
   if (!document.getElementById('alTedarikci').value){ mesaj('alMsg','hata','Tedarikçi seçilmedi.'); return; }
@@ -4336,7 +4368,7 @@ async function alisKaydet(){
   btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
   let foto=null;
   try{ foto = await fotoYukle('alFoto','fatura'); }
-  catch(e){ mesaj('alMsg','hata',e.message); btn.disabled=false; btn.textContent='Faturayı Kaydet'; return; }
+  catch(e){ mesaj('alMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Faturayı Kaydet'; return; }
 
   // Yeni ürünleri oluştur + eşleşmeleri hafızaya yaz
   let kalemler = [];
@@ -4344,7 +4376,7 @@ async function alisKaydet(){
     btn.textContent = 'Ürünler hazırlanıyor...';
     kalemler = await alSatirKaydet(document.getElementById('alTedarikci').value);
   }catch(e){
-    mesaj('alMsg','hata', e.message); btn.disabled=false; btn.textContent='Faturayı Kaydet'; return;
+    mesaj('alMsg','hata', hataTr(e.message)); btn.disabled=false; btn.textContent='Faturayı Kaydet'; return;
   }
   if (!kalemler.length) kalemler = kalemOku();       // elle girilenler
   btn.textContent = AL_DUZENLE ? 'Değişiklikleri Kaydet' : 'Faturayı Kaydet';
@@ -5708,7 +5740,7 @@ async function pgEkle(){
     yemek: paraDeger('pgYemek'),
     avans: 0
   });
-  if (error){ mesaj('pgMsg','hata',error.message); return; }
+  if (error){ mesaj('pgMsg','hata',hataTr(error.message)); return; }
   vPersonel();
 }
 /* v73 · H-19 · İZSİZ SİLME KAPANDI
@@ -6078,7 +6110,7 @@ async function aracMasrafKaydet(){
   btn.disabled = true; btn.textContent = 'Fotoğraf yükleniyor...';
   let foto = null;
   try { foto = await fotoYukle('agFoto','fatura'); }
-  catch(e){ mesaj('agMsg','hata',e.message); btn.disabled=false; btn.textContent='Masrafı Kaydet'; return; }
+  catch(e){ mesaj('agMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Masrafı Kaydet'; return; }
   const data = await rpcCagir('rpc_gider_kaydet',{
     /* ⚠ arac ANAHTARDA: ayni gun ayni tutarda iki FARKLI araca masraf
        girilebilir; disarida birakmak ikincisini engellerdi.
@@ -6267,10 +6299,10 @@ function belgeYukleAc(tur, kayitId, baslik){
       if (!yol) throw new Error('Dosya seçilmedi.');
       const { error } = await sb.rpc('rpc_belge_ekle',
         { p_tur: tur, p_kayit_id: kayitId, p_yol: yol });
-      if (error) throw new Error(hataTr(error.message));
+      if (error) throw new Error(error.message);   // ⚠ Y2 · HAM firlatilir; ceviri GOSTERIM aninda
       mesaj('bgMsg','ok', baslik + ' — belge eklendi ✓');
       setTimeout(vBelge, 900);
-    }catch(e){ mesaj('bgMsg','hata', e.message); }
+    }catch(e){ mesaj('bgMsg','hata', hataTr(e.message)); }
   };
   inp.click();
 }
@@ -6503,7 +6535,7 @@ async function sistemKontrolCalistir(btn){
   kutu.innerHTML = '<div class="bilgi-not" style="margin-top:10px">Kontrol ediliyor...</div>';
   try{
     const { data, error } = await sb.rpc('fn_sistem_kontrol');
-    if (error) throw new Error(hataTr(error.message));
+    if (error) throw new Error(error.message);   // ⚠ Y2 · HAM firlatilir; ceviri GOSTERIM aninda
     const satir = data || [];
     const hata  = satir.filter(x => x.seviye === 'HATA');
     const uyari = satir.filter(x => x.seviye === 'UYARI');
@@ -6528,7 +6560,7 @@ async function sistemKontrolCalistir(btn){
     </div>`;
   }catch(e){
     kutu.innerHTML = `<div class="uyari-agir" style="margin-top:10px">
-      Kontrol çalıştırılamadı: ${esc(e.message || String(e))}</div>`;
+      Kontrol çalıştırılamadı: ${esc(hataTr(e.message || String(e)))}</div>`;
   }finally{
     if (btn){ btn.disabled = false; btn.textContent = eski; }
   }
@@ -6836,7 +6868,7 @@ async function vergiOdemeKaydet(){
   btn.disabled=true; btn.textContent='Yükleniyor...';
   let foto=null;
   try{ foto = await fotoYukle('voFoto','vergi'); }
-  catch(e){ mesaj('voMsg','hata',e.message); btn.disabled=false; btn.textContent='Ödemeyi Kaydet'; return; }
+  catch(e){ mesaj('voMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Ödemeyi Kaydet'; return; }
   const data = await rpcCagir('rpc_vergi_odeme_kaydet',{
     p_donem: document.getElementById('voDonem').value, p_tur: document.getElementById('voTur').value,
     p_tutar: tutar, p_odeme_tarihi: document.getElementById('voTarih').value,
@@ -7011,7 +7043,7 @@ async function bankaPdfAnaliz(){
       <button class="btn" style="margin-top:12px" id="bmKaydet" onclick="bankaMutabakatKaydet()">Mutabakatı Kaydet</button>`;
     mesaj('bmMsg','ok', `${p.gunluk.length} gün okundu · ${farkli.length} günde fark. Kontrol edip kaydet.`);
   }catch(e){
-    mesaj('bmMsg','hata','PDF okunamadı: ' + e.message);
+    mesaj('bmMsg','hata','PDF okunamadı: ' + hataTr(e.message));
   }finally{
     btn.disabled = false; btn.textContent = "PDF'i Analiz Et";
   }
@@ -7286,7 +7318,7 @@ async function arsivPdf(){
     mesaj('arsivMsg','ok', eklenen + ' belge tek PDF olarak indirildi ✓'
       + (pdfBelgeler.length ? ` · ${pdfBelgeler.length} e-Fatura PDF'i ayrı duruyor (listeden "Belge" ile açılır)` : ''));
   }catch(e){
-    mesaj('arsivMsg','hata','PDF oluşturulamadı: ' + e.message);
+    mesaj('arsivMsg','hata','PDF oluşturulamadı: ' + hataTr(e.message));
   }finally{
     btn.disabled = false; btn.textContent = 'PDF Oluştur ve İndir';
   }
