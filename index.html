@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-19-6">
+<meta name="surum" content="2026-08-19-7">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -831,6 +831,58 @@ function sifreDegistir(acan){
    yanlislikla acilan bir baglantida kullaniciyi ekrana hapsederdi. Ama
    kapatan insan sifresiz kalmasin: donus yolu ekranin en ustunde DURUR ve
    ancak sifre gercekten degisince kalkar. */
+/* ===== AA · YIKICI ISLEM ONAYI · onaySor() =====
+   Sekiz confirm kutusu bunu cagiriyordu. Tez AC-06: "Tek dokunus silmez; kayit
+   adi/tutar dogrulanir; varsayilan eylem Vazgec." confirm bu ucunu de
+   saglamiyor: bazi ortamlarda Enter OK'a gider (arka arkaya iki Enter
+   silme onaylayabilir), varsayilan eylem Vazgec DEGIL, odak yonetimi ve
+   ekran okuyucu baglantisi yok.
+   Mekanik borc.html'in onaySor'undan KOPYALANDI.
+   ⚠ VARSAYILAN ODAK VAZGEC'TE — nedenSor'dan bilerek FARKLI. Orada insan
+     yazmaya gelmisti, odak metin kutusundaydi; burada islem YIKICI,
+     varsayilan guvenli tarafta durur.
+   ⚠ Pencerede <form> YOK ve iki dugme de type="button": Enter'in kazayla
+     onaylayabilecegi hicbir yol birakilmadi.
+   ⚠ Onay dugmesinin YAZISI islemi soyler ("Sil"/"Kapat"/"Kaldir"),
+     "Tamam" demez — insan ne yaptigini dugmede gorur. */
+function onaySor(baslik, aciklama, onayMetni){
+  return new Promise((cevapla) => {
+    const acan = document.activeElement;
+    const yap = (t,s,m)=>{ const e=document.createElement(t); if(s) e.className=s; if(m!=null) e.textContent=m; return e; };
+    const d = document.createElement('dialog'); d.className = 'pm';
+    d.setAttribute('aria-modal','true');
+    const bas = yap('div','pm-bas', baslik); bas.id = 'osBas';
+    d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+    if (aciklama){ const a = yap('div','pm-aciklama', aciklama); a.id = 'osAcik';
+      d.setAttribute('aria-describedby', a.id); d.appendChild(a); }
+    const ey = yap('div','pm-ey');
+    const vaz = yap('button','btn2','Vazgeç'), evt = yap('button','btn-kirmizi', onayMetni || 'Devam');
+    vaz.type = evt.type = 'button';
+    ey.appendChild(vaz); ey.appendChild(evt); d.appendChild(ey);   // Vazgec SOLDA
+    document.body.appendChild(d); d.showModal(); vaz.focus();      // ⚠ varsayilan GUVENLI taraf
+    let bitti = false;
+    const kapat = (sonuc) => {
+      if (bitti) return; bitti = true;                 // Promise IKI KEZ cozulmez
+      d.close(); d.remove();
+      if (acan && acan.isConnected && acan.focus) acan.focus();
+      cevapla(sonuc);
+    };
+    vaz.onclick = () => kapat(false);
+    evt.onclick = () => kapat(true);
+    /* ⚠ Bu Chromium'da <dialog>'un yerel `cancel` olayi Escape'te
+       ATESLENMIYOR (borc.html'de olculdu). Ikisi de dinleniyor. */
+    d.addEventListener('cancel', e => { e.preventDefault(); kapat(false); });
+    d.addEventListener('keydown', e => {
+      if (e.key === 'Escape'){ e.preventDefault(); kapat(false); return; }   // Escape = HAYIR
+      if (e.key !== 'Tab') return;                     // odak tuzagi
+      const od = [...d.querySelectorAll('button')].filter(x => !x.disabled);
+      if (!od.length) return;
+      const i = od.indexOf(document.activeElement); e.preventDefault();
+      od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+    });
+  });
+}
+
 /* ===== Z · GEREKCE PENCERESI · nedenSor() =====
    On bir prompt() kutusu gerekce topluyordu. prompt(): cok satirli metin
    kabul etmiyor (gerekce bazen uzun), bicimlenemiyor, ekran okuyucuya
@@ -2405,9 +2457,9 @@ function zBlokEkle(n){
   kasaHesapla();
   document.getElementById('zBlok_'+n+'_'+s).scrollIntoView({behavior:'smooth', block:'center'});
 }
-function zBlokSil(n, s){
+async function zBlokSil(n, s){
   if (s === 1) return;
-  if (!confirm(`Kasa ${n} — ${s}. Z raporu kaldırılacak. Girdiğin bilgiler silinir. Devam?`)) return;
+  if (!await onaySor(`Kasa ${n} — ${s}. Z raporu kaldırılacak.`, 'Girdiğin bilgiler silinir. Devam?', 'Kaldır')) return;
   const kalan = {};
   ZLISTE[n].filter(x=>x!==s).forEach(x=>{ kalan[x] = zBlokTopla(n, x); });  // silmeden ÖNCE yedekle
   ZLISTE[n] = ZLISTE[n].filter(x=>x!==s);
@@ -3661,9 +3713,9 @@ async function giderSil(id, tutarMetni){
   }
   /* v70 · H-29 · Eski metin "bu kadar DEĞİŞİR" diyordu ama hiçbir rakama
      işaret etmiyordu — cümle eksik kalmıştı. Silinecek tutar artık metinde. */
-  if (!confirm('Kayıt silinecek (geri alınabilir işaretleme, veri kaybolmaz).\n\n'
-             + 'Tutar: ' + (tutarMetni || '(bilinmiyor)') + '\n'
-             + 'Aylık kâr ve beyana giden rakam BU KADAR ARTAR.\n\nDevam?')) return;
+  if (!await onaySor('Kayıt silinecek (geri alınabilir işaretleme, veri kaybolmaz).',
+             'Tutar: ' + (tutarMetni || '(bilinmiyor)') + '\n'
+             + 'Aylık kâr ve beyana giden rakam BU KADAR ARTAR.\n\nDevam?', 'Sil')) return;
 
   if (btn){ btn.disabled = true; btn.textContent = '…'; }
   const { error } = await sb.rpc('rpc_gider_sil', { p_id:id, p_neden:neden.trim() });
@@ -5161,7 +5213,7 @@ async function alacakKaydet(){
   vStok();
 }
 async function alacakKapat(id){
-  if (!confirm('Bu alacak KAPATILACAK (listeden çıkar, kayıt silinmez).\n\nMal tamamen geldiyse veya anlaşma bittiyse kapat.')) return;
+  if (!await onaySor('Bu alacak KAPATILACAK (listeden çıkar, kayıt silinmez).', 'Mal tamamen geldiyse veya anlaşma bittiyse kapat.', 'Kapat')) return;
   const { error } = await sb.from('urun_alacak').update({ aktif:false }).eq('id', id);
   if (error){ alert('Kapatılamadı: ' + hataTr(error.message)); return; }
   vStok();
@@ -5918,7 +5970,7 @@ async function yapildiIsaretle(id, geri){
   talepListe(); talepRozet();
 }
 async function maddeSil(id){
-  if (!confirm('Bu madde silinsin mi?')) return;
+  if (!await onaySor('Bu madde silinsin mi?', null, 'Sil')) return;
   const { error } = await sb.rpc('rpc_madde_sil', { p_id:id });
   if (error){ alert('Silinemedi: '+hataTr(error.message)); return; }
   talepListe(); talepRozet();
@@ -6568,7 +6620,7 @@ async function rolEkle(){
   if (data && data.ok){ YY_SECILI = kod; yetkiYukle(); }
 }
 async function rolSil(kod, ad){
-  if (!confirm(`"${ad}" rolü silinecek.\n\nBu rolde kimse yoksa silinir.\nOnaylıyor musun?`)) return;
+  if (!await onaySor(`"${ad}" rolü silinecek.`, 'Bu rolde kimse yoksa silinir.\nOnaylıyor musun?', 'Sil')) return;
   const data = await rpcCagir('rpc_rol_sil', { p_kod:kod }, null, 'yyMsg', 'Rol silindi ✓');
   if (data && data.ok){ YY_SECILI = null; yetkiYukle(); }
 }
@@ -6579,7 +6631,9 @@ async function kisiRolDegistir(profil, rol, ad){
   if (data && data.ok) yetkiYukle(); else yetkiCiz();
 }
 async function kisiAktifDegistir(profil, aktif, ad){
-  if (!confirm(`${ad} ${aktif?'AÇILACAK':'KAPATILACAK'}.\n\n${aktif?'Tekrar giriş yapabilir.':'Artık sisteme giremez. Kayıtları silinmez.'}\n\nOnaylıyor musun?`)) return;
+  if (!await onaySor(`${ad} ${aktif?'AÇILACAK':'KAPATILACAK'}.`,
+    `${aktif?'Tekrar giriş yapabilir.':'Artık sisteme giremez. Kayıtları silinmez.'}\n\nOnaylıyor musun?`,
+    aktif ? 'Aç' : 'Kapat')) return;
   const data = await rpcCagir('rpc_profil_aktif', { p_profil:profil, p_aktif:aktif }, null, 'yyMsg', 'Kaydedildi ✓');
   if (data && data.ok) yetkiYukle();
 }
@@ -7251,10 +7305,10 @@ async function ayKapat(zorlaNeden){
     const el = document.getElementById('akDurum');
     if (el) el.innerHTML = akKontrolCiz(data.kontrol, donem);
     // Zorlama yalnız gerekçeyle
-    if (confirm(`${donem} KAPATILAMADI\n\n`
-      + engel.map(x => '• ' + x).join('\n')
+    if (await onaySor(`${donem} KAPATILAMADI`,
+      engel.map(x => '• ' + x).join('\n')
       + `\n\nBunları düzeltmeden kapatmak istiyorsan gerekçe yazman gerekiyor.\n`
-      + `Gerekçe kayda geçer ve silinemez.\n\nZorlamak istiyor musun?`)){
+      + `Gerekçe kayda geçer ve silinemez.\n\nZorlamak istiyor musun?`, 'Zorla kapat')){
       const neden = await nedenSor('Neden bu kontroller tamamlanmadan kapatıyorsun?', null, 10);
       if (neden && neden.trim().length >= 10) return ayKapat(neden.trim());
       alert('Gerekçe en az 10 karakter olmalı — kapatma yapılmadı.');
@@ -7480,10 +7534,10 @@ async function kategoriSil(id, ad){
     if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
     return;
   }
-  if (!confirm((ad||'Kategori') + ' silinecek.\n\n'
-             + 'Bu kategorideki GEÇMİŞ giderler etkilenmez — adları\n'
+  if (!await onaySor((ad||'Kategori') + ' silinecek.',
+             'Bu kategorideki GEÇMİŞ giderler etkilenmez — adları\n'
              + 'listelerde ve KDV raporunda görünmeye devam eder.\n'
-             + 'Yalnız yeni gider bu kategoriye girilemez.\n\nDevam?')) return;
+             + 'Yalnız yeni gider bu kategoriye girilemez.\n\nDevam?', 'Sil')) return;
 
   if (btn){ btn.disabled = true; btn.textContent = '…'; }
   const { data, error } = await sb.rpc('rpc_gider_kategori_sil', { p_id:id, p_neden:neden.trim() });
