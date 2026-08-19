@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-19-2">
+<meta name="surum" content="borc-2026-08-19-3">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,6 +47,11 @@ body{margin:0;font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',R
      yukseklige DAHIL. Iki kez eklemek bosluğu cift sayardi. */
   padding-bottom:calc(var(--alt-cubuk, 80px) + 24px)}
 .gizli{display:none!important}
+/* ⚠ GORSEL olarak gizli ama a11y agacinda DURUR — .gizli'nin display:none'i
+   ogeyi agactan da siler, o yuzden burada KULLANILAMAZ. Genel kural: her
+   genislikte gecerli, medya sorgusunun ICINE konmaz. */
+.gizli-okur{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip-path:inset(50%);white-space:nowrap;border:0}
 
 /* ⚠ --cizgi-form AYRI bir token; --cizgi'ye DOKUNULMADI. 1.4.11 yalniz
    ARAYUZ BILESENI sinirini 3:1 ister — girdi cercevesi bilesendir, ama
@@ -235,6 +240,13 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .sg-sahis{background:repeating-linear-gradient(45deg,var(--ok),var(--ok) 3px,#256A42 3px,#256A42 6px)}
 .sg-maden{background:repeating-linear-gradient(-45deg,#C8952B,#C8952B 3px,#A87A1E 3px,#A87A1E 6px)}
 .sg-kart {background:repeating-linear-gradient(0deg,#6B4E9E,#6B4E9E 2px,#543D7D 2px,#543D7D 4px)}
+/* ⚠ YALNIZ altin segmentin etiketi KOYU. Beyaz yazi altin uzerinde 2.70/3.84
+   veriyordu; siyah yazi 7.79/5.47 verir ve altin rengi AYNEN kalir — renk
+   maden'in kimligi, gradyana dokunulmadi. Diger uc segment BEYAZ kalir:
+   olculdu, o zeminlerde koyu yazi 1.76-2.22, felaket olurdu.
+   Secici .serit .sg-maden .ic — .serit .sg .ic ile ayni ozgullukte ve
+   SONRA geldigi icin kazanir. */
+.serit .sg-maden .ic{color:#000}
 /* Efsane/secim TEK SATIR — bant butcesi dar. Secilince o sinif buyur. */
 .serit-lej{font-size:11px;line-height:1.4;color:var(--soluk);margin-top:3px;
   overflow-wrap:anywhere}
@@ -312,7 +324,10 @@ main{padding:14px;max-width:640px;margin:0 auto}
      icerikten daha tehlikelidir: kimse fark etmez. */
   .tablo-sar:has(.maden-t){overflow-x:visible}
   .maden-t, .maden-t tbody, .maden-t tr, .maden-t td{display:block;width:auto;min-width:0}
-  .maden-t tr:first-child{display:none}          /* baslik satiri kartta gereksiz */
+  /* ⚠ :first-of-type — :first-child DEGIL. <caption> eklenince tablonun ilk
+     cocugu caption oldu ve :first-child hicbir satira UYMADI; olculdu, baslik
+     satiri kart gorunumune 56px olarak GERI GELDI. */
+  .maden-t tr:first-of-type{display:none}        /* baslik satiri kartta gereksiz */
   .maden-t tr{border:1.5px solid var(--cizgi);border-radius:12px;
     padding:10px 12px;margin:0 0 10px;background:var(--kart);position:relative}
   .maden-t td{border:none;padding:2px 0;text-align:left!important;
@@ -782,6 +797,10 @@ function ayEkle(t0, ay){
 /* DOM — kullanici metni ASLA innerHTML ile basilmaz */
 function el(tag, sinif, metin){
   const d = document.createElement(tag);
+  /* ⚠ 1.3.1 · Dosyadaki ALTI th uretim yerinin ALTISI da baslik SATIRI kuruyor;
+     satir basligi (scope="row") hicbir yerde yok. Tek yerden veriliyor ki yeni
+     tablo eklendiginde unutulmasin. */
+  if (tag === 'th') d.scope = 'col';
   if (sinif) d.className = sinif;
   if (metin !== undefined && metin !== null) d.textContent = String(metin);
   return d;
@@ -3051,6 +3070,7 @@ async function vMaden(){
     const sar = el('div','tablo-sar');
     const t = document.createElement('table'); t.className = 'maden-t';
     const BASLIK = ['TÜR','GRAM','KİME','ALIŞ GÜNÜ','ALIŞ DEĞERİ','BUGÜNKÜ DEĞER','FARK',''];
+    t.appendChild(el('caption','gizli-okur','Maden varlıkları ve rayiç değerleri'));
     const hr = document.createElement('tr');
     BASLIK.forEach((h,i) =>
       hr.appendChild(el('th', (i>=4 && i<=6) ? 'sag' : null, h)));
@@ -3090,7 +3110,17 @@ async function vMaden(){
       /* ⚠ FAZ 2c·A · KARTLASMA ICIN ETIKET. <768px'te tablo basligi
          gizlenir ve her hucre kendi etiketini ::before ile tasir.
          Yalniz GORUNUM — hicbir deger, sira veya hesap degismedi. */
-      [...tr.children].forEach((c,i) => { if (BASLIK[i]) c.dataset.et = BASLIK[i]; });
+      /* ⚠ ::before'a GUVENILMIYOR. <768px'te baslik satiri display:none —
+         a11y agacindan SILINIR — ve etiket yalniz CSS uretilen icerikte
+         kalir; okunup okunmadigi olculemedi. Erisilebilir ad AYRICA veriliyor.
+         ⚠ SON hucre (islem) BILEREK adsiz: icinde adi olan IKI dugme var
+         ("Diger islemler", "Maden borcunu arsivle"); kapsayiciyi
+         adlandirmak o adlarin uzerini ortebilirdi. */
+      [...tr.children].forEach((c,i) => {
+        if (!BASLIK[i]) return;
+        c.dataset.et = BASLIK[i];
+        c.setAttribute('aria-label', BASLIK[i] + ': ' + (c.textContent||'').replace(/\s+/g,' ').trim());
+      });
       t.appendChild(tr);
     }
     sar.appendChild(t); k.appendChild(sar);
