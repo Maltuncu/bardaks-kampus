@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-19-2">
+<meta name="surum" content="2026-08-19-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2342,6 +2342,87 @@ function kasaHesapla(){
       : (eksikler.length ? 'Bekleyen: '+eksikler.map(esc).join(' · ') : 'Bekleyen: tutar girilmedi');
   }
 }
+/* ===== T · GUN SONU TASLAK KORUMA =====
+   Olculdu (FAZ 4a): ekran 4.532px, ayni anda 24 alan, Kaydet 1.702px
+   asagida. Mevcut koruma yalniz UYARIYORDU (formKirliMi + beforeunload);
+   sekme kapanirsa 24 alan gidiyordu. Bu katman SAKLIYOR — uyarinin YERINE
+   degil YANINA geliyor, ikisi de duruyor.
+   ⚠ Taslak KULLANICININ TARAYICISINDA kalir, sunucuya gitmez. Bu yuzden
+     basarili kayitta MUTLAKA silinir: ekranda olmayan finansal veri
+     tarayicida birikmemeli.
+   ⚠ SESSIZ DOLDURMA YOK. Kullanici "Geri yukle" demeden hicbir alan
+     dolmaz. Sessiz doldurma en tehlikelisidir: insan kendi girdigini
+     sanip uc gun onceki rakami kaydeder.
+   ⚠ FOTOGRAF YAZILMAZ — dosya girdisi saklanamaz; yalniz KAC TANE
+     secilmis oldugu not dusulur. */
+const TASLAK_ONEK = 'gunSonuTaslak:', TASLAK_OMUR = 7*24*60*60*1000;
+let TASLAK_SAYAC = null;
+const taslakAnahtar = () =>
+  TASLAK_ONEK + AKTIF_SUBE + ':' + (document.getElementById('gsTarih')?.value || '');
+const taslakOku = () => { try{ return JSON.parse(localStorage.getItem(taslakAnahtar()) || 'null'); }
+                          catch(e){ return null; } };
+function taslakSil(){ try{ localStorage.removeItem(taslakAnahtar()); }catch(e){} }
+function taslakYaz(){
+  /* DUZENLE modunda yazilmaz: orada zaten KAYITLI bir gun aciktir,
+     taslak onun uzerine binerdi. */
+  if (DUZENLE || !AKTIF_SUBE || !document.getElementById('gsKaydet')) return;
+  const b = {}; let foto = 0;
+  [1,2].forEach(n => ZLISTE[n].forEach(s => {
+    b[n+'_'+s] = zBlokTopla(n, s);                     // mevcut yardimci, aynen
+    const f = document.getElementById('gsZFoto_'+n+'_'+s);
+    if (f && f.files && f.files[0]) foto++;            // ⚠ DOSYA DEGIL, yalniz SAYI
+  }));
+  try{ localStorage.setItem(taslakAnahtar(), JSON.stringify({
+    zaman: Date.now(), zliste: { 1:ZLISTE[1].slice(), 2:ZLISTE[2].slice() },
+    kasa: document.getElementById('gsKasa').value, not: document.getElementById('gsNot').value,
+    bloklar: b, foto })); }catch(e){}
+}
+function taslakEskileriAt(){
+  try{ Object.keys(localStorage).filter(k => k.indexOf(TASLAK_ONEK) === 0).forEach(k => {
+    let t; try{ t = JSON.parse(localStorage.getItem(k)); }catch(e){ t = null; }
+    if (!t || !t.zaman || Date.now() - t.zaman > TASLAK_OMUR) localStorage.removeItem(k);
+  }); }catch(e){}
+}
+function taslakSeridi(){
+  const yer = document.getElementById('gsTaslakBar'); if (!yer) return;
+  yer.innerHTML = '';
+  const t = DUZENLE ? null : taslakOku();
+  if (!t || !kasaDurum(1).bos || !kasaDurum(2).bos) return;   // yalniz form BOSSA sorulur
+  const z = new Date(t.zaman);
+  const g = new Date(document.getElementById('gsTarih').value + 'T00:00').toLocaleDateString('tr-TR');
+  yer.innerHTML = `<div class="kart" style="border-color:var(--uyari)">
+    <div><b>${esc(g)}</b> için kaydedilmemiş bir taslak var
+      (${z.toLocaleDateString('tr-TR')} ${z.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}).
+      ${t.foto ? `<br>${t.foto} fotoğraf seçilmişti, yeniden seçmelisin.` : ''}</div>
+    <button class="btn2" onclick="taslakGeriYukle()">Geri yükle</button>
+    <button class="btn2" onclick="taslakSil(); taslakSeridi();">Sil</button></div>`;
+}
+function taslakGeriYukle(){
+  const t = taslakOku(); if (!t) return;
+  [1,2].forEach(n => { while (ZLISTE[n].length < ((t.zliste && t.zliste[n]) || [1]).length) zBlokEkle(n); });
+  document.getElementById('gsKasa').value = t.kasa || '';
+  document.getElementById('gsNot').value  = t.not  || '';
+  [1,2].forEach(n => ZLISTE[n].forEach(s => {
+    const v = t.bloklar && t.bloklar[n+'_'+s]; if (!v) return;
+    zBlokDoldur(n, s, v);
+    /* ⚠ zBlokDoldur bu ucunu YAZMIYOR (mevcut davranis — degistirmedim,
+       ama taslakta kaybolmasinlar diye burada yaziliyor). */
+    [['gsKAdet_','kadet'],['gsIAdet_','iadet'],['gsITutar_','itutar']].forEach(([p,a]) => {
+      const e = document.getElementById(p+n+'_'+s); if (e) e.value = v[a] || ''; });
+  }));
+  kasaHesapla(); formKirlendi();
+  document.getElementById('gsTaslakBar').innerHTML = '';
+  mesaj('gsMsg','ok','Taslak geri yüklendi. Kontrol edip kaydet.');
+}
+function taslakTetik(e){
+  if (!document.getElementById('gsKaydet')) return;            // yalniz gun sonu ekraninda
+  if (!e.target || !e.target.closest || !e.target.closest('#icerik')) return;
+  if (e.target.id === 'gsTarih'){ taslakSeridi(); return; }    // tarih degisti -> o gunun taslagi
+  clearTimeout(TASLAK_SAYAC); TASLAK_SAYAC = setTimeout(taslakYaz, 800);
+}
+document.addEventListener('input',  taslakTetik, true);
+document.addEventListener('change', taslakTetik, true);        // dosya alani 'input' uretmez
+
 async function vGunSonu(zListe){
   // Düzenlemede kayıttaki Z sayısıyla kurulur; normalde her kasada tek Z ile başlar
   ZLISTE = zListe ? { 1:zListe[1].slice(), 2:zListe[2].slice() } : { 1:[1], 2:[1] };
@@ -2349,6 +2430,7 @@ async function vGunSonu(zListe){
   el.innerHTML = `
     <h2 class="bolum">Gün Sonu Girişi</h2>
     <div id="gsDuzenleBar"></div>
+    <div id="gsTaslakBar"></div>
     <div class="kart">
       ${tarihSecici('gsTarih')}
       <div class="bilgi-not" style="margin:0 0 8px">İki yazarkasa da girilir. Her Z raporu için <b>Z No + Z fotoğrafı zorunludur</b>.
@@ -2383,6 +2465,7 @@ async function vGunSonu(zListe){
   [1,2].forEach(n=>ZLISTE[n].forEach(s=>zBlokKur(n,s)));
   paraBagla(document.getElementById('gsKasa'), kasaHesapla);
   kasaHesapla();
+  taslakEskileriAt(); taslakSeridi();          // T · 7 gun kurali + "taslak var mi" seridi
 }
 async function personelSonKayit(){
   const el = document.getElementById('gsSonKayit'); if(!el) return;
@@ -2511,7 +2594,7 @@ async function gunSonuKaydet(){
         kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
         z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
     }, 'gsKaydet','gsMsg','Değişiklikler kaydedildi ✓');
-    if (gData && gData.ok){ DUZENLE = null; vGunSonu(); mesaj('gsMsg','ok','Değişiklikler kaydedildi ✓'); }
+    if (gData && gData.ok){ taslakSil(); DUZENLE = null; vGunSonu(); mesaj('gsMsg','ok','Değişiklikler kaydedildi ✓'); }
     else {
       btn.textContent = eskiBtnMetin;
       const bel = /Failed to fetch|NetworkError|timeout|bağlantı/i.test(window.__sonRpcHataHam||'');
@@ -2537,6 +2620,7 @@ async function gunSonuKaydet(){
       z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
   if (data && data.ok){
+    taslakSil();                    // ⚠ YALNIZ basarida. Basarisizlikta taslak DURUR.
     const duzenlemeydi = !!DUZENLE;
     DUZENLE = null;
     vGunSonu();
