@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-19-5">
+<meta name="surum" content="2026-08-19-6">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -220,6 +220,8 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 .pm::backdrop{background:rgba(28,24,18,.55)}
 .pm-bas{font-size:17px;font-weight:700;line-height:1.3}
 .pm-hata{font-size:13px;color:var(--hata);font-weight:600;margin-top:4px}
+.pm-aciklama{font-size:13.5px;color:var(--metin);line-height:1.5;margin:8px 0 10px;white-space:pre-line}
+.pm-sayac{font-size:12.5px;color:var(--soluk);font-weight:600;margin-top:4px}
 .pm input{font-size:17px}
 .pm-ey{display:flex;gap:10px;margin-top:14px}
 .pm-ey button{flex:1;min-height:44px;margin-top:0}
@@ -829,6 +831,68 @@ function sifreDegistir(acan){
    yanlislikla acilan bir baglantida kullaniciyi ekrana hapsederdi. Ama
    kapatan insan sifresiz kalmasin: donus yolu ekranin en ustunde DURUR ve
    ancak sifre gercekten degisince kalkar. */
+/* ===== Z · GEREKCE PENCERESI · nedenSor() =====
+   On bir prompt() kutusu gerekce topluyordu. prompt(): cok satirli metin
+   kabul etmiyor (gerekce bazen uzun), bicimlenemiyor, ekran okuyucuya
+   baglanmiyor, Escape/iptal ayrimi belirsiz — ve en onemlisi asgari
+   uzunlugu BILMIYOR: kisa yazan kullanici sunucuya gidip geri donuyor,
+   kutu yazdigini UNUTMUS oluyordu.
+   Mekanik borc.html'deki uc pencereden KOPYALANDI.
+   ⚠ VARSAYILAN ODAK TEXTAREA'DA — borc.html'in SILME penceresinden bilerek
+     AYRI. Orada varsayilan Vazgec cunku islem YIKICI; burasi veri girisi,
+     insan zaten yazmaya gelmis.
+   ⚠ enAz VARSAYILANI 1 = "bos olmasin". OLCULDU: bu 11 yolun RPC'lerinin
+     onu yalnizca NEDEN_ZORUNLU istiyor; GEREKCE_KISA (>=10) taban
+     dosyasinda UC yerde var ve ucu de borc.html'e ait (kredi/maden/sahis
+     pasife alma). Korlemesine 10 dayatmak kullaniciyi bosuna zorlardi.
+   ⚠ Donen deger HAM: satir sonlari korunur, cagri yerleri kendi trim'ini
+     zaten yapiyor. Iptalde null. */
+function nedenSor(baslik, aciklama, enAz = 1){
+  return new Promise((cevapla) => {
+    const acan = document.activeElement;
+    const yap = (t,s,m)=>{ const e=document.createElement(t); if(s) e.className=s; if(m!=null) e.textContent=m; return e; };
+    const d = document.createElement('dialog'); d.className = 'pm';
+    d.setAttribute('aria-modal','true');
+    const bas = yap('div','pm-bas', baslik); bas.id = 'nsBas';
+    d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+    if (aciklama){ const a = yap('div','pm-aciklama', aciklama); a.id = 'nsAcik';
+      d.setAttribute('aria-describedby', a.id); d.appendChild(a); }
+    const ta = document.createElement('textarea'); ta.id = 'nsMetin'; ta.rows = 3;
+    const sayac = yap('div','pm-sayac'); sayac.id = 'nsSayac';
+    ta.setAttribute('aria-describedby', sayac.id);
+    d.appendChild(ta); d.appendChild(sayac);
+    const ey = yap('div','pm-ey');
+    const vaz = yap('button','btn2','Vazgeç'), tmm = yap('button','btn','Tamam');
+    vaz.type = tmm.type = 'button'; tmm.disabled = true;
+    ey.appendChild(vaz); ey.appendChild(tmm); d.appendChild(ey);   // Vazgec SOLDA
+    document.body.appendChild(d); d.showModal(); ta.focus();
+    /* CANLI SAYAC: sart yazdikca gorunur, sunucuya gidip donmeye gerek yok. */
+    const denetle = () => { const n = ta.value.trim().length;
+      sayac.textContent = 'en az ' + enAz + ' karakter · şu an ' + n;
+      tmm.disabled = n < enAz; };
+    ta.oninput = denetle; denetle();
+    let bitti = false;
+    const kapat = (sonuc) => {
+      if (bitti) return; bitti = true;                 // Promise IKI KEZ cozulmez
+      d.close(); d.remove();
+      if (acan && acan.isConnected && acan.focus) acan.focus();
+      cevapla(sonuc);
+    };
+    vaz.onclick = () => kapat(null);
+    tmm.onclick = () => { if (!tmm.disabled) kapat(ta.value); };
+    /* ⚠ Bu Chromium'da <dialog>'un yerel `cancel` olayi Escape'te
+       ATESLENMIYOR (borc.html'de olculdu). Ikisi de dinleniyor. */
+    d.addEventListener('cancel', e => { e.preventDefault(); kapat(null); });
+    d.addEventListener('keydown', e => {
+      if (e.key === 'Escape'){ e.preventDefault(); kapat(null); return; }
+      if (e.key !== 'Tab') return;                     // odak tuzagi
+      const od = [...d.querySelectorAll('textarea,button')].filter(x => !x.disabled);
+      if (!od.length) return;
+      const i = od.indexOf(document.activeElement); e.preventDefault();
+      od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+    });
+  });
+}
 function kurtarmaSeridi(){
   const c = document.getElementById('icerik'); if (!c) return;
   c.querySelectorAll('.sd-serit').forEach(x => x.remove());
@@ -2881,7 +2945,7 @@ async function gunSonuListe(){
       </div>`;}).join('')}</div>`;
 }
 async function gunSil(id, tarih){
-  const neden = prompt(`${tarih} günü SİLİNECEK (kayıt audit'te kalır) ve yeniden girilebilir olacak. Neden?`);
+  const neden = await nedenSor(`${tarih} günü SİLİNECEK (kayıt audit'te kalır) ve yeniden girilebilir olacak. Neden?`, null, 1);
   if (neden===null) return;
   if (!neden.trim()){ alert('Neden yazmak zorunlu.'); return; }
   const { error } = await sb.rpc('rpc_gun_sonu_sil', { p_id:id, p_neden:neden.trim() });
@@ -3415,7 +3479,7 @@ async function mutabakatBelgeEkle(){
 /* Bilerek girilmeyecek belgeyi işaretle — bir daha "eksik" diye uyarmasın */
 async function mutabakatHaric(no){
   const x = MUTABAKAT.find(z=>z.belge_no===no); if(!x) return;
-  const neden = prompt(`${no} — ${x.firma||''}\n\nNeden sisteme girilmiyor? (örn: ev interneti, şahsi harcama)`);
+  const neden = await nedenSor(`${no} — ${x.firma||''}`, 'Neden sisteme girilmiyor? (örn: ev interneti, şahsi harcama)', 1);
   if (neden === null) return;
   if (!neden.trim()){ alert('Neden yazmak zorunlu — sonradan niye atlandığını bilmen gerekir.'); return; }
   /* v84 · H-51 · RPC'ye taşındı.
@@ -3588,10 +3652,9 @@ async function giderSil(id, tutarMetni){
   const btn = document.getElementById('gsil_' + id);
   if (btn && btn.disabled) return;
 
-  const neden = prompt(
-    'Bu gider kaydı neden siliniyor?\n\n' +
+  const neden = await nedenSor('Bu gider kaydı neden siliniyor?',
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
-    'Örnek: "aynı tutar parça parça ayrıca girilmiş, bu toplu kayıt fazla"');
+    'Örnek: "aynı tutar parça parça ayrıca girilmiş, bu toplu kayıt fazla"', 1);
   if (!neden || !neden.trim()){
     if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
     return;
@@ -5521,10 +5584,9 @@ async function tedarikciSil(id, ad){
   const btn = document.getElementById('tdSil_' + id);
   if (btn && btn.disabled) return;          // çift tıklama kilidi
 
-  const neden = prompt(
-    (ad ? ad + ' — ' : '') + 'firma neden siliniyor?\n\n' +
+  const neden = await nedenSor((ad ? ad + ' — ' : '') + 'firma neden siliniyor?',
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
-    'Örnek: "deneme amaçlı açıldı, gerçek firma değil"');
+    'Örnek: "deneme amaçlı açıldı, gerçek firma değil"', 1);
   if (!neden || !neden.trim()){
     if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
     return;
@@ -5753,10 +5815,9 @@ async function pgSil(id, ad, maliyetMetni){
   const btn = document.getElementById('pgsil_' + id);
   if (btn && btn.disabled) return;          // çift tıklama kilidi
 
-  const neden = prompt(
-    ad + ' bu aydan neden çıkarılıyor?\n\n' +
+  const neden = await nedenSor(ad + ' bu aydan neden çıkarılıyor?',
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
-    'Örnek: "işten ayrıldı, bu ayın maaşı ödenmedi"');
+    'Örnek: "işten ayrıldı, bu ayın maaşı ödenmedi"', 1);
   if (!neden || !neden.trim()){
     if (neden !== null) alert('Gerekçe boş olamaz — çıkarılmadı.');
     return;
@@ -6218,8 +6279,8 @@ async function vBelge(){
    Yanlış alarm, uyarıların tamamını değersizleştirir. */
 async function kapaliGunIsaretle(tarih){
   const t = new Date(tarih+'T00:00').toLocaleDateString('tr-TR',{day:'numeric',month:'long',weekday:'long'});
-  const neden = prompt(`${t}\n\nBu gün işletme kapalı mıydı? Nedenini yaz:\n`
-    + `(örn: resmi tatil, kampüs kapalı, yıllık izin)`);
+  const neden = await nedenSor(`${t}`, 'Bu gün işletme kapalı mıydı? Nedenini yaz:\n'
+    + '(örn: resmi tatil, kampüs kapalı, yıllık izin)', 1);
   if (!neden || !neden.trim()) return;
   const { data, error } = await sb.rpc('rpc_kapali_gun',
     { p_sube: AKTIF_SUBE, p_tarih: tarih, p_neden: neden.trim(), p_geri: false });
@@ -6274,7 +6335,7 @@ async function ownerHareketKaydet(){
   }
 }
 async function ownerHareketSil(id){
-  const neden = prompt('Bu kaydı neden siliyorsun? (kayda geçer)');
+  const neden = await nedenSor('Bu kaydı neden siliyorsun? (kayda geçer)', null, 1);
   if (!neden || !neden.trim()) return;
   const { error } = await sb.rpc('rpc_owner_hareket_sil', { p_id:id, p_neden:neden.trim() });
   if (error){ mesaj('ohMsg','hata', hataTr(error.message)); return; }
@@ -6728,7 +6789,7 @@ async function vadeKapat(id, ad){
   if (!secim) return;
   const durum = secim.trim() === '1' ? 'tutar_yok' : secim.trim() === '2' ? 'iptal' : null;
   if (!durum){ alert('1 veya 2 yazmalısın.'); return; }
-  const neden = prompt('Nedenini yaz (kayda geçecek):');
+  const neden = await nedenSor('Nedenini yaz (kayda geçecek):', null, 1);
   if (!neden || !neden.trim()){ alert('Neden zorunlu.'); return; }
   const { error } = await sb.rpc('rpc_vade_durum', { p_id:id, p_durum:durum, p_not:neden.trim() });
   if (error){ alert('Kapatılamadı: '+hataTr(error.message)); return; }
@@ -7194,7 +7255,7 @@ async function ayKapat(zorlaNeden){
       + engel.map(x => '• ' + x).join('\n')
       + `\n\nBunları düzeltmeden kapatmak istiyorsan gerekçe yazman gerekiyor.\n`
       + `Gerekçe kayda geçer ve silinemez.\n\nZorlamak istiyor musun?`)){
-      const neden = prompt('Neden bu kontroller tamamlanmadan kapatıyorsun?');
+      const neden = await nedenSor('Neden bu kontroller tamamlanmadan kapatıyorsun?', null, 10);
       if (neden && neden.trim().length >= 10) return ayKapat(neden.trim());
       alert('Gerekçe en az 10 karakter olmalı — kapatma yapılmadı.');
     }
@@ -7207,7 +7268,7 @@ async function ayKapat(zorlaNeden){
 async function ayAc(){
   const donem = document.getElementById('akDonem').value;
   if (!donem){ mesaj('akMsg','hata','Dönem seçilmedi.'); return; }
-  const neden = prompt(`${donem} ayı yeniden AÇILACAK (personel tekrar giriş yapabilir). Neden?`);
+  const neden = await nedenSor(`${donem} ayı yeniden AÇILACAK (personel tekrar giriş yapabilir). Neden?`, null, 1);
   if (neden===null) return;
   if (!neden.trim()){ mesaj('akMsg','hata','Neden zorunlu.'); return; }
   const { error } = await sb.rpc('rpc_ay_ac', { p_sube: AKTIF_SUBE, p_donem: donem, p_neden: neden.trim() });
@@ -7412,10 +7473,9 @@ async function kategoriSil(id, ad){
   const btn = document.getElementById('katSil_' + id);
   if (btn && btn.disabled) return;          // çift tıklama kilidi
 
-  const neden = prompt(
-    (ad ? ad + ' — ' : '') + 'kategori neden siliniyor?\n\n' +
+  const neden = await nedenSor((ad ? ad + ' — ' : '') + 'kategori neden siliniyor?',
     'Gerekçe zorunlu ve kayda geçer (denetim izine yazılır).\n' +
-    'Örnek: "yanlışlıkla eklendi"');
+    'Örnek: "yanlışlıkla eklendi"', 1);
   if (!neden || !neden.trim()){
     if (neden !== null) alert('Gerekçe boş olamaz — silinmedi.');
     return;
