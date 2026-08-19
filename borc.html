@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-18-11">
+<meta name="surum" content="borc-2026-08-19-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,7 +19,13 @@
      input/select/textarea font-size'i 16px'in ALTINA ASLA inmez.
    ===================================================================== */
 :root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;
-  --metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8;
+  /* ⚠ FAZ 4b · uc token AA icin koyulastirildi. Ton korundu, yalniz aciklik
+     dustu. Kil payi gecen degil PAY BIRAKAN degerler secildi.
+     --soluk  #8189A0 -> #5F6880 : kart 3.45->5.50 · gri 3.18->5.06 (273 dugum)
+     --uyari  #C77B2B -> #A9631F : metin olarak 3.30->4.63 VE zemin olarak
+              (#surumBar'in beyaz yazisi) 3.34->4.68 — tek degisiklik ikisini kapatir
+     --ok     #2E7D4F -> #2A7449 : rozet zemini #E7F0E9 uzerinde 4.33->4.88 */
+  --metin:#1F3354;--soluk:#5F6880;--hata:#B3402F;--uyari:#A9631F;--ok:#2A7449;--cizgi:#E7DEC8;
   /* AC-02 · dip cubuk yuksekligi. Bu deger OLCULMEDEN ONCEKI baslangictir;
      altCubukOlc() sayfa kurulunca gercek olcumle uzerine yazar. Burada
      tanimli olmasi sart: yoksa CSS sessizce yedege duser ve token kapisi
@@ -1155,6 +1161,21 @@ async function ekranAc(ad){
     b.classList.toggle('aktif', secili);
     if (secili) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
   });
+  /* ⚠ FAZ 4b · R4 · Aktif sekme yatayda gorunur alana getirilir. Olculdu:
+     serit 461px istiyor, 375'te "Sahis" 73px, 320'de 128px ekran disindaydi
+     ve scrollLeft 0'da kaliyordu — dokunmatik kullanici nerede oldugunu
+     goremiyordu. scrollIntoView KULLANILMADI: `block:'nearest'` bile serit
+     dikeyde gorunmuyorsa SAYFAYI kaydirir. Yalniz seridin kendi scrollLeft'i
+     elle hesaplaniyor; belge kaydirmasina hic dokunulmuyor. +8 kenar payi,
+     tarayici scrollLeft'i sinirlara kendisi kirptigi icin guvenli.
+     ekranAc ilk yuklemede de cagriliyor (baslat), yani tiklama sarti yok. */
+  const srt = document.getElementById('bolumSerit');
+  const akt = srt && srt.querySelector('button.aktif');
+  if (akt){
+    const sr = srt.getBoundingClientRect(), ar = akt.getBoundingClientRect();
+    if (ar.left  < sr.left)  srt.scrollLeft -= (sr.left - ar.left) + 8;
+    else if (ar.right > sr.right) srt.scrollLeft += (ar.right - sr.right) + 8;
+  }
   const c = document.getElementById('icerik');
   c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
   try{
