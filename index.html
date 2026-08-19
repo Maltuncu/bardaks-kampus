@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-19-8">
+<meta name="surum" content="2026-08-19-9">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -230,6 +230,9 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 .bildirim-metin{flex:1;min-width:0;overflow-wrap:anywhere}
 .bildirim-kapat{flex:none;background:transparent;color:inherit;font-size:16px;
   min-width:44px;min-height:44px;margin:-11px -8px -11px 0;padding:0}
+.pm-secim{display:flex;flex-direction:column;gap:2px;margin:6px 0 10px}
+.pm-sec{display:flex;align-items:center;gap:10px;min-height:44px;font-size:14.5px;cursor:pointer}
+.pm-sec input{width:20px;height:20px;flex:none;margin:0}
 .pm input{font-size:17px}
 .pm-ey{display:flex;gap:10px;margin-top:14px}
 .pm-ey button{flex:1;min-height:44px;margin-top:0}
@@ -6875,20 +6878,87 @@ async function vergiVadeYukle(){
 }
 /* Bir vadeyi ödeme kaydı olmadan kapatmak: yalnız "tutar çıkmadı" veya "iptal".
    Ödeme yapıldıysa ödeme kaydı girilir, vade kendiliğinden kapanır. */
-async function vadeKapat(id, ad){
-  const secim = prompt(`"${ad}" kapatılacak.\n\n`
-    + `1 = Beyan verildi, ödenecek tutar çıkmadı\n`
-    + `2 = İptal (bu yükümlülük geçerli değil)\n\n`
-    + `Ödeme YAPILDIYSA burayı kullanma — ödemeyi kaydet, vade kendiliğinden kapanır.\n\n`
-    + `1 veya 2 yaz:`);
-  if (!secim) return;
-  const durum = secim.trim() === '1' ? 'tutar_yok' : secim.trim() === '2' ? 'iptal' : null;
-  if (!durum){ bildir('1 veya 2 yazmalısın.', 'hata'); return; }
-  const neden = await nedenSor('Nedenini yaz (kayda geçecek):', null, 1);
-  if (!neden || !neden.trim()){ bildir('Neden zorunlu.', 'hata'); return; }
-  const { error } = await sb.rpc('rpc_vade_durum', { p_id:id, p_durum:durum, p_not:neden.trim() });
-  if (error){ bildir('Kapatılamadı: '+hataTr(error.message), 'hata'); return; }
-  vergiVadeYukle();
+/* ===== AC · VADE KAPATMA · TEK PENCERE =====
+   Onceki akis IKI pencere ve IKI ayri hata yoluydu: once prompt ile
+   "1 veya 2 yaz" — yani SECIMI RAKAM YAZARAK — yanlis yazarsan bastan;
+   sonra ayri bir gerekce penceresi, bos birakirsan yine bastan.
+   ⚠ Secim RADIO ile, iki "secilebilir dugme" ile DEGIL: radio'da ok
+     tuslariyla gezinme, grubun TEK Tab duragi olmasi ve radiogroup rolu
+     YERLESIK gelir; dugmelerde aria-pressed ve ok tusu isini elle yazmak
+     gerekirdi — kendi elimle daha az erisilebilir bir sey yapardim.
+   ⚠ HICBIRI ONCEDEN SECILI DEGIL. Varsayilan secim, dusunmeden
+     kapatmaya davettir.
+   ⚠ Varsayilan odak ILK SECENEKTE — onaySor'dan bilerek FARKLI (orada
+     Vazgec'te). Gerekce: bu islem YIKICI DEGIL; vadeyi "odenmedi" diye
+     kapatiyor, veri silmiyor, geri alinabilir. Ustelik gerekce zorunlu
+     oldugu icin tek tikla olmuyor. Insan once secim yapacak, odak oraya
+     konuyor. Odaklanmak SECMEZ: radio ancak ok tusu, bosluk ya da tik
+     ile secilir — olculdu.
+   ⚠ Iki hata yolu artik URETILEMEZ: "1 veya 2 yazmalisin" ve "Neden
+     zorunlu" — dugme, secim VE gerekce birlikte saglanmadan aktif olmaz. */
+function vadeKapat(id, ad){
+  const acan = document.activeElement;
+  const yap = (t,s,m)=>{ const e=document.createElement(t); if(s) e.className=s; if(m!=null) e.textContent=m; return e; };
+  const d = document.createElement('dialog'); d.className = 'pm';
+  d.setAttribute('aria-modal','true');
+  const bas = yap('div','pm-bas', `"${ad}" kapatılacak.`); bas.id = 'vkBas';
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  const uy = yap('div','pm-aciklama',
+    'Ödeme YAPILDIYSA burayı kullanma — ödemeyi kaydet, vade kendiliğinden kapanır.');
+  uy.id = 'vkUyari'; d.setAttribute('aria-describedby', uy.id); d.appendChild(uy);
+  const grup = yap('div','pm-secim');
+  grup.setAttribute('role','radiogroup'); grup.setAttribute('aria-label','Kapatma sebebi');
+  const radyo = [];
+  [['tutar_yok','Beyan verildi, ödenecek tutar çıkmadı'],
+   ['iptal','İptal (bu yükümlülük geçerli değil)']].forEach(([deger, metin], i) => {
+    const l = yap('label','pm-sec');
+    const r = document.createElement('input');
+    r.type = 'radio'; r.name = 'vkDurum'; r.value = deger; r.id = 'vkSec'+i;   // ⚠ checked YOK
+    l.appendChild(r); l.appendChild(yap('span', null, metin));
+    grup.appendChild(l); radyo.push(r);
+  });
+  d.appendChild(grup);
+  const et = yap('label', null, 'Gerekçe (kayda geçecek)'); et.setAttribute('for','vkNeden');
+  const ta = document.createElement('textarea'); ta.id = 'vkNeden'; ta.rows = 3;
+  const sayac = yap('div','pm-sayac'); sayac.id = 'vkSayac';
+  ta.setAttribute('aria-describedby', sayac.id);
+  d.appendChild(et); d.appendChild(ta); d.appendChild(sayac);
+  const ey = yap('div','pm-ey');
+  const vaz = yap('button','btn2','Vazgeç'), kap = yap('button','btn-kirmizi','Vadeyi kapat');
+  vaz.type = kap.type = 'button'; kap.disabled = true;
+  ey.appendChild(vaz); ey.appendChild(kap); d.appendChild(ey);
+  document.body.appendChild(d); d.showModal(); radyo[0].focus();
+  const secili = () => radyo.find(r => r.checked);
+  const denetle = () => { const n = ta.value.trim().length;
+    sayac.textContent = 'en az 1 karakter · şu an ' + n;
+    kap.disabled = !(secili() && n >= 1); };
+  ta.oninput = denetle; radyo.forEach(r => r.onchange = denetle); denetle();
+  let bitti = false;
+  const kapat = () => { if (bitti) return; bitti = true;
+    d.close(); d.remove();
+    if (acan && acan.isConnected && acan.focus) acan.focus(); };
+  vaz.onclick = () => kapat();
+  d.addEventListener('cancel', e => { e.preventDefault(); kapat(); });
+  d.addEventListener('keydown', e => {
+    if (e.key === 'Escape'){ e.preventDefault(); kapat(); return; }
+    if (e.key !== 'Tab') return;                     // odak tuzagi
+    const od = [...d.querySelectorAll('input,textarea,button')].filter(x => !x.disabled);
+    if (!od.length) return;
+    const i = od.indexOf(document.activeElement); e.preventDefault();
+    od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+  });
+  kap.onclick = async () => {
+    if (kap.disabled) return;                        // cift tiklama TEK istek
+    kap.disabled = vaz.disabled = ta.disabled = true;
+    radyo.forEach(r => r.disabled = true);
+    d.tabIndex = -1; d.focus(); kap.textContent = 'Kapatılıyor...';
+    /* ⚠ RPC ve parametreleri AYNEN eski hali: p_id · p_durum · p_not */
+    const { error } = await sb.rpc('rpc_vade_durum',
+      { p_id:id, p_durum:secili().value, p_not:ta.value.trim() });
+    kapat();
+    if (error){ bildir('Kapatılamadı: '+hataTr(error.message), 'hata'); return; }
+    vergiVadeYukle();
+  };
 }
 /* VERGİ DEKONTU OKUMA — fatura ve araç masrafındaki ile aynı okuyucu.
    Dekontlarda tutar genelde "ÖDENEN TUTAR"/"Tahsil Edilen" diye geçer;
