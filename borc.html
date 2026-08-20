@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-20-1">
+<meta name="surum" content="borc-2026-08-20-2">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1194,6 +1194,42 @@ function madenDeger(m, fiyatlar){
 }
 
 /* ================== EKRAN YONLENDIRME ================== */
+/* ⚠ AL1 · Serit hizalamasi ADLI FONKSIYONA cikarildi. Olculdu: kullanici
+   "borcta krediler sekmesi yok" dedi — sekme VARDI, serit yana kaymisti,
+   Takvim ve Krediler ekran disinda kalmisti. Sebep: hizalama YALNIZ
+   ekranAc icindeydi. #icerik'e dokunan ON yer arandi; ekranAc'tan
+   GECMEDEN EKRAN CIZEN IKI tanesi var:
+     kartDetayAc · taksitEkraniAc        -> hizalama eklendi
+   Bes tanesi (vTakvim · vKrediler · vKartlar · vMaden · vSahis) zaten
+   ekranAc'in cagirdiklari. Kalan ikisi (pasifeAlAc · sahisOdemeAc)
+   #icerik'i CIZMIYOR, diyalog acikken inert yapiyor — dokunulmadi.
+   Bu iki ekrana girince serit onceki kaydirmada kaliyordu.
+   ⚠ Pay artik SABIT DEGIL: kabin kendi padding'i okunuyor. Kodda 8
+   yazdigi surece dugme, kabin IC kenarindan 5px disarida kaliyor ve
+   yuvarlak kosesi kirpik gorunuyordu (serit padding'i 13px). Sayiyi
+   koda gomersek CSS degisince sessizce yanlislasir.
+   ⚠ KURAL "gorunur alana getir" DEGIL, "EN SOLA CEK". Olculdu ve ilk
+   yazdigim hali YETMIYORDU: kullanici Sahis'e girip serit sonuna kadar
+   kaydiginda (scrollLeft 86 = azami), sonra Kartlar'a donuyor; Kartlar
+   ZATEN GORUNUR oldugu icin "gorunur alana getir" HIC KAYDIRMIYOR ve
+   Takvim ile Krediler ekran disinda KALMAYA DEVAM EDIYOR — sikayetin
+   tam kendisi. Artik aktif dugmeyi tam gosteren EN KUCUK scrollLeft
+   seciliyor; boylece ondan ONCEKI sekmeler mumkun oldugunca gorunur.
+   Sahis'te sonuc degismiyor (86'da kaliyor), R4 korunuyor. */
+function seritiHizala(){
+  const srt = document.getElementById('bolumSerit');
+  const akt = srt && srt.querySelector('button.aktif');
+  if (!akt) return;
+  const st = getComputedStyle(srt);
+  const pl = parseFloat(st.paddingLeft) || 0, pr = parseFloat(st.paddingRight) || 0;
+  const sr = srt.getBoundingClientRect(), ar = akt.getBoundingClientRect();
+  const sol = ar.left  - sr.left + srt.scrollLeft;      // icerik koordinati
+  const sag = ar.right - sr.left + srt.scrollLeft;
+  const enAz  = sag + pr - srt.clientWidth;             // sagdan sigmasi icin en az bu
+  const enCok = sol - pl;                               // soldan sigmasi icin en cok bu
+  srt.scrollLeft = Math.max(0, Math.min(enAz, enCok));
+}
+
 async function ekranAc(ad){
   EKRAN = ad; SECILI_KREDI = null;
   /* ⚠ AC-05: aktif bolum EKRAN OKUYUCUYA da bildirilir. Olculdu: aktiflik
@@ -1204,21 +1240,11 @@ async function ekranAc(ad){
     b.classList.toggle('aktif', secili);
     if (secili) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
   });
-  /* ⚠ FAZ 4b · R4 · Aktif sekme yatayda gorunur alana getirilir. Olculdu:
-     serit 461px istiyor, 375'te "Sahis" 73px, 320'de 128px ekran disindaydi
-     ve scrollLeft 0'da kaliyordu — dokunmatik kullanici nerede oldugunu
-     goremiyordu. scrollIntoView KULLANILMADI: `block:'nearest'` bile serit
-     dikeyde gorunmuyorsa SAYFAYI kaydirir. Yalniz seridin kendi scrollLeft'i
-     elle hesaplaniyor; belge kaydirmasina hic dokunulmuyor. +8 kenar payi,
-     tarayici scrollLeft'i sinirlara kendisi kirptigi icin guvenli.
-     ekranAc ilk yuklemede de cagriliyor (baslat), yani tiklama sarti yok. */
-  const srt = document.getElementById('bolumSerit');
-  const akt = srt && srt.querySelector('button.aktif');
-  if (akt){
-    const sr = srt.getBoundingClientRect(), ar = akt.getBoundingClientRect();
-    if (ar.left  < sr.left)  srt.scrollLeft -= (sr.left - ar.left) + 8;
-    else if (ar.right > sr.right) srt.scrollLeft += (ar.right - sr.right) + 8;
-  }
+  /* ⚠ FAZ 4b · R4 · Aktif sekme yatayda gorunur alana getirilir. scrollIntoView
+     KULLANILMADI: `block:'nearest'` bile serit dikeyde gorunmuyorsa SAYFAYI
+     kaydirir. Yalniz seridin kendi scrollLeft'i oynatiliyor. ekranAc ilk
+     yuklemede de cagriliyor (baslat), yani tiklama sarti yok. */
+  seritiHizala();
   const c = document.getElementById('icerik');
   c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
   try{
@@ -1420,7 +1446,9 @@ function seritCiz(v){
         x.ad + (x.rayic && yuzde(x) < 15 ? ' (rayiç)' : '') + ' '));
       if (secili === x.k){
         p.appendChild(el('b', null, tlk(x.tutar)));
-        p.appendChild(document.createTextNode(' · %' + yuzde(x).toFixed(1)
+        /* ⚠ AL3 · toFixed NOKTA uretir; Turkce metinde ondalik VIRGULdur.
+           Dosyadaki dogru ornekle ayni desen (faiz orani satiri). */
+        p.appendChild(document.createTextNode(' · %' + yuzde(x).toFixed(1).replace('.',',')
                        + (x.rayic ? ' · rayiç' : '')));
       } else {
         p.appendChild(document.createTextNode('%' + Math.round(yuzde(x))));
@@ -1437,7 +1465,8 @@ function seritCiz(v){
     sg.style.flex = Math.max(yuzde(x), 2) + ' 1 0';
     sg.setAttribute('aria-pressed','false');
     sg.setAttribute('aria-label', x.ad + (x.rayic ? ' rayiç' : '') + ' ' + tlk(x.tutar)
-                    + ', yüzde ' + yuzde(x).toFixed(1));
+                    /* AL3 · ekran okuyucuya giden metin de virgullu */
+                    + ', yüzde ' + yuzde(x).toFixed(1).replace('.',','));
     /* ⚠ ETIKET SEGMENTIN ICINE ANCAK SIGIYORSA. Esik ORANDAN hesaplaniyor,
        DOM olcumunden DEGIL: olcum requestAnimationFrame gerektiriyor, o da
        sekme gorunur degilse HIC CALISMIYOR (olculdu) — etiket yarim kalirdi.
@@ -1567,11 +1596,18 @@ function bantCiz(v){
      baslik altinda birlesmesi. Artik ILERI DONEM katmaninda (asagida).
      ⚠ M2 · "bu ay kredi taksiti" SILINDI: ayni kurus iki satir yukarida
      "şahıs 251.769,95" olarak zaten duruyor. Deger KAYBOLMUYOR.
-     Kalanlar bu katmana AITTIR: bu ay odenen, kart, dekont eksik. */
-  if (v.S.buAyOdenen || v.kartSahis || v.ko.dekontEksik){
+     ⚠ AL2 · "kart (ayri)" BU KATMANDAN CIKARILDI — M1'in aynisi, kart
+     satirinda gozden kacmisti. Sebep: kart verisi YOKTU, satir hic
+     cizilmiyordu; kullanici kartlari girince ortaya cikti. O rakam
+     kartlarin TOPLAM kalan borcu, "bu ay cikacak nakit" DEGIL — baslik
+     yanlis beyan ediyordu. Ustelik ayni kurus KATMAN 1'in kiriliminda
+     ("kart ...") ZATEN duruyor, yani deger KAYBOLMUYOR.
+     ⚠ "Bu ay odenecek kart tutari" HESAPLANMADI: son odeme gunu ve donem
+     verisi ister, ayri is. Simdilik yalniz yanlis satir kalkti.
+     Kalanlar bu katmana AITTIR: bu ay odenen, dekont eksik. */
+  if (v.S.buAyOdenen || v.ko.dekontEksik){
     const ay = [];
     if (v.S.buAyOdenen) ay.push('bu ay ödenen ', { v: tk(v.S.buAyOdenen) });
-    if (v.kartSahis)    ay.push((ay.length ? ' · ' : '') + 'kart (ayrı) ', { v: tk(v.kartSahis) });
     if (v.ko.dekontEksik) ay.push((ay.length ? ' · ' : '') + 'dekont eksik ',
                                   { v: String(v.ko.dekontEksik), s: 'eksik' });
     satir(k2, ...ay);
@@ -2501,6 +2537,7 @@ async function krediSil(kredi, acan){
 
 /* ---------- tek kredinin taksit ekrani ---------- */
 async function taksitEkraniAc(krediId){
+  seritiHizala();          // AL1 · ekranAc'tan gecmiyor, serit kaymis kalirdi
   const c = document.getElementById('icerik');
   c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
   try{
@@ -2844,6 +2881,7 @@ async function kartKaydet(){
 
 /* ---------- tek kartin ay ay dokumu ---------- */
 async function kartDetayAc(kartId){
+  seritiHizala();          // AL1 · ekranAc'tan gecmiyor, serit kaymis kalirdi
   const c = document.getElementById('icerik');
   c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
   try{
@@ -2990,6 +3028,14 @@ function donemFormu(kart, liste){
   alan('Düzeltme (iade/indirim eksi yazılır)', 'kdDuzeltme', '', 'decimal');
   alan('Ödenen', 'kdOdenen', '', 'decimal');
   const zn = el('div','kucuk'); zn.id = 'kdZincir'; k.appendChild(zn);
+
+  /* ⚠ AL4 · Kullanici "belge yukleme yeri yok" dedi. VAR: kaydedilmis her
+     donem satirinda "+ Ekstre" dugmesi cikiyor. Ama form doluyken liste
+     BOS oldugu icin dugme hic gorunmuyordu. Forma IKINCI bir dosya alani
+     EKLENMEDI — ayni belge iki yerden girilirse hangisi dogru belli olmaz;
+     yalnizca nerede oldugu soyleniyor. */
+  k.appendChild(el('div','kucuk',
+    'Ekstre görselini ay kaydedildikten sonra aşağıdaki listeden ekleyebilirsin.'));
 
   const on = el('button','btn2','Kalanı hesapla (kaydetme)');
   on.onclick = () => donemOnizle(kart, liste, false);
