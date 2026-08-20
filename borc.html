@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-19-3">
+<meta name="surum" content="borc-2026-08-20-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -409,6 +409,11 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .rz-eksik{background:#FBEAE7;color:var(--hata)}
 .rz-yesil{background:#E7F0E9;color:var(--ok)}
 .rz-sari{background:#FBF3E4;color:#8A6316}
+/* v100 · iptal edilmis odeme: RENK TEK BASINA anlam tasimasin —
+   ustu cizili + METIN etiketi birlikte. */
+.iptalli td{text-decoration:line-through}
+.iptalli td .rozet{text-decoration:none}
+.pm-sayac{font-size:12.5px;color:var(--soluk);font-weight:600;margin-top:4px}
 
 .uyari-agir{background:#FBEAE7;border-left:3px solid var(--hata);color:var(--hata);
   padding:11px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:600;font-size:15px;line-height:1.5}
@@ -855,6 +860,14 @@ function hataTr(m){
   if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
   if (/_chk\b/i.test(s))              return 'Girilen değer kuralları sağlamıyor: ' + s;
   if (/duplicate key/i.test(s))       return 'Bu kayıt zaten var.';
+  /* v100 · ters kayit RPC'sinin ALTI kodu. Yazilmasaydi son satir
+     (`return s`) ham kodu EKRANA basardi — "ZATEN_TERS" diye. */
+  if (/ZATEN_TERS/.test(s))           return 'Bu ödeme zaten iptal edilmiş. Listede iptal kaydı görünüyor.';
+  if (/TERSIN_TERSI_YOK/.test(s))     return 'İptal kaydı iptal edilemez. Ödemeyi yeniden girmen gerekir.';
+  if (/GEREKCE_KISA/.test(s))         return 'Gerekçe en az 10 karakter olmalı.';
+  if (/KAYIT_YOK/.test(s))            return 'Ödeme bulunamadı — ekran eskimiş olabilir, yenile.';
+  if (/AY_KAPALI/.test(s))            return 'Bu ödemenin ayı kapatılmış. Önce ayı aç, sonra iptal et.';
+  if (/YETKI_YOK/.test(s))            return 'Bu işlem için yetkin yok.';
   if (/Failed to fetch|NetworkError/i.test(s)) return 'İnternet bağlantısı kurulamadı. Kayıt YAPILMADI, tekrar dene.';
   return s;
 }
@@ -1086,7 +1099,9 @@ async function sahisGetir(){
   const [h,b,o] = await Promise.all([
     sb.from('v_sahis_hesap_bakiye').select('hesap_id,ad,tur,aciklama,borc_toplam,odeme_toplam,bakiye,borc_adet,odeme_adet').order('ad'),
     sb.from('sahis_borc').select('id,hesap_id,isim,tutar,tarih,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
-    sb.from('sahis_odeme').select('id,hesap_id,borc_id,tutar,tarih,foto_path,aciklama').eq('is_deleted',false).order('tarih')]);
+    /* v100 · tur/ters_hedef_id ALINMAZSA ekran iptal edilmis odemeyi
+       normal odemeden ayirt edemez ve bakiyeyle CELISIR. */
+    sb.from('sahis_odeme').select('id,hesap_id,borc_id,tutar,tarih,foto_path,aciklama,tur,ters_hedef_id').eq('is_deleted',false).order('tarih')]);
   if (h.error) throw h.error; if (b.error) throw b.error; if (o.error) throw o.error;
   return { hesaplar:h.data||[], borclar:b.data||[], odemeler:o.data||[] };
 }
@@ -3296,6 +3311,8 @@ async function vSahis(){
     if (!odemeGrup.has(o.hesap_id)) odemeGrup.set(o.hesap_id, []);
     odemeGrup.get(o.hesap_id).push(o);
   }
+  /* v100 · hangi odemeler iptal EDILMIS — hedef id kumesi. */
+  const TERSLENEN = new Set(odemeler.filter(o => o.tur === 'ters').map(o => o.ters_hedef_id));
   c.textContent = '';
   c.appendChild(bantCiz(v));
   const msg = el('div','msg'); msg.id = 'sahisMsg'; c.appendChild(msg);
@@ -3315,7 +3332,11 @@ async function vSahis(){
     kart.appendChild(ust);
     kart.appendChild(el('div','tk-orta',
       'toplam borç ' + tlk(kr(h.borc_toplam)) + ' · ödenen ' + tlk(kr(h.odeme_toplam)) +
-      ' · ' + hb.length + ' borç / ' + ho.length + ' ödeme'));
+      /* ⚠ v100 · SAYIM iptal edilenleri ve iptal KAYITLARINI saymaz.
+         Ham satir sayisi "2 ödeme" derken bakiye "0 ödeme" diyordu —
+         ayni ekranda iki farkli hakikat. Kural gorunumdekiyle AYNI. */
+      ' · ' + hb.length + ' borç / ' +
+      ho.filter(o => o.tur !== 'ters' && !TERSLENEN.has(o.id)).length + ' ödeme'));
     if (h.aciklama) kart.appendChild(el('div','kucuk',h.aciklama));
 
     const hareketler = [
@@ -3330,9 +3351,20 @@ async function vSahis(){
       t.appendChild(hr);
       for (const x of hareketler){
         const tr = document.createElement('tr');
+        /* ⚠ v100 · UC HAL: normal odeme · IPTAL EDILMIS odeme · IPTAL KAYDI.
+           Iptal edilen odeme LISTEDE KALIR — gizlemek silmekle ayni sonucu
+           verirdi. Isaret RENKLE DEGIL: ustu cizili + METIN etiketi. */
+        const iptalKaydi  = x._tur==='odeme' && x.tur==='ters';
+        const iptalEdildi = x._tur==='odeme' && x.tur!=='ters' && TERSLENEN.has(x.id);
+        if (iptalEdildi) tr.classList.add('iptalli');
         tr.appendChild(td(trGun(x.tarih)));
-        tr.appendChild(td(x._tur==='borc'?'Borç':'Ödeme'));
-        tr.appendChild(td((x._tur==='borc'?'+ ':'− ')+tl(x.tutar),'sag'));
+        const hc = document.createElement('td');
+        hc.appendChild(document.createTextNode(
+          x._tur==='borc' ? 'Borç' : iptalKaydi ? 'İptal' : 'Ödeme'));
+        if (iptalEdildi) hc.appendChild(el('span','rozet rz-eksik','İPTAL EDİLDİ'));
+        tr.appendChild(hc);
+        /* Iptal kaydi bakiyeyi ARTIRIR — isareti borc gibi '+'. */
+        tr.appendChild(td(((x._tur==='borc'||iptalKaydi)?'+ ':'− ')+tl(x.tutar),'sag'));
         tr.appendChild(td(x.aciklama||'—'));
         const dk = document.createElement('td');
         if (x._tur==='odeme' && x.foto_path){
@@ -3346,6 +3378,12 @@ async function vSahis(){
           const bd = el('button','btn-mini', x.foto_path ? 'Değiştir' : '+ Belge');
           bd.onclick = () => dekontEkle('sahis_odeme', x.id, 'sahis_odeme','sahisMsg', !!x.foto_path, () => vSahis());
           ey.appendChild(bd);
+          /* ⚠ Eylem YALNIZ normal ve HENUZ iptal edilmemis odemede. Iptal
+             kaydinin kendisinde ve iptal edilmis odemede YOK — sunucu da
+             TERSIN_TERSI_YOK / ZATEN_TERS ile reddediyor, istemci ONCEDEN
+             engelliyor. */
+          if (!iptalKaydi && !iptalEdildi)
+            ey.appendChild(digerMenu([['Ödemeyi iptal et', (a) => sahisOdemeIptalAc(x, a)]]));
         } else {
           ey.appendChild(digerMenu([['Borç hareketini arşivle',(a) => sahisBorcSil(x,a)]]));
         }
@@ -3439,6 +3477,90 @@ async function sahisBorcKaydet(){
 /* ⚠ IKI PROMPT KUTUSU KALDIRILDI. Mekanik pasifeAlAc'tan KOPYALANDI —
    ortak yardimci cikarmak pasifeAlAc'in kanitlanmis davranisini riske
    atardi. Yedi guvenlik ozelliginin hepsi burada da var. */
+/* ===== v100 · ODEME IPTALI · TEK PENCERE =====
+   ⚠ Mekanik pasifeAlAc/sahisOdemeAc'tan KOPYALANDI.
+   ⚠ YAZI TIPI KELIME (ARSIV gibi) ISTENMIYOR: o, geri donulemez arsivleme
+     icin. Burada veri KAYBOLMUYOR — odeme yerinde kalir, yanina iptal
+     kaydi yazilir. Koruma gerekce zorunlulugu + varsayilan Vazgec.
+   ⚠ Varsayilan odak VAZGEC'te: bu islem BAKIYEYI degistiriyor.
+   ⚠ IDEM ANAHTARI FORM BASINA — cagri basina degil. Bu hatayi projede
+     iki kez yaptik: hata sonrasi tekrar denemede anahtar AYNI kalmali,
+     yoksa sunucunun mukerrer korumasi devreye GIRMEZ. */
+function sahisOdemeIptalAc(odeme, acan){
+  let n = 0; const kimlik = (e) => (e.id = 'oi' + (++n));
+  const d = document.createElement('dialog'); d.className = 'pm';
+  d.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas','⚠ Ödeme iptal edilecek'); kimlik(bas);
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  /* AC-06 · kaydin TARIHI ve TUTARI acikca gorunur. */
+  const ad = el('div','pm-ad', trGun(odeme.tarih) + ' tarihli ödeme'); kimlik(ad);
+  const tut = el('div','pm-tutar', tlk(kr(odeme.tutar))); kimlik(tut);
+  d.appendChild(ad); d.appendChild(tut);
+  const etki = el('div','pm-etki',
+    'Bu ödeme iptal edilecek. Silinmez — yanına iptal kaydı yazılır, ikisi de listede kalır.');
+  kimlik(etki); d.setAttribute('aria-describedby', etki.id); d.appendChild(etki);
+  const l = el('label', null, 'Gerekçe (en az 10 karakter)');
+  const ta = document.createElement('textarea'); kimlik(ta); ta.rows = 3;
+  l.setAttribute('for', ta.id);
+  const sayac = el('div','pm-sayac'); kimlik(sayac);
+  ta.setAttribute('aria-describedby', sayac.id);
+  d.appendChild(l); d.appendChild(ta); d.appendChild(sayac);
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), kap = el('button','btn-kirmizi','İptal kaydı at');
+  vaz.type = kap.type = 'button'; kap.disabled = true;
+  kap.dataset.idem = crypto.randomUUID();          // FORM BASINA BIR KEZ
+  ey.appendChild(vaz); ey.appendChild(kap); d.appendChild(ey);   // Vazgec SOLDA
+  const hataK = el('div','uyari-agir'); hataK.hidden = true; kimlik(hataK);
+  kap.setAttribute('aria-describedby', hataK.id); d.appendChild(hataK);
+  document.body.appendChild(d); d.showModal(); vaz.focus();       // varsayilan GUVENLI taraf
+
+  const denetle = () => { const c = ta.value.trim().length;
+    sayac.textContent = 'en az 10 karakter · şu an ' + c;
+    kap.disabled = c < 10; };
+  ta.oninput = denetle; denetle();
+
+  let isleniyor = false;
+  const kapat = () => {
+    if (isleniyor) return;                        // istek surerken kapanmaz
+    d.close(); d.remove();
+    if (acan && acan.isConnected && acan.focus) acan.focus();
+    else { const h = document.querySelector('#bolumSerit button.aktif'); if (h) h.focus(); }
+  };
+  vaz.onclick = () => kapat();
+  d.addEventListener('cancel', e => { e.preventDefault(); kapat(); });
+  d.addEventListener('keydown', e => {
+    if (e.key === 'Escape'){ e.preventDefault(); kapat(); return; }
+    if (e.key !== 'Tab') return;                  // odak tuzagi
+    const od = [...d.querySelectorAll('textarea,button')].filter(x => !x.disabled);
+    if (!od.length) return;
+    const i = od.indexOf(document.activeElement); e.preventDefault();
+    od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+  });
+  kap.onclick = async () => {
+    if (isleniyor || kap.disabled) return;        // cift tiklama TEK istek
+    isleniyor = true; kap.disabled = vaz.disabled = ta.disabled = true;
+    d.tabIndex = -1; d.focus(); kap.textContent = 'İşleniyor...'; hataK.hidden = true;
+    const { error } = await sb.rpc('rpc_sahis_odeme_ters_kayit',
+      { p_idem: kap.dataset.idem, p_odeme: odeme.id, p_neden: ta.value.trim() });
+    isleniyor = false;
+    if (error){
+      /* Hata yolunda form KORUNUR ve anahtar AYNI kalir — tekrar denenebilir. */
+      hataK.hidden = false;
+      hataK.textContent = hataTr([error.message,error.details,error.hint].filter(Boolean).join('\n'));
+      vaz.disabled = ta.disabled = false; kap.textContent = 'İptal kaydı at'; denetle();
+      return;
+    }
+    kapat();
+    await vSahis();                               // once tazele: #sahisMsg SIFIRDAN yaratilir
+    /* ⚠ ODAK IKI KEZ TASINIR. kapat() odagi ACAN dugmeye verir, ama vSahis()
+       ekrani yeniden cizince o dugme DOM'dan kopar ve odak <body>'ye duser —
+       olculdu. Yenilemeden SONRA kalici bir ogeye tasiniyor. */
+    const h = document.querySelector('#bolumSerit button.aktif')
+           || document.querySelector('#bolumSerit button');
+    if (h) h.focus();
+    mesaj('sahisMsg','ok','Ödeme iptal edildi. Ödeme ve iptal kaydı listede duruyor.');
+  };
+}
 function sahisOdemeAc(hesap, acan){
   const kalanK = kr(hesap.bakiye);
   /* ⚠ IDEMPOTENCY ANAHTARI FORM BASINA BIR KEZ URETILIYOR.
