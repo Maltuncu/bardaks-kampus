@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-20-7">
+<meta name="surum" content="borc-2026-08-20-8">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1362,6 +1362,45 @@ async function bantVerisi(){
     if (d.devir_tutarsiz) kartTutarsiz++;
   }
 
+  /* ⚠ AR · BU AY ODENECEK KART TUTARI — "son donemin kalani" DEGIL.
+     Ikisi ayni sey degil: kesim 29 / odeme 3 olan bir kartta 29.07'de
+     kesilen donem 03.08'de odenir; son donem 2026-08 olsa bile BU AY
+     odenecek olan 2026-07'ninkidir. Bu yuzden hedef donem ARANIYOR.
+     KURAL TURETILIYOR, sabit tablo YOK (yeni kart kendiliginden calisir):
+       odeme gunu >  kesim gunu -> donem ODEME AYIYLA AYNI  (15 kesim/20 odeme)
+       odeme gunu <= kesim gunu -> donem BIR ONCEKI ay      (29 kesim/3 odeme)
+     ⚠ ALAN KAYNAGI TEK: sahip · kesim_gunu · son_odeme_gunu · aktif
+       hepsi `kart` sorgusundan okunuyor. v_kart_donem de tasiyor ama ayni
+       alani IKI kaynaktan cekip ikisi ayrisirsa SESSIZ HATA olur.
+     ⚠ SESSIZ SIFIR YASAK. Uc yol da 0 uretebilir ve kullanici ayin nakit
+       ihtiyacini EKSIK planlar; ucu de AYRI sayilir ve ekranda yazilir:
+       gun bilgisi yok · hedef donem girilmemis · kart pasif.
+     ⚠ kalan <= 0 (tam odenmis) katki 0 verir ve bu MESRU — uyari degil. */
+  const oncekiAy = (ay) => { const [y,m] = ay.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 2, 1));      // m-2: bir onceki ayin indeksi
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0'); };
+  const ayinSonGunu = (ay) => { const [y,m] = ay.split('-').map(Number);
+    return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
+  const donemAnahtar = new Map(kart.donemler.map(d => [d.kart_id + '|' + d.donem, d]));
+  const buAyKart = { sahis:0, ltd:0, toplam:0, gunYok:0, donemYok:0, pasif:0, gecikmis:0 };
+  {
+    const M = bugun().slice(0,7), gunBugun = Number(bugun().slice(8,10));
+    for (const k of kart.kartlar){
+      if (!k.aktif){ buAyKart.pasif++; continue; }
+      if (k.kesim_gunu == null || k.son_odeme_gunu == null){ buAyKart.gunYok++; continue; }
+      const hedef = k.son_odeme_gunu > k.kesim_gunu ? M : oncekiAy(M);
+      const d = donemAnahtar.get(k.id + '|' + hedef);
+      if (!d){ buAyKart.donemYok++; continue; }
+      const kalan = kr(d.kalan);
+      if (kalan <= 0) continue;                     // tam odenmis — mesru sifir
+      buAyKart.toplam += kalan;
+      if (k.sahip === 'ltd') buAyKart.ltd += kalan; else buAyKart.sahis += kalan;
+      /* Odeme gunu GECTIYSE ve kalan varsa: gecikmis KART odemesi.
+         31'i olmayan ayda gun ayin SON gunune kirpilir. */
+      if (Math.min(k.son_odeme_gunu, ayinSonGunu(M)) < gunBugun) buAyKart.gecikmis++;
+    }
+  }
+
   const ko = krediOzet(taksitler);
   const buAy = bugun().slice(0,7);
 
@@ -1468,7 +1507,7 @@ async function bantVerisi(){
   return { krediler, taksitler, ko, buAyKurus, buAyOdenen, sahisKalan,
            madenBugun, madenAlis, farkBugun, farkKurus, fiyatiYok, alisiYok,
            hesaplanan, tahminSayisi, maden, sahis,
-           kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz,
+           kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz, buAyKart,
            kartDonemleri: [...kartDonemleri].sort(),
            S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma };
 }
@@ -1663,12 +1702,30 @@ function bantCiz(v){
        gizlemek "kapsami belli KPI" sartini bozardi. */
   const sBuAy = v.S.buAy - v.S.buAyOdenen;
   const lBuAy = v.L.buAy - v.L.buAyOdenen;
+  const kb = v.buAyKart;
   const k2 = katman('Bu ay çıkacak nakit', 'şahıs + Ltd');
   const bas2 = el('div','bas');
   bas2.appendChild(el('span','et','Bu ay'));
-  bas2.appendChild(el('span','dg', tlk(sBuAy + lBuAy)));
+  bas2.appendChild(el('span','dg', tlk(sBuAy + lBuAy + kb.toplam)));
   k2.appendChild(bas2);
-  k2.appendChild(el('div','kirilim', 'şahıs ' + tk(sBuAy) + ' · Ltd ' + tk(lBuAy)));
+  /* ⚠ AR · KIRILIM UC PARCA. sahis/Ltd AYRIMI KORUNDU (bandin butun
+     yapisi tuzel kisilik ayrimi uzerine kurulu ve o iki rakam baska
+     hicbir yerde YOK — kaldirsam DEGER KAYBOLURDU). Kart tek parca:
+     dordune bolmek 375px'te satiri ikiye katliyordu; kartin sahis/Ltd
+     ayrimi hesaplanip veride DURUYOR (kb.sahis / kb.ltd), gostermek
+     istenirse tek satirlik is. */
+  const kp = ['şahıs ' + tk(sBuAy), 'Ltd ' + tk(lBuAy)];
+  const eksikKart = kb.gunYok + kb.donemYok;
+  if (kb.toplam || eksikKart) kp.push('kart ' + tk(kb.toplam));
+  k2.appendChild(el('div','kirilim', kp.join(' · ')));
+  /* ⚠ 0 ile "bilmiyorum" AYNI GORUNMEZ. Iki sebep AYRI yaziliyor;
+     hicbiri yoksa bu satir HIC CIKMAZ. */
+  if (eksikKart){
+    const nd = [];
+    if (kb.gunYok)   nd.push(kb.gunYok + ' kartın kesim/ödeme günü yok');
+    if (kb.donemYok) nd.push(kb.donemYok + ' kartın dönemi yok');
+    k2.appendChild(el('div','kirilim', nd.join(' · ') + ' — toplama GİRMEDİ'));
+  }
   /* ⚠ M1 · "Gelecek faiz+masraf" BU KATMANDAN CIKARILDI. Basligi
      "Bu ay çıkacak nakit" olan bir blogun icinde durunca ekran YANLIS
      BEYAN ediyordu: o tutar bu ay degil, GELECEKTE dogacak faiz ve
@@ -1682,8 +1739,11 @@ function bantCiz(v){
      kartlarin TOPLAM kalan borcu, "bu ay cikacak nakit" DEGIL — baslik
      yanlis beyan ediyordu. Ustelik ayni kurus KATMAN 1'in kiriliminda
      ("kart ...") ZATEN duruyor, yani deger KAYBOLMUYOR.
-     ⚠ "Bu ay odenecek kart tutari" HESAPLANMADI: son odeme gunu ve donem
-     verisi ister, ayri is. Simdilik yalniz yanlis satir kalkti.
+     ⚠ AR · YUKARIDAKI NOT ARTIK GECERSIZ. O tur "bu ay odenecek kart
+     tutari HESAPLANMADI, ayri is" demisti; bu turda HESAPLANDI. Kesim ve
+     son odeme gununden hedef DONEM turetiliyor (bkz. bantVerisi), o
+     donemin kalani bu katmana giriyor. Katman 1'deki "kart ..." ise
+     TOPLAM kalan borc olarak yerinde duruyor — ikisi AYRI kavram.
      Kalanlar bu katmana AITTIR: bu ay odenen, dekont eksik. */
   if (v.S.buAyOdenen || v.ko.dekontEksik){
     const ay = [];
@@ -1807,6 +1867,11 @@ async function vTakvim(){
 
   if (v.ko.gecmis > 0)
     c.appendChild(el('div','uyari-agir','Vadesi geçmiş ve ödenmemiş ' + v.ko.gecmis + ' taksit var.'));
+  /* ⚠ AR · Kart odemesinin gecikmesi kredi kartindaki EN PAHALI hata.
+     Taksit uyarisiyla AYNI desen — yeni bir uyari bicimi icat edilmedi. */
+  if (v.buAyKart.gecikmis > 0)
+    c.appendChild(el('div','uyari-agir','Son ödeme günü geçmiş ve kalanı olan '
+      + v.buAyKart.gecikmis + ' kart var.'));
 
   if (!v.taksitler.length){
     const k = el('div','kart');
