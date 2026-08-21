@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-20-2">
+<meta name="surum" content="borc-2026-08-20-6">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -477,6 +477,10 @@ td.sag,th.sag{text-align:right}
 .ay-bas .ad{font-size:15px;font-weight:700}
 .ay-bas .tp{font-size:13px;font-weight:600;color:var(--soluk)}
 .tk{border:1.5px solid var(--cizgi);border-radius:12px;padding:12px;margin-bottom:9px;background:var(--kart)}
+/* ⚠ AO · Klavye odagi. YENI DESEN UYDURULMADI — takvim gununun kullandigi
+   kalibin AYNISI (dashed + disa tasan offset, bkz. .tkv-g:focus-visible):
+   renk kaldirilsa bile ayirt edilebilir olsun diye renk disi ozellik. */
+.tk:focus-visible{outline:3px dashed var(--ana);outline-offset:2px}
 .tk.gecikti{border-color:var(--hata);background:#FBEAE7}
 .tk.buay{border-color:var(--uyari);background:#FBF3E4}
 .tk.odendi{opacity:.68}
@@ -558,8 +562,32 @@ td.sag,th.sag{text-align:right}
          matematiksel olarak IMKANSIZ. Ayri bir @media esigi vw ile
          % arasindaki farktan dolayi hep kayardi (onceki 1508'lik
          hal olu bandi 68px'ten 15px'e DUSURMUSTU, KAPATMAMISTI). */
-  main{margin-left:max(214px, calc((100% - 1080px)/2 + 107px));
-       max-width:1080px;padding:22px 28px 40px}
+  /* ⚠ AM · P0 · SERIT SOL RAYIN ALTINDA KALIYORDU. Olculdu (1280px):
+     #bolumSerit x=0'dan basliyor, margin-left 0; sol ray 0->214 arasi ve
+     position:fixed · z-index:50, serit ise z-index:40. Takvim (13-96),
+     Krediler (104-192) ve Kartlar (200-283) rayin ALTINDA kaliyor ve
+     TIKLANAMIYORDU. Serit #uygulama'nin cocugu, main'in ICINDE degil —
+     bu yuzden main'in margin'inden hic etkilenmiyordu.
+     ⚠ SAYI IKI YERE YAZILMIYOR: ortak degiskene baglandi. Yuzde, custom
+       property'de COZULMEZ — kullanildigi yerde cozulur; serit ile main
+       ayni kapsayan blogun (#uygulama) cocugu oldugu icin ikisi de AYNI
+       degeri uretir. main'in urettigi deger DEGISMEDI (once/sonra olculdu).
+     ⚠ 900px ALTINDA hicbir kural degismedi. */
+  :root{--icerik-sol:max(214px, calc((100% - 1080px)/2 + 107px));--icerik-pad:28px}
+  main{margin-left:var(--icerik-sol);
+       max-width:1080px;padding:22px var(--icerik-pad) 40px}
+  /* ⚠ AP · MARGIN DEGIL PADDING. margin bir kusuru duzeltirken IKI kusur
+     uretiyordu (olculdu 1920px): ray sagi 214 ile serit solu 520 arasinda
+     306px sayfa zemini goruunuyor ve ust bar ile serit arasindaki AYIRICI
+     CIZGI kopuyordu; ayrica seridin sagi 1905, icerigin sagi 1600 —
+     seritte max-width YOK, icerigi 305px asiyordu. Padding'de seridin
+     KUTUSU tam genislikte kalir: zemin ve alt cizgi kesintisiz, sag tasma
+     kendiliginden biter, 0-214 zaten rayin altinda (ray z-50, serit z-40).
+     ⚠ 28 SAYISI ELLE YAZILMIYOR: main'in yatay padding'i ile AYNI
+       degiskene bagli — main'inki degisirse serit kendiliginden uyar.
+     ⚠ Taban kuraldaki `padding:10px 13px` BOZULMAZ: yalniz SOL eziliyor,
+       ust/alt 10px ve sag 13px yerinde kaliyor. */
+  #bolumSerit{padding-left:calc(var(--icerik-sol) + var(--icerik-pad))}
   #sekmeBar button.sk-daha{display:none}
   #sekmeBar button.sk-gizli{display:flex}
 }
@@ -1216,6 +1244,25 @@ function madenDeger(m, fiyatlar){
    tam kendisi. Artik aktif dugmeyi tam gosteren EN KUCUK scrollLeft
    seciliyor; boylece ondan ONCEKI sekmeler mumkun oldugunca gorunur.
    Sahis'te sonuc degismiyor (86'da kaliyor), R4 korunuyor. */
+/* ⚠ AO · ERISIM KATMANI · dort ekranda TEK yardimci.
+   .tk kutulari <div onclick> idi: fareyle acilabiliyor, klavyeyle ve ekran
+   okuyucuyla ACILAMIYORDU. Krediler · Kartlar · Maden · Sahis — dordune de
+   ayni yardimci baglandi; ikisini yapip ikisini birakmak yeni tutarsizlik
+   olurdu.
+   ⚠ SADECE ERISIM: cizim, hesap ve akis DEGISMEDI. onclick yerinde duruyor,
+     tus yolu onu CAGIRIYOR — iki ayri davranis yok.
+   ⚠ Space sayfayi kaydirmasin diye preventDefault; Enter'da da zararsiz. */
+function kutuErisim(kutu, etiket){
+  kutu.setAttribute('role','button');
+  kutu.tabIndex = 0;
+  if (etiket) kutu.setAttribute('aria-label', etiket);
+  kutu.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    e.preventDefault();
+    kutu.click();
+  });
+}
+
 function seritiHizala(){
   const srt = document.getElementById('bolumSerit');
   const akt = srt && srt.querySelector('button.aktif');
@@ -1238,7 +1285,11 @@ async function ekranAc(ad){
   document.querySelectorAll('#bolumSerit button').forEach(b => {
     const secili = b.dataset.b === ad;
     b.classList.toggle('aktif', secili);
-    if (secili) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
+    /* ⚠ AO · 'page' DEGIL 'true'. Olculdu: sayfada uc ayri oge
+       aria-current=page tasiyordu (bolum seridi + alt cubuk + Daha) ve
+       ekran okuyucu ayni sayfayi UC KEZ 'gecerli sayfa' diye duyuruyordu.
+       Bolum seridi bir SAYFA degil, ayni sayfanin ekran sekmesi. */
+    if (secili) b.setAttribute('aria-current','true'); else b.removeAttribute('aria-current');
   });
   /* ⚠ FAZ 4b · R4 · Aktif sekme yatayda gorunur alana getirilir. scrollIntoView
      KULLANILMADI: `block:'nearest'` bile serit dikeyde gorunmuyorsa SAYFAYI
@@ -2182,6 +2233,7 @@ async function vKrediler(){
     const o = krediOzet(grup.get(kredi.id) || []);
     const kart = el('div','tk'); kart.style.cursor = 'pointer';
     kart.onclick = () => taksitEkraniAc(kredi.id);
+    kutuErisim(kart, kredi.banka + ' ' + kredi.ad + ', kalan ' + tlk(o.kalanKurus) + ', detayı aç');
 
     const ust = el('div','tk-ust');
     const ad = el('div','tk-ad');
@@ -2788,6 +2840,8 @@ async function vKartlar(){
 
     const kutu = el('div','tk'); kutu.style.cursor = 'pointer';
     kutu.onclick = () => kartDetayAc(kart.id);
+    kutuErisim(kutu, kart.ad + (kart.banka ? ' ' + kart.banka : '')
+      + ', kalan ' + (gosterilen ? tl(gosterilen.kalan) : 'girilmemiş') + ', detayı aç');
 
     const ust = el('div','tk-ust');
     const ad = el('div','tk-ad');
@@ -3103,7 +3157,13 @@ async function donemOnizle(kart, liste, kaydet){
 }
 
 /* ================== 4 · MADEN ================== */
+/* ⚠ AN-B · MADEN_DETAY · sahis tarafiyla ayni gerekce: madenSil basarinca
+   `vMaden()` cagiriyordu, detaydan arsivleyen kullanici LISTEYE atilirdi. */
+let MADEN_DETAY = null;
+async function madenTazele(){ return MADEN_DETAY ? madenDetayAc(MADEN_DETAY, true) : vMaden(); }
+
 async function vMaden(){
+  MADEN_DETAY = null;
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
   const { kayitlar, fiyatlar } = v.maden;
@@ -3128,63 +3188,33 @@ async function vMaden(){
     'Rayiç farkı yatırım kazancı değildir — borç yükünün bugünkü değerindeki değişimdir.'));
   if (!kayitlar.length) k.appendChild(el('div','bos','Kayıtlı altın/gümüş yok.'));
   else {
-    const sar = el('div','tablo-sar');
-    const t = document.createElement('table'); t.className = 'maden-t';
-    const BASLIK = ['TÜR','GRAM','KİME','ALIŞ GÜNÜ','ALIŞ DEĞERİ','BUGÜNKÜ DEĞER','FARK',''];
-    t.appendChild(el('caption','gizli-okur','Maden varlıkları ve rayiç değerleri'));
-    const hr = document.createElement('tr');
-    BASLIK.forEach((h,i) =>
-      hr.appendChild(el('th', (i>=4 && i<=6) ? 'sag' : null, h)));
-    t.appendChild(hr);
+    /* ⚠ AN-B · TABLO -> KUTU. Onceki hal sekiz sutunlu bir tabloydu ve
+       hicbir satiri tiklanamiyordu; Krediler ile Kartlar'da zaten olan
+       "kutu -> detay" desenine gecirildi. Desen ICAT EDILMEDI, kopyalandi.
+       ⚠ Tablonun tasidigi UC RAKAM da kutuda duruyor (bugunku deger ·
+       maliyet · fark); kime/alis gunu detaya tasindi. */
     for (const m of kayitlar){
       const d = madenDeger(m, fiyatlar);
-      const tr = document.createElement('tr');
-      tr.appendChild(td(m.tur === 'altin' ? 'Altın' : 'Gümüş'));
-      tr.appendChild(td(gramYaz(m.gram)));
-      tr.appendChild(td(m.kime));                        // textContent
-      tr.appendChild(td(trGun(m.tarih)));
-      /* alis degeri: OLGU / TAHMIN / BILINMIYOR — hangisi oldugu yaziyor */
-      const ah = document.createElement('td'); ah.className = 'sag';
-      if (d.alisKurus === null){
-        ah.appendChild(el('span','gri','bilinmiyor'));
-      } else if (d.kaynak === 'tahmin'){
-        ah.appendChild(el('span', null, tlk(d.alisKurus) + ' '));
-        ah.appendChild(el('span','rozet rz-sari','tahmini'));
-      } else {
-        ah.appendChild(el('span', null, tlk(d.alisKurus)));
-      }
-      tr.appendChild(ah);
-      tr.appendChild(td(d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus), 'sag'));
-      const fh = document.createElement('td'); fh.className = 'sag';
-      if (d.alisKurus === null || d.bugunKurus === null){
-        fh.textContent = '—';
-      } else {
+      const kutu = el('div','tk'); kutu.style.cursor = 'pointer';
+      kutu.dataset.maden = m.id;
+      kutu.onclick = () => madenDetayAc(m.id);
+      kutuErisim(kutu, (m.tur === 'altin' ? 'Altın' : 'Gümüş') + ' ' + gramYaz(m.gram)
+        + ', bugünkü değer ' + (d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus))
+        + ', detayı aç');
+      const ust = el('div','tk-ust');
+      ust.appendChild(el('div','tk-ad', (m.tur === 'altin' ? 'Altın' : 'Gümüş') + ' · ' + gramYaz(m.gram)));
+      ust.appendChild(el('div','tk-tutar', d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus)));
+      kutu.appendChild(ust);
+      const oz = [];
+      oz.push('maliyet ' + (d.alisKurus === null ? 'bilinmiyor'
+              : tlk(d.alisKurus) + (d.kaynak === 'tahmin' ? ' (tahmini)' : '')));
+      if (d.alisKurus !== null && d.bugunKurus !== null){
         const fark = d.bugunKurus - d.alisKurus;
-        fh.textContent = (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark));
-        fh.style.color = fark > 0 ? 'var(--hata)' : fark < 0 ? 'var(--ok)' : '';
-        fh.style.fontWeight = '900';
+        oz.push('fark ' + (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark)));
       }
-      tr.appendChild(fh);
-      const ey = document.createElement('td');
-      ey.appendChild(digerMenu([['Maden borcunu arşivle', (a) => madenSil(m, a, d.bugunKurus === null ? null : tlk(d.bugunKurus))]]));
-      tr.appendChild(ey);
-      /* ⚠ FAZ 2c·A · KARTLASMA ICIN ETIKET. <768px'te tablo basligi
-         gizlenir ve her hucre kendi etiketini ::before ile tasir.
-         Yalniz GORUNUM — hicbir deger, sira veya hesap degismedi. */
-      /* ⚠ ::before'a GUVENILMIYOR. <768px'te baslik satiri display:none —
-         a11y agacindan SILINIR — ve etiket yalniz CSS uretilen icerikte
-         kalir; okunup okunmadigi olculemedi. Erisilebilir ad AYRICA veriliyor.
-         ⚠ SON hucre (islem) BILEREK adsiz: icinde adi olan IKI dugme var
-         ("Diger islemler", "Maden borcunu arsivle"); kapsayiciyi
-         adlandirmak o adlarin uzerini ortebilirdi. */
-      [...tr.children].forEach((c,i) => {
-        if (!BASLIK[i]) return;
-        c.dataset.et = BASLIK[i];
-        c.setAttribute('aria-label', BASLIK[i] + ': ' + (c.textContent||'').replace(/\s+/g,' ').trim());
-      });
-      t.appendChild(tr);
+      kutu.appendChild(el('div','tk-orta', oz.join(' · ')));
+      k.appendChild(kutu);
     }
-    sar.appendChild(t); k.appendChild(sar);
     k.appendChild(el('div','kucuk',
       'Fark KIRMIZI ise borç büyümüş demektir: bugün almak, aldığın güne göre daha pahalı.\n'
     + '"tahmini" rozeti: alış tutarı girilmemiş, o tarihteki gram fiyatından hesaplandı — '
@@ -3281,6 +3311,120 @@ async function vMaden(){
   }
 }
 
+/* ---------- tek madenin kunyesi ---------- */
+async function madenDetayAc(madenId, sessiz){
+  seritiHizala();          // AN-C · ekranAc'tan gecmiyor, serit kaymis kalirdi
+  const c = document.getElementById('icerik');
+  if (!sessiz){ c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...')); }
+  try{
+    const v = await bantVerisi();
+    const { kayitlar, fiyatlar } = v.maden;
+    const m = kayitlar.find(x => x.id === madenId);
+    if (!m){ c.textContent=''; c.appendChild(el('div','uyari-agir','Maden kaydı bulunamadı.')); return; }
+    MADEN_DETAY = madenId;
+    const d = madenDeger(m, fiyatlar);
+    const adTur = m.tur === 'altin' ? 'Altın' : 'Gümüş';
+
+    c.textContent = '';
+    const geri = el('button','btn2','← Madenlere dön');
+    geri.onclick = async () => {
+      MADEN_DETAY = null;
+      await ekranAc('maden');
+      const kutu = document.querySelector('#icerik .tk[data-maden="' + madenId + '"]');
+      if (kutu) kutu.focus();
+    };
+    c.appendChild(geri);
+
+    const bas = el('div','kart');
+    const bl = el('div','kbaslik', adTur + ' · ' + gramYaz(m.gram));
+    bl.tabIndex = -1;
+    bas.appendChild(bl);
+    /* ⚠ KAVRAM UYARISI DETAYDA DA. Bantta ve liste ekraninda vardi; FARK
+       satirini tek basina goren kullanici onu yatirim kazanci sanabilir. */
+    bas.appendChild(el('div','kavram',
+      'Rayiç farkı yatırım kazancı değildir — borç yükünün bugünkü değerindeki değişimdir.'));
+    const sat = (e2,d2) => { const s = el('div','satir');
+      s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d2)); bas.appendChild(s); return s; };
+    sat('Kime', m.kime);
+    sat('Alış günü', trGun(m.tarih));
+    sat('Gram', gramYaz(m.gram));
+    /* alis degeri: OLGU / TAHMIN / BILINMIYOR — hangisi oldugu YAZIYOR */
+    const as = sat('Alış değeri', '');
+    const asd = as.querySelector('.dg');
+    if (d.alisKurus === null) asd.appendChild(el('span','gri','bilinmiyor'));
+    else if (d.kaynak === 'tahmin'){
+      asd.appendChild(el('span', null, tlk(d.alisKurus) + ' '));
+      asd.appendChild(el('span','rozet rz-sari','tahmini'));
+    } else asd.appendChild(el('span', null, tlk(d.alisKurus)));
+    sat('Bugünkü değer', d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus));
+    const fs = sat('Fark', '');
+    const fsd = fs.querySelector('.dg');
+    if (d.alisKurus === null || d.bugunKurus === null) fsd.textContent = '—';
+    else {
+      const fark = d.bugunKurus - d.alisKurus;
+      fsd.textContent = (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark));
+      fsd.style.color = fark > 0 ? 'var(--hata)' : fark < 0 ? 'var(--ok)' : '';
+      fsd.style.fontWeight = '900';
+    }
+    if (m.aciklama) bas.appendChild(el('div','kucuk', m.aciklama));
+    const ey = el('div','tk-eylem');
+    /* ⚠ FIYAT FORMU KOPYALANMIYOR — liste ekranindaki TEK forma goturuluyor
+       (sahisBorcFormunaGit kalibi). Ayni fiyati iki yerden girmek, hangisinin
+       dogru oldugunu belirsiz birakirdi. */
+    const bf = el('button','btn2','Gram fiyatı gir');
+    bf.onclick = async () => { MADEN_DETAY = null; await ekranAc('maden'); madenFiyatFormunaGit(m.tur); };
+    ey.appendChild(bf);
+    ey.appendChild(digerMenu([['Maden borcunu arşivle',
+      (a) => madenSil(m, a, d.bugunKurus === null ? null : tlk(d.bugunKurus))]]));
+    bas.appendChild(ey);
+    c.appendChild(bas);
+
+    const msg = el('div','msg'); msg.id = 'madenMsg'; c.appendChild(msg);
+
+    /* ⚠ FIYAT GECMISI TURE AITTIR, KAYDA DEGIL — maden_fiyat'ta olculdu:
+       alanlar (tur · gram_fiyat · tarih · kaynak_notu), kayit basina fiyat
+       YOK. Bu yuzden bu madenin TURUNUN gecmisi gosteriliyor. Hic kayit
+       yoksa uydurulmuyor, "yok" yaziliyor. */
+    const gecmis = fiyatlar.filter(f => f.tur === m.tur);
+    const fl = el('div','kart');
+    fl.appendChild(el('div','kbaslik', adTur + ' fiyat geçmişi (' + gecmis.length + ')'));
+    if (!gecmis.length){
+      fl.appendChild(el('div','bos','Bu tür için fiyat geçmişi yok — gram fiyatı hiç girilmemiş.'));
+    } else {
+      const sar = el('div','tablo-sar');
+      const t = document.createElement('table');
+      const hr = document.createElement('tr');
+      ['GRAM FİYATI','TARİH','KAYNAK'].forEach((h,i) => hr.appendChild(el('th', i===0?'sag':null, h)));
+      t.appendChild(hr);
+      for (const f of gecmis.slice(0,30)){
+        const tr = document.createElement('tr');
+        tr.appendChild(td(tl(f.gram_fiyat),'sag'));
+        tr.appendChild(td(trGun(f.tarih)));
+        tr.appendChild(td(f.kaynak_notu || '—'));        // textContent
+        t.appendChild(tr);
+      }
+      sar.appendChild(t); fl.appendChild(sar);
+      if (gecmis.length > 30)
+        fl.appendChild(el('div','kucuk', 'En yeni 30 kayıt gösteriliyor; toplam ' + gecmis.length + '.'));
+    }
+    c.appendChild(fl);
+    bl.focus();                         // AN-C · detay acilinca odak BASLIGA
+  }catch(e){
+    c.textContent = '';
+    c.appendChild(el('div','uyari-agir','Maden açılamadı: ' + hataTr(e && e.message)));
+  }
+}
+
+/* ⚠ YENI FORM YAZILMIYOR — liste ekranindaki MEVCUT fiyat formuna
+   goturuluyor; sahisBorcFormunaGit'in kalibinin aynisi. */
+function madenFiyatFormunaGit(tur){
+  const s = document.getElementById('fTur'); if (!s) return;
+  s.value = tur;
+  (s.closest('.kart') || s).scrollIntoView({ behavior:'smooth', block:'center' });
+  const f = document.getElementById('fFiyat');
+  if (f) f.focus({ preventScroll:true });
+}
+
 async function madenKaydet(){
   mesajTemizle('madenMsg');
   const btn = document.getElementById('mKaydet');
@@ -3339,12 +3483,23 @@ async function madenSil(m, acan, deger){
     kim: m.saflik ? 'saflık ' + m.saflik : null, tutar: deger || null,
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_maden_pasife_al',{p_maden:m.id,p_neden:neden}),
-      async () => { await vMaden(); mesaj('madenMsg','ok','Maden borcu arşivlendi.'); },
+      async () => { await madenTazele(); mesaj('madenMsg','ok','Maden borcu arşivlendi.'); },
       'maden')});
 }
 
 /* ================== 4 · SAHIS ================== */
+/* ⚠ AN-A · LISTE -> KUTU -> DETAY. Onceki hal dokuz hesabin hareketlerini
+   ALT ALTA aciyordu: tek ekranda dokuz tablo, aradigini bulmak imkansiz.
+   Desen ICAT EDILMEDI — Krediler (taksitEkraniAc) ve Kartlar (kartDetayAc)
+   bunu zaten yapiyordu; ayni yapi kopyalandi.
+   ⚠ SAHIS_DETAY: eylemler basarinca `vSahis()` cagiriyordu; detaydan
+   yapilan bir odeme kullaniciyi LISTEYE atardi. Tazeleme tek yerden
+   gecirildi ve nerede oldugunu biliyor. */
+let SAHIS_DETAY = null;
+async function sahisTazele(){ return SAHIS_DETAY ? sahisDetayAc(SAHIS_DETAY, true) : vSahis(); }
+
 async function vSahis(){
+  SAHIS_DETAY = null;
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
   const { hesaplar, borclar, odemeler } = v.sahis;
@@ -3370,21 +3525,94 @@ async function vSahis(){
   for (const h of hesaplar){
     const hb = borcGrup.get(h.hesap_id) || [], ho = odemeGrup.get(h.hesap_id) || [];
     const kalan = kr(h.bakiye);
-    const kart = el('div','tk');
+    const kutu = el('div','tk'); kutu.style.cursor = 'pointer';
+    /* tabindex: kutu <div>; geri donunce ODAGI buraya vermek icin gerekli.
+       -1 oldugu icin sekme sirasina GIRMEZ, mevcut klavye akisi degismez. */
+    kutu.dataset.hesap = h.hesap_id;
+    kutu.onclick = () => sahisDetayAc(h.hesap_id);
+    kutuErisim(kutu, h.ad + ', kalan ' + tlk(kalan) + ', detayı aç');
     const ust = el('div','tk-ust');
     const ad = el('div','tk-ad',h.ad); ad.appendChild(el('span','rozet '+(h.tur==='diger'?'rz-ltd':'rz-sahis'),h.tur==='diger'?'DİĞER':'KİŞİ'));
     ust.appendChild(ad);
     ust.appendChild(el('div','tk-tutar', tlk(kalan)));
-    kart.appendChild(ust);
-    kart.appendChild(el('div','tk-orta',
-      'toplam borç ' + tlk(kr(h.borc_toplam)) + ' · ödenen ' + tlk(kr(h.odeme_toplam)) +
-      /* ⚠ v100 · SAYIM iptal edilenleri ve iptal KAYITLARINI saymaz.
-         Ham satir sayisi "2 ödeme" derken bakiye "0 ödeme" diyordu —
-         ayni ekranda iki farkli hakikat. Kural gorunumdekiyle AYNI. */
-      ' · ' + hb.length + ' borç / ' +
-      ho.filter(o => o.tur !== 'ters' && !TERSLENEN.has(o.id)).length + ' ödeme'));
-    if (h.aciklama) kart.appendChild(el('div','kucuk',h.aciklama));
+    kutu.appendChild(ust);
+    /* ⚠ v100 · SAYIM iptal edilenleri ve iptal KAYITLARINI saymaz.
+       Ham satir sayisi "2 ödeme" derken bakiye "0 ödeme" diyordu —
+       ayni ekranda iki farkli hakikat. Kural gorunumdekiyle AYNI.
+       ⚠ "toplam borç / ödenen" DETAYA tasindi — burada en buyuk rakam
+       KALAN BAKIYE olmali, uc rakam yan yana durunca hangisinin onemli
+       oldugu kayboluyordu. Deger kaybolmadi, yer degistirdi. */
+    const gercekOdeme = ho.filter(o => o.tur !== 'ters' && !TERSLENEN.has(o.id));
+    const sonTarih = [...hb, ...ho].map(x => x.tarih).sort().pop();
+    kutu.appendChild(el('div','tk-orta',
+      hb.length + ' borç · ' + gercekOdeme.length + ' ödeme'
+      + (sonTarih ? ' · son hareket ' + trGun(sonTarih) : ' · hareket yok')));
+    if (h.aciklama) kutu.appendChild(el('div','kucuk',h.aciklama));
+    k.appendChild(kutu);
+  }
+  c.appendChild(k);
 
+  const f = el('div','kart');
+  sahisBorcFormu(f, hesaplar);
+  c.appendChild(f);
+}
+
+/* ---------- tek hesabin hareket dokumu ---------- */
+async function sahisDetayAc(hesapId, sessiz){
+  seritiHizala();          // AN-C · ekranAc'tan gecmiyor, serit kaymis kalirdi
+  const c = document.getElementById('icerik');
+  if (!sessiz){ c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...')); }
+  try{
+    const { hesaplar, borclar, odemeler } = await sahisGetir();
+    const h = hesaplar.find(x => x.hesap_id === hesapId);
+    if (!h){ c.textContent=''; c.appendChild(el('div','uyari-agir','Borç hesabı bulunamadı.')); return; }
+    SAHIS_DETAY = hesapId;
+    const hb = borclar.filter(b => b.hesap_id === hesapId);
+    const ho = odemeler.filter(o => o.hesap_id === hesapId);
+    const TERSLENEN = new Set(odemeler.filter(o => o.tur === 'ters').map(o => o.ters_hedef_id));
+    const kalan = kr(h.bakiye);
+
+    c.textContent = '';
+    const geri = el('button','btn2','← Hesaplara dön');
+    geri.onclick = async () => {
+      SAHIS_DETAY = null;
+      await ekranAc('sahis');
+      const kutu = document.querySelector('#icerik .tk[data-hesap="' + hesapId + '"]');
+      if (kutu) kutu.focus();          // odak ACAN kutuya doner, <body>'ye dusmez
+    };
+    c.appendChild(geri);
+
+    const bas = el('div','kart');
+    const bl = el('div','kbaslik');
+    bl.tabIndex = -1;                  // detay acilinca odak BASLIGA
+    bl.appendChild(el('span', null, h.ad));
+    bl.appendChild(document.createTextNode(' '));
+    bl.appendChild(el('span','rozet '+(h.tur==='diger'?'rz-ltd':'rz-sahis'), h.tur==='diger'?'DİĞER':'KİŞİ'));
+    bas.appendChild(bl);
+    const sat = (e2,d2) => { const s = el('div','satir');
+      s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d2)); bas.appendChild(s); };
+    const gercekOdeme = ho.filter(o => o.tur !== 'ters' && !TERSLENEN.has(o.id));
+    sat('Kalan bakiye', tlk(kalan));
+    sat('Toplam borç', tlk(kr(h.borc_toplam)));
+    sat('Ödenen', tlk(kr(h.odeme_toplam)));
+    sat('Hareket', hb.length + ' borç / ' + gercekOdeme.length + ' ödeme');
+    if (h.aciklama) bas.appendChild(el('div','kucuk', h.aciklama));
+    const ey = el('div','tk-eylem');
+    const bo = el('button','btn2','Ödeme ekle'); bo.disabled = kalan<=0;
+    bo.onclick = () => sahisOdemeAc(h, bo);
+    /* ⚠ YENI FORM YAZILMIYOR: borc formu LISTE ekraninin dibinde duruyor
+       ve oraya goturuluyor — sahisBorcFormunaGit'in kalibinin aynisi.
+       Ikinci bir kopya iki dogrulama ve iki hata yolu demekti. */
+    const bb = el('button','btn2','Borç ekle');
+    bb.onclick = async () => { SAHIS_DETAY = null; await ekranAc('sahis'); sahisBorcFormunaGit(h.hesap_id); };
+    ey.appendChild(bo); ey.appendChild(bb);
+    bas.appendChild(ey);
+    c.appendChild(bas);
+
+    const msg = el('div','msg'); msg.id = 'sahisMsg'; c.appendChild(msg);
+
+    const k = el('div','kart');
+    k.appendChild(el('div','kbaslik','Hareketler'));
     const hareketler = [
       ...hb.map(x => ({...x,_tur:'borc'})),
       ...ho.map(x => ({...x,_tur:'odeme'}))
@@ -3422,7 +3650,7 @@ async function vSahis(){
         const ey = document.createElement('td');
         if (x._tur==='odeme'){
           const bd = el('button','btn-mini', x.foto_path ? 'Değiştir' : '+ Belge');
-          bd.onclick = () => dekontEkle('sahis_odeme', x.id, 'sahis_odeme','sahisMsg', !!x.foto_path, () => vSahis());
+          bd.onclick = () => dekontEkle('sahis_odeme', x.id, 'sahis_odeme','sahisMsg', !!x.foto_path, () => sahisTazele());
           ey.appendChild(bd);
           /* ⚠ Eylem YALNIZ normal ve HENUZ iptal edilmemis odemede. Iptal
              kaydinin kendisinde ve iptal edilmis odemede YOK — sunucu da
@@ -3436,18 +3664,20 @@ async function vSahis(){
         tr.appendChild(ey);
         t.appendChild(tr);
       }
-      sar.appendChild(t); kart.appendChild(sar);
+      sar.appendChild(t); k.appendChild(sar);
+    } else {
+      k.appendChild(el('div','bos','Bu hesapta henüz hareket yok.'));
     }
-    const ey = el('div','tk-eylem');
-    const bo = el('button','btn2','Ödeme ekle'); bo.disabled = kalan<=0; bo.onclick = () => sahisOdemeAc(h, bo);
-    const bb = el('button','btn2','Borç ekle'); bb.onclick = () => sahisBorcFormunaGit(h.hesap_id);
-    ey.appendChild(bo); ey.appendChild(bb);
-    kart.appendChild(ey);
-    k.appendChild(kart);
+    c.appendChild(k);
+    bl.focus();                         // AN-C · detay acilinca odak BASLIGA
+  }catch(e){
+    c.textContent = '';
+    c.appendChild(el('div','uyari-agir','Hesap açılamadı: ' + hataTr(e && e.message)));
   }
-  c.appendChild(k);
+}
 
-  const f = el('div','kart');
+/* Borc hareketi formu — LISTE ekraninin dibinde, TEK kopya. */
+function sahisBorcFormu(f, hesaplar){
   f.appendChild(el('div','kbaslik','Borç hareketi ekle'));
   const ekle = (etiket,id,tip,mod) => {
     f.appendChild(el('label', null, etiket)).setAttribute('for', id);
@@ -3479,7 +3709,7 @@ async function vSahis(){
      yeniden cizilmedigi icin ayni dugme ve AYNI anahtar kalir; basaridan
      sonra vSahis() formu yeniden cizer ve YENI anahtar uretilir. */
   bk.dataset.idem = crypto.randomUUID();
-  f.appendChild(bk); c.appendChild(f);
+  f.appendChild(bk);
 }
 
 /* ⚠ YENI FORM YAZILMIYOR — sayfanin dibindeki MEVCUT forma goturuluyor.
@@ -3516,7 +3746,7 @@ async function sahisBorcKaydet(){
     p_aciklama:document.getElementById('sbAciklama').value.trim() || null });
   btn.disabled = false; btn.textContent = 'Borcu kaydet';
   if (error){ hataYaz('sahisMsg','Borç kaydedilemedi.', error); return; }
-  await vSahis();                                   // once tazele: #sahisMsg SIFIRDAN yaratilir
+  await sahisTazele();                              // once tazele: #sahisMsg SIFIRDAN yaratilir
   mesaj('sahisMsg','ok','Borç kaydedildi.');        // sonra yaz, yoksa mesaj SILINIRDI
 }
 
@@ -3597,7 +3827,7 @@ function sahisOdemeIptalAc(odeme, acan){
       return;
     }
     kapat();
-    await vSahis();                               // once tazele: #sahisMsg SIFIRDAN yaratilir
+    await sahisTazele();                          // AN · detaydaysak DETAY tazelenir, liste degil
     /* ⚠ ODAK IKI KEZ TASINIR. kapat() odagi ACAN dugmeye verir, ama vSahis()
        ekrani yeniden cizince o dugme DOM'dan kopar ve odak <body>'ye duser —
        olculdu. Yenilemeden SONRA kalici bir ogeye tasiniyor. */
@@ -3734,7 +3964,7 @@ async function sahisOdemeUygula(idem, hesap, kurus, tarih, aciklama){
                 return { ok:false, mesaj: hataTr(error.message) }; }
   } catch(e){ console.error('sahis odeme mutation', e);
               return { ok:false, mesaj: hataTr(e.message || String(e)) }; }
-  try { await vSahis(); }
+  try { await sahisTazele(); }
   catch(e){ console.error('sahis odeme tazeleme', e);
             return { ok:true, uyari:'Ödeme kaydedildi. Liste tazelenemedi — sayfayı yenileyin.' }; }
   mesaj('sahisMsg','ok','Ödeme kaydedildi. Belge eklemeyi unutma.');
@@ -3746,7 +3976,7 @@ async function sahisBorcSil(borc, acan){
     tutar: tl(borc.tutar),
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_sahis_borc_pasife_al',{p_borc:borc.id,p_neden:neden}),
-      async () => { await vSahis(); mesaj('sahisMsg','ok','Borç hareketi arşivlendi.'); },
+      async () => { await sahisTazele(); mesaj('sahisMsg','ok','Borç hareketi arşivlendi.'); },
       'sahis_borc')});
 }
 
