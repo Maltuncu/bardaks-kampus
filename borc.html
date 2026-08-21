@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-20-6">
+<meta name="surum" content="borc-2026-08-20-7">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -481,6 +481,9 @@ td.sag,th.sag{text-align:right}
    kalibin AYNISI (dashed + disa tasan offset, bkz. .tkv-g:focus-visible):
    renk kaldirilsa bile ayirt edilebilir olsun diye renk disi ozellik. */
 .tk:focus-visible{outline:3px dashed var(--ana);outline-offset:2px}
+/* AQ · pasif menu ogesi ve nedeni — eylem gizlenmiyor, nedeni yaziliyor */
+.dm-o:disabled{opacity:.5;cursor:not-allowed}
+.dm-neden{padding:0 12px 9px;font-size:11px;line-height:1.35;color:var(--soluk);max-width:230px}
 .tk.gecikti{border-color:var(--hata);background:#FBEAE7}
 .tk.buay{border-color:var(--uyari);background:#FBF3E4}
 .tk.odendi{opacity:.68}
@@ -854,7 +857,21 @@ function hataYaz(msgId, onek, error){
   mesaj(msgId, 'hata', onek + '\n' + hataTr(ham));
   console.error(onek, error);
 }
+/* ⚠ AQ · index.html'deki desenin AYNISI (orada HATA_GENEL/HATA_CEVRILMIS
+   diye duruyor). Iki dosyada iki farkli desen olmasin diye birebir alindi.
+   KURAL: HATA METNI TAM BIR KEZ CEVRILIR — GOSTERIM ANINDA. Ara katmanlar
+   HAM metni tasir, ceviri YAPMAZ; ikinci cagri cevrilmis metni OLDUGU GIBI
+   geri verir, yoksa iyi mesaj sessizce genel cumleye donusur. */
+const HATA_GENEL = 'İşlem tamamlanamadı. Tekrar deneyin; sürerse bu ekranı yöneticiye bildirin.';
+const HATA_CEVRILMIS = new Set([HATA_GENEL]);
 function hataTr(m){
+  m = String(m == null ? '' : m);
+  if (HATA_CEVRILMIS.has(m)) return m;        // zaten cevrilmis — DOKUNMA
+  const c = hataTrIc(m);
+  if (c !== m) HATA_CEVRILMIS.add(c);
+  return c;
+}
+function hataTrIc(m){
   const s = String(m || '');
   if (/row-level security|permission denied/i.test(s)) return 'Yetkin yok (bu bölüm yalnız işletme sahibine açık).';
   /* v98 · sunucu gerekce sozlesmesi. Ham kodu kullaniciya GOSTERME. */
@@ -886,18 +903,27 @@ function hataTr(m){
   if (/ux_maden_fiyat/i.test(s))      return 'Bu tür için bu tarihe zaten fiyat girilmiş.';
   if (/kredi_tur_chk/i.test(s))       return 'Kredi türü ticari, şahıs veya ltd olmalı.';
   if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
-  if (/_chk\b/i.test(s))              return 'Girilen değer kuralları sağlamıyor: ' + s;
+  if (/_chk\b/i.test(s))              return 'Girilen değer kuralları sağlamıyor.';   // AQ · '+ s' kisit adini tasiyordu
   if (/duplicate key/i.test(s))       return 'Bu kayıt zaten var.';
-  /* v100 · ters kayit RPC'sinin ALTI kodu. Yazilmasaydi son satir
-     (`return s`) ham kodu EKRANA basardi — "ZATEN_TERS" diye. */
+  /* v100/v101 · ters kayit RPC'lerinin YEDI kodu. v101 GIDERE_ISLENMIS'i
+     ekledi; onceki yorum ALTI diyordu ve artik YANLISTI. Yazilmasaydi
+     dusme satiri ham kodu EKRANA basardi — "ZATEN_TERS" diye. */
   if (/ZATEN_TERS/.test(s))           return 'Bu ödeme zaten iptal edilmiş. Listede iptal kaydı görünüyor.';
   if (/TERSIN_TERSI_YOK/.test(s))     return 'İptal kaydı iptal edilemez. Ödemeyi yeniden girmen gerekir.';
   if (/GEREKCE_KISA/.test(s))         return 'Gerekçe en az 10 karakter olmalı.';
   if (/KAYIT_YOK/.test(s))            return 'Ödeme bulunamadı — ekran eskimiş olabilir, yenile.';
   if (/AY_KAPALI/.test(s))            return 'Bu ödemenin ayı kapatılmış. Önce ayı aç, sonra iptal et.';
+  if (/GIDERE_ISLENMIS/.test(s))      return 'Bu ödeme gider olarak işlenmiş. Önce gider kaydını geri al, sonra ödemeyi iptal et.';
   if (/YETKI_YOK/.test(s))            return 'Bu işlem için yetkin yok.';
   if (/Failed to fetch|NetworkError/i.test(s)) return 'İnternet bağlantısı kurulamadı. Kayıt YAPILMADI, tekrar dene.';
-  return s;
+  /* ⚠ AQ · DUSME SATIRI ARTIK HAM METIN VERMIYOR. Onceki hal `return s`
+     idi: ceviremedigi her sey ekrana OLDUGU GIBI cikiyordu — tablo/kisit
+     adlari, "permission denied for ...", PostgREST sema metinleri. Yeni
+     RPC kodlari da SESSIZCE buraya dusuyordu; GIDERE_ISLENMIS'in bugun
+     yapacagi tam olarak buydu. index.html'de kapatilmisti, burada acikti. */
+  window.__sonHataHam = s;
+  console.warn('ham hata:', s);            // ekranda degil, konsolda
+  return HATA_GENEL;
 }
 
 /* ============ BELGE — index.html SOZLESMESI (birebir) ============
@@ -1119,7 +1145,10 @@ async function taksitGetir(krediId){
 }
 async function odemeGetir(taksitId){
   const { data, error } = await sb.from('kredi_taksit_odeme')
-    .select('id,taksit_id,tarih,tutar,anapara_pay,faiz_pay,vergi_masraf_pay,gider_id,foto_path,aciklama')
+    /* ⚠ AQ · tur/ters_hedef_id ALINMAZSA ekran iptal edilmis odemeyi normal
+       odemeden ayirt edemez ve v_kredi_taksit_durum'un bakiyesiyle CELISIR —
+       sahis tarafinda ayni uyari yazili, tuzak burada acik duruyordu. */
+    .select('id,taksit_id,tarih,tutar,anapara_pay,faiz_pay,vergi_masraf_pay,gider_id,foto_path,aciklama,tur,ters_hedef_id')
     .eq('taksit_id', taksitId).eq('is_deleted', false).order('tarih');
   if (error) throw error; return data || [];
 }
@@ -2177,28 +2206,64 @@ async function odemeListesiAc(kart, t){
   const sar = el('div','tablo-sar');
   const tb = document.createElement('table');
   const hr = document.createElement('tr');
-  ['TARİH','TUTAR','ANAPARA','FAİZ','GİDER','DEKONT',''].forEach((h,i) =>
-    hr.appendChild(el('th', (i>=1 && i<=3) ? 'sag' : null, h)));
+  /* ⚠ AQ · HAREKET sutunu EKLENDI — sahis tablosundaki kalibin aynisi.
+     Sagdaki uc sayi sutunu bir kaydi. */
+  ['TARİH','HAREKET','TUTAR','ANAPARA','FAİZ','GİDER','DEKONT',''].forEach((h,i) =>
+    hr.appendChild(el('th', (i>=2 && i<=4) ? 'sag' : null, h)));
   tb.appendChild(hr);
+  /* v100/v101 · hangi odemeler iptal EDILMIS — hedef id kumesi. */
+  const TERSLENEN = new Set(liste.filter(o => o.tur === 'ters').map(o => o.ters_hedef_id));
   for (const o of liste){
     const tr = document.createElement('tr');
+    /* ⚠ AQ · UC HAL — sahis tarafiyla AYNI kural (v100):
+       normal odeme · IPTAL EDILMIS odeme · IPTAL KAYDI.
+       Iptal edilen odeme LISTEDE KALIR; gizlemek silmekle ayni sonucu
+       verirdi. Isaret RENKLE DEGIL: ustu cizili + METIN etiketi.
+       ⚠ Ters kaydin kirilimi HEDEFTEN KOPYALANIYOR (bos DB'de olculdu:
+         anapara_pay/faiz_pay/vergi_masraf_pay aynen, gider_id ve
+         foto_path NULL). Kirilim de '+' ile yaziliyor: ucu de ayni
+         yonde hareket ediyor — odeme borcu AZALTIR, iptal ARTIRIR. */
+    const iptalKaydi  = o.tur === 'ters';
+    const iptalEdildi = o.tur !== 'ters' && TERSLENEN.has(o.id);
+    if (iptalEdildi) tr.classList.add('iptalli');
     tr.appendChild(td(trGun(o.tarih)));
-    tr.appendChild(td(tl(o.tutar),'sag'));
-    tr.appendChild(td(o.anapara_pay === null ? '—' : tl(o.anapara_pay),'sag'));
+    const hc = document.createElement('td');
+    hc.appendChild(document.createTextNode(iptalKaydi ? 'İptal' : 'Ödeme'));
+    if (iptalEdildi) hc.appendChild(el('span','rozet rz-eksik','İPTAL EDİLDİ'));
+    tr.appendChild(hc);
+    const im = iptalKaydi ? '+ ' : '';
+    tr.appendChild(td(im + tl(o.tutar),'sag'));
+    tr.appendChild(td(o.anapara_pay === null ? '—' : im + tl(o.anapara_pay),'sag'));
     tr.appendChild(td(o.faiz_pay === null ? '—'
-      : tlk(kr(o.faiz_pay) + kr(o.vergi_masraf_pay || 0)),'sag'));
+      : im + tlk(kr(o.faiz_pay) + kr(o.vergi_masraf_pay || 0)),'sag'));
     tr.appendChild(td(o.gider_id ? 'yazıldı' : '—'));
     const dh = document.createElement('td');
     if (o.foto_path){
       const a = el('button','btn-mini','Aç'); a.onclick = () => belgeAc(o.foto_path, kutu);
       dh.appendChild(a);
+    } else if (iptalKaydi){
+      /* ⚠ Ters kaydin dekontu OLMAZ — "eksik" demek YANLIS ALARM olurdu.
+         v_kredi_taksit_durum.dekontsuz_odeme da ters kaydi saymiyor;
+         satir ile kart basligi CELISMEMELI. */
+      dh.appendChild(el('span','gri','—'));
     } else dh.appendChild(el('span','rozet rz-eksik','DEKONT EKSİK'));
     tr.appendChild(dh);
     const ey = document.createElement('td');
-    const b = el('button','btn-mini', o.foto_path ? 'Değiştir' : '+ Dekont');
-    b.onclick = () => dekontEkle('kredi_taksit_odeme', o.id, 'kredi_taksit', kutu,
-                                 !!o.foto_path, () => ekranAc(EKRAN));
-    ey.appendChild(b); tr.appendChild(ey);
+    if (!iptalKaydi){
+      const b = el('button','btn-mini', o.foto_path ? 'Değiştir' : '+ Dekont');
+      b.onclick = () => dekontEkle('kredi_taksit_odeme', o.id, 'kredi_taksit', kutu,
+                                   !!o.foto_path, () => ekranAc(EKRAN));
+      ey.appendChild(b);
+    }
+    /* ⚠ ISTEMCI ONCEDEN ENGELLER. Sunucu zaten reddediyor
+       (TERSIN_TERSI_YOK · ZATEN_TERS · GIDERE_ISLENMIS) ama kullaniciya
+       tiklattirip hata gostermek kotu. Ilk ikisinde eylem YOK; ucuncusunde
+       GORUNUR ama pasif — nedeni yazili, cunku gizlenen eylem aratir. */
+    if (!iptalKaydi && !iptalEdildi)
+      ey.appendChild(digerMenu([['Ödemeyi iptal et',
+        (a) => taksitOdemeIptalAc(o, t, a),
+        o.gider_id ? 'Gidere işlenmiş; önce gider kaydını geri al, sonra ödemeyi iptal et.' : null]]));
+    tr.appendChild(ey);
     tb.appendChild(tr);
   }
   sar.appendChild(tb); d.appendChild(sar);
@@ -2206,7 +2271,93 @@ async function odemeListesiAc(kart, t){
   d.appendChild(kapat);
   kart.appendChild(d);
 }
-const mesajKutusu = () => document.getElementById('takvimMsg') ? 'takvimMsg' : 'krediMsg';
+/* ⚠ AQ · taksit ekraninin kutusu 'taksitMsg'; listede YOKTU ve mesaj()
+   null bulup alert()'e dusuyordu. Sira: takvim > taksit > krediler. */
+/* ===== AQ · TAKSIT ODEMESI IPTALI · TEK PENCERE =====
+   ⚠ YENI DESEN YOK: sahisOdemeIptalAc'tan KOPYALANDI, yedi ozelligin
+     hepsi burada da var (gerekce kapisi · canli sayac · Vazgec SOLDA ve
+     varsayilan odak · form basina TEK idem · cift tiklama TEK istek ·
+     hata yolunda form korunur ve idem AYNI kalir · odak tuzagi+Escape).
+   ⚠ TEK FARK: basarida taksit ekrani tazelenir — kullanici TAKSITTE
+     KALIR, krediler listesine ATILMAZ.
+   ⚠ ODAK IKI KEZ TASINIR: kapat() odagi ACAN dugmeye verir, tazeleme o
+     dugmeyi DOM'dan koparir ve odak <body>'ye duser (sahis tarafinda
+     olculdu). Yenilemeden SONRA yasayan bir ogeye tasiniyor. */
+function taksitOdemeIptalAc(odeme, taksit, acan){
+  let n = 0; const kimlik = (e) => (e.id = 'ti' + (++n));
+  const d = document.createElement('dialog'); d.className = 'pm';
+  d.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas','⚠ Taksit ödemesi iptal edilecek'); kimlik(bas);
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  const ad = el('div','pm-ad', trGun(odeme.tarih) + ' tarihli ödeme'); kimlik(ad);
+  const tut = el('div','pm-tutar', tlk(kr(odeme.tutar))); kimlik(tut);
+  d.appendChild(ad); d.appendChild(tut);
+  const etki = el('div','pm-etki',
+    'Bu ödeme iptal edilecek. Silinmez — yanına iptal kaydı yazılır, ikisi de listede kalır. '
+  + 'Taksitin kalanı ödeme tutarı kadar ARTAR.');
+  kimlik(etki); d.setAttribute('aria-describedby', etki.id); d.appendChild(etki);
+  const l = el('label', null, 'Gerekçe (en az 10 karakter)');
+  const ta = document.createElement('textarea'); kimlik(ta); ta.rows = 3;
+  l.setAttribute('for', ta.id);
+  const sayac = el('div','pm-sayac'); kimlik(sayac);
+  ta.setAttribute('aria-describedby', sayac.id);
+  d.appendChild(l); d.appendChild(ta); d.appendChild(sayac);
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), kap = el('button','btn-kirmizi','İptal kaydı at');
+  vaz.type = kap.type = 'button'; kap.disabled = true;
+  kap.dataset.idem = crypto.randomUUID();          // FORM BASINA BIR KEZ
+  ey.appendChild(vaz); ey.appendChild(kap); d.appendChild(ey);   // Vazgec SOLDA
+  const hataK = el('div','uyari-agir'); hataK.hidden = true; kimlik(hataK);
+  kap.setAttribute('aria-describedby', hataK.id); d.appendChild(hataK);
+  document.body.appendChild(d); d.showModal(); vaz.focus();       // varsayilan GUVENLI taraf
+
+  const denetle = () => { const c = ta.value.trim().length;
+    sayac.textContent = 'en az 10 karakter · şu an ' + c;
+    kap.disabled = c < 10; };
+  ta.oninput = denetle; denetle();
+
+  let isleniyor = false;
+  const kapat = () => {
+    if (isleniyor) return;                        // istek surerken kapanmaz
+    d.close(); d.remove();
+    if (acan && acan.isConnected && acan.focus) acan.focus();
+    else { const h = document.querySelector('#bolumSerit button.aktif'); if (h) h.focus(); }
+  };
+  vaz.onclick = () => kapat();
+  d.addEventListener('cancel', e => { e.preventDefault(); kapat(); });
+  d.addEventListener('keydown', e => {
+    if (e.key === 'Escape'){ e.preventDefault(); kapat(); return; }
+    if (e.key !== 'Tab') return;                  // odak tuzagi
+    const od = [...d.querySelectorAll('textarea,button')].filter(x => !x.disabled);
+    if (!od.length) return;
+    const i = od.indexOf(document.activeElement); e.preventDefault();
+    od[(i + (e.shiftKey ? -1 : 1) + od.length) % od.length].focus();
+  });
+  kap.onclick = async () => {
+    if (isleniyor || kap.disabled) return;        // cift tiklama TEK istek
+    isleniyor = true; kap.disabled = vaz.disabled = ta.disabled = true;
+    d.tabIndex = -1; d.focus(); kap.textContent = 'İşleniyor...'; hataK.hidden = true;
+    const { error } = await sb.rpc('rpc_taksit_odeme_ters_kayit',
+      { p_idem: kap.dataset.idem, p_odeme: odeme.id, p_neden: ta.value.trim() });
+    isleniyor = false;
+    if (error){
+      /* Hata yolunda form KORUNUR ve anahtar AYNI kalir — tekrar denenebilir. */
+      hataK.hidden = false;
+      hataK.textContent = hataTr([error.message,error.details,error.hint].filter(Boolean).join('\n'));
+      vaz.disabled = ta.disabled = false; kap.textContent = 'İptal kaydı at'; denetle();
+      return;
+    }
+    kapat();
+    await taksitEkraniAc(taksit.kredi_id);        // TAKSITTE kalinir
+    const h = document.querySelector('#icerik button')
+           || document.querySelector('#bolumSerit button.aktif');
+    if (h) h.focus();                             // odak <body>'ye DUSMEZ
+    mesaj(mesajKutusu(),'ok','Ödeme iptal edildi. Ödeme ve iptal kaydı listede duruyor.');
+  };
+}
+
+const mesajKutusu = () => document.getElementById('takvimMsg') ? 'takvimMsg'
+  : document.getElementById('taksitMsg') ? 'taksitMsg' : 'krediMsg';
 
 /* v92 · taksitOdendi() KALDIRILDI. Tek dokunusla "tam odendi" yazmak
    kismi odemeyi imkansiz kiliyordu ve `kredi_taksit.odendi` alanina
@@ -2375,8 +2526,15 @@ function digerMenu(ogeler){
      calismayan bir menu vaat eder. Tam desen kapsam disi. */
   mn.id = 'dm' + (++DM_SAYAC);
   bt.setAttribute('aria-controls', mn.id);
-  for (const [metin, islev] of ogeler){
+  /* ⚠ AQ · UCUNCU alan: PASIF NEDENI. Eylemi GIZLEMEK kullaniciyi
+     "neden yok?" diye arattirir; gorunur ama pasif ve NEDENI yazili. */
+  for (const [metin, islev, pasifNeden] of ogeler){
     const o = el('button','dm-o', metin); o.type = 'button';
+    if (pasifNeden){
+      o.disabled = true;
+      mn.appendChild(o); mn.appendChild(el('div','dm-neden', pasifNeden));
+      continue;
+    }
     /* stopPropagation YOK: yakalama evresi menuyu zaten kapatti. */
     o.onclick = () => islev(bt);
     mn.appendChild(o);
@@ -2388,7 +2546,7 @@ function digerMenu(ogeler){
     if (MENU_SON_KAPANAN === mn) return;      // ayni dugme: kapat-ac degil, kapali kal
     mn.classList.add('acik'); bt.setAttribute('aria-expanded','true');
     ACIK_MENU = { mn, bt };
-    mn.querySelector('button').focus();
+    (mn.querySelector('button:not([disabled])') || bt).focus();   // pasif ogeye odak GITMEZ
   };
   sar.appendChild(bt); sar.appendChild(mn);
   return sar;
