@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-20-8">
+<meta name="surum" content="borc-2026-08-20-9">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -902,6 +902,7 @@ function hataTrIc(m){
   if (/ux_kredi_taksit\b/i.test(s))   return 'Bu kredide aynı sıra numarası zaten var.';
   if (/ux_maden_fiyat/i.test(s))      return 'Bu tür için bu tarihe zaten fiyat girilmiş.';
   if (/kredi_tur_chk/i.test(s))       return 'Kredi türü ticari, şahıs veya ltd olmalı.';
+  if (/kart_limit_chk/i.test(s))      return 'Kart limiti sıfırdan büyük olmalı. Bilinmiyorsa boş bırak.';
   if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
   if (/_chk\b/i.test(s))              return 'Girilen değer kuralları sağlamıyor.';   // AQ · '+ s' kisit adini tasiyordu
   if (/duplicate key/i.test(s))       return 'Bu kayıt zaten var.';
@@ -1166,7 +1167,7 @@ async function sahisGetir(){
    hesaplanmaz: iki yerde hesaplanan sey ayrisir. */
 async function kartGetir(){
   const [k, d] = await Promise.all([
-    sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama')
+    sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama,kart_limiti')
       .eq('is_deleted', false).order('ad'),
     sb.from('v_kart_donem')
       .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path')
@@ -3036,6 +3037,49 @@ async function vKartlar(){
     c.appendChild(el('div','uyari-agir', v.kartTutarsiz
       + ' kartta devir zinciri kırık: bu ayın devri, geçen ayın kalanına eşit değil.'));
 
+  /* ⚠ AS · TOPLAM LIMIT / KULLANILAN / KALAN ALAN.
+     ⚠ TOPLU, sahis/Ltd AYRI DEGIL. Gerekce: kullanicinin istegi "genele
+       vurmak"; ayrica tuzel kisilik ayrimini BANT tasiyor (kartSahis /
+       kartLtd katman 1'de duruyor) — kart ekraninin ikinci kez tasimasi
+       ayni bilgiyi iki yerde tutmak olurdu ve ikisi ayrisabilirdi.
+     ⚠ LIMITI GIRILMEMIS kart varsa toplam EKSIKTIR ve bunu SOYLER.
+       Eksik veriyle hesaplanmis toplami tam gibi gostermek "ne kadar
+       alanim var" sorusuna YANLIS cevap verir (AR'deki kuralin aynisi). */
+  const lt = { limit:0, kullanilan:0, limitsiz:0, donemsiz:0, asan:0, adet:0 };
+  for (const kt of v.kart.kartlar){
+    if (kt.kart_limiti == null){ lt.limitsiz++; continue; }
+    const g = v.sonDonem.get(kt.id);
+    if (!g){ lt.donemsiz++; continue; }
+    const lim = kr(kt.kart_limiti), kul = kr(g.kalan);
+    lt.limit += lim; lt.kullanilan += kul; lt.adet++;
+    if (kul > lim) lt.asan++;
+  }
+  if (lt.adet || lt.limitsiz || lt.donemsiz){
+    const tl2 = el('div','kart');
+    tl2.appendChild(el('div','kbaslik','Toplam limit'));
+    const sat2 = (e2,d2) => { const x = el('div','satir');
+      x.appendChild(el('span','et', e2)); x.appendChild(el('span','dg', d2)); tl2.appendChild(x); };
+    sat2('Toplam limit', lt.adet ? tlk(lt.limit) : 'hesaplanamaz');
+    sat2('Kullanılan',   lt.adet ? tlk(lt.kullanilan) : 'hesaplanamaz');
+    sat2('Kalan alan',   lt.adet ? tlk(lt.limit - lt.kullanilan) : 'hesaplanamaz');
+    const eks = [];
+    if (lt.limitsiz) eks.push(lt.limitsiz + ' kartın limiti girilmemiş');
+    if (lt.donemsiz) eks.push(lt.donemsiz + ' kartın dönemi girilmemiş');
+    if (eks.length)
+      tl2.appendChild(el('div','uyari-orta', eks.join(' · ') + ' — toplam EKSİK, bu kartlar hesaba girmedi.'));
+    if (lt.asan)
+      tl2.appendChild(el('div','uyari-agir', lt.asan + ' kartta kullanılan tutar limiti AŞIYOR.'));
+    /* ⚠⚠ KAVRAM UYARISI — maden rayic uyarisiyla AYNI SINIF yanlis okuma.
+       Sistem EKSTRE DONEMI tutuyor, canli hareket TUTMUYOR: "kullanilan"
+       son ekstrenin kalanidir, kesimden sonraki harcamalar burada YOK.
+       Bu cumle olmadan "kalan alan" bankadaki kullanilabilir limit
+       sanilir ve olmayan para harcanir. Mevcut .kavram sinifi. */
+    tl2.appendChild(el('div','kavram',
+      'Ekstrelere göre — son kesimden bu yana yapılan harcamalar dahil değil. '
+    + 'Bankadaki kullanılabilir limit daha az olabilir.'));
+    c.appendChild(tl2);
+  }
+
   const k = el('div','kart');
   k.appendChild(el('div','kbaslik','Kartlar (' + v.kart.kartlar.length + ')'));
   /* ⚠ FAZ 2c·C · BOS DURUM TASARLANDI. Olculdu: bu ekranin kendine ait
@@ -3087,6 +3131,27 @@ async function vKartlar(){
           : 'hiç dönem girilmemiş');
     kutu.appendChild(alt);
 
+    /* ⚠ AS · LIMIT SATIRI YALNIZ LIMIT GIRILMISSE. "limit —" ya da
+       "limit 0" yazmak "limitin yok" gibi okunur; satir HIC CIKMAZ.
+       ⚠ "kullanilan" = son ekstrenin kalani. Donem hic girilmemisse
+       kullanim BILINMIYOR — kalan alan UYDURULMAZ. */
+    if (kart.kart_limiti != null){
+      const lim = kr(kart.kart_limiti);
+      if (!gosterilen){
+        kutu.appendChild(el('div','tk-orta', 'limit ' + tlk(lim) + ' · kullanım bilinmiyor'));
+      } else {
+        const kul = kr(gosterilen.kalan), bos = lim - kul;
+        const ls = el('div','tk-orta');
+        ls.appendChild(document.createTextNode('limit ' + tlk(lim) + ' · kullanılan ' + tlk(kul) + ' · '));
+        if (bos < 0){
+          /* ⚠ EKSI "kalan alan" GOSTERILMEZ — bosluk gibi okunur.
+             Limit asimi GERCEK bir durum, ADIYLA yaziliyor. */
+          ls.appendChild(document.createTextNode('limit aşımı ' + tlk(-bos) + ' '));
+          ls.appendChild(el('span','rozet rz-eksik','LİMİT AŞILDI'));
+        } else ls.appendChild(document.createTextNode('kalan alan ' + tlk(bos)));
+        kutu.appendChild(ls);
+      }
+    }
     if (gosterilen){
       const r = el('div'); r.style.marginTop = '6px';
       if (gosterilen.devir_tutarsiz) r.appendChild(el('span','rozet rz-eksik','DEVİR TUTMUYOR'));
@@ -3122,6 +3187,9 @@ function kartFormu(){
   k.appendChild(s);
   alan('Son ödeme günü (ayın kaçı)','ktSonOdeme','text','numeric','1-31');
   alan('Kesim günü (bilinmiyorsa boş)','ktKesim','text','numeric','1-31');
+  /* ⚠ AS · Limit ZORUNLU DEGIL. Bilinmiyorsa BOS birakilir ve NULL yazilir;
+     0 yazmak "limit dolu" gibi okunur, sunucu da (kart_limit_chk) reddeder. */
+  alan('Kart limiti (bilinmiyorsa boş)','ktLimit','text','decimal','örn. 150.000,00');
   const b = el('button','btn','Kartı kaydet'); b.id = 'ktKaydet'; b.onclick = kartKaydet;
   k.appendChild(b);
   return k;
@@ -3144,11 +3212,28 @@ async function kartKaydet(){
   const so = gun('ktSonOdeme','Son ödeme günü'), ke = gun('ktKesim','Kesim günü');
   if (!so.ok) return mesaj('kartMsg','hata', so.hata);
   if (!ke.ok) return mesaj('kartMsg','hata', ke.hata);
+  /* ⚠ AS · BOS ile 0 AYRI. paraCoz bos girdiye {ok:true,kurus:0} veriyor;
+     korlemesine kullanilsaydi limitsiz kart 0 LIMITLI kaydedilirdi. */
+  const limH = document.getElementById('ktLimit').value.trim();
+  let limit = null;
+  if (limH){
+    /* ⚠ EKSI ISARETI paraCoz'DEN GECMEZ: `[^\d.,]` suzgeci '-' karakterini
+       ATIYOR, "-5" SESSIZCE 5,00 oluyordu (olculdu). Sunucu kisiti da
+       yakalayamaz — 5 > 0. Isaret ONCE burada bakiliyor; ayni kalibin
+       donemSatiriUret'te de kullanildigi yer var. */
+    if (/^\s*[-−]/.test(limH)) return mesaj('kartMsg','hata',
+      'Kart limiti eksi olamaz. Bilinmiyorsa BOŞ bırak.');
+    const pl = paraCoz(limH);
+    if (!pl.ok) return mesaj('kartMsg','hata','Kart limiti: ' + pl.hata);
+    if (pl.kurus <= 0) return mesaj('kartMsg','hata',
+      'Kart limiti sıfırdan büyük olmalı. Bilinmiyorsa BOŞ bırak.');
+    limit = (pl.kurus / 100).toFixed(2);
+  }
 
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
   const { error } = await sb.from('kart').insert({
     ad, banka: document.getElementById('ktBanka').value.trim() || null,
-    sahip, son_odeme_gunu: so.deger, kesim_gunu: ke.deger,
+    sahip, son_odeme_gunu: so.deger, kesim_gunu: ke.deger, kart_limiti: limit,
     giren_id: PROFIL ? PROFIL.id : null });
   btn.disabled = false; btn.textContent = 'Kartı kaydet';
   if (error){ hataYaz('kartMsg','Kart kaydedilemedi.', error); return; }
