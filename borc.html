@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-20-9">
+<meta name="surum" content="borc-2026-08-21-2">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -903,6 +903,23 @@ function hataTrIc(m){
   if (/ux_maden_fiyat/i.test(s))      return 'Bu tür için bu tarihe zaten fiyat girilmiş.';
   if (/kredi_tur_chk/i.test(s))       return 'Kredi türü ticari, şahıs veya ltd olmalı.';
   if (/kart_limit_chk/i.test(s))      return 'Kart limiti sıfırdan büyük olmalı. Bilinmiyorsa boş bırak.';
+  if (/kd_asgari_chk/i.test(s))       return 'Asgari tutar eksi olamaz.';
+  if (/kd_donem_odemesi_chk/i.test(s)) return 'Bu ekstreye ödenen tutar eksi olamaz.';
+  if (/kd_faiz_chk/i.test(s))         return 'Faiz tutarı eksi olamaz. Bilinmiyorsa boş bırak.';
+  if (/kd_vergi_masraf_chk/i.test(s)) return 'Faiz vergisi/masrafı eksi olamaz. Bilinmiyorsa boş bırak.';
+  /* ⚠ ux_kart_donem KISMI tekil: ayni kartta ayni ay IKI KEZ acik olamaz.
+     "Bu kayit zaten var" bu ekranda hicbir sey anlatmiyor — ne yapilacagi yaziliyor. */
+  if (/ux_kart_donem/i.test(s))
+    return 'Bu kartta bu ay zaten girilmiş. Var olan satırı DÜZENLE, ya da önce onu arşivle.';
+  if (/kart_paylasan_kendi_chk/i.test(s)) return 'Bir kart kendi limitinden kullanamaz.';
+  if (/kart_paylasan_limit_chk/i.test(s)) return 'Bir kart hem kendi limitini taşıyıp hem başka kartın limitinden kullanamaz.';
+  if (/LIMIT_ZINCIRI/.test(s))        return 'Limit paylaşımı tek seviyedir: paylaşan bir kartın limitinden başka bir kart kullanamaz.';
+  if (/PAYLASILAN_KART_YOK/.test(s))  return 'Limitinden kullanılacak kart bulunamadı ya da arşivlenmiş.';
+  if (/PAYLASAN_VAR/i.test(s)){
+    const a = s.match(/PAYLASAN_VAR\|(\d+)/i);
+    return (a ? a[1] + ' kart' : 'Başka bir kart') + ' bu kartın limitinden kullanıyor. '
+         + 'Önce o kartın paylaşımını kaldır, sonra arşivle.';
+  }
   if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
   if (/_chk\b/i.test(s))              return 'Girilen değer kuralları sağlamıyor.';   // AQ · '+ s' kisit adini tasiyordu
   if (/duplicate key/i.test(s))       return 'Bu kayıt zaten var.';
@@ -1167,10 +1184,10 @@ async function sahisGetir(){
    hesaplanmaz: iki yerde hesaplanan sey ayrisir. */
 async function kartGetir(){
   const [k, d] = await Promise.all([
-    sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama,kart_limiti')
+    sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama,kart_limiti,limit_paylasan_id')
       .eq('is_deleted', false).order('ad'),
     sb.from('v_kart_donem')
-      .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path')
+      .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path,asgari_tutar,donem_odemesi,kapanmamis,odeme_turu,devir_farki,faiz_tutari,vergi_masraf_tutari')
       .order('donem', { ascending:false })
   ]);
   if (k.error) throw k.error;
@@ -3045,12 +3062,24 @@ async function vKartlar(){
      ⚠ LIMITI GIRILMEMIS kart varsa toplam EKSIKTIR ve bunu SOYLER.
        Eksik veriyle hesaplanmis toplami tam gibi gostermek "ne kadar
        alanim var" sorusuna YANLIS cevap verir (AR'deki kuralin aynisi). */
-  const lt = { limit:0, kullanilan:0, limitsiz:0, donemsiz:0, asan:0, adet:0 };
+  const lt = { limit:0, kullanilan:0, limitsiz:0, donemsiz:0, asan:0, adet:0, paylasan:0 };
   for (const kt of v.kart.kartlar){
+    /* ⚠ AV · PAYLASAN KART TOPLAMA GIRMEZ — limiti zaten ana kartta
+       sayiliyor; ikisini de toplasaydik AYNI LIMITI IKI KEZ sayardik.
+       Kullanimi ana kartin havuzunda hesaba giriyor, kaybolmuyor. */
+    if (kt.limit_paylasan_id){ lt.paylasan++; continue; }
     if (kt.kart_limiti == null){ lt.limitsiz++; continue; }
-    const g = v.sonDonem.get(kt.id);
-    if (!g){ lt.donemsiz++; continue; }
-    const lim = kr(kt.kart_limiti), kul = kr(g.kalan);
+    /* Havuz kullanimi: bu kartin ve ONUN LIMITINDEN kullanan kartlarin
+       kalanlari. Ana kartin donemi olmasa bile paylasanin donemi varsa
+       kullanim BILINIYOR demektir. */
+    let kul = 0, donemVar = false;
+    for (const x of v.kart.kartlar){
+      if (x.id !== kt.id && x.limit_paylasan_id !== kt.id) continue;
+      const g = v.sonDonem.get(x.id);
+      if (g){ kul += kr(g.kalan); donemVar = true; }
+    }
+    if (!donemVar){ lt.donemsiz++; continue; }
+    const lim = kr(kt.kart_limiti);
     lt.limit += lim; lt.kullanilan += kul; lt.adet++;
     if (kul > lim) lt.asan++;
   }
@@ -3065,6 +3094,9 @@ async function vKartlar(){
     const eks = [];
     if (lt.limitsiz) eks.push(lt.limitsiz + ' kartın limiti girilmemiş');
     if (lt.donemsiz) eks.push(lt.donemsiz + ' kartın dönemi girilmemiş');
+    if (lt.paylasan) tl2.appendChild(el('div','kucuk',
+      lt.paylasan + ' kart başka kartın limitinden kullanıyor — limitleri ayrıca '
+    + 'SAYILMADI, kullanımları ana kartın havuzunda.'));
     if (eks.length)
       tl2.appendChild(el('div','uyari-orta', eks.join(' · ') + ' — toplam EKSİK, bu kartlar hesaba girmedi.'));
     if (lt.asan)
@@ -3135,12 +3167,30 @@ async function vKartlar(){
        "limit 0" yazmak "limitin yok" gibi okunur; satir HIC CIKMAZ.
        ⚠ "kullanilan" = son ekstrenin kalani. Donem hic girilmemisse
        kullanim BILINMIYOR — kalan alan UYDURULMAZ. */
-    if (kart.kart_limiti != null){
+    /* ⚠ AV · PAYLASILAN LIMIT. Ayni limitten kullanan kartlarin kalani
+       BIRLIKTE dusulur; kart basina limitleri toplasaydik ayni limiti
+       IKI KEZ sayardik. Gercek vaka: 400.000 limit, KTU 347.386,08 +
+       Samsun 2.864,56 -> bankanin dedigi kullanilabilir 49.749,36. */
+    const paylasanlar = v.kart.kartlar.filter(x => x.limit_paylasan_id === kart.id);
+    const havuzKullanim = (anaId) => {
+      let t = 0;
+      for (const x of v.kart.kartlar){
+        if (x.id !== anaId && x.limit_paylasan_id !== anaId) continue;
+        const g = v.sonDonem.get(x.id);
+        if (g) t += kr(g.kalan);
+      }
+      return t;
+    };
+    if (kart.limit_paylasan_id){
+      const ana = v.kart.kartlar.find(x => x.id === kart.limit_paylasan_id);
+      kutu.appendChild(el('div','tk-orta',
+        'kendi limiti yok — ' + (ana ? ana.ad + ' kartının' : 'başka bir kartın') + ' limitinden kullanıyor'));
+    } else if (kart.kart_limiti != null){
       const lim = kr(kart.kart_limiti);
-      if (!gosterilen){
+      if (!gosterilen && !paylasanlar.length){
         kutu.appendChild(el('div','tk-orta', 'limit ' + tlk(lim) + ' · kullanım bilinmiyor'));
       } else {
-        const kul = kr(gosterilen.kalan), bos = lim - kul;
+        const kul = havuzKullanim(kart.id), bos = lim - kul;
         const ls = el('div','tk-orta');
         ls.appendChild(document.createTextNode('limit ' + tlk(lim) + ' · kullanılan ' + tlk(kul) + ' · '));
         if (bos < 0){
@@ -3149,6 +3199,9 @@ async function vKartlar(){
           ls.appendChild(document.createTextNode('limit aşımı ' + tlk(-bos) + ' '));
           ls.appendChild(el('span','rozet rz-eksik','LİMİT AŞILDI'));
         } else ls.appendChild(document.createTextNode('kalan alan ' + tlk(bos)));
+        if (paylasanlar.length)
+          ls.appendChild(document.createTextNode(
+            ' · ' + paylasanlar.length + ' kartla paylaşımlı'));
         kutu.appendChild(ls);
       }
     }
@@ -3242,7 +3295,21 @@ async function kartKaydet(){
 }
 
 /* ---------- tek kartin ay ay dokumu ---------- */
-async function kartDetayAc(kartId){
+/* AV · kart arsivleme — kredi/maden arsivlemesiyle AYNI mekanik. */
+async function kartSil(kart, liste, acan){
+  pasifeAlAc(acan, { tur:'Kart', ad: kart.ad + (kart.banka ? ' · ' + kart.banka : ''),
+    kim: liste.length + ' dönem kaydıyla birlikte arşivlenecek',
+    tutar: liste.length ? tl(liste[0].kalan) : null,
+    uygula: (neden) => pasifeAlUygula(
+      () => sb.rpc('rpc_kart_pasife_al',{p_kart:kart.id,p_neden:neden}),
+      async () => { await ekranAc('kartlar'); mesaj('kartMsg','ok','Kart ve dönemleri arşivlendi.'); },
+      'kart')});
+}
+
+/* ⚠ AW · DUZENLEME MODU acikca PARAMETREYLE tasiniyor, modul degiskeniyle
+   DEGIL: kartDetayAc kaydetme/belge ekleme sonrasi da cagriliyor ve modul
+   degiskeni orada temizlenmezse ekran duzenleme modunda ASILI kalirdi. */
+async function kartDetayAc(kartId, duzenlenenId){
   seritiHizala();          // AL1 · ekranAc'tan gecmiyor, serit kaymis kalirdi
   const c = document.getElementById('icerik');
   c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
@@ -3268,12 +3335,20 @@ async function kartDetayAc(kartId){
     sat('Son ödeme günü', kart.son_odeme_gunu ? 'ayın ' + kart.son_odeme_gunu + '. günü' : 'girilmemiş');
     sat('Kesim günü', kart.kesim_gunu ? 'ayın ' + kart.kesim_gunu + '. günü' : 'girilmemiş');
     sat('Girilen dönem', liste.length + ' ay');
+    if (kart.kart_limiti != null) sat('Kart limiti', tl(kart.kart_limiti));
+    /* ⚠ AV · ARSIVLEME · mevcut desen KOPYALANDI (Krediyi arsivle /
+       Maden borcunu arsivle): digerMenu + pasifeAlAc, gerekce zorunlu.
+       ⚠ Sahibin karari: kart DONEMLERIYLE BIRLIKTE arsivlenir. Kredi
+         tarafindaki "tek odeme varsa arsivlenemez" kurali BURAYA
+         KOPYALANMADI — kartta her donem bir ekstredir, o kural
+         ekstresi olan hicbir karti arsivlenemez yapardi. */
+    bas.appendChild(digerMenu([['Kartı arşivle', (a) => kartSil(kart, liste, a)]]));
     if (liste.length) sat('Son kalan', tl(liste[0].kalan) + ' (' + liste[0].donem + ')');
     c.appendChild(bas);
 
     const msg = el('div','msg'); msg.id = 'kartMsg'; c.appendChild(msg);
     c.appendChild(kartUyarisi());
-    c.appendChild(donemFormu(kart, liste));
+    c.appendChild(donemFormu(kart, liste, liste.find(d => d.donem_id === duzenlenenId) || null));
 
     const k = el('div','kart');
     k.appendChild(el('div','kbaslik','Ay ay döküm'));
@@ -3283,8 +3358,9 @@ async function kartDetayAc(kartId){
       const sar = el('div','tablo-sar');
       const t = document.createElement('table');
       const hr = document.createElement('tr');
-      ['DÖNEM','DEVİR','YENİ','DÜZELTME','ÖDENEN','KALAN','EKSTRE',''].forEach((h,i) =>
-        hr.appendChild(el('th', (i>=1 && i<=5) ? 'sag' : null, h)));
+      /* AV · uc sutun eklendi: ASGARI · BU EKSTREYE ÖDENEN · KAPANMAMIŞ */
+      ['DÖNEM','DEVİR','YENİ','DÜZELTME','ÖDENEN','KALAN','ASGARİ','ÖDEDİĞİM','KAPANMAMIŞ','DURUM','FAİZ','VERGİ','EKSTRE',''].forEach((h,i) =>
+        hr.appendChild(el('th', ((i>=1 && i<=8) || i===10 || i===11) ? 'sag' : null, h)));
       t.appendChild(hr);
       for (const d of liste){
         const tr = document.createElement('tr');
@@ -3300,6 +3376,24 @@ async function kartDetayAc(kartId){
         tr.appendChild(td(tl(d.duzeltme),'sag'));
         tr.appendChild(td(tl(d.odenen),'sag'));
         const kh = td(tl(d.kalan),'sag'); kh.style.fontWeight = '900'; tr.appendChild(kh);
+        /* ⚠ NULL ile 0 AYNI GORUNMEZ: girilmemis alan gri "—". */
+        tr.appendChild(td(d.asgari_tutar == null ? '—' : tl(d.asgari_tutar),'sag'));
+        tr.appendChild(td(d.donem_odemesi == null ? '—' : tl(d.donem_odemesi),'sag'));
+        tr.appendChild(td(d.donem_odemesi == null ? '—' : tl(d.kapanmamis),'sag'));
+        /* ⚠ 'girilmedi' ROZET DEGIL — rozet bir BEYANDIR, veri yoksa beyan
+           da yok. O halde gri "—". Digerleri rozet. */
+        const dh2 = document.createElement('td');
+        /* ⚠ BILINMEYEN deger de 'girilmedi' gibi ele alinir: eski bir
+           satirda ya da eski gorunumde odeme_turu YOKSA BOS ROZET ciziliyordu
+           (olculdu). Adsiz rozet, icerigi olmayan bir BEYANDIR. */
+        const RZ = { tam:['rz-yesil','TAM'], kismi:['rz-sari','KISMİ'],
+                     eksik:['rz-eksik','ASGARİNİN ALTINDA'], odenmedi:['rz-eksik','ÖDENMEDİ'] }[d.odeme_turu];
+        if (!RZ) dh2.appendChild(el('span','gri','—'));
+        else dh2.appendChild(el('span','rozet ' + RZ[0], RZ[1]));
+        tr.appendChild(dh2);
+        /* ⚠ NULL = girilmedi (gri —), 0 = faiz islememis (0,00). AYNI DEGIL. */
+        tr.appendChild(td(d.faiz_tutari == null ? '—' : tl(d.faiz_tutari),'sag'));
+        tr.appendChild(td(d.vergi_masraf_tutari == null ? '—' : tl(d.vergi_masraf_tutari),'sag'));
         const eh = document.createElement('td');
         if (d.foto_path){
           const a = el('button','btn-mini','Aç');
@@ -3313,7 +3407,14 @@ async function kartDetayAc(kartId){
         const be = el('button','btn-mini', d.foto_path ? 'Değiştir' : '+ Ekstre');
         be.onclick = () => dekontEkle('kart_donem', d.donem_id, 'kart_ekstre','kartMsg',
                                       !!d.foto_path, () => kartDetayAc(kartId));
-        ey.appendChild(be); tr.appendChild(ey);
+        ey.appendChild(be);
+        const bd = el('button','btn-mini','Düzenle');
+        bd.onclick = () => kartDetayAc(kartId, d.donem_id);
+        ey.appendChild(bd);
+        const ba = el('button','btn-mini','Arşivle');
+        ba.onclick = () => donemSil(kart, d, ba);
+        ey.appendChild(ba);
+        tr.appendChild(ey);
         t.appendChild(tr);
       }
       sar.appendChild(t); k.appendChild(sar);
@@ -3323,9 +3424,43 @@ async function kartDetayAc(kartId){
       const tut = liste.filter(d => d.devir_tutarsiz);
       if (tut.length)
         k.appendChild(el('div','uyari-agir',
-          tut.length + ' dönemde devir, önceki ayın kalanına eşit değil: '
+          tut.length + ' dönemde devir, önceki ayın kalanından KÜÇÜK: '
           + tut.map(d => d.donem).join(', ')
           + '. Ya bir ay eksik ya da bir rakam yanlış girilmiş.'));
+      /* ⚠ AV · BUYUYEN DEVIR ARTIK UYARI DEGIL ama SESSIZ de degil.
+         Kismi/asgari odenen kartta bir sonraki devir faiz kadar buyur —
+         bu NORMAL. "Uyari yok" ile "fark su kadar, muhtemelen faiz"
+         AYNI SEY DEGIL; fark yaziliyor, dogrulamayi kullanici yapiyor. */
+      const buyuyen = liste.filter(d => d.devir_farki != null && kr(d.devir_farki) > 0);
+      if (buyuyen.length)
+        k.appendChild(el('div','kucuk',
+          buyuyen.length + ' dönemde devir, önceki ayın kalanından BÜYÜK: '
+          + buyuyen.map(d => d.donem + ' (+' + tl(d.devir_farki) + ')').join(' · ')
+          + '. Kısmi ödenen kartta bu normaldir — fark büyük ihtimalle faiz.'));
+      /* ⚠ AW · Faiz artik GIRILEBILIYOR; "sen karsilastir" demek yerine
+         KARSILASTIRILIYOR. devir_farki(M) ≈ faiz(M) + vergi(M) tutmuyorsa
+         ya bir rakam yanlis yazilmis ya da ekstrede baska bir kalem var.
+         ⚠ Faiz GIRILMEMIS donem bu denetime SOKULMUYOR — girilmemis alan
+           "tutmuyor" degildir. */
+      const fk = buyuyen.filter(d => d.faiz_tutari != null || d.vergi_masraf_tutari != null)
+        .map(d => ({ donem:d.donem, f: kr(d.devir_farki),
+                     g: kr(d.faiz_tutari || 0) + kr(d.vergi_masraf_tutari || 0) }));
+      const tutmaz = fk.filter(x => x.f !== x.g);
+      if (fk.length && !tutmaz.length)
+        k.appendChild(el('div','kucuk', fk.length + ' dönemde devir farkı, girilen faiz+vergi ile BİREBİR tutuyor: '
+          + fk.map(x => x.donem + ' (' + tlk(x.g) + ')').join(' · ') + '.'));
+      if (tutmaz.length)
+        k.appendChild(el('div','uyari-agir', tutmaz.length + ' dönemde devir farkı, girilen faiz+vergi ile TUTMUYOR: '
+          + tutmaz.map(x => x.donem + ' (fark ' + tlk(x.f) + ' · faiz+vergi ' + tlk(x.g) + ')').join(' · ')
+          + '. Ya bir rakam yanlış yazılmış ya da ekstrede başka bir kalem var.'));
+      /* ⚠ ASGARININ ALTINDA odeme ucuz bir hata degil: kart kapanir ve
+         gecikme faizi isler. Gorunur uyari. */
+      const eksikOd = liste.filter(d => d.odeme_turu === 'eksik');
+      if (eksikOd.length)
+        k.appendChild(el('div','uyari-agir',
+          eksikOd.length + ' dönemde ödenen tutar ASGARİNİN ALTINDA: '
+          + eksikOd.map(d => d.donem).join(', ')
+          + '. Asgarinin altı ödeme, kartın gecikmeye düşmesi ve ceza faizi demektir.'));
     }
     c.appendChild(k);
   }catch(e){
@@ -3334,9 +3469,12 @@ async function kartDetayAc(kartId){
   }
 }
 
-function donemFormu(kart, liste){
+function donemFormu(kart, liste, duz){
   const k = el('div','kart');
-  k.appendChild(el('div','kbaslik','Yeni ay ekle'));
+  k.appendChild(el('div','kbaslik', duz ? duz.donem + ' düzeltiliyor' : 'Yeni ay ekle'));
+  if (duz) k.appendChild(el('div','bilgi',
+    'Var olan ekstre yeniden yazılıyor. Bir rakamı düzeltmek için 8 rakamı yeniden '
+  + 'yazman gerekmiyor — dolu gelen alanlarda yalnız yanlış olanı değiştir.'));
 
   const alan = (etiket, id, deger, mod) => {
     k.appendChild(el('label', null, etiket)).setAttribute('for', id);
@@ -3349,16 +3487,21 @@ function donemFormu(kart, liste){
 
   k.appendChild(el('label', null, 'Dönem (YYYY-AA)')).setAttribute('for','kdDonem');
   const dn = document.createElement('input');
-  dn.id = 'kdDonem'; dn.type = 'month'; dn.value = bugun().slice(0,7);
+  dn.id = 'kdDonem'; dn.type = 'month'; dn.value = duz ? duz.donem : bugun().slice(0,7);
   k.appendChild(dn);
-
-  const dv = alan('Devir (geçen aydan kalan)', 'kdDevir', '', 'decimal');
+  /* ⚠ Kurus -> form metni. tl() nokta/binlik ekliyor, paraCoz onu geri
+     okuyabiliyor ama gidip gelen bicimlendirme bir gun yuvarlar; ham
+     "1234,56" yaziliyor. NULL alan BOS kaliyor — 0,00 YAZILMIYOR, cunku
+     "girilmedi" ile "sifir" ayni sey degil. */
+  const fm = (x) => x == null ? '' : (kr(x)/100).toFixed(2).replace('.', ',');
+  const dv = alan('Devir (geçen aydan kalan)', 'kdDevir', duz ? fm(duz.devir) : '', 'decimal');
   const ipucu = el('div','kucuk'); ipucu.id = 'kdIpucu'; k.appendChild(ipucu);
 
   /* Donem secilince devir ONCEKI DONEMIN KALANIYLA on doldurulur.
      Kullanici degistirebilir; degistirir ve zincir kirilirsa asagidaki
      uyari cikar — sessizce gecilmez. */
   const onDoldur = () => {
+    if (duz) { canliKalan(); return; }   // duzenlemede devir ZATEN kayitli deger
     const d = dn.value;
     const onceki = liste.filter(x => x.donem < d).sort((a,b) => b.donem.localeCompare(a.donem))[0];
     if (onceki){
@@ -3383,13 +3526,49 @@ function donemFormu(kart, liste){
         + ', sen ' + tlk(g.kurus) + ' yazdın. Kaydedilir ama listede işaretli kalır.';
     } else { u.className = 'kucuk'; u.textContent = ''; }
   };
-  dn.onchange = onDoldur;
-  dv.oninput = zinciriDenetle;
+  dn.onchange = () => { onDoldur(); canliKalan(); };
+  dv.oninput = () => { zinciriDenetle(); canliKalan(); };
 
-  alan('Yeni harcama', 'kdYeni', '', 'decimal');
-  alan('Düzeltme (iade/indirim eksi yazılır)', 'kdDuzeltme', '', 'decimal');
-  alan('Ödenen', 'kdOdenen', '', 'decimal');
+  /* ⚠ Alanlar HENUZ BELGEYE EKLENMEDI (k kopuk bir div). document.getElementById
+     ile aranirsa null doner ve canli ayna sessizce hic baglanmaz — alan()'in
+     dondurdugu ogeye dogrudan baglaniyor. */
+  const yn = alan('Yeni harcama', 'kdYeni', duz ? fm(duz.yeni_harcama) : '', 'decimal');
+  const dz2 = alan('Düzeltme (iade/indirim eksi yazılır)', 'kdDuzeltme', duz ? fm(duz.duzeltme) : '', 'decimal');
+  const od = alan('Ödenen', 'kdOdenen', duz ? fm(duz.odenen) : '', 'decimal');
+  /* ⚠ AV · IKI FARKLI "ODEME". Yukaridaki "Ödenen" EKSTRENIN ALACAK
+     satiri — kalan'i HESAPLAR. Asagidaki, bu ekstreye KARSILIK kesimden
+     SONRA yapilan odeme — kalan'i DEGISTIRMEZ. Karistirilirsa ayni para
+     iki kez sayilir; etiketler bu yuzden uzun. */
+  alan('Asgari tutar (ekstreden, bilinmiyorsa boş)', 'kdAsgari', duz ? fm(duz.asgari_tutar) : '', 'decimal');
+  alan('Bu ekstreye karşılık ödediğim (bilinmiyorsa boş)', 'kdOdedim', duz ? fm(duz.donem_odemesi) : '', 'decimal');
+  /* ⚠ AW · FAIZ ve VERGI AYRI TUTULUYOR, tek "maliyet" alaninda
+     BIRLESTIRILMEDI — ev kalibi kredi_taksit'te de anapara/faiz/vergi
+     diye uce bolunmus. Ekstrede de ayri yaziyor: FZ:... VR/FN:...
+     ⚠ Bunlar KALAN'A GIRMEZ: faiz zaten "yeni harcama" icinde bankanin
+       ekstresinde toplanmis durumda. Burada AYRICA saklanmasinin sebebi
+       devir buyumesini aciklayabilmek. Iki kez toplanmiyor. */
+  alan('Ekstredeki faiz (FZ, bilinmiyorsa boş)', 'kdFaiz', duz ? fm(duz.faiz_tutari) : '', 'decimal');
+  alan('Faiz vergisi/masrafı (VR/FN, bilinmiyorsa boş)', 'kdVergi', duz ? fm(duz.vergi_masraf_tutari) : '', 'decimal');
   const zn = el('div','kucuk'); zn.id = 'kdZincir'; k.appendChild(zn);
+
+  /* ⚠ AW · C · CANLI AYNA — KAPI DEGIL. Kullanici yazdikca kalani gorur;
+     hicbir sey engellenmiyor, uyari da verilmiyor. Ekstrede olmayan bir
+     hesap UYDURULMUYOR: kullanicinin kendi girdigi dort rakamin toplami.
+     Dogrulamayi banka ekstresine bakarak kullanici yapar. */
+  const cy = el('div','bilgi'); cy.id = 'kdCanli'; k.appendChild(cy);
+  const canliKalan = () => {
+    const g = (id) => { const h = document.getElementById(id); return h ? h.value.trim() : ''; };
+    const c1 = paraCoz(g('kdDevir')), c2 = paraCoz(g('kdYeni')), c4 = paraCoz(g('kdOdenen'));
+    const dh = g('kdDuzeltme'), c3 = paraCoz(dh);
+    if (!c1.ok || !c2.ok || !c3.ok || !c4.ok){ cy.textContent = 'Kalan hesaplanamıyor — bir alanda sayı olmayan bir şey var.'; return; }
+    const dz = /^\s*[-−]/.test(dh) ? -c3.kurus : c3.kurus;
+    const kl = c1.kurus + c2.kurus + dz - c4.kurus;
+    cy.textContent = '';
+    cy.appendChild(el('div', null, 'KALAN = ' + tlk(c1.kurus) + ' + ' + tlk(c2.kurus)
+      + (dz < 0 ? ' − ' + tlk(-dz) : ' + ' + tlk(dz)) + ' − ' + tlk(c4.kurus) + ' = ' + tlk(kl)));
+    cy.appendChild(el('div','kucuk', 'Ekstredeki "Hesap Özeti Borcu" ile aynı mı?'));
+  };
+  [yn, dz2, od].forEach(h => { h.oninput = canliKalan; });
 
   /* ⚠ AL4 · Kullanici "belge yukleme yeri yok" dedi. VAR: kaydedilmis her
      donem satirinda "+ Ekstre" dugmesi cikiyor. Ama form doluyken liste
@@ -3400,13 +3579,19 @@ function donemFormu(kart, liste){
     'Ekstre görselini ay kaydedildikten sonra aşağıdaki listeden ekleyebilirsin.'));
 
   const on = el('button','btn2','Kalanı hesapla (kaydetme)');
-  on.onclick = () => donemOnizle(kart, liste, false);
-  const kay = el('button','btn','Ayı kaydet'); kay.id = 'kdKaydet';
-  kay.onclick = () => donemOnizle(kart, liste, true);
+  on.onclick = () => donemOnizle(kart, liste, false, duz);
+  const kay = el('button','btn', duz ? 'Değişikliği göster' : 'Ayı kaydet'); kay.id = 'kdKaydet';
+  kay.onclick = () => donemOnizle(kart, liste, true, duz);
   k.appendChild(on); k.appendChild(kay);
+  if (duz){
+    const vz = el('button','btn2','Vazgeç');
+    vz.onclick = () => kartDetayAc(kart.id);
+    k.appendChild(vz);
+  }
   const ov = el('div'); ov.id = 'kdOnizleme'; k.appendChild(ov);
 
   setTimeout(onDoldur, 0);   // ilk acilista da doldur
+  setTimeout(canliKalan, 0);
   return k;
 }
 
@@ -3429,15 +3614,33 @@ function donemSatiriUret(kart){
   if (!dzR.ok) return { ok:false, hata:'Düzeltme: ' + dzR.hata };
   const dzKurus = eksi ? -dzR.kurus : dzR.kurus;
 
+  /* ⚠ AV · EKSI ISARETI paraCoz'DEN GECMEZ: [^\d.,] suzgeci '-' atiyor,
+     "-5" SESSIZCE 5,00 oluyor (AS turunda olculdu). Isarete paraCoz'DEN
+     ONCE bakiliyor — dzH'deki kalibin aynisi. */
+  const secmeli = (id, etiket) => {
+    const h = document.getElementById(id).value.trim();
+    if (!h) return { ok:true, deger:null };
+    if (/^\s*[-−]/.test(h)) return { ok:false, hata: etiket + ' eksi olamaz. Bilinmiyorsa BOŞ bırak.' };
+    const r = paraCoz(h);
+    if (!r.ok) return { ok:false, hata: etiket + ': ' + r.hata };
+    return { ok:true, deger:(r.kurus/100).toFixed(2), kurus:r.kurus };
+  };
+  const asg = secmeli('kdAsgari','Asgari tutar');   if (!asg.ok) return asg;
+  const odm = secmeli('kdOdedim','Bu ekstreye ödenen'); if (!odm.ok) return odm;
+  const fz  = secmeli('kdFaiz','Faiz tutarı');       if (!fz.ok)  return fz;
+  const vr  = secmeli('kdVergi','Faiz vergisi/masrafı'); if (!vr.ok) return vr;
+
   const kalan = dev.kurus + yen.kurus + dzKurus - odn.kurus;
-  return { ok:true, donem, kalan,
+  return { ok:true, donem, kalan, asgariKurus: asg.kurus, odemeKurus: odm.kurus,
     satir: { kart_id: kart.id, donem,
       devir:(dev.kurus/100).toFixed(2), yeni_harcama:(yen.kurus/100).toFixed(2),
       duzeltme:(dzKurus/100).toFixed(2), odenen:(odn.kurus/100).toFixed(2),
+      asgari_tutar: asg.deger, donem_odemesi: odm.deger,
+      faiz_tutari: fz.deger, vergi_masraf_tutari: vr.deger,
       giren_id: PROFIL ? PROFIL.id : null } };
 }
 
-async function donemOnizle(kart, liste, kaydet){
+async function donemOnizle(kart, liste, kaydet, duz){
   mesajTemizle('kartMsg');
   const r = donemSatiriUret(kart);
   const ov = document.getElementById('kdOnizleme');
@@ -3455,13 +3658,81 @@ async function donemOnizle(kart, liste, kaydet){
 
   if (!kaydet) return;
 
+  /* ⚠ AW · SESSIZ UPDATE YOK. Duzenleme mali bir kaydi degistiriyor;
+     hangi alan neydi, ne oluyor ve KALAN nasil degisiyor GORULMEDEN
+     yazilmiyor. Gerekce ISTENMIYOR — bu bir mali islem degil, ekstrenin
+     yeniden yazimi; kim/ne zaman/eski deger/yeni deger zaten
+     trg_audit_kart_donem ile audit_log'a dusuyor. */
+  if (duz){
+    const ALAN = [['donem','Dönem',0],['devir','Devir',1],['yeni_harcama','Yeni harcama',1],
+                  ['duzeltme','Düzeltme',1],['odenen','Ödenen',1],['asgari_tutar','Asgari',1],
+                  ['donem_odemesi','Bu ekstreye ödenen',1],['faiz_tutari','Faiz',1],
+                  ['vergi_masraf_tutari','Faiz vergisi',1]];
+    const gos = (v, para) => v == null || v === '' ? '—' : (para ? tl(v) : v);
+    const esit = (a, b, para) => (a == null ? null : (para ? kr(a) : a)) === (b == null ? null : (para ? kr(b) : b));
+    const dgs = ALAN.filter(([f,,pr]) => !esit(duz[f], r.satir[f], pr));
+    const dk = el('div','kart');
+    dk.appendChild(el('div','kbaslik', dgs.length ? dgs.length + ' alan değişiyor' : 'Hiçbir alan değişmiyor'));
+    if (!dgs.length){
+      dk.appendChild(el('div','kucuk','Girilen değerler kayıtlıyla birebir aynı. Güncellemeye gerek yok.'));
+      ov.appendChild(dk); return;
+    }
+    const t = document.createElement('table');
+    const hr = document.createElement('tr');
+    ['ALAN','ÖNCE','SONRA'].forEach((h,i) => hr.appendChild(el('th', i ? 'sag' : null, h)));
+    t.appendChild(hr);
+    for (const [f, ad, pr] of dgs){
+      const tr = document.createElement('tr');
+      tr.appendChild(td(ad)); tr.appendChild(td(gos(duz[f], pr),'sag')); tr.appendChild(td(gos(r.satir[f], pr),'sag'));
+      t.appendChild(tr);
+    }
+    /* KALAN turetilmis — ayri satirda, cunku degisen asil sey odur. */
+    const trk = document.createElement('tr');
+    trk.appendChild(td('KALAN')); trk.appendChild(td(tl(duz.kalan),'sag')); trk.appendChild(td(tlk(r.kalan),'sag'));
+    trk.style.fontWeight = '900'; t.appendChild(trk);
+    const sar2 = el('div','tablo-sar'); sar2.appendChild(t); dk.appendChild(sar2);
+    const fark = r.kalan - kr(duz.kalan);
+    dk.appendChild(el('div', fark ? 'uyari-agir' : 'kucuk', fark
+      ? 'KALAN ' + (fark > 0 ? 'ARTIYOR' : 'AZALIYOR') + ': ' + tlk(Math.abs(fark))
+        + '. Sonraki ayın devri bu rakamla karşılaştırılacak.'
+      : 'Kalan değişmiyor.'));
+    const ok = el('button','btn','Onayla ve güncelle');
+    ok.onclick = async () => {
+      ok.disabled = true; ok.textContent = 'Güncelleniyor...';
+      const y = Object.assign({}, r.satir); delete y.kart_id; delete y.giren_id;
+      const { error } = await sb.from('kart_donem').update(y).eq('id', duz.donem_id);
+      if (error){ ok.disabled = false; ok.textContent = 'Onayla ve güncelle';
+        hataYaz('kartMsg','Ay güncellenemedi.', error); return; }
+      await kartDetayAc(kart.id);
+      mesaj('kartMsg','ok', r.donem + ' güncellendi.');
+    };
+    dk.appendChild(ok);
+    ov.appendChild(dk);
+    return;
+  }
+
   const btn = document.getElementById('kdKaydet');
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
   const { error } = await sb.from('kart_donem').insert(r.satir);
   btn.disabled = false; btn.textContent = 'Ayı kaydet';
   if (error){ hataYaz('kartMsg','Ay kaydedilemedi.', error); return; }
-  mesaj('kartMsg','ok', r.donem + ' kaydedildi. Ekstreyi eklemeyi unutma.');
+  /* ⚠ ONCE tazele SONRA mesaj: ters sirada kartDetayAc #kartMsg'i yeniden
+     kurup mesaji siliyor ve kayit sessizce gecmis gibi gorunuyordu. */
   await kartDetayAc(kart.id);
+  mesaj('kartMsg','ok', r.donem + ' kaydedildi. Ekstreyi eklemeyi unutma.');
+}
+
+/* AW · donem arsivleme — kart/kredi/maden arsivlemesiyle AYNI mekanik.
+   ⚠ Duzenleme mi arsivleme mi diye SORULMUYOR; ikisi ayri dugme. Soran
+     bir pencere, kullanicinin zaten bildigi seyi bir kez daha tiklatir. */
+function donemSil(kart, d, acan){
+  pasifeAlAc(acan, { tur:'Dönem', ad: kart.ad + ' · ' + d.donem,
+    kim:'Bu ay tamamen kayıttan düşecek', tutar: tl(d.kalan),
+    uygula: (neden) => pasifeAlUygula(
+      () => sb.rpc('rpc_kart_donem_pasife_al',{p_donem:d.donem_id,p_neden:neden}),
+      async () => { await kartDetayAc(kart.id); mesaj('kartMsg','ok',
+        d.donem + ' arşivlendi. Aynı ay yeniden girilebilir.'); },
+      'kart_donem')});
 }
 
 /* ================== 4 · MADEN ================== */
