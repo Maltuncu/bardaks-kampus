@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-21-2">
+<meta name="surum" content="borc-2026-08-22-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3040,6 +3040,396 @@ function kartUyarisi(){
   + 'gider olur ve beyan bozulur.');
 }
 
+/* ==================================================================
+   AX · EKSTRE OKUYUCU
+   ==================================================================
+   ⚠ TEMEL KURAL: OKU VE ONAYLAT — OKU VE GUVEN DEGIL.
+     Hicbir alan kendiliginden kaydedilmez. Her alanin YANINDA hangi
+     etiketten geldigi yazar; kullanici rakami degil ESLESMEYI dogrular.
+     Bulunamayan alan BOS kalir, belirsiz alan "?" ile isaretlenir ve
+     DOLU SAYILMAZ. Uydurma yok.
+
+   OLCULDU (pdf.js 4.0.379, gercek yapida ekstre):
+     · Turkce DOGRU geliyor: "TÜRKİYE İŞ BANKASI A.Ş." bozulmadi.
+       Yine de eslesme ASCII iskelete gore yapiliyor — banka PDF'leri
+       ayni fontu kullanmak zorunda degil; birinde bozulursa sozluk
+       degil SADECE o dosya kaybedilsin.
+     · transform[4],[5] = x,y GELIYOR. Konum tabanli okuma mumkun.
+     · ⚠ SATIR KAYMASI GERCEK: "Hesap Kesim Tarihi" y=741.5'te, degeri
+       y=731.5'te — SAGINDA DEGIL, ALTINDA. Bu yuzden IKI kural var.
+     · ⚠ TUZAK: "Kullanılabilir Limit 52.613,92" tam "Kart Limiti"nin
+       altinda duruyor. Etiket eslesmesi gevsek olursa yanlisi alir.
+     · ⚠ Faiz TEK PARCA geliyor: "FAİZ TUTARI FZ:11.078,37 VR/FN:553,92"
+       -> konumdan degil, dizginin ICINDEN cikariliyor.
+   ================================================================== */
+
+/* ASCII iskelet: buyuk/kucuk ve Turkce harf farklarini SILER.
+   ⚠ 'İ'.toLowerCase() ortamlara gore iki kod birimi verebiliyor; once
+     harf harf esliyoruz, sonra kucultuyoruz. */
+const AX_HARF = { 'Ç':'c','Ğ':'g','İ':'i','I':'i','Ö':'o','Ş':'s','Ü':'u',
+                  'ç':'c','ğ':'g','ı':'i','ö':'o','ş':'s','ü':'u' };
+function axSade(t){
+  return String(t||'').replace(/[ÇĞİIÖŞÜçğıöşü]/g, m => AX_HARF[m])
+    .toLowerCase().replace(/\s+/g,' ').trim();
+}
+
+/* ⚠ BANKA BAZLI PARSER YOK — ESANLAMLI LISTESI VAR. Yeni banka geldiginde
+   yazilacak sey yeni parser degil, listeye birkac kelime. Alti parser
+   alti ayri kirilma noktasi olurdu. */
+const AX_SOZLUK = {
+  kartAdi:    { tip:'metin', syn:['kart turu','kart tipi','kart adi','urun adi'] },
+  kesim:      { tip:'tarih', syn:['hesap kesim tarihi','ekstre kesim tarihi','hesap kesim'] },
+  sonOdeme:   { tip:'tarih', syn:['son odeme tarihi','son odeme gunu','odeme tarihi'] },
+  limit:      { tip:'para',  syn:['kart limiti','kredi karti limiti','toplam limit'] },
+  devir:      { tip:'para',  syn:['onceki donem borcu','devreden bakiye','onceki hesap ozeti borcu','devreden borc'] },
+  yeni:       { tip:'para',  syn:['donem ici borc kayitlari','borc kayitlari','donem ici harcamalar','yeni harcamalar'] },
+  odenen:     { tip:'para',  syn:['donem ici alacak kayitlari','alacak kayitlari','yapilan odemeler','odemeler toplami'] },
+  hesapOzeti: { tip:'para',  syn:['hesap ozeti borcu','donem borcu','toplam borc','guncel borc'] },
+  asgari:     { tip:'para',  syn:['odenmesi gereken asgari tutar','asgari odeme tutari','asgari tutar'] }
+};
+
+const AX_TUTAR = /^[-−]?\d{1,3}(?:\.\d{3})*,\d{2}(?:\s*(?:TL|TRY))?$/i;
+const AX_TARIH = /(\d{2})[./-](\d{2})[./-](\d{4})/;
+
+/* pdf.js YALNIZ burada, YALNIZ istendiginde yuklenir — sayfa acilisi
+   etkilenmesin diye modul kokte DEGIL. */
+let AX_PDFJS = null;
+async function axPdfjs(){
+  if (AX_PDFJS) return AX_PDFJS;
+  const KOK = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/';
+  const m = await import(KOK + 'pdf.min.mjs');
+  m.GlobalWorkerOptions.workerSrc = KOK + 'pdf.worker.min.mjs';
+  AX_PDFJS = m; return m;
+}
+
+/* PDF -> konumlu parcalar. Okuma TAMAMEN TARAYICIDA; dosya hicbir ucuncu
+   servise gitmez (aga cikan tek sey kutuphanenin kendisi). */
+async function axParcalar(dosya){
+  const pdfjs = await axPdfjs();
+  const belge = await pdfjs.getDocument({ data: await dosya.arrayBuffer() }).promise;
+  const hepsi = [];
+  for (let i = 1; i <= belge.numPages; i++){
+    const ic = await (await belge.getPage(i)).getTextContent();
+    for (const it of ic.items){
+      if (!it.str || !it.str.trim()) continue;
+      hepsi.push({ ham: it.str.trim(), sade: axSade(it.str),
+        x: it.transform[4], y: it.transform[5] - (i-1)*100000, g: it.width || 0 });
+    }
+  }
+  return hepsi;
+}
+
+/* ⚠ SAHIPLENME EN UZUN ESLESMEYE GORE. "Önceki Dönem Borcu" hem devir'in
+   "onceki donem borcu"suna hem hesapOzeti'nin "donem borcu"suna uyuyor;
+   uzun olan kazanir, yoksa devir yerine hesap ozeti okunurdu.
+   Bir alana BIRDEN COK parca sahipse alan BELIRSIZ sayilir ve BOS kalir. */
+function axEtiketleriSahiplen(parcalar){
+  const sahip = new Map();
+  for (const par of parcalar){
+    let enIyi = null;
+    for (const alan of Object.keys(AX_SOZLUK))
+      for (const sn of AX_SOZLUK[alan].syn)
+        if (par.sade.includes(sn) && (!enIyi || sn.length > enIyi.uz))
+          enIyi = { alan: alan, uz: sn.length };
+    if (!enIyi) continue;
+    if (!sahip.has(enIyi.alan)) sahip.set(enIyi.alan, []);
+    sahip.get(enIyi.alan).push({ par: par, etiket: par.ham });
+  }
+  return sahip;
+}
+
+/* IKI KURAL. Once SAG (ayni y bandi), sonra ALT (ayni x sutunu). Hangi
+   kuralin calistigi kullaniciya YAZILIR — eslesmeyi o dogruluyor. */
+function axDeger(par, parcalar, uygun, etiketler, enSagdaki){
+  /* ⚠ BIR ETIKET, BASKA BIR ALANIN DEGERI OLAMAZ. Olculdu: "Kart Türü:"
+     (y=740.5) ile "Hesap Kesim Tarihi" (y=741.5) ayni banda dusuyor ve
+     ikincisi SAGDA kaliyor; disarida birakilmazsa kart turu "Hesap Kesim
+     Tarihi" diye okunuyordu. Tam olarak brifteki yanlis eslesme sinifi. */
+  const aday = (o) => o !== par && !etiketler.has(o) && uygun(o.ham);
+  /* ⚠ TUTARLAR SAGA DAYALI (x 504.7 · 509.7 · 518.6) -> EN SAGDAKI dogru.
+     METIN degerler etiketin HEMEN yanindadir -> EN YAKIN dogru. Ikisini
+     ayni kuralla almak kart turunu iki sutun oteden getiriyordu. */
+  const sagda = parcalar.filter(o => aday(o) && Math.abs(o.y - par.y) <= 3
+                  && o.x > par.x + Math.max(par.g * 0.5, 8))
+                .sort((a,b) => enSagdaki ? b.x - a.x : a.x - b.x);
+  if (sagda.length) return { p: sagda[0], kural: 'aynı satırda sağında' };
+  const altta = parcalar.filter(o => aday(o) && Math.abs(o.x - par.x) <= 12
+                  && par.y - o.y > 2 && par.y - o.y < 24)
+                .sort((a,b) => b.y - a.y);
+  if (altta.length) return { p: altta[0], kural: 'hemen altında' };
+  return null;
+}
+
+function axOku(parcalar){
+  const sahip = axEtiketleriSahiplen(parcalar);
+  /* Sahiplenilmis her parca ETIKETTIR; deger adayligindan cikarilir. */
+  const etiketler = new Set();
+  sahip.forEach(liste => liste.forEach(b => etiketler.add(b.par)));
+  const alanlar = {};
+  for (const alan of Object.keys(AX_SOZLUK)){
+    const tanim = AX_SOZLUK[alan];
+    const bulunan = sahip.get(alan) || [];
+    if (!bulunan.length){ alanlar[alan] = { durum:'yok' }; continue; }
+    if (bulunan.length > 1){
+      alanlar[alan] = { durum:'belirsiz', etiket: bulunan.map(b => b.etiket).join(' / ') };
+      continue;
+    }
+    const par = bulunan[0].par, etiket = bulunan[0].etiket;
+    const uygun = tanim.tip === 'para'  ? (t) => AX_TUTAR.test(t.trim())
+                : tanim.tip === 'tarih' ? (t) => AX_TARIH.test(t)
+                : (t) => t.trim().length > 1 && !AX_TUTAR.test(t.trim());
+    const d = axDeger(par, parcalar, uygun, etiketler, tanim.tip === 'para');
+    if (!d){ alanlar[alan] = { durum:'yok', etiket: etiket }; continue; }
+    const o = { durum:'ok', etiket: etiket, kural: d.kural, ham: d.p.ham };
+    if (tanim.tip === 'para'){
+      const r = paraCoz(d.p.ham);
+      if (!r.ok){ alanlar[alan] = { durum:'belirsiz', etiket: etiket }; continue; }
+      o.kurus = r.kurus;
+    }
+    if (tanim.tip === 'tarih'){
+      const mm = d.p.ham.match(AX_TARIH); o.gun = +mm[1]; o.ay = mm[3] + '-' + mm[2];
+    }
+    alanlar[alan] = o;
+  }
+  /* Faiz/vergi konumdan DEGIL, islem satirinin ICINDEN. Olculdu: tek parca. */
+  const tumMetin = parcalar.map(p => p.ham).join(' ');
+  const fz = tumMetin.match(/FZ\s*:\s*([\d.]+,\d{2})/i);
+  const vr = tumMetin.match(/VR\s*\/?\s*FN\s*:\s*([\d.]+,\d{2})/i);
+  alanlar.faiz  = fz ? { durum:'ok', etiket:'FZ:', kural:'işlem satırı içinden',
+                         ham:fz[1], kurus:paraCoz(fz[1]).kurus } : { durum:'yok' };
+  alanlar.vergi = vr ? { durum:'ok', etiket:'VR/FN:', kural:'işlem satırı içinden',
+                         ham:vr[1], kurus:paraCoz(vr[1]).kurus } : { durum:'yok' };
+  /* Banka adi etiketli gelmiyor; sayfanin en ustundeki metinden alinir. */
+  const ust = parcalar.slice().sort((a,b) => b.y - a.y)[0];
+  alanlar.banka = ust ? { durum:'ok', etiket:'sayfanın en üst satırı',
+                          kural:'başlık', ham: ust.ham } : { durum:'yok' };
+  return alanlar;
+}
+
+/* ⚠ ARITMETIK KAPISI. Ekstre kendi kendini denetler:
+     devir + yeni + duzeltme − odenen = hesap ozeti borcu
+   Parser bir rakami yanlis okursa denklem TUTMAZ. Yanlis okuyup USTELIK
+   denklemi de tutturmasi pratikte imkansiz.
+   ⚠ RAKAMLARDAN BIRI EKSIKSE DENKLEM KURULMAZ. Bos alani 0 sayip
+     tutturmus gibi gostermek kapinin butun degerini yok eder. */
+function axKapi(a){
+  const eksik = ['devir','yeni','odenen','hesapOzeti']
+    .filter(k => !a[k] || a[k].durum !== 'ok');
+  if (eksik.length) return { durum:'yapilamadi', eksik: eksik };
+  const sol = a.devir.kurus + a.yeni.kurus - a.odenen.kurus;
+  const fark = sol - a.hesapOzeti.kurus;
+  return { durum: fark === 0 ? 'tutuyor' : 'tutmuyor', sol: sol, fark: fark };
+}
+
+async function ekstreOku(){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'application/pdf,.pdf';
+  inp.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.appendChild(inp);
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; inp.remove();
+    if (!f) return;
+    mesaj('kartMsg','ok','Ekstre okunuyor...');
+    let parcalar;
+    try { parcalar = await axParcalar(f); }
+    catch(e){
+      /* ⚠ Ozellik calismazsa GIRIS YOLU KAPANMASIN — mevcut form duruyor. */
+      mesaj('kartMsg','hata','Okuyucu yüklenemedi, alanları elle girebilirsin. ('
+        + (e && e.message || e) + ')');
+      return;
+    }
+    mesajTemizle('kartMsg');
+    await ekstreOnayEkrani(axOku(parcalar), f);
+  };
+  inp.click();
+}
+
+async function ekstreOnayEkrani(a, dosya){
+  const v = await bantVerisi();
+  const c = document.getElementById('icerik');
+  c.textContent = '';
+  const msg = el('div','msg'); msg.id = 'kartMsg'; c.appendChild(msg);
+
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Okunan ekstre — onayla'));
+  k.appendChild(el('div','bilgi',
+    'Aşağıdaki rakamları PDF içinden ben okudum. Sen rakamı değil, EŞLEŞMEYİ '
+  + 'doğrula: her satırın yanında hangi etiketten geldiği yazıyor. Yanlış '
+  + 'eşleşmiş bir satır varsa kaydetme, elle gir.'));
+
+  /* C · HER ALAN YANINDA KAYNAK ETIKETI */
+  const ALAN = [['banka','Banka'],['kartAdi','Kart türü'],['kesim','Hesap kesim tarihi'],
+    ['sonOdeme','Son ödeme tarihi'],['limit','Kart limiti'],['devir','Devir'],
+    ['yeni','Yeni harcama'],['odenen','Ödenen'],['hesapOzeti','Hesap özeti borcu'],
+    ['asgari','Asgari tutar'],['faiz','Faiz (FZ)'],['vergi','Faiz vergisi (VR/FN)']];
+  const sar = el('div','tablo-sar'); const t = document.createElement('table');
+  const hr = document.createElement('tr');
+  ['ALAN','OKUNAN','KAYNAK ETİKET','NASIL BULUNDU'].forEach((h,i) =>
+    hr.appendChild(el('th', i === 1 ? 'sag' : null, h)));
+  t.appendChild(hr);
+  for (const ik of ALAN){
+    const o = a[ik[0]] || { durum:'yok' };
+    const tr = document.createElement('tr');
+    tr.appendChild(td(ik[1]));
+    const dh = document.createElement('td'); dh.className = 'sag';
+    /* ⚠ BOS = BOS. Belirsiz alan "?" ile isaretlenir ve DOLU SAYILMAZ. */
+    if (o.durum === 'ok') dh.textContent = o.ham;
+    else if (o.durum === 'belirsiz') dh.appendChild(el('span','rozet rz-eksik','? BELİRSİZ'));
+    else dh.appendChild(el('span','gri','—'));
+    tr.appendChild(dh);
+    tr.appendChild(td(o.etiket ? '"' + o.etiket + '"' : '—'));
+    tr.appendChild(td(o.kural || (o.durum === 'belirsiz' ? 'birden çok etiket eşleşti' : 'bulunamadı')));
+    t.appendChild(tr);
+  }
+  sar.appendChild(t); k.appendChild(sar);
+
+  /* D · ARITMETIK KAPISININ SONUCU GORUNUR */
+  const kp = axKapi(a);
+  if (kp.durum === 'tutuyor')
+    k.appendChild(el('div','bilgi','✓ Ekstre kendi içinde tutarlı: '
+      + tlk(a.devir.kurus) + ' + ' + tlk(a.yeni.kurus) + ' − ' + tlk(a.odenen.kurus)
+      + ' = ' + tlk(a.hesapOzeti.kurus)));
+  else if (kp.durum === 'tutmuyor')
+    k.appendChild(el('div','uyari-agir','✗ Ekstre kendi içinde TUTMUYOR. '
+      + 'devir + yeni − ödenen = ' + tlk(kp.sol) + ', ama hesap özeti borcu '
+      + tlk(a.hesapOzeti.kurus) + '. Fark ' + tlk(Math.abs(kp.fark))
+      + '. Dört rakamdan en az biri yanlış okundu — kaydetmeden önce ekstreden bak.'));
+  else
+    k.appendChild(el('div','uyari-agir','Denetim YAPILAMADI: ' + kp.eksik.join(', ')
+      + ' okunamadı. Eksik alan sıfır SAYILMADI; denklem kurulmadı.'));
+
+  /* A · BU EKSTRE HANGI KARTA AIT? ONERILIR, SECILMEZ. */
+  k.appendChild(el('label', null, 'Bu ekstre hangi karta ait?')).setAttribute('for','axKart');
+  const sec = document.createElement('select'); sec.id = 'axKart';
+  const bos = document.createElement('option'); bos.value = ''; bos.textContent = '— seç —';
+  sec.appendChild(bos);
+  /* ⚠ KENDILIGINDEN ESLESTIRME YOK. Ayni bankadan dort kart var; yanlis
+     karta yazilan ekstre en zor fark edilen hatadir. Oneri ETIKETTE kalir. */
+  const bankaSade = axSade(a.banka && a.banka.ham || '');
+  const onerilen = v.kart.kartlar.filter(x => {
+    const b = axSade(x.banka || ''); if (!b) return false;
+    const adUyar = b.split(' ').some(w => w.length > 3 && bankaSade.indexOf(w) >= 0);
+    const gunUyar = (a.kesim.durum === 'ok' && x.kesim_gunu === a.kesim.gun)
+                 || (a.sonOdeme.durum === 'ok' && x.son_odeme_gunu === a.sonOdeme.gun);
+    return adUyar && gunUyar;
+  }).map(x => x.id);
+  for (const x of v.kart.kartlar){
+    const o = document.createElement('option'); o.value = x.id;
+    o.textContent = x.ad + (x.banka ? ' · ' + x.banka : '')
+      + (onerilen.indexOf(x.id) >= 0 ? '   ← önerilen' : '');
+    sec.appendChild(o);
+  }
+  const yn = document.createElement('option'); yn.value = '__yeni';
+  yn.textContent = '+ Yeni kart oluştur'; sec.appendChild(yn);
+  k.appendChild(sec);
+  k.appendChild(el('div','kucuk', onerilen.length
+    ? onerilen.length + ' kart bankaya ve güne uyuyor, "← önerilen" diye işaretlendi — ama SEÇİLMEDİ. Seçimi sen yap.'
+    : 'Hiçbir mevcut kart bankaya ve güne uymadı.'));
+
+  /* B · YENI KART: okunanlar dolu, SAHIPLIK BOS VE ZORUNLU */
+  const yk = el('div'); yk.id = 'axYeniKart'; yk.hidden = true; k.appendChild(yk);
+  const alanY = (etiket, id, deger) => {
+    yk.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input'); i.id = id; i.type = 'text';
+    if (deger != null) i.value = deger;
+    yk.appendChild(i); return i;
+  };
+  yk.appendChild(el('div','kbaslik','Yeni kart'));
+  alanY('Kart adı', 'axAd', a.kartAdi.durum === 'ok' ? a.kartAdi.ham : '');
+  alanY('Banka', 'axBanka', a.banka.durum === 'ok' ? a.banka.ham : '');
+  alanY('Kesim günü', 'axKesim', a.kesim.durum === 'ok' ? a.kesim.gun : '');
+  alanY('Son ödeme günü', 'axSonOdeme', a.sonOdeme.durum === 'ok' ? a.sonOdeme.gun : '');
+  alanY('Kart limiti', 'axLimit', a.limit.durum === 'ok' ? a.limit.ham.replace(/\s*T[LRY]+$/i,'') : '');
+  /* ⚠ SAHIP EKSTREDEN GUVENLE OKUNAMAZ. Is Bankasi ekstresinde hem TCKN
+     hem "Firma Adı" vardi, ikisi de kullanicinin adiydi — bundan sirket
+     turu cikarmak TAHMIN olur. HER ZAMAN SORULUR, VARSAYILAN KOYULMAZ. */
+  yk.appendChild(el('label', null, 'Sahiplik (ekstreden okunamaz — sen seç)'))
+    .setAttribute('for','axSahip');
+  const ss = document.createElement('select'); ss.id = 'axSahip';
+  [['','— seç —'],['sahis','Şahıs'],['ltd','Ltd']].forEach(ct => {
+    const o = document.createElement('option'); o.value = ct[0]; o.textContent = ct[1];
+    ss.appendChild(o); });
+  yk.appendChild(ss);
+  yk.appendChild(el('div','kucuk','Limit paylaşımı da ekstrede yazmaz; kart '
+    + 'oluştuktan sonra kart ekranından işaretleyebilirsin.'));
+  sec.onchange = () => { yk.hidden = sec.value !== '__yeni'; };
+
+  /* ⚠ DONEM = KESIM AYI, son odeme ayindan DEGIL. Axess'te kesim 29.07,
+     son odeme 03.08 — ikisi ayri aya duser ve kullanicinin karari kesimdi. */
+  const donem = a.kesim.durum === 'ok' ? a.kesim.ay : null;
+  k.appendChild(el('div', donem ? 'kucuk' : 'uyari-agir', donem
+    ? 'Dönem ' + donem + ' olarak yazılacak — HESAP KESİM ayından türetildi, son ödeme ayından değil.'
+    : 'Hesap kesim tarihi okunamadı; dönem belirlenemiyor. Bu ekstre kaydedilemez, elle gir.'));
+
+  const kaydet = el('button','btn','Kartı ve dönemi kaydet'); kaydet.id = 'axKaydet';
+  kaydet.onclick = () => ekstreKaydet(a, dosya, donem, kaydet);
+  k.appendChild(kaydet);
+  const vaz = el('button','btn2','Vazgeç');
+  vaz.onclick = () => ekranAc('kartlar');
+  k.appendChild(vaz);
+  c.appendChild(k);
+}
+
+async function ekstreKaydet(a, dosya, donem, btn){
+  mesajTemizle('kartMsg');
+  if (!donem){ mesaj('kartMsg','hata','Dönem belirlenemedi.'); return; }
+  const sec = document.getElementById('axKart').value;
+  if (!sec){ mesaj('kartMsg','hata','Bu ekstrenin hangi karta ait olduğunu seç.'); return; }
+  const sy = (id) => document.getElementById(id).value.trim();
+  let kartId = sec, yeniKart = null;
+  if (sec === '__yeni'){
+    if (!sy('axAd'))    { mesaj('kartMsg','hata','Kart adı gerekli.'); return; }
+    if (!sy('axSahip')) { mesaj('kartMsg','hata','Sahiplik zorunlu — ekstreden okunamaz, sen seçmelisin.'); return; }
+    const gun = (id) => { const x = parseInt(sy(id),10);
+      return Number.isFinite(x) && x >= 1 && x <= 31 ? x : null; };
+    const lim = sy('axLimit') ? paraCoz(sy('axLimit')) : null;
+    if (lim && !lim.ok){ mesaj('kartMsg','hata','Kart limiti okunamadı: ' + lim.hata); return; }
+    yeniKart = { ad: sy('axAd'), banka: sy('axBanka') || null, sahip: sy('axSahip'),
+      kesim_gunu: gun('axKesim'), son_odeme_gunu: gun('axSonOdeme'),
+      kart_limiti: lim && lim.kurus > 0 ? (lim.kurus/100).toFixed(2) : null,
+      giren_id: PROFIL ? PROFIL.id : null };
+  }
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const bitir = () => { btn.disabled = false; btn.textContent = 'Kartı ve dönemi kaydet'; };
+
+  /* F · PDF O DONEMIN BELGESI. Zaten yuklendi, IKINCI KEZ YUKLETMIYORUZ;
+     mevcut dosyaYukle yolu kullaniliyor, yeni yol acilmadi.
+     ⚠ Belge yuklenemezse kayit DURMUYOR — rakamlar belgeden daha
+       onemli; ama sessiz de gecmiyor, mesajda yaziyor. */
+  let yol = null, belgeHatasi = null;
+  try { yol = await dosyaYukle(dosya, 'kart_ekstre'); }
+  catch(e){ belgeHatasi = e && e.message || String(e); }
+
+  if (yeniKart){
+    const r = await sb.from('kart').insert(yeniKart).select('id').single();
+    if (r.error){ bitir(); hataYaz('kartMsg','Kart oluşturulamadı — hiçbir şey kaydedilmedi.', r.error); return; }
+    kartId = r.data.id;
+  }
+  const P = (o) => o && o.durum === 'ok' ? (o.kurus/100).toFixed(2) : null;
+  const satir = { kart_id: kartId, donem: donem,
+    devir: P(a.devir) || '0.00', yeni_harcama: P(a.yeni) || '0.00',
+    duzeltme: '0.00', odenen: P(a.odenen) || '0.00',
+    asgari_tutar: P(a.asgari), faiz_tutari: P(a.faiz), vergi_masraf_tutari: P(a.vergi),
+    /* ⚠ donem_odemesi OKUNMAZ: o, ekstreye KARSILIK yapilan odeme ve
+       ekstre basildiginda henuz yapilmamistir (v107'deki ayrim). */
+    foto_path: yol, giren_id: PROFIL ? PROFIL.id : null };
+  const r2 = await sb.from('kart_donem').insert(satir);
+  if (r2.error){
+    bitir();
+    /* ⚠ YETIM KART SESSIZ KALMAZ. Kart olustu ama donem olusmadiysa
+       kullanici ne oldugunu BILMELI — yoksa ikinci denemede ayni karti
+       bir kez daha olusturur. */
+    hataYaz('kartMsg', yeniKart
+      ? 'Kart OLUŞTURULDU ama dönem kaydedilemedi. Kart ekranında duruyor; dönemi elle ekle.'
+      : 'Dönem kaydedilemedi. Kart değişmedi.', r2.error);
+    return;
+  }
+  await kartDetayAc(kartId);
+  mesaj('kartMsg','ok', donem + ' ekstresi kaydedildi'
+    + (yol ? ' ve PDF döneme eklendi.' : '.')
+    + (belgeHatasi ? ' ⚠ PDF yüklenemedi (' + belgeHatasi + ') — "+ Ekstre" ile ekleyebilirsin.' : ''));
+}
+
 async function vKartlar(){
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
@@ -3114,6 +3504,14 @@ async function vKartlar(){
 
   const k = el('div','kart');
   k.appendChild(el('div','kbaslik','Kartlar (' + v.kart.kartlar.length + ')'));
+  /* AX · okuyucunun girisi. Ekstre bir KARTA degil bir DONEME ait ve
+     kart henuz olmayabilir; bu yuzden kart kutusunun icinde degil,
+     liste basinda duruyor. */
+  const oku = el('button','btn2','Ekstre yükle ve oku (PDF)');
+  oku.onclick = () => ekstreOku();
+  k.appendChild(oku);
+  k.appendChild(el('div','kucuk','PDF tarayıcıda okunur, hiçbir yere '
+    + 'gönderilmez. Okunan alanlar sana gösterilir; kaydetmeden önce onaylarsın.'));
   /* ⚠ FAZ 2c·C · BOS DURUM TASARLANDI. Olculdu: bu ekranin kendine ait
      DEGERI SIFIR — gorunen tum tutarlar ust banttan geliyor. Ekran
      GERCEKTEN bos. Uc soruya cevap veriyor: ne oldugu, neden bos,
