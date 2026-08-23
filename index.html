@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-23-1">
+<meta name="surum" content="2026-08-23-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1610,6 +1610,15 @@ const BB_GG = t => t.slice(8,10)+'.'+t.slice(5,7);
 /* Takvim haftası Pzt–Paz. JS'te Paz=0; Pzt=0 olacak şekilde kaydırılır.
    ⚠ 23.08.2026 PAZAR (brifteki "Cumartesi" varsayımı yanlıştı; iki yöntemle ölçüldü) → 17–23. */
 const BB_HAFTA = b => { const p = (new Date(b+'T00:00').getDay()+6)%7; return { bas: BB_GUN(b,-p), son: BB_GUN(b,6-p) }; };
+/* BD · liste ac/kapa. Kapanan LISTE, rakam degil — ozet satiri hep gorunur. */
+function bdAc(btn, id){
+  const k = document.getElementById(id + 'k'), d = document.getElementById(id + 'd');
+  const acildi = k.hidden;               // gizliyse simdi ACILIYOR
+  k.hidden = !acildi;
+  if (d) d.style.display = acildi ? 'none' : '';
+  btn.setAttribute('aria-expanded', String(acildi));
+  btn.textContent = acildi ? 'kapat' : btn.dataset.t;
+}
 
 async function odemelerBlogu(hedefId){
   const el = document.getElementById(hedefId); if (!el) return;
@@ -1706,6 +1715,32 @@ async function odemelerBlogu(hedefId){
 
   const satir = (x) => `<div class="sr"><div><div class="sr-ad"><span class="rozet rz-gri" style="margin-right:6px">${BB_GG(x.t)}</span>${x.ad}</div>
       <div class="sr-alt">${x.alt}</div></div><div class="sr-tut">${x.tutar == null ? '<span style="color:var(--uyari)">—</span>' : tl(x.tutar)}</div></div>`;
+  /* BD · VARSAYILAN KAPALI. Kullanici: "cok inmiyor mu asagiya" — blok 375'te
+     1236px olculdu. Kapanan sey LISTE; ozet satiri (rakam + "+N tutarsiz")
+     HEP gorunur. Bugun/yarin vadeli satir kapali halde de gorunur — "yarin
+     odeme var" gizlenmez. Satirlar tarihe sirali oldugundan gorunur kume
+     her zaman bir ONEKtir; liste ikiye bolunerek ciziliyor. */
+  const yarin = BB_GUN(b, 1);
+  let bdN = 0;
+  const grup = (ozetHtml, sinif, rows, acikMax) => {
+    const ac = sinif ? `<div class="${sinif} kb-sr">` : '<div class="kb-sr" style="background:var(--acik)">';
+    let h = ac + ozetHtml;
+    if (!rows.length) return h + '</div>';
+    const acik = rows.filter((x, i) => i < acikMax || x.t === b || x.t === yarin);
+    const gizli = rows.length - acik.length;
+    /* Gizlenen satir yoksa dugme de yok — bos konteyner acan dugme gurultu. */
+    if (!gizli) return h + '</div>' + acik.map(satir).join('');
+    const id = 'bdG' + (++bdN);
+    h += ` <button class="btn2 kb-bt" id="${id}b" aria-expanded="false" aria-controls="${id}k"
+      data-t="tümünü gör (${rows.length})" onclick="bdAc(this,'${id}')">tümünü gör (${rows.length})</button></div>`;
+    h += acik.map(satir).join('');
+    h += `<div id="${id}k" hidden>` + rows.slice(acik.length).map(satir).join('') + '</div>';
+    if (gizli) h += `<div id="${id}d" class="sr-alt" style="cursor:pointer;min-height:28px;padding:5px 2px"
+      onclick="bdAc(document.getElementById('${id}b'),'${id}')">+${gizli} daha</div>`;
+    return h;
+  };
+  const grupGec = L.filter(x => x.t < b), grupHaf = L.filter(x => x.t >= b && x.t <= hSon),
+        grupSonra = L.filter(x => x.t > hSon && x.t <= s30);
   el.innerHTML = `<div class="kart" id="odemelerKart">
     ${kbaslik('ÖNÜMÜZDEKİ', 'Ödemeler', `<button class="btn2" onclick="katlaAc('bbKutu',this)">Banka gir</button>`)}
     <div class="bilgi-not" style="margin-top:0"><b>Elde:</b> kasa ${kasaM} · banka ${bankaM}</div>
@@ -1716,10 +1751,10 @@ async function odemelerBlogu(hedefId){
       <button class="btn" id="bbKaydet" onclick="bankaBakiyeKaydet()">Kaydet</button><div class="hata-msg" id="bbMsg"></div>
       <div class="ipucu" style="margin-top:6px">Fotoğraf: şu an bankada ne var. Toplanmaz, en yenisi geçerli.</div>
     </div>
-    ${gec.n ? `<div class="uyari-agir kb-sr">Vadesi geçti: ${pz(gec)}</div>` : ''}
-    <div class="uyari-orta kb-sr">Bu hafta (${BB_GG(hBas)}–${BB_GG(hSon)}): ${pz(haf)}</div>
-    <div class="kb-sr" style="background:var(--acik)">30 gün (→ ${BB_GG(s30)}): ${pz(g30)}</div>
-    ${L.length ? L.map(satir).join('') : bosDurum('liste','30 gün içinde ödeme yok','Kredi, kart ekstresi, vergi vadesi ve kart taksiti burada birleşir.')}
+    ${gec.n ? grup('Vadesi geçti: ' + pz(gec), 'uyari-agir', grupGec, 0) : ''}
+    ${grup('Bu hafta (' + BB_GG(hBas) + '–' + BB_GG(hSon) + '): ' + pz(haf), 'uyari-orta', grupHaf, 3)}
+    ${grup('30 gün (→ ' + BB_GG(s30) + '): ' + pz(g30), '', grupSonra, 0)}
+    ${L.length ? '' : bosDurum('liste','30 gün içinde ödeme yok','Kredi, kart ekstresi, vergi vadesi ve kart taksiti burada birleşir.')}
     ${D.length ? `<div class="kb-et" style="margin-top:10px">DİKKAT · sistemin bilmedikleri</div>` + D.map(d =>
       `<div class="uyari-orta uy-sr" onclick="${d[2]}"><span class="uy-et">${d[0].toUpperCase()}</span><span>${d[1]}</span></div>`).join('') : ''}
   </div>`;
