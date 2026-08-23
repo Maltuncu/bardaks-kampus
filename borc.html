@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-22-1">
+<meta name="surum" content="borc-2026-08-22-2">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -477,6 +477,37 @@ td.sag,th.sag{text-align:right}
 .ay-bas .ad{font-size:15px;font-weight:700}
 .ay-bas .tp{font-size:13px;font-weight:600;color:var(--soluk)}
 .tk{border:1.5px solid var(--cizgi);border-radius:12px;padding:12px;margin-bottom:9px;background:var(--kart)}
+/* AY · TEK SATIRLIK OZET SERIDI (tam bant yalniz Takvim'de) */
+.serit-ozet{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  background:var(--kart);border:1.5px solid var(--cizgi);border-radius:12px;
+  padding:9px 12px;margin-bottom:10px;min-height:46px;cursor:pointer;
+  overflow-x:auto;scrollbar-width:none}
+.serit-ozet::-webkit-scrollbar{display:none}
+.serit-ozet:focus-visible{outline:3px dashed var(--ana);outline-offset:2px}
+.so-p{display:flex;align-items:baseline;gap:5px;white-space:nowrap;flex:none}
+.so-et{font-size:10px;font-weight:800;letter-spacing:.5px;color:var(--soluk);text-transform:uppercase}
+.so-dg{font-size:15px;font-weight:600;color:var(--metin)}
+.so-ok{margin-left:auto;color:var(--soluk);font-size:13px;flex:none;padding-left:6px}
+/* AY · KART KUTULARI */
+.kk-izgara{display:grid;grid-template-columns:1fr;gap:10px;margin-top:4px}
+@media(min-width:768px){.kk-izgara{grid-template-columns:1fr 1fr}}
+.kk{border:1.5px solid var(--cizgi);border-radius:14px;padding:12px 13px;
+  display:flex;flex-direction:column;min-height:184px;overflow:hidden}
+.kk:focus-visible{outline:3px dashed currentColor;outline-offset:2px}
+.kk-ust{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.kk-banka{font-weight:800;font-size:14px;line-height:1.25;overflow-wrap:anywhere}
+.kk-ad{font-size:12px;opacity:.74;margin-top:1px;overflow-wrap:anywhere}
+.kk-gun{font-size:10px;font-weight:700;white-space:nowrap;border-radius:999px;
+  padding:3px 8px;background:rgba(255,255,255,.6);letter-spacing:.2px}
+.kk-tutar{font-size:26px;font-weight:700;margin-top:10px;line-height:1.1;white-space:nowrap}
+.kk-vade{font-size:12px;margin-top:3px;opacity:.85;overflow-wrap:anywhere}
+.kk-vade.gecti{color:var(--hata);font-weight:700;opacity:1}
+.kk-vade.bugun{color:var(--uyari);font-weight:700;opacity:1}
+.kk-dip{margin-top:auto;padding-top:10px}
+.kk-cubuk{height:7px;border-radius:999px;background:rgba(0,0,0,.11);overflow:hidden;margin-bottom:4px}
+.kk-cubuk i{display:block;height:100%;border-radius:999px;background:currentColor;opacity:.72}
+.kk-cubuk.asti i{background:var(--hata);opacity:1}
+.kk-lim{font-size:11px;opacity:.82;overflow-wrap:anywhere}
 /* ⚠ AO · Klavye odagi. YENI DESEN UYDURULMADI — takvim gununun kullandigi
    kalibin AYNISI (dashed + disa tasan offset, bkz. .tkv-g:focus-visible):
    renk kaldirilsa bile ayirt edilebilir olsun diye renk disi ozellik. */
@@ -788,6 +819,11 @@ function dahaKapat(){ document.getElementById('dahaOv').classList.remove('acik')
 const tarihStr = d => { const t = new Date(d);
   return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); };
 const bugun = () => tarihStr(new Date());
+/* ⚠ AY · bantVerisi'nin ICINDEN modul kapsamina TASINDI: kart kutusundaki
+   "kaç gün kaldı/geçti" hesabi, bandin gecikme sayimiyla AYNI kirpma
+   kuralini kullanmali. Iki kopya iki ayri kural demektir. Govde AYNEN. */
+const ayinSonGunu = (ay) => { const [y,m] = ay.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
 const trGun = s => s ? new Date(s+'T00:00').toLocaleDateString('tr-TR') : '—';
 const AYLAR = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const ayAdi = ym => { const [y,m] = ym.split('-'); return AYLAR[+m-1] + ' ' + y; };
@@ -1397,8 +1433,6 @@ async function bantVerisi(){
   const oncekiAy = (ay) => { const [y,m] = ay.split('-').map(Number);
     const d = new Date(Date.UTC(y, m - 2, 1));      // m-2: bir onceki ayin indeksi
     return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0'); };
-  const ayinSonGunu = (ay) => { const [y,m] = ay.split('-').map(Number);
-    return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
   const donemAnahtar = new Map(kart.donemler.map(d => [d.kart_id + '|' + d.donem, d]));
   const buAyKart = { sahis:0, ltd:0, toplam:0, gunYok:0, donemYok:0, pasif:0, gecikmis:0 };
   {
@@ -1718,8 +1752,8 @@ function bantCiz(v){
        taraf da AYNI kavram — bu ay cikacak nakit.
      ⚠ BILESENLER ALTTA GORUNUR KALIR. Toplami gosterip bilesenleri
        gizlemek "kapsami belli KPI" sartini bozardi. */
-  const sBuAy = v.S.buAy - v.S.buAyOdenen;
-  const lBuAy = v.L.buAy - v.L.buAyOdenen;
+  /* AY · ayni iki ifade seritte de lazim; bantOzet'e TASINDI. */
+  const oz = bantOzet(v), sBuAy = oz.sBuAy, lBuAy = oz.lBuAy;
   const kb = v.buAyKart;
   const k2 = katman('Bu ay çıkacak nakit', 'şahıs + Ltd');
   const bas2 = el('div','bas');
@@ -2456,7 +2490,7 @@ async function vKrediler(){
     grup.get(t.kredi_id).push(t);
   }
   c.textContent = '';
-  c.appendChild(bantCiz(v));
+  c.appendChild(ozetCiz(v,'krediler'));
   const msg = el('div','msg'); msg.id = 'krediMsg'; c.appendChild(msg);
 
   const k = el('div','kart');
@@ -3430,13 +3464,270 @@ async function ekstreKaydet(a, dosya, donem, btn){
     + (belgeHatasi ? ' ⚠ PDF yüklenemedi (' + belgeHatasi + ') — "+ Ekstre" ile ekleyebilirsin.' : ''));
 }
 
+/* ==================================================================
+   AY · BANT YERINE SERIT + KART KUTULARI
+   ==================================================================
+   ⚠ HICBIR TUTAR, HICBIR HESAP YOLU DEGISMEDI. Bu blok yalnizca
+     YERLESIM ve GORUNUM. Serit, bandin gosterdigi rakamlarin
+     AYNISINI gosteriyor; yeni bir toplam URETILMIYOR.
+   ⚠ Olculdu: bant bes ekranda BIREBIR ayni metni basiyordu (781
+     karakter, uc kumesi tek elemanli). Kartlar ekraninda kart
+     kutusu katlanin altinda kaliyordu.
+   ================================================================== */
+
+/* ⚠ TEK KAYNAK. Bu iki ifade bantCiz'in ICINDEN tasindi; serit ile
+   bant ayni degeri iki ayri yerde HESAPLAMASIN diye. Ifadeler
+   degistirilmedi, yeri degisti. */
+function bantOzet(v){
+  return { sBuAy: v.S.buAy - v.S.buAyOdenen,
+           lBuAy: v.L.buAy - v.L.buAyOdenen };
+}
+
+/* ⚠ TEK KAYNAK · 2. vKartlar'daki limit dongusu buraya tasindi;
+   serit ayni rakami tekrar hesaplamasin. Govde AYNEN kopyalandi. */
+function kartLimitOzeti(v){
+  const lt = { limit:0, kullanilan:0, limitsiz:0, donemsiz:0, asan:0, adet:0, paylasan:0 };
+  for (const kt of v.kart.kartlar){
+    if (kt.limit_paylasan_id){ lt.paylasan++; continue; }
+    if (kt.kart_limiti == null){ lt.limitsiz++; continue; }
+    let kul = 0, donemVar = false;
+    for (const x of v.kart.kartlar){
+      if (x.id !== kt.id && x.limit_paylasan_id !== kt.id) continue;
+      const g = v.sonDonem.get(x.id);
+      if (g){ kul += kr(g.kalan); donemVar = true; }
+    }
+    if (!donemVar){ lt.donemsiz++; continue; }
+    const lim = kr(kt.kart_limiti);
+    lt.limit += lim; lt.kullanilan += kul; lt.adet++;
+    if (kul > lim) lt.asan++;
+  }
+  return lt;
+}
+
+/* ⚠ TAM BANT YALNIZ TAKVIM'DE. Diger dort ekranda tek satirlik,
+   O EKRANA AIT serit; dokununca ayni sayfada tam bant aciliyor.
+   ⚠ UYARI SATIRLARI SERIDE GIRMEZ — onlar ekranin ustunde ayri
+     kalir. Uyariyi ozetin icine gomup kucultmek onu gizlemektir. */
+function ozetCiz(v, ekran, ek){
+  if (ekran === 'takvim') return bantCiz(v);
+  const o = bantOzet(v);
+  const sar = el('div');
+  const s = el('button','serit-ozet');
+  s.type = 'button';
+  s.setAttribute('aria-expanded','false');
+
+  const parca = [];
+  if (ekran === 'krediler'){
+    parca.push(['Kredi', tk(v.S.anapara)], ['Ltd', tk(v.lNominal)],
+               ['bu ay', tk(o.sBuAy + o.lBuAy)]);
+  } else if (ekran === 'kartlar'){
+    const lt = kartLimitOzeti(v);
+    parca.push(['Kart', tk(v.kartKalan)], ['bu ay', tk(v.buAyKart.toplam)]);
+    /* ⚠ "hesaplanamaz" HALI KORUNUYOR. Limiti girilmemis kart varsa
+       toplam EKSIKTIR; 0 yazmak "alanin yok" gibi okunur. */
+    parca.push(['kalan alan', lt.adet ? tk(lt.limit - lt.kullanilan) : 'hesaplanamaz']);
+  } else if (ekran === 'maden'){
+    parca.push(['Rayiç', v.madenBugun ? tk(v.madenBugun) : 'hesaplanamaz'],
+               ['maliyet', v.madenAlis ? tk(v.madenAlis) : 'hesaplanamaz']);
+  } else if (ekran === 'sahis'){
+    parca.push(['Şahıs', tk(v.sahisKalan)],
+               ['hesap', String(v.sahis.hesaplar.length)]);
+  }
+  for (const [et, dg] of parca){
+    const p = el('span','so-p');
+    p.appendChild(el('span','so-et', et));
+    p.appendChild(el('span','so-dg', dg));
+    s.appendChild(p);
+  }
+  const ok = el('span','so-ok','▾'); s.appendChild(ok);
+  s.setAttribute('aria-label', parca.map(p => p[0] + ' ' + p[1]).join(', ')
+    + '. Tam özeti aç.');
+  sar.appendChild(s);
+
+  const tam = el('div'); tam.hidden = true; sar.appendChild(tam);
+  s.onclick = () => {
+    if (tam.hidden){
+      if (!tam.firstChild){
+        if (ek) tam.appendChild(ek);
+        tam.appendChild(bantCiz(v));
+      }
+      tam.hidden = false; ok.textContent = '▴';
+      s.setAttribute('aria-expanded','true');
+    } else {
+      tam.hidden = true; ok.textContent = '▾';
+      s.setAttribute('aria-expanded','false');
+    }
+  };
+  return sar;
+}
+
+/* ⚠ BANKA RENGI YALNIZ ZEMINDE, hafif tonda; metin AYNI ailenin
+   koyu tonu (siyah/gri DEGIL). Kontrast oranlari hesaplandi, en
+   dusugu 7.28 — esik 4.5.
+   ⚠ RISK RENKLE ANLATILMAZ. Kutu gecikmis olsa da banka renginde
+     kalir; risk ROZET ve METIN ile soylenir. Kutuyu kirmiziya
+     boyamak banka kimligi ile finansal riski birbirine karistirir. */
+const KK_BANKA = [
+  [['is bankasi','isbank','turkiye is'], '#E8EFF9', '#0F3A66'],
+  [['akbank'],                            '#FBEAEC', '#7E1119'],
+  [['garanti'],                           '#E6F3EB', '#14572F'],
+  [['yapi kredi','yapikredi'],            '#E9EDF7', '#1F3160'],
+  [['ziraat'],                            '#FAEDE8', '#7A3218'],
+  [['qnb','finansbank'],                  '#F1EAF7', '#452566'],
+  [['halkbank','halk bankasi'],           '#E8F1F8', '#0F4770'],
+  [['vakif'],                             '#F4F0DF', '#5C4D10'],
+  [['deniz'],                             '#E9F3F7', '#0D4A63'],
+  [['teb'],                               '#EAF2EC', '#1C5230']
+];
+function bankaTonu(ad){
+  const s = axSade(ad || '');
+  for (const [anahtarlar, bg, fg] of KK_BANKA)
+    for (const a of anahtarlar) if (s.indexOf(a) >= 0) return { bg: bg, fg: fg };
+  return { bg:'#EBF0FA', fg:'#183F78' };   // varsayilan · kontrast 9.09
+}
+
+function kartKutusu(v, kart, buAy, liste){
+  const son = v.sonDonem.get(kart.id);
+  const buAyKaydi = v.kart.donemler.find(d => d.kart_id === kart.id && d.donem === buAy);
+  const gosterilen = buAyKaydi || son;
+  const ton = bankaTonu(kart.banka);
+
+  const kutu = el('div','kk');
+  kutu.style.background = ton.bg; kutu.style.color = ton.fg;
+  kutu.style.borderColor = ton.fg + '33';
+  kutu.style.cursor = 'pointer';
+  kutu.onclick = () => kartDetayAc(kart.id);
+
+  /* UST · banka koyu, kart adi soluk; sag ust kosede kesim/odeme rozeti */
+  const ust = el('div','kk-ust');
+  const sol = el('div'); sol.style.minWidth = '0';
+  sol.appendChild(el('div','kk-banka', kart.banka || 'banka girilmemiş'));
+  const ad2 = el('div','kk-ad');
+  ad2.appendChild(document.createTextNode(kart.ad));
+  ad2.appendChild(document.createTextNode(' · '));
+  ad2.appendChild(el('span', sahipSinif(kart.sahip), sahipKisa(kart.sahip)));
+  if (!kart.aktif){ ad2.appendChild(document.createTextNode(' '));
+    ad2.appendChild(el('span','rozet rz-sari','pasif')); }
+  sol.appendChild(ad2);
+  ust.appendChild(sol);
+  const sag = el('div'); sag.style.cssText = 'display:flex;gap:6px;align-items:center;flex:none';
+  sag.appendChild(el('span','kk-gun',
+    (kart.kesim_gunu ? 'kesim ' + kart.kesim_gunu : 'kesim —')
+    + ' · ' + (kart.son_odeme_gunu ? 'ödeme ' + kart.son_odeme_gunu : 'ödeme —')));
+  /* ⚠ ⋯ menusu kutunun ICINDE ama kutu tiklamasini TETIKLEMEZ. */
+  const dm = digerMenu([['Kartı arşivle', (a) => kartSil(kart, liste, a)]]);
+  dm.addEventListener('click', (e) => e.stopPropagation());
+  sag.appendChild(dm);
+  ust.appendChild(sag);
+  kutu.appendChild(ust);
+
+  /* ORTA · kutunun en buyuk rakami + vade satiri */
+  kutu.appendChild(el('div','kk-tutar', gosterilen ? tl(gosterilen.kalan) : '—'));
+  const vd = el('div','kk-vade');
+  if (!gosterilen) vd.textContent = 'dönem girilmemiş';
+  else if (kart.son_odeme_gunu == null) vd.textContent = 'son ödeme günü girilmemiş';
+  else {
+    /* ⚠ "3 gün kaldı" yazan bir kutu, gun GECMISSE YALAN SOYLER.
+       Gun farki bugunun gunuyle karsilastiriliyor; ayin son gununden
+       buyuk odeme gunu ayin sonuna kirpiliyor (buAyKart ile ayni kural). */
+    const bg2 = bugun(), ayGun = +bg2.slice(8,10);
+    const vg = Math.min(kart.son_odeme_gunu, ayinSonGunu(bg2.slice(0,7)));
+    const fark = vg - ayGun;
+    const tarih = String(vg).padStart(2,'0') + '.' + bg2.slice(5,7);
+    vd.textContent = 'son ödeme ' + tarih + ' · '
+      + (fark > 0 ? fark + ' gün kaldı' : fark === 0 ? 'bugün son gün' : (-fark) + ' gün geçti');
+    if (fark < 0){ vd.className = 'kk-vade gecti';
+      vd.appendChild(document.createTextNode(' '));
+      vd.appendChild(el('span','rozet rz-eksik','SON ÖDEME GEÇTİ')); }
+    else if (fark === 0) vd.className = 'kk-vade bugun';
+  }
+  kutu.appendChild(vd);
+
+  /* ALT · limit cubugu */
+  const dip = el('div','kk-dip');
+  const paylasanlar = v.kart.kartlar.filter(x => x.limit_paylasan_id === kart.id);
+  if (kart.limit_paylasan_id){
+    /* ⚠ CUBUK YOK: bu kartin kendi limiti yok, cubuk "%0 kullanilmis"
+       gibi okunurdu. */
+    const ana = v.kart.kartlar.find(x => x.id === kart.limit_paylasan_id);
+    dip.appendChild(el('div','kk-lim',
+      (ana ? ana.ad : 'başka bir kart') + ' kartının limitinden kullanıyor'));
+  } else if (kart.kart_limiti == null){
+    /* ⚠ BOS CUBUK CIZILMEZ — "limiti yok" ile "limiti bilinmiyor" ayri. */
+    dip.appendChild(el('div','kk-lim','limit girilmemiş'));
+  } else {
+    const lim = kr(kart.kart_limiti);
+    let kul = 0, donemVar = false;
+    for (const x of v.kart.kartlar){
+      if (x.id !== kart.id && x.limit_paylasan_id !== kart.id) continue;
+      const g = v.sonDonem.get(x.id);
+      if (g){ kul += kr(g.kalan); donemVar = true; }
+    }
+    if (!donemVar) dip.appendChild(el('div','kk-lim','limit ' + tk(lim) + ' · kullanım bilinmiyor'));
+    else {
+      const bos = lim - kul, asti = bos < 0;
+      const cb = el('div','kk-cubuk' + (asti ? ' asti' : ''));
+      const i = document.createElement('i');
+      i.style.width = Math.max(2, Math.min(100, lim ? (kul / lim) * 100 : 0)) + '%';
+      cb.appendChild(i); dip.appendChild(cb);
+      const ls = el('div','kk-lim');
+      ls.appendChild(document.createTextNode('limit ' + tk(lim) + ' · '
+        + (asti ? 'limit aşımı ' + tk(-bos) : 'kalan alan ' + tk(bos))
+        + (paylasanlar.length ? ' · ' + paylasanlar.length + ' kartla paylaşımlı' : '')));
+      dip.appendChild(ls);
+      if (asti) dip.appendChild(el('span','rozet rz-eksik','LİMİT AŞILDI'));
+    }
+  }
+  if (gosterilen){
+    const r = el('div'); r.style.marginTop = '4px';
+    if (gosterilen.devir_tutarsiz) r.appendChild(el('span','rozet rz-eksik','DEVİR TUTMUYOR'));
+    if (!gosterilen.foto_path){
+      if (gosterilen.devir_tutarsiz) r.appendChild(document.createTextNode(' '));
+      r.appendChild(el('span','rozet rz-sari','EKSTRE EKSİK'));
+    }
+    if (r.children.length) dip.appendChild(r);
+  }
+  kutu.appendChild(dip);
+
+  /* AO'da kurulan erisim deseni — yeni katman YAZILMADI, mevcut cagriliyor. */
+  kutuErisim(kutu, (kart.banka ? kart.banka + ' ' : '') + kart.ad
+    + ', kalan ' + (gosterilen ? tl(gosterilen.kalan) : 'girilmemiş') + ', detayı aç');
+  return kutu;
+}
+
 async function vKartlar(){
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
   const buAy = bugun().slice(0,7);
 
   c.textContent = '';
-  c.appendChild(bantCiz(v));
+  /* ⚠ AY · OLCULDU: "Toplam limit" kutusu 324px'ti ve ilk kart 1280x800'de
+     y=733'e, yani katin dibine dusuyordu — turun sikayeti tam olarak buydu.
+     Kutunun UC RAKAMI artik SERITTE de var (kalan alan seride kondu), yani
+     ayni ozet iki kez cikiyordu. Rakamlar seridin ACILAN paneline tasindi.
+     ⚠ UYARILAR TASINMADI: limiti girilmemis kart, limit asimi ve paylasim
+       notu ekranin ustunde AYRI kaliyor. Uyariyi ozetin icine gomup
+       kucultmek onu gizlemektir. */
+  const lt = kartLimitOzeti(v);
+  let limitSayilari = null;
+  if (lt.adet || lt.limitsiz || lt.donemsiz){
+    limitSayilari = el('div','kart');
+    limitSayilari.appendChild(el('div','kbaslik','Toplam limit'));
+    const sat2 = (e2,d2) => { const x = el('div','satir');
+      x.appendChild(el('span','et', e2)); x.appendChild(el('span','dg', d2));
+      limitSayilari.appendChild(x); };
+    sat2('Toplam limit', lt.adet ? tlk(lt.limit) : 'hesaplanamaz');
+    sat2('Kullanılan',   lt.adet ? tlk(lt.kullanilan) : 'hesaplanamaz');
+    sat2('Kalan alan',   lt.adet ? tlk(lt.limit - lt.kullanilan) : 'hesaplanamaz');
+    /* ⚠⚠ KAVRAM UYARISI RAKAMLARIN YANINDA KALIR — maden rayic uyarisiyla
+       AYNI SINIF yanlis okuma. Sistem EKSTRE DONEMI tutuyor, canli hareket
+       TUTMUYOR: "kullanilan" son ekstrenin kalanidir. Bu cumle olmadan
+       "kalan alan" bankadaki kullanilabilir limit sanilir. */
+    limitSayilari.appendChild(el('div','kavram',
+      'Ekstrelere göre — son kesimden bu yana yapılan harcamalar dahil değil. '
+    + 'Bankadaki kullanılabilir limit daha az olabilir.'));
+  }
+  c.appendChild(ozetCiz(v,'kartlar', limitSayilari));
   const msg = el('div','msg'); msg.id = 'kartMsg'; c.appendChild(msg);
   c.appendChild(kartUyarisi());
 
@@ -3452,35 +3743,14 @@ async function vKartlar(){
      ⚠ LIMITI GIRILMEMIS kart varsa toplam EKSIKTIR ve bunu SOYLER.
        Eksik veriyle hesaplanmis toplami tam gibi gostermek "ne kadar
        alanim var" sorusuna YANLIS cevap verir (AR'deki kuralin aynisi). */
-  const lt = { limit:0, kullanilan:0, limitsiz:0, donemsiz:0, asan:0, adet:0, paylasan:0 };
-  for (const kt of v.kart.kartlar){
-    /* ⚠ AV · PAYLASAN KART TOPLAMA GIRMEZ — limiti zaten ana kartta
-       sayiliyor; ikisini de toplasaydik AYNI LIMITI IKI KEZ sayardik.
-       Kullanimi ana kartin havuzunda hesaba giriyor, kaybolmuyor. */
-    if (kt.limit_paylasan_id){ lt.paylasan++; continue; }
-    if (kt.kart_limiti == null){ lt.limitsiz++; continue; }
-    /* Havuz kullanimi: bu kartin ve ONUN LIMITINDEN kullanan kartlarin
-       kalanlari. Ana kartin donemi olmasa bile paylasanin donemi varsa
-       kullanim BILINIYOR demektir. */
-    let kul = 0, donemVar = false;
-    for (const x of v.kart.kartlar){
-      if (x.id !== kt.id && x.limit_paylasan_id !== kt.id) continue;
-      const g = v.sonDonem.get(x.id);
-      if (g){ kul += kr(g.kalan); donemVar = true; }
-    }
-    if (!donemVar){ lt.donemsiz++; continue; }
-    const lim = kr(kt.kart_limiti);
-    lt.limit += lim; lt.kullanilan += kul; lt.adet++;
-    if (kul > lim) lt.asan++;
-  }
+  /* ⚠ AY · DONGU kartLimitOzeti'ne TASINDI — serit ayni rakami ikinci
+     kez hesaplamasin. Govde degismedi, yeri degisti.
+     ⚠ AV · PAYLASAN KART TOPLAMA GIRMEZ; kullanimi ana kartin
+       havuzunda hesaba giriyor. Gerekce fonksiyonun icinde yaziyor. */
+  /* ⚠ AY · SAYILAR SERIDIN ACILAN PANELINE TASINDI (yukarida kuruluyor).
+     Burada YALNIZ UYARILAR kaldi ve ekranin USTUNDE AYRI duruyor. */
   if (lt.adet || lt.limitsiz || lt.donemsiz){
-    const tl2 = el('div','kart');
-    tl2.appendChild(el('div','kbaslik','Toplam limit'));
-    const sat2 = (e2,d2) => { const x = el('div','satir');
-      x.appendChild(el('span','et', e2)); x.appendChild(el('span','dg', d2)); tl2.appendChild(x); };
-    sat2('Toplam limit', lt.adet ? tlk(lt.limit) : 'hesaplanamaz');
-    sat2('Kullanılan',   lt.adet ? tlk(lt.kullanilan) : 'hesaplanamaz');
-    sat2('Kalan alan',   lt.adet ? tlk(lt.limit - lt.kullanilan) : 'hesaplanamaz');
+    const tl2 = el('div');
     const eks = [];
     if (lt.limitsiz) eks.push(lt.limitsiz + ' kartın limiti girilmemiş');
     if (lt.donemsiz) eks.push(lt.donemsiz + ' kartın dönemi girilmemiş');
@@ -3491,15 +3761,7 @@ async function vKartlar(){
       tl2.appendChild(el('div','uyari-orta', eks.join(' · ') + ' — toplam EKSİK, bu kartlar hesaba girmedi.'));
     if (lt.asan)
       tl2.appendChild(el('div','uyari-agir', lt.asan + ' kartta kullanılan tutar limiti AŞIYOR.'));
-    /* ⚠⚠ KAVRAM UYARISI — maden rayic uyarisiyla AYNI SINIF yanlis okuma.
-       Sistem EKSTRE DONEMI tutuyor, canli hareket TUTMUYOR: "kullanilan"
-       son ekstrenin kalanidir, kesimden sonraki harcamalar burada YOK.
-       Bu cumle olmadan "kalan alan" bankadaki kullanilabilir limit
-       sanilir ve olmayan para harcanir. Mevcut .kavram sinifi. */
-    tl2.appendChild(el('div','kavram',
-      'Ekstrelere göre — son kesimden bu yana yapılan harcamalar dahil değil. '
-    + 'Bankadaki kullanılabilir limit daha az olabilir.'));
-    c.appendChild(tl2);
+    if (tl2.children.length) c.appendChild(tl2);
   }
 
   const k = el('div','kart');
@@ -3530,90 +3792,15 @@ async function vKartlar(){
     k.appendChild(bd);
   }
 
+  /* AY · METIN SATIRI -> KUTU IZGARASI. >=768px iki sutun, altinda tek.
+     Eski metin-satiri dongusu KALDIRILDI; tasidigi her alan kutuda. */
+  const izgara = el('div','kk-izgara');
   for (const kart of v.kart.kartlar){
-    const son = v.sonDonem.get(kart.id);
-    const buAyKaydi = v.kart.donemler.find(d => d.kart_id === kart.id && d.donem === buAy);
-    const gosterilen = buAyKaydi || son;
-
-    const kutu = el('div','tk'); kutu.style.cursor = 'pointer';
-    kutu.onclick = () => kartDetayAc(kart.id);
-    kutuErisim(kutu, kart.ad + (kart.banka ? ' ' + kart.banka : '')
-      + ', kalan ' + (gosterilen ? tl(gosterilen.kalan) : 'girilmemiş') + ', detayı aç');
-
-    const ust = el('div','tk-ust');
-    const ad = el('div','tk-ad');
-    ad.appendChild(el('span', null, kart.ad + (kart.banka ? ' · ' + kart.banka : '')));
-    ad.appendChild(document.createTextNode(' '));
-    ad.appendChild(el('span', sahipSinif(kart.sahip), sahipKisa(kart.sahip)));
-    if (!kart.aktif){
-      ad.appendChild(document.createTextNode(' '));
-      ad.appendChild(el('span','rozet rz-sari','pasif'));
-    }
-    ust.appendChild(ad);
-    ust.appendChild(el('div','tk-tutar', gosterilen ? tl(gosterilen.kalan) : '—'));
-    kutu.appendChild(ust);
-
-    const alt = el('div','tk-orta');
-    alt.textContent =
-      (kart.son_odeme_gunu ? 'her ayın ' + kart.son_odeme_gunu + '. günü son ödeme' : 'son ödeme günü girilmemiş')
-      + ' · ' + (gosterilen
-          ? (gosterilen.donem === buAy ? 'bu ayın kalanı' : gosterilen.donem + ' kalanı (bu ay girilmemiş)')
-          : 'hiç dönem girilmemiş');
-    kutu.appendChild(alt);
-
-    /* ⚠ AS · LIMIT SATIRI YALNIZ LIMIT GIRILMISSE. "limit —" ya da
-       "limit 0" yazmak "limitin yok" gibi okunur; satir HIC CIKMAZ.
-       ⚠ "kullanilan" = son ekstrenin kalani. Donem hic girilmemisse
-       kullanim BILINMIYOR — kalan alan UYDURULMAZ. */
-    /* ⚠ AV · PAYLASILAN LIMIT. Ayni limitten kullanan kartlarin kalani
-       BIRLIKTE dusulur; kart basina limitleri toplasaydik ayni limiti
-       IKI KEZ sayardik. Gercek vaka: 400.000 limit, KTU 347.386,08 +
-       Samsun 2.864,56 -> bankanin dedigi kullanilabilir 49.749,36. */
-    const paylasanlar = v.kart.kartlar.filter(x => x.limit_paylasan_id === kart.id);
-    const havuzKullanim = (anaId) => {
-      let t = 0;
-      for (const x of v.kart.kartlar){
-        if (x.id !== anaId && x.limit_paylasan_id !== anaId) continue;
-        const g = v.sonDonem.get(x.id);
-        if (g) t += kr(g.kalan);
-      }
-      return t;
-    };
-    if (kart.limit_paylasan_id){
-      const ana = v.kart.kartlar.find(x => x.id === kart.limit_paylasan_id);
-      kutu.appendChild(el('div','tk-orta',
-        'kendi limiti yok — ' + (ana ? ana.ad + ' kartının' : 'başka bir kartın') + ' limitinden kullanıyor'));
-    } else if (kart.kart_limiti != null){
-      const lim = kr(kart.kart_limiti);
-      if (!gosterilen && !paylasanlar.length){
-        kutu.appendChild(el('div','tk-orta', 'limit ' + tlk(lim) + ' · kullanım bilinmiyor'));
-      } else {
-        const kul = havuzKullanim(kart.id), bos = lim - kul;
-        const ls = el('div','tk-orta');
-        ls.appendChild(document.createTextNode('limit ' + tlk(lim) + ' · kullanılan ' + tlk(kul) + ' · '));
-        if (bos < 0){
-          /* ⚠ EKSI "kalan alan" GOSTERILMEZ — bosluk gibi okunur.
-             Limit asimi GERCEK bir durum, ADIYLA yaziliyor. */
-          ls.appendChild(document.createTextNode('limit aşımı ' + tlk(-bos) + ' '));
-          ls.appendChild(el('span','rozet rz-eksik','LİMİT AŞILDI'));
-        } else ls.appendChild(document.createTextNode('kalan alan ' + tlk(bos)));
-        if (paylasanlar.length)
-          ls.appendChild(document.createTextNode(
-            ' · ' + paylasanlar.length + ' kartla paylaşımlı'));
-        kutu.appendChild(ls);
-      }
-    }
-    if (gosterilen){
-      const r = el('div'); r.style.marginTop = '6px';
-      if (gosterilen.devir_tutarsiz) r.appendChild(el('span','rozet rz-eksik','DEVİR TUTMUYOR'));
-      if (!gosterilen.foto_path){
-        if (gosterilen.devir_tutarsiz) r.appendChild(document.createTextNode(' '));
-        r.appendChild(el('span','rozet rz-sari','EKSTRE EKSİK'));
-      }
-      if (r.children.length) kutu.appendChild(r);
-    }
-    k.appendChild(kutu);
+    const donemleri = v.kart.donemler.filter(d => d.kart_id === kart.id)
+                        .sort((a,b) => b.donem.localeCompare(a.donem));
+    izgara.appendChild(kartKutusu(v, kart, buAy, donemleri));
   }
+  k.appendChild(izgara);
   c.appendChild(k);
   c.appendChild(kartFormu());
 }
@@ -4145,7 +4332,7 @@ async function vMaden(){
   const v = await bantVerisi();
   const { kayitlar, fiyatlar } = v.maden;
   c.textContent = '';
-  c.appendChild(bantCiz(v));
+  c.appendChild(ozetCiz(v,'maden'));
   const msg = el('div','msg'); msg.id = 'madenMsg'; c.appendChild(msg);
 
   /* fiyat yasi rozeti */
@@ -4492,7 +4679,7 @@ async function vSahis(){
   /* v100 · hangi odemeler iptal EDILMIS — hedef id kumesi. */
   const TERSLENEN = new Set(odemeler.filter(o => o.tur === 'ters').map(o => o.ters_hedef_id));
   c.textContent = '';
-  c.appendChild(bantCiz(v));
+  c.appendChild(ozetCiz(v,'sahis'));
   const msg = el('div','msg'); msg.id = 'sahisMsg'; c.appendChild(msg);
 
   const k = el('div','kart');
