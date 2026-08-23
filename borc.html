@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-22-2">
+<meta name="surum" content="borc-2026-08-23-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3106,21 +3106,76 @@ function axSade(t){
   return String(t||'').replace(/[ÇĞİIÖŞÜçğıöşü]/g, m => AX_HARF[m])
     .toLowerCase().replace(/\s+/g,' ').trim();
 }
+/* AZ-CEKIRDEK-BASI */
+/* ==================================================================
+   AZ · GERCEK EKSTREYLE OLCULDU ve cekirdek buna gore yeniden kuruldu.
+   Bulgular (iki gercek Is Bankasi dosyasi, pdf.js 4.0.379):
+   · ⚠ ASIL KATIL: sayfa rotate=180 ve metin aynali (transform a=-9).
+     Ham koordinatta degerler etiketin SOLUNDA duruyordu; AX yalniz saga
+     baktigi icin 12/12 kacirdi. Cozum: her parca viewport uzayina
+     tasinir (Util.transform) — donmemis dosyada bu donusum kimliktir,
+     yani rotate=0 PDF'ler de ayni yoldan gecer.
+   · Turkce pdf.js'te DOGRU geliyor (116 Turkce harf, 0 bozuk); "B a s"
+     parcalanmasi yalniz gercekten harf aralikli basilmis dipnotta var.
+     Iskelet katmani yine de kaliyor — alti banka var, birinde bozulur.
+   · Etiketler tek parca ama SATIRDA IKI SUTUN var ("Müşteri No ... |
+     Hesap Özeti Borcu 347.386,08") ve ozet dipnotunda etiketler bir
+     satirda, degerler ALTINDA sutun hizali (etiket x=32.7, deger
+     x=31.3 -> sapma 1.4pt; satir arasi 14.2pt).
+   · Ayni satir toleransi VERIDEN: satir ici y farki <=1.5, komsu
+     satirlar >=6 -> tolerans 3. Ic ice sutun bloklari 6-7pt kaydigi
+     icin tolerans BUYUTULEMEZ (423/430/437 ayri satirlar).
+   · Faiz satiri INGILIZ bicimli: "FZ:11,078.37 VR/FN:553.92" —
+     desen iki bicimi de kabul eder, paraCoz ikisini de dogru cozer.
+   ================================================================== */
 
-/* ⚠ BANKA BAZLI PARSER YOK — ESANLAMLI LISTESI VAR. Yeni banka geldiginde
-   yazilacak sey yeni parser degil, listeye birkac kelime. Alti parser
-   alti ayri kirilma noktasi olurdu. */
+/* ⚠ DUZELTME 2 · ISKELET CEVIRMEZ, SILER. "Hesap Özeti Borcu" da
+   "Hesap �zeti Borcu" da -> "hesapzetiborcu". Ceviri (Ö->O) yapilsaydi
+   ikisi FARKLI cikardi. ASCII disi once silinir (İ'nin toLowerCase
+   tuzagina girmeden), sonra kucultulur, sonra harf/rakam disi atilir.
+   ⚠ SOZLUK TURKCE YAZILIR ve AYNI iskeletten gecer — "kayıtları"nin
+     iskeleti "kaytlar"dir, sozluk ASCII "kayitlari" yazsaydi tutmazdi. */
+function axIskelet(t){
+  return String(t || '').replace(/[^\x20-\x7E]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/* ⚠ BANKA BAZLI PARSER YOK — ESANLAMLI LISTESI VAR (AX karari korundu). */
 const AX_SOZLUK = {
-  kartAdi:    { tip:'metin', syn:['kart turu','kart tipi','kart adi','urun adi'] },
-  kesim:      { tip:'tarih', syn:['hesap kesim tarihi','ekstre kesim tarihi','hesap kesim'] },
-  sonOdeme:   { tip:'tarih', syn:['son odeme tarihi','son odeme gunu','odeme tarihi'] },
-  limit:      { tip:'para',  syn:['kart limiti','kredi karti limiti','toplam limit'] },
-  devir:      { tip:'para',  syn:['onceki donem borcu','devreden bakiye','onceki hesap ozeti borcu','devreden borc'] },
-  yeni:       { tip:'para',  syn:['donem ici borc kayitlari','borc kayitlari','donem ici harcamalar','yeni harcamalar'] },
-  odenen:     { tip:'para',  syn:['donem ici alacak kayitlari','alacak kayitlari','yapilan odemeler','odemeler toplami'] },
-  hesapOzeti: { tip:'para',  syn:['hesap ozeti borcu','donem borcu','toplam borc','guncel borc'] },
-  asgari:     { tip:'para',  syn:['odenmesi gereken asgari tutar','asgari odeme tutari','asgari tutar'] }
+  kartAdi:    { tip:'metin', syn:['kart türü','kart tipi','kart adı','ürün adı'] },
+  kesim:      { tip:'tarih', syn:['hesap kesim tarihi','ekstre kesim tarihi'] },
+  sonOdeme:   { tip:'tarih', syn:['son ödeme tarihi','son ödeme günü'] },
+  limit:      { tip:'para',  syn:['kart limiti','kredi kartı limiti'] },
+  devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç'] },
+  yeni:       { tip:'para',  syn:['dönem içi borç kayıtları','borç kayıtları','dönem içi harcamalar','yeni harcamalar'] },
+  odenen:     { tip:'para',  syn:['dönem içi alacak kayıtları','alacak kayıtları','yapılan ödemeler','ödemeler toplamı'] },
+  hesapOzeti: { tip:'para',  syn:['hesap özeti borcu','dönem borcu','güncel borç'] },
+  asgari:     { tip:'para',  syn:['ödenmesi gereken asgari tutar','asgari ödeme tutarı','asgari tutar'] }
 };
+for (const alan of Object.keys(AX_SOZLUK))
+  AX_SOZLUK[alan].isk = AX_SOZLUK[alan].syn.map(axIskelet)
+    .sort((a,b) => b.length - a.length);   // uzun eslesme kisa eslesmeyi YENER
+
+/* ⚠ DUZELTME 3b · NITELEYICI ONEK: etiketin HEMEN ONUNDE bunlardan biri
+   varsa o etiket BASKA bir alandir. Olculdu: "Kullanılabilir Kart
+   Limiti", "Bir Sonraki Hesap Kesim Tarihi", "Ertelenebilir/Ertelenen/
+   Taksitlendirilen Hesap Özeti Borcu" ayni dosyada bir arada.
+   ("Ertelenen" brif listesinde yoktu, gercek dosyada VAR — eklendi.) */
+const AX_NITELEYICI = ['bir sonraki','kullanılabilir','ertelenebilir','ertelenen',
+  'taksitlendirilen','vadelendirilen','nakit','toplam','önceki','geciken'].map(axIskelet);
+
+/* ⚠ DUZELTME 4 · BANKA ALAN ADINDAN. "Sayfanin en ust satiri" gercek
+   dosyada "Sayfa 1 / 2" cikti — YANLISTI. Alan adi sozlugu; bulunamazsa
+   BOS kalir, kullanici secer. anahtar, kart onerisi eslesmesinde de
+   kullanilir (axSade(kart.banka) icinde aranir). */
+const AX_BANKA = [
+  ['isbank',   'Türkiye İş Bankası'],
+  ['akbank',   'Akbank'],
+  ['garanti',  'Garanti BBVA'],
+  ['ziraat',   'Ziraat Bankası'],
+  ['halkbank', 'Halkbank'],
+  ['enpara',   'Enpara']
+];
 
 const AX_TUTAR = /^[-−]?\d{1,3}(?:\.\d{3})*,\d{2}(?:\s*(?:TL|TRY))?$/i;
 const AX_TARIH = /(\d{2})[./-](\d{2})[./-](\d{4})/;
@@ -3136,109 +3191,158 @@ async function axPdfjs(){
   AX_PDFJS = m; return m;
 }
 
-/* PDF -> konumlu parcalar. Okuma TAMAMEN TARAYICIDA; dosya hicbir ucuncu
-   servise gitmez (aga cikan tek sey kutuphanenin kendisi). */
+/* PDF -> VIEWPORT uzayinda konumlu parcalar. Okuma TAMAMEN TARAYICIDA.
+   ⚠ AZ: Util.transform ile sayfa donusu normalize edilir; y asagi dogru
+     buyur, "altinda" = daha buyuk y. rotate=0 dosyada donusum kimliktir. */
 async function axParcalar(dosya){
   const pdfjs = await axPdfjs();
   const belge = await pdfjs.getDocument({ data: await dosya.arrayBuffer() }).promise;
   const hepsi = [];
   for (let i = 1; i <= belge.numPages; i++){
-    const ic = await (await belge.getPage(i)).getTextContent();
+    const sayfa = await belge.getPage(i);
+    const vp = sayfa.getViewport({ scale: 1 });
+    const ic = await sayfa.getTextContent();
     for (const it of ic.items){
       if (!it.str || !it.str.trim()) continue;
-      hepsi.push({ ham: it.str.trim(), sade: axSade(it.str),
-        x: it.transform[4], y: it.transform[5] - (i-1)*100000, g: it.width || 0 });
+      const t = pdfjs.Util.transform(vp.transform, it.transform);
+      hepsi.push({ ham: it.str.trim(), isk: axIskelet(it.str),
+        x: t[4], y: t[5] + (i - 1) * 10000, g: it.width || 0 });
     }
   }
   return hepsi;
 }
 
-/* ⚠ SAHIPLENME EN UZUN ESLESMEYE GORE. "Önceki Dönem Borcu" hem devir'in
-   "onceki donem borcu"suna hem hesapOzeti'nin "donem borcu"suna uyuyor;
-   uzun olan kazanir, yoksa devir yerine hesap ozeti okunurdu.
-   Bir alana BIRDEN COK parca sahipse alan BELIRSIZ sayilir ve BOS kalir. */
-function axEtiketleriSahiplen(parcalar){
-  const sahip = new Map();
+/* ⚠ DUZELTME 1 · PARCALARI SATIRA CEVIR. Eslesme SATIR uzerinde calisir.
+   y toleransi 3 (veriden: satir ici <=1.5, komsu satirlar >=6). */
+function axSatirlar(parcalar){
+  const bantlar = [];
   for (const par of parcalar){
-    let enIyi = null;
-    for (const alan of Object.keys(AX_SOZLUK))
-      for (const sn of AX_SOZLUK[alan].syn)
-        if (par.sade.includes(sn) && (!enIyi || sn.length > enIyi.uz))
-          enIyi = { alan: alan, uz: sn.length };
-    if (!enIyi) continue;
-    if (!sahip.has(enIyi.alan)) sahip.set(enIyi.alan, []);
-    sahip.get(enIyi.alan).push({ par: par, etiket: par.ham });
+    let b = bantlar.find(x => Math.abs(x.y - par.y) <= 3);
+    if (!b){ b = { y: par.y, items: [] }; bantlar.push(b); }
+    b.items.push(par);
   }
-  return sahip;
-}
-
-/* IKI KURAL. Once SAG (ayni y bandi), sonra ALT (ayni x sutunu). Hangi
-   kuralin calistigi kullaniciya YAZILIR — eslesmeyi o dogruluyor. */
-function axDeger(par, parcalar, uygun, etiketler, enSagdaki){
-  /* ⚠ BIR ETIKET, BASKA BIR ALANIN DEGERI OLAMAZ. Olculdu: "Kart Türü:"
-     (y=740.5) ile "Hesap Kesim Tarihi" (y=741.5) ayni banda dusuyor ve
-     ikincisi SAGDA kaliyor; disarida birakilmazsa kart turu "Hesap Kesim
-     Tarihi" diye okunuyordu. Tam olarak brifteki yanlis eslesme sinifi. */
-  const aday = (o) => o !== par && !etiketler.has(o) && uygun(o.ham);
-  /* ⚠ TUTARLAR SAGA DAYALI (x 504.7 · 509.7 · 518.6) -> EN SAGDAKI dogru.
-     METIN degerler etiketin HEMEN yanindadir -> EN YAKIN dogru. Ikisini
-     ayni kuralla almak kart turunu iki sutun oteden getiriyordu. */
-  const sagda = parcalar.filter(o => aday(o) && Math.abs(o.y - par.y) <= 3
-                  && o.x > par.x + Math.max(par.g * 0.5, 8))
-                .sort((a,b) => enSagdaki ? b.x - a.x : a.x - b.x);
-  if (sagda.length) return { p: sagda[0], kural: 'aynı satırda sağında' };
-  const altta = parcalar.filter(o => aday(o) && Math.abs(o.x - par.x) <= 12
-                  && par.y - o.y > 2 && par.y - o.y < 24)
-                .sort((a,b) => b.y - a.y);
-  if (altta.length) return { p: altta[0], kural: 'hemen altında' };
-  return null;
+  for (const b of bantlar){
+    b.items.sort((a, c) => a.x - c.x);
+    /* satirin iskeleti + her parcanin iskelet icindeki [bas,son) araligi */
+    b.isk = '';
+    for (const it of b.items){ it.iBas = b.isk.length; b.isk += it.isk; it.iSon = b.isk.length; }
+  }
+  bantlar.sort((a, c) => a.y - c.y);
+  return bantlar;
 }
 
 function axOku(parcalar){
-  const sahip = axEtiketleriSahiplen(parcalar);
-  /* Sahiplenilmis her parca ETIKETTIR; deger adayligindan cikarilir. */
-  const etiketler = new Set();
-  sahip.forEach(liste => liste.forEach(b => etiketler.add(b.par)));
+  const satirlar = axSatirlar(parcalar);
+  /* Herhangi bir alanin esanlamlisini TASIYAN parca "etiket"tir; deger
+     taramasi bir etiketin USTUNDEN GECEMEZ. Olculdu: ozet dipnotu
+     "Devreden Bakiye Alacak Kayıtları Borç Kayıtları | Hesap Özeti
+     Borcu 347.386,08" TEK satir — engel olmasa uc sutunun ucu de
+     satirin sagindaki 347.386,08'i alirdi. */
+  const tumIsk = Object.values(AX_SOZLUK).flatMap(t => t.isk);
+  for (const s of satirlar)
+    for (const it of s.items)
+      it.etiketMi = it.isk.length > 2 && tumIsk.some(sn => it.isk.indexOf(sn) >= 0);
+
   const alanlar = {};
   for (const alan of Object.keys(AX_SOZLUK)){
     const tanim = AX_SOZLUK[alan];
-    const bulunan = sahip.get(alan) || [];
-    if (!bulunan.length){ alanlar[alan] = { durum:'yok' }; continue; }
-    if (bulunan.length > 1){
-      alanlar[alan] = { durum:'belirsiz', etiket: bulunan.map(b => b.etiket).join(' / ') };
-      continue;
-    }
-    const par = bulunan[0].par, etiket = bulunan[0].etiket;
     const uygun = tanim.tip === 'para'  ? (t) => AX_TUTAR.test(t.trim())
                 : tanim.tip === 'tarih' ? (t) => AX_TARIH.test(t)
                 : (t) => t.trim().length > 1 && !AX_TUTAR.test(t.trim());
-    const d = axDeger(par, parcalar, uygun, etiketler, tanim.tip === 'para');
-    if (!d){ alanlar[alan] = { durum:'yok', etiket: etiket }; continue; }
-    const o = { durum:'ok', etiket: etiket, kural: d.kural, ham: d.p.ham };
-    if (tanim.tip === 'para'){
-      const r = paraCoz(d.p.ham);
-      if (!r.ok){ alanlar[alan] = { durum:'belirsiz', etiket: etiket }; continue; }
-      o.kurus = r.kurus;
+    const adaylar = []; let etiketGoruldu = null;
+    for (const s of satirlar){
+      let sn = null, idx = -1;
+      for (const aday of tanim.isk){ const i2 = s.isk.indexOf(aday);
+        if (i2 >= 0){ sn = aday; idx = i2; break; } }   // liste uzundan kisaya sirali
+      if (!sn) continue;
+      /* DUZELTME 3a+b: onundeki metin bir NITELEYICIYLE bitiyorsa bu
+         baska alandir. TAM eslesme (onunde hic sey yok ya da niteleyici
+         degil) EK'li eslesmeyi boyle yener. */
+      const once = s.isk.slice(0, idx);
+      if (AX_NITELEYICI.some(n => once.length >= n.length && once.endsWith(n))) continue;
+      const etiketIt = s.items.find(it => it.iSon > idx);
+      const sonIt    = s.items.find(it => it.iSon >= idx + sn.length);
+      etiketGoruldu = etiketGoruldu || (etiketIt ? etiketIt.ham : null);
+      let deger = null, kural = null;
+      /* 1 · ayni satirda SAGDA — baska bir etikete carpinca durulur */
+      for (const it of s.items){
+        if (it.x <= sonIt.x) continue;
+        if (it.etiketMi) break;
+        if (uygun(it.ham)){ deger = it.ham; kural = 'aynı satırda sağında'; break; }
+      }
+      /* 2 · tarih ETIKETIN KENDI parcasinin icinde olabilir
+         (olculdu: "Son Ödeme Tarihi: 20/08/2026" TEK parca) */
+      if (!deger && tanim.tip === 'tarih' && AX_TARIH.test(sonIt.ham)){
+        /* ham yalniz TARIH — butun parcayi gostermek "Son Ödeme Tarihi:
+           20/08/2026"u deger sutununa tasiyordu (olculdu). */
+        deger = sonIt.ham.match(AX_TARIH)[0]; kural = 'etiketle aynı parçada';
+      }
+      /* 3 · HEMEN ALTINDA, ayni sutunda (olculdu: dipnot sutunlari
+         x sapmasi 1.4pt, satir arasi 14.2pt -> tolerans 12 / 2..24) */
+      if (!deger){
+        for (const s2 of satirlar){
+          const dy = s2.y - s.y;
+          if (dy <= 2 || dy > 24) continue;
+          const it2 = s2.items.find(it => Math.abs(it.x - etiketIt.x) <= 12
+                                          && !it.etiketMi && uygun(it.ham));
+          if (it2){ deger = it2.ham; kural = 'hemen altında'; break; }
+        }
+      }
+      if (!deger) continue;   // degersiz eslesme ADAY DEGILDIR (sarkan etiket paracigi)
+      const o = { etiket: etiketIt.ham, kural: kural, ham: deger };
+      if (tanim.tip === 'para'){
+        const r = paraCoz(deger);
+        if (!r.ok) continue;
+        /* ⚠ DUZELTME 5 · ISARET KURALI. Banka, borc kayitlarini EKSI
+           yazar ("-106.802,77 TL"); yeni_harcama POZITIF saklanir
+           (kd_yeni_chk >= 0). Mutlak deger SESSIZCE degil, ACIKCA
+           alinir ve kullaniciya soylenir. */
+        if (/^\s*[-−]/.test(deger)) o.kural += ' · eksi işaret pozitife çevrildi';
+        o.kurus = r.kurus; o.kim = String(r.kurus);
+      } else if (tanim.tip === 'tarih'){
+        const mm = deger.match(AX_TARIH);
+        o.gun = +mm[1]; o.ay = mm[3] + '-' + mm[2]; o.kim = o.gun + '|' + o.ay;
+      } else o.kim = axIskelet(deger);
+      adaylar.push(o);
     }
-    if (tanim.tip === 'tarih'){
-      const mm = d.p.ham.match(AX_TARIH); o.gun = +mm[1]; o.ay = mm[3] + '-' + mm[2];
-    }
-    alanlar[alan] = o;
+    /* DUZELTME 3c · birden cok FARKLI deger kalirsa BELIRSIZ — tahmin
+       YOK. Ayni degeri soyleyen tekrar (ust blok + dipnot) belirsizlik
+       DEGILDIR; olculdu, hesap ozeti iki yerde ayni rakamla geciyor. */
+    const farkli = [...new Set(adaylar.map(a => a.kim))];
+    if (!adaylar.length) alanlar[alan] = { durum:'yok', etiket: etiketGoruldu || undefined };
+    else if (farkli.length > 1)
+      alanlar[alan] = { durum:'belirsiz',
+        etiket: adaylar.map(a => '"' + a.etiket + '" ' + a.ham).join(' / ') };
+    else { const a0 = adaylar[0]; alanlar[alan] = Object.assign({ durum:'ok' }, a0); }
   }
-  /* Faiz/vergi konumdan DEGIL, islem satirinin ICINDEN. Olculdu: tek parca. */
-  const tumMetin = parcalar.map(p => p.ham).join(' ');
-  const fz = tumMetin.match(/FZ\s*:\s*([\d.]+,\d{2})/i);
-  const vr = tumMetin.match(/VR\s*\/?\s*FN\s*:\s*([\d.]+,\d{2})/i);
-  alanlar.faiz  = fz ? { durum:'ok', etiket:'FZ:', kural:'işlem satırı içinden',
-                         ham:fz[1], kurus:paraCoz(fz[1]).kurus } : { durum:'yok' };
-  alanlar.vergi = vr ? { durum:'ok', etiket:'VR/FN:', kural:'işlem satırı içinden',
-                         ham:vr[1], kurus:paraCoz(vr[1]).kurus } : { durum:'yok' };
-  /* Banka adi etiketli gelmiyor; sayfanin en ustundeki metinden alinir. */
-  const ust = parcalar.slice().sort((a,b) => b.y - a.y)[0];
-  alanlar.banka = ust ? { durum:'ok', etiket:'sayfanın en üst satırı',
-                          kural:'başlık', ham: ust.ham } : { durum:'yok' };
+
+  /* Faiz/vergi islem satirinin ICINDEN (tek parca geldigi olculdu).
+     ⚠ Iki sayi bicimi de kabul: "FZ:11.078,37" (TR) ve "FZ:11,078.37"
+       (gercek dosyada boyle) — paraCoz ikisini de dogru cozer. */
+  const tumMetin = satirlar.map(s => s.items.map(i => i.ham).join(' ')).join('\n');
+  const fz = tumMetin.match(/FZ\s*:?\s*([\d.,]+)/i);
+  const vr = tumMetin.match(/VR\s*\/?\s*FN\s*:?\s*([\d.,]+)/i);
+  alanlar.faiz  = fz && paraCoz(fz[1]).ok ? { durum:'ok', etiket:'FZ:',
+    kural:'işlem satırı içinden', ham: fz[1], kurus: paraCoz(fz[1]).kurus } : { durum:'yok' };
+  alanlar.vergi = vr && paraCoz(vr[1]).ok ? { durum:'ok', etiket:'VR/FN:',
+    kural:'işlem satırı içinden', ham: vr[1], kurus: paraCoz(vr[1]).kurus } : { durum:'yok' };
+
+  /* DUZELTME 4 · banka alan adindan */
+  const kucuk = tumMetin.toLowerCase();
+  const bul = new Map();
+  for (const m of kucuk.matchAll(/([a-z0-9-]{3,})\.(?:com|net|org)(?:\.tr)?/g))
+    for (const [anahtar, ad] of AX_BANKA)
+      if (m[1].indexOf(anahtar) >= 0 && !bul.has(ad)) bul.set(ad, { anahtar: anahtar, alanAdi: m[0] });
+  if (bul.size === 1){
+    const [ad, b] = [...bul.entries()][0];
+    alanlar.banka = { durum:'ok', etiket: b.alanAdi, kural:'alan adından',
+                      ham: ad, anahtar: b.anahtar };
+  } else if (bul.size > 1)
+    alanlar.banka = { durum:'belirsiz', etiket: [...bul.keys()].join(' / ') };
+  else alanlar.banka = { durum:'yok' };
   return alanlar;
 }
+/* AZ-CEKIRDEK-SONU */
 
 /* ⚠ ARITMETIK KAPISI. Ekstre kendi kendini denetler:
      devir + yeni + duzeltme − odenen = hesap ozeti borcu
@@ -3342,7 +3446,13 @@ async function ekstreOnayEkrani(a, dosya){
   const bankaSade = axSade(a.banka && a.banka.ham || '');
   const onerilen = v.kart.kartlar.filter(x => {
     const b = axSade(x.banka || ''); if (!b) return false;
-    const adUyar = b.split(' ').some(w => w.length > 3 && bankaSade.indexOf(w) >= 0);
+    /* AZ · banka alan adindan bulunduysa oneri ANAHTARLA eslesir:
+       axSade("Is Bankasi")="is bankasi" -> bosluksuz "isbankasi" icinde
+       "isbank" ARANIR. Eski kelime eslesmesi alan adi bulunamayan
+       dosyalar icin duruyor. */
+    const adUyar = a.banka && a.banka.anahtar
+      ? b.replace(/\s+/g,'').indexOf(a.banka.anahtar) >= 0
+      : b.split(' ').some(w => w.length > 3 && bankaSade.indexOf(w) >= 0);
     const gunUyar = (a.kesim.durum === 'ok' && x.kesim_gunu === a.kesim.gun)
                  || (a.sonOdeme.durum === 'ok' && x.son_odeme_gunu === a.sonOdeme.gun);
     return adUyar && gunUyar;
