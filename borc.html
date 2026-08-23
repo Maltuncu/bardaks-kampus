@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-23-2">
+<meta name="surum" content="borc-2026-08-23-3">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1854,7 +1854,13 @@ function bantCiz(v){
      gelecege ait — YAN YANA dururlar ama TOPLANMAZLAR: biri odenecek
      taksitin nominali, digeri o taksitler icinde dogacak faiz/masraf.
      Ayri satir, ayri etiket, toplam YOK. */
-  satir(k3, 'Gelecek faiz+masraf ', { v: tk(v.S.faizMasraf) },
+  /* ⚠ BH · KULLANICI YAKALADI: baslik "şahıs + Ltd" derken satir YALNIZ
+     v.S.faizMasraf basiyordu — Ltd'nin gelecek faizi (30.817,30) ekranda
+     HICBIR YERDE gorunmuyordu. Iki rakam AYRI yazilir, TOPLANMAZ (ayri
+     tuzel kisilik); Ltd 0 ise satiri kirletmez. */
+  satir(k3, 'Gelecek faiz+masraf · şahıs ', { v: tk(v.S.faizMasraf) },
+    v.L.faizMasraf ? ' · Ltd ' : null,
+    v.L.faizMasraf ? { v: tk(v.L.faizMasraf) } : null,
     v.S.kirilimsizAdet ? ' · kırılımsız (' + v.S.kirilimsizAdet + ') ' : null,
     v.S.kirilimsizAdet ? { v: tk(v.S.kirilimsiz) } : null);
   const dip = el('div','dip');
@@ -3727,7 +3733,8 @@ function kartKutusu(v, kart, buAy, liste){
     (kart.kesim_gunu ? 'kesim ' + kart.kesim_gunu : 'kesim —')
     + ' · ' + (kart.son_odeme_gunu ? 'ödeme ' + kart.son_odeme_gunu : 'ödeme —')));
   /* ⚠ ⋯ menusu kutunun ICINDE ama kutu tiklamasini TETIKLEMEZ. */
-  const dm = digerMenu([['Kartı arşivle', (a) => kartSil(kart, liste, a)]]);
+  const dm = digerMenu([['Kartı düzenle', () => vKartlar(kart.id)],
+                        ['Kartı arşivle', (a) => kartSil(kart, liste, a)]]);
   dm.addEventListener('click', (e) => e.stopPropagation());
   sag.appendChild(dm);
   ust.appendChild(sag);
@@ -3825,7 +3832,9 @@ function kartKutusu(v, kart, buAy, liste){
   return kutu;
 }
 
-async function vKartlar(){
+/* BH · duzKartId verilirse alttaki form o kartla DOLU acilir (donemFormu
+   kalibi). sekmeAc parametresiz cagirir — normal akis degismez. */
+async function vKartlar(duzKartId){
   const c = document.getElementById('icerik');
   const v = await bantVerisi();
   const buAy = bugun().slice(0,7);
@@ -3932,38 +3941,67 @@ async function vKartlar(){
   }
   k.appendChild(izgara);
   c.appendChild(k);
-  c.appendChild(kartFormu());
+  const duzKart = duzKartId ? v.kart.kartlar.find(x => x.id === duzKartId) : null;
+  const kf = kartFormu(duzKart, v.kart.kartlar);
+  c.appendChild(kf);
+  if (duzKart) kf.scrollIntoView({ block: 'start' });
 }
 
-function kartFormu(){
+function kartFormu(duz, kartlar){
   const k = el('div','kart');
-  k.appendChild(el('div','kbaslik','Yeni kart'));
-  const alan = (etiket, id, tip, mod, ipucu) => {
+  k.appendChild(el('div','kbaslik', duz ? duz.ad + ' düzeltiliyor' : 'Yeni kart'));
+  if (duz) k.appendChild(el('div','bilgi',
+    'Var olan kart yeniden yazılıyor — dolu gelen alanlarda yalnız yanlış olanı değiştir. '
+  + 'Kaydetmeden önce ne değiştiği gösterilecek.'));
+  const alan = (etiket, id, tip, mod, ipucu, deger) => {
     k.appendChild(el('label', null, etiket)).setAttribute('for', id);
     const i = document.createElement('input');
     i.id = id; i.type = tip || 'text';
     if (mod) i.setAttribute('inputmode', mod);
     if (ipucu) i.placeholder = ipucu;
+    if (deger != null) i.value = deger;
     k.appendChild(i); return i;
   };
-  alan('Kart adı','ktAd','text');
-  alan('Banka','ktBanka','text');
+  alan('Kart adı','ktAd','text',null,null, duz ? duz.ad : null);
+  alan('Banka','ktBanka','text',null,null, duz ? duz.banka : null);
   k.appendChild(el('label', null, 'Sahip (zorunlu)')).setAttribute('for','ktSahip');
   const s = document.createElement('select'); s.id = 'ktSahip';
   [['','— seç —'],['sahis','Şahıs şirketinin kartı'],['ltd','Bardaks Ltd kartı']]
     .forEach(([val,t]) => { const o = document.createElement('option'); o.value = val; o.textContent = t; s.appendChild(o); });
   k.appendChild(s);
-  alan('Son ödeme günü (ayın kaçı)','ktSonOdeme','text','numeric','1-31');
-  alan('Kesim günü (bilinmiyorsa boş)','ktKesim','text','numeric','1-31');
+  alan('Son ödeme günü (ayın kaçı)','ktSonOdeme','text','numeric','1-31', duz ? duz.son_odeme_gunu : null);
+  alan('Kesim günü (bilinmiyorsa boş)','ktKesim','text','numeric','1-31', duz ? duz.kesim_gunu : null);
   /* ⚠ AS · Limit ZORUNLU DEGIL. Bilinmiyorsa BOS birakilir ve NULL yazilir;
      0 yazmak "limit dolu" gibi okunur, sunucu da (kart_limit_chk) reddeder. */
-  alan('Kart limiti (bilinmiyorsa boş)','ktLimit','text','decimal','örn. 150.000,00');
-  const b = el('button','btn','Kartı kaydet'); b.id = 'ktKaydet'; b.onclick = kartKaydet;
+  alan('Kart limiti (bilinmiyorsa boş)','ktLimit','text','decimal','örn. 150.000,00',
+    duz && duz.kart_limiti != null ? (kr(duz.kart_limiti)/100).toFixed(2).replace('.', ',') : null);
+  if (duz){
+    /* Duzenlemede iki alan daha: limit paylasimi ve aciklama. Yeni-kart
+       formuna EKLENMEDI — akis degismesin; paylasimin dogal ani duzenleme. */
+    k.appendChild(el('label', null, 'Limitinden kullandığı kart (yoksa boş)')).setAttribute('for','ktPaylasan');
+    const ps = document.createElement('select'); ps.id = 'ktPaylasan';
+    const b0 = document.createElement('option'); b0.value = ''; b0.textContent = '— kendi limiti —'; ps.appendChild(b0);
+    for (const x of (kartlar||[]).filter(x => x.id !== duz.id)){
+      const o = document.createElement('option'); o.value = x.id;
+      o.textContent = x.ad + (x.banka ? ' · ' + x.banka : ''); ps.appendChild(o);
+    }
+    ps.value = duz.limit_paylasan_id || '';
+    k.appendChild(ps);
+    alan('Açıklama','ktAciklama','text',null,null, duz.aciklama);
+  }
+  const b = el('button','btn', duz ? 'Değişikliği göster' : 'Kartı kaydet');
+  b.id = 'ktKaydet'; b.onclick = () => kartKaydet(duz, kartlar);
   k.appendChild(b);
+  if (duz){
+    const vz = el('button','btn2','Vazgeç'); vz.onclick = () => vKartlar(); k.appendChild(vz);
+  }
+  const ov = el('div'); ov.id = 'ktOnizleme'; k.appendChild(ov);
+  /* sahip secimini doldur (select yukarida kuruldu) */
+  if (duz) setTimeout(() => { const sq = document.getElementById('ktSahip'); if (sq) sq.value = duz.sahip || ''; }, 0);
   return k;
 }
 
-async function kartKaydet(){
+async function kartKaydet(duz, kartlar){
   mesajTemizle('kartMsg');
   const btn = document.getElementById('ktKaydet');
   const ad = document.getElementById('ktAd').value.trim();
@@ -3998,6 +4036,60 @@ async function kartKaydet(){
     limit = (pl.kurus / 100).toFixed(2);
   }
 
+  if (duz){
+    /* ⚠ SESSIZ UPDATE YOK — donemOnizle kalibi: hangi alan neydi, ne
+       oluyor, once gorunur, sonra onaylanir. trg_audit_kart zaten
+       kim/ne zaman/eski-yeni kaydediyor; gerekce istenmiyor. */
+    const yeni = { ad, banka: document.getElementById('ktBanka').value.trim() || null,
+      sahip, son_odeme_gunu: so.deger, kesim_gunu: ke.deger, kart_limiti: limit,
+      limit_paylasan_id: document.getElementById('ktPaylasan').value || null,
+      aciklama: document.getElementById('ktAciklama').value.trim() || null };
+    const ALAN = [['ad','Kart adı',0],['banka','Banka',0],['sahip','Sahip',0],
+      ['kesim_gunu','Kesim günü',0],['son_odeme_gunu','Son ödeme günü',0],
+      ['kart_limiti','Kart limiti',1],['limit_paylasan_id','Limit paylaşımı',2],['aciklama','Açıklama',0]];
+    const kartAdi = (id) => { const x = (kartlar||[]).find(q => q.id === id); return x ? x.ad : '—'; };
+    const gos = (v2, tip) => v2 == null || v2 === '' ? '—' : tip === 1 ? tl(v2) : tip === 2 ? kartAdi(v2) : String(v2);
+    const esit = (a2, b2, tip) => (a2 ?? null) === (b2 ?? null) || (tip === 1 && a2 != null && b2 != null && kr(a2) === kr(b2));
+    const dgs = ALAN.filter(([f,,tip]) => !esit(duz[f], yeni[f], tip));
+    const ov = document.getElementById('ktOnizleme'); ov.textContent = '';
+    const dk = el('div','kart');
+    dk.appendChild(el('div','kbaslik', dgs.length ? dgs.length + ' alan değişiyor' : 'Hiçbir alan değişmiyor'));
+    if (!dgs.length){ dk.appendChild(el('div','kucuk','Girilenler kayıtlıyla birebir aynı.')); ov.appendChild(dk); return; }
+    const t = document.createElement('table');
+    const hr = document.createElement('tr');
+    ['ALAN','ÖNCE','SONRA'].forEach((h,i) => hr.appendChild(el('th', i ? 'sag' : null, h)));
+    t.appendChild(hr);
+    for (const [f, adx, tip] of dgs){
+      const tr = document.createElement('tr');
+      tr.appendChild(td(adx)); tr.appendChild(td(gos(duz[f],tip),'sag')); tr.appendChild(td(gos(yeni[f],tip),'sag'));
+      t.appendChild(tr);
+    }
+    const sar = el('div','tablo-sar'); sar.appendChild(t); dk.appendChild(sar);
+    /* M2 · sinif degisimi SESSIZ OLMAZ */
+    if (duz.sahip !== yeni.sahip)
+      dk.appendChild(el('div','uyari-agir','Bu kart artık ' + (yeni.sahip === 'ltd' ? 'BARDAKS LTD' : 'ŞAHIS')
+        + ' sınıfına geçecek — bant ve Özet\'teki borç sınıfı toplamları değişir.'));
+    /* M4 · limit degisimi paylasanlarin kalan alanini degistirir */
+    const paylasanlar = (kartlar||[]).filter(x => x.limit_paylasan_id === duz.id);
+    if (paylasanlar.length && !esit(duz.kart_limiti, yeni.kart_limiti, 1))
+      dk.appendChild(el('div','uyari-orta', paylasanlar.length
+        + ' kart bu kartın limitinden kullanıyor — kalan alan hesapları değişecek.'));
+    if ((duz.kesim_gunu ?? null) !== (yeni.kesim_gunu ?? null) || (duz.son_odeme_gunu ?? null) !== (yeni.son_odeme_gunu ?? null))
+      dk.appendChild(el('div','kucuk','Geçmiş dönem kayıtları DEĞİŞMEZ (etiket ve tutarlar saklı); '
+        + 'yalnız bundan sonraki vade türetimleri yeni günlere göre hesaplanır.'));
+    const ok = el('button','btn','Onayla ve güncelle');
+    ok.onclick = async () => {
+      ok.disabled = true; ok.textContent = 'Güncelleniyor...';
+      const { error } = await sb.from('kart').update(yeni).eq('id', duz.id);
+      if (error){ ok.disabled = false; ok.textContent = 'Onayla ve güncelle';
+        hataYaz('kartMsg','Kart güncellenemedi.', error); return; }
+      await vKartlar();
+      mesaj('kartMsg','ok', yeni.ad + ' güncellendi.');
+    };
+    dk.appendChild(ok);
+    ov.appendChild(dk);
+    return;
+  }
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
   const { error } = await sb.from('kart').insert({
     ad, banka: document.getElementById('ktBanka').value.trim() || null,
