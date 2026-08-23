@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-23-1">
+<meta name="surum" content="borc-2026-08-23-2">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -503,6 +503,8 @@ td.sag,th.sag{text-align:right}
 .kk-vade{font-size:12px;margin-top:3px;opacity:.85;overflow-wrap:anywhere}
 .kk-vade.gecti{color:var(--hata);font-weight:700;opacity:1}
 .kk-vade.bugun{color:var(--uyari);font-weight:700;opacity:1}
+.kk-vade.odendi{opacity:.85}
+.kk-vade.notr{opacity:.7}
 .kk-dip{margin-top:auto;padding-top:10px}
 .kk-cubuk{height:7px;border-radius:999px;background:rgba(0,0,0,.11);overflow:hidden;margin-bottom:4px}
 .kk-cubuk i{display:block;height:100%;border-radius:999px;background:currentColor;opacity:.72}
@@ -3746,9 +3748,27 @@ function kartKutusu(v, kart, buAy, liste){
     const tarih = String(vg).padStart(2,'0') + '.' + bg2.slice(5,7);
     vd.textContent = 'son ödeme ' + tarih + ' · '
       + (fark > 0 ? fark + ' gün kaldı' : fark === 0 ? 'bugün son gün' : (-fark) + ' gün geçti');
-    if (fark < 0){ vd.className = 'kk-vade gecti';
-      vd.appendChild(document.createTextNode(' '));
-      vd.appendChild(el('span','rozet rz-eksik','SON ÖDEME GEÇTİ')); }
+    /* ⚠ BA · RENK ODEME DURUMUNDAN GELIR, TAKVIMDEN DEGIL. Olculdu: kutu
+       yalniz "fark < 0"a bakiyordu ve kalani 0,00 olan karta da, odeme
+       bilgisi hic girilmemis karta da kirmizi "SON ÖDEME GEÇTİ" basiyordu.
+       Gun sayaci bilgi olarak kaliyor; rozet ve renk odeme_turu'ndan:
+         tam       -> "ödendi"                   sakin
+         girilmedi -> "ödeme bilgisi girilmemiş" NOTR — bilinmeyen, gecikmis DEGILDIR
+         odenmedi  -> vade gectiyse SON ÖDEME GEÇTİ (uyari)
+         eksik     -> vade gectiyse SON ÖDEME GEÇTİ (uyari)
+         kismi     -> vade gectiyse "kalan devretti" (sakin — gecikme degil)
+       Vade gecmemisse HICBIR halde uyari yok.
+       ⚠ Kalan 0,00 olan donem gorunumde zaten 'tam' gelir (donem_odemesi >=
+         kalan); ayrica kalan <= 0 ise de 'tam' sayiliyor ki odeme bilgisi
+         girilmemis sifir bakiyeli kart "girilmemis" diye uyarmasin. */
+    const ot = kr(gosterilen.kalan) <= 0 ? 'tam' : (gosterilen.odeme_turu || 'girilmedi');
+    const ek = (metin, sinif, rozet) => { vd.className = 'kk-vade ' + sinif;
+      vd.appendChild(document.createTextNode(' · ' + metin));
+      if (rozet){ vd.appendChild(document.createTextNode(' ')); vd.appendChild(el('span','rozet rz-eksik',rozet)); } };
+    if (ot === 'tam') ek('ödendi', 'odendi');
+    else if (ot === 'girilmedi') ek('ödeme bilgisi girilmemiş', 'notr');
+    else if (fark < 0 && (ot === 'odenmedi' || ot === 'eksik')) ek('', 'gecti', 'SON ÖDEME GEÇTİ');
+    else if (fark < 0 && ot === 'kismi') ek('kalan devretti', 'odendi');
     else if (fark === 0) vd.className = 'kk-vade bugun';
   }
   kutu.appendChild(vd);
