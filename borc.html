@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-3">
+<meta name="surum" content="borc-2026-08-24-4">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -389,6 +389,16 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .im-gecikmis{border-top:4px solid var(--hata)}                     /* dolu kalin + sayi alti cizili */
 .im-ltd     {height:7px;border:1.5px solid var(--soluk);border-radius:2px;
              background:none}                                      /* ICI BOS CERCEVE */
+/* BT · kart ve cek isaretleri. Mevcut .im-* EZILMEDI, yanina eklendi.
+   Sekiller kaynagi soyler: kredi = ust CIZGI (yukaridakiler) ·
+   kart = DOLU DAIRE · cek = DIKEY CIZGILI kare. Renkler seritteki
+   sg-kart/sg-cek ile ayni aile; gri tonlu ciktida sekil farki yeter.
+   ⚠ .tkv-g .im{width:58%} ozgullugu (0,2,0) genislik verir; daire icin
+     asagidaki .tkv-g .im-kart ayni ozgullukte ve SONRA gelir — kazanir. */
+.im-kart{height:7px;border-radius:50%;background:#6B4E9E}
+.im-cek {height:7px;border:1px solid #0F6E72;border-radius:2px;
+         background:repeating-linear-gradient(90deg,#0F6E72,#0F6E72 2px,transparent 2px,transparent 4px)}
+.tkv-g .im-kart{width:7px}
 /* Gecikmis gun sayisi TEK vurgulu gun: 700 + alti cizili. Diger gunler
    400 oldugu icin bu fark gri tonlamada da gorunuyor. */
 .tkv-g.gecikmis .sy{font-weight:700;color:var(--hata);text-decoration:underline}
@@ -1521,6 +1531,33 @@ async function bantVerisi(){
     }
   }
 
+  /* ⚠ BT · TAKVIM ICIN KART ODEME GUNLERI. Kural YENIDEN ICAT EDILMEDI —
+     buAyKart'in turetmesinin AYNISI, yalniz yon ters: buAyKart "bu ayin
+     odemesi hangi donemden" diye ARIYOR; takvim "her donemin odemesi
+     hangi gune duser" diye CIKARIYOR. Iki yer ayni kurali okur:
+       odeme gunu >  kesim gunu -> odeme DONEMIN AYINDA   (15 kesim/25 odeme)
+       odeme gunu <= kesim gunu -> odeme SONRAKI ayda     (29 kesim/3 odeme)
+       gun = min(son_odeme_gunu, ayin son gunu)
+     Kapsam buAyKart ile AYNI suzgec: aktif kart · gun bilgisi olan ·
+     kalan > 0 · odeme_turu 'tam' olmayan donemler.
+     ⚠ Ayni kartin ardisik donemleri DEVRI tasir; iki donem takvimde iki
+       AYRI aya duser, ayni ayin toplaminda tek donem bulunur — ay basligi
+       devri cift saymaz. Aylar arasi toplam takvimde HIC kurulmuyor. */
+  const sonrakiAy = (ay) => { const [y,m] = ay.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m, 1));
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0'); };
+  const kartOdemeleri = [];
+  for (const k of kart.kartlar){
+    if (!k.aktif || k.kesim_gunu == null || k.son_odeme_gunu == null) continue;
+    for (const d of kart.donemler){
+      if (d.kart_id !== k.id) continue;
+      if (kr(d.kalan) <= 0 || d.odeme_turu === 'tam') continue;
+      const oAy = k.son_odeme_gunu > k.kesim_gunu ? d.donem : sonrakiAy(d.donem);
+      const tarih = oAy + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(oAy))).padStart(2,'0');
+      kartOdemeleri.push({ tarih, kart: k, donem: d, kalanKurus: kr(d.kalan) });
+    }
+  }
+
   const ko = krediOzet(taksitler);
   const buAy = bugun().slice(0,7);
 
@@ -1627,7 +1664,7 @@ async function bantVerisi(){
   return { krediler, taksitler, ko, buAyKurus, buAyOdenen, sahisKalan,
            madenBugun, madenAlis, farkBugun, farkKurus, fiyatiYok, alisiYok,
            hesaplanan, tahminSayisi, maden, sahis,
-           cek, cekToplam, cekSahis, cekLtd,
+           cek, cekToplam, cekSahis, cekLtd, kartOdemeleri,
            kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz, buAyKart,
            kartDonemleri: [...kartDonemleri].sort(),
            S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma };
@@ -1914,10 +1951,19 @@ function bantCiz(v){
   /* AY · ayni iki ifade seritte de lazim; bantOzet'e TASINDI. */
   const oz = bantOzet(v), sBuAy = oz.sBuAy, lBuAy = oz.lBuAy;
   const kb = v.buAyKart;
+  /* ⚠ BT · CEK DE BU AYIN NAKDI. Olculdu: 30.08 vadeli cek disarida
+     kaliyordu, ekran eksik rakam soyluyordu. Olcut: ACIK cek + vade ayi
+     bu ay (YYYY-MM esitligi). NOMINAL — iskonto hesabi yok.
+     ⚠ CIFT SAYIM YOK: cek bu bantta yalniz KATMAN 0'da (toplam borc,
+       AYRI kavram) ve burada gecer; ikisi ayni soruyu sormuyor. Odenmis/
+       karsiliksiz cek v.cek.acik'te zaten yok. */
+  const cekBuAy = v.cek.acik
+    .filter(c => String(c.vade_tarihi).slice(0,7) === bugun().slice(0,7))
+    .reduce((s,c) => s + kr(c.tutar), 0);
   const k2 = katman('Bu ay çıkacak nakit', 'şahıs + Ltd');
   const bas2 = el('div','bas');
   bas2.appendChild(el('span','et','Bu ay'));
-  bas2.appendChild(el('span','dg', tlk(sBuAy + lBuAy + kb.toplam)));
+  bas2.appendChild(el('span','dg', tlk(sBuAy + lBuAy + kb.toplam + cekBuAy)));
   k2.appendChild(bas2);
   /* ⚠ AR · KIRILIM UC PARCA. sahis/Ltd AYRIMI KORUNDU (bandin butun
      yapisi tuzel kisilik ayrimi uzerine kurulu ve o iki rakam baska
@@ -1928,6 +1974,8 @@ function bantCiz(v){
   const kp = ['şahıs ' + tk(sBuAy), 'Ltd ' + tk(lBuAy)];
   const eksikKart = kb.gunYok + kb.donemYok;
   if (kb.toplam || eksikKart) kp.push('kart ' + tk(kb.toplam));
+  /* Cek 0 ise satira girmez — kart ile ayni kural: 0 gurultu yapar. */
+  if (cekBuAy) kp.push('çek ' + tk(cekBuAy));
   k2.appendChild(el('div','kirilim', kp.join(' · ')));
   /* ⚠ 0 ile "bilmiyorum" AYNI GORUNMEZ. Iki sebep AYRI yaziliyor;
      hicbiri yoksa bu satir HIC CIKMAZ. */
@@ -2074,33 +2122,52 @@ async function vTakvim(){
     c.appendChild(el('div','uyari-agir','Son ödeme günü geçmiş ve kalanı olan '
       + v.buAyKart.gecikmis + ' kart var.'));
 
-  if (!v.taksitler.length){
+  /* ⚠ BT · takvim artik UC kaynak cizer; "taksit yok" tek basina bos
+     ekran sebebi degil. Ucü de bossa bos durum. */
+  if (!v.taksitler.length && !v.kartOdemeleri.length && !v.cek.acik.length){
     const k = el('div','kart');
     k.appendChild(el('div','kbaslik','Takvim'));
-    k.appendChild(el('div','bos','Henüz taksit yok. Krediler sekmesinden kredi ekleyip taksit üret.'));
+    k.appendChild(el('div','bos','Henüz ödeme yok. Kredi taksiti, kart ekstresi veya çek girilince burada görünür.'));
     c.appendChild(k); return;
   }
 
   const b = bugun(), buAy = b.slice(0,7);
-  /* Yeni sorgu YOK — zaten cekilmis taksitler gune gore gruplaniyor. */
+  /* Yeni sorgu YOK — bantVerisi'nin zaten cektigi UC kaynak gune gore
+     gruplaniyor: kredi taksiti (v.taksitler) · kart odemesi
+     (v.kartOdemeleri, buAyKart kuralindan turetilmis gun) · acik cek
+     (v.cek.acik). Vade (kira/vergi) BILEREK YOK: o kaynak borc.html'de
+     hic cekilmiyor, katmak yeni sorgu demek — ayri is. */
   const gunMap = new Map();
   for (const t of v.taksitler){
     if (!gunMap.has(t.vade_tarihi)) gunMap.set(t.vade_tarihi, []);
     gunMap.get(t.vade_tarihi).push(t);
   }
-  const aylar = [...new Set(v.taksitler.map(t => t.vade_tarihi.slice(0,7)))].sort();
+  /* Kart ve cek AYRI haritada: gunMap'in satirlari taksitKarti'ye gider
+     ve o desen (kirilim · Odeme gir · dekont) yalniz taksite dogru.
+     Karistirmak kredi satirlarinin halini de degistirirdi. */
+  const gunEk = new Map();
+  const ekKoy = (tarih, kayit) => {
+    if (!gunEk.has(tarih)) gunEk.set(tarih, []);
+    gunEk.get(tarih).push(kayit);
+  };
+  for (const ko of v.kartOdemeleri) ekKoy(ko.tarih, { tur:'kart', ...ko });
+  for (const cx of v.cek.acik) ekKoy(cx.vade_tarihi, { tur:'cek', tarih: cx.vade_tarihi,
+    kalanKurus: kr(cx.tutar), cek: cx });
+  const aylar = [...new Set([
+    ...v.taksitler.map(t => t.vade_tarihi.slice(0,7)),
+    ...[...gunEk.keys()].map(t => t.slice(0,7))])].sort();
   if (!TAKVIM_AY || !aylar.includes(TAKVIM_AY))
     TAKVIM_AY = aylar.includes(buAy) ? buAy : aylar[0];
 
   const kap = el('div','kart'); c.appendChild(kap);
-  const ctx = { kap, gunMap, aylar, krediMap, b, buAy, taksitler: v.taksitler };
+  const ctx = { kap, gunMap, gunEk, aylar, krediMap, b, buAy, taksitler: v.taksitler };
   TAKVIM_CTX = ctx;              // FAZ 2b·E · popstate bunu kullanir
   takvimYenile(ctx);
 }
 
 /* Ay izgarasi + gun paneli. Ay/gun degisince yalniz bu kap yeniden cizilir. */
 function takvimYenile(ctx){
-  const { kap, gunMap, aylar, krediMap, b, buAy } = ctx;
+  const { kap, gunMap, gunEk, aylar, krediMap, b, buAy } = ctx;
   kap.textContent = '';
   const ay = TAKVIM_AY, [yil, aySira] = ay.split('-').map(Number);
   const i = aylar.indexOf(ay);
@@ -2118,10 +2185,15 @@ function takvimYenile(ctx){
   const ort = el('div','ort');
   ort.appendChild(el('div','ay', ayAdi(ay) + (ay === buAy ? ' · bu ay' : '')));
   const ayT = [...gunMap.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
-  ort.appendChild(el('div','oz', ayT.length
+  /* BT · ay ozeti UC kaynagi kapsar: taksit + kart + cek. */
+  const ayEk = [...gunEk.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
+  const aySayi = ayT.length + ayEk.length;
+  ort.appendChild(el('div','oz', aySayi
     /* ⚠ D6 · NOMINAL degil KALAN. Kismi odenmis taksitte "bu ay ne kadar
-       odeyecegim" sorusunun cevabi nominal degil kalandir. */
-    ? ayT.length + ' ödeme · ' + tlk(ayT.reduce((s,t) => s + kr(t.kalan), 0)) + ' kalan'
+       odeyecegim" sorusunun cevabi nominal degil kalandir. Kartta da
+       kalan (donem kalani), cekte nominal = kalan (kismi odeme yok). */
+    ? aySayi + ' ödeme · ' + tlk(ayT.reduce((s,t) => s + kr(t.kalan), 0)
+                                 + ayEk.reduce((s,e) => s + e.kalanKurus, 0)) + ' kalan'
     : 'ödeme yok'));
   bas.appendChild(ort);
   bas.appendChild(ok('Sonraki ay','›', aylar[i+1]));
@@ -2146,17 +2218,26 @@ function takvimYenile(ctx){
   for (let g = 1; g <= gunSayisi; g++){
     const tar = ay + '-' + String(g).padStart(2,'0');
     const liste = gunMap.get(tar) || [];
+    const ek = gunEk.get(tar) || [];
     const h = el('button','tkv-g' + (tar === b ? ' bugun' : '')); h.type = 'button';
-    /* ⚠ ISARET TEK, panel hepsini listeler. Oncelik: gecikmis > Ltd >
-       bekleyen > odendi — en aciliyeti olan gorunur. */
+    /* ⚠ KREDI ISARETI TEK, panel hepsini listeler. Oncelik: gecikmis >
+       Ltd > bekleyen > odendi — en aciliyeti olan gorunur. Bu mantik
+       DEGISMEDI; kart ve cek KENDI isaretleriyle YANINA eklenir. */
     const acik = liste.filter(t => t.durum !== 'kapali');
     const im = !liste.length ? null
       : acik.some(t => t.vade_tarihi < b)      ? 'gecikmis'
       : acik.some(t => t.kredi_tur === 'ltd')  ? 'ltd'
       : acik.length                            ? 'bekliyor' : 'odendi';
-    if (im === 'gecikmis') h.classList.add('gecikmis');
+    /* BT · gecikmis SAYI vurgusu artik uc kaynagi da kapsar: gecmis
+       tarihli ek kayit (kart/cek) da gunun sayisini vurgular. Isaret
+       sekli kaynagi soyler, altcizgi aciliyeti — renkten bagimsiz. */
+    if (im === 'gecikmis' || ek.some(e => e.tarih < b)) h.classList.add('gecikmis');
     h.appendChild(el('span','sy', String(g)));
     if (im) h.appendChild(el('span','im im-' + im));
+    /* BT · kaynak basina TEK isaret, sekilleri farkli (kredi cizgi ·
+       kart DOLU DAIRE · cek DIKEY CIZGILI kare) — gri tonluda da ayrisir. */
+    if (ek.some(e => e.tur === 'kart')) h.appendChild(el('span','im im-kart'));
+    if (ek.some(e => e.tur === 'cek'))  h.appendChild(el('span','im im-cek'));
     /* ⚠ FAZ 2b·C · aria-pressed YERINE aria-selected. aria-pressed
        "acik/kapali dugme" der; burada bir GUN SECIMI var. Ayrica bugun
        aria-current="date" ile bildiriliyor — bolum seridindeki
@@ -2171,8 +2252,9 @@ function takvimYenile(ctx){
     h.setAttribute('aria-label',
       g + ' ' + ayAdi(ay) + ', ' + GUN_ADLARI[gd.getDay()]
       + (tar === b ? ' · bugün' : '')
-      + (liste.length
-         ? ' · ' + liste.length + ' ödeme · ' + tlk(liste.reduce((s,t)=>s+kr(t.kalan),0)) + ' kalan'
+      + ((liste.length + ek.length)
+         ? ' · ' + (liste.length + ek.length) + ' ödeme · '
+           + tlk(liste.reduce((s,t)=>s+kr(t.kalan),0) + ek.reduce((s,e)=>s+e.kalanKurus,0)) + ' kalan'
          : ' · ödeme yok'));
     h.onclick = () => { takvimGunSec((TAKVIM_GUN === tar) ? null : tar, ctx); };
     izg.appendChild(h);
@@ -2188,11 +2270,19 @@ function takvimYenile(ctx){
       : TAKVIM_GUN < b ? gunFarki(b, TAKVIM_GUN) + ' gün geçti'
       : gunFarki(TAKVIM_GUN, b) + ' gün sonra'));
     const liste = gunMap.get(TAKVIM_GUN) || [];
-    if (!liste.length) p.appendChild(el('div','bos','Bu gün ödeme yok.'));
-    /* Gun paneli taksitKarti'yi YENIDEN KULLANIYOR: kirilim, "Ltd gidere
-       yazilmaz", Odeme gir ve dekont dugmeleri orada ZATEN dogru. */
-    else for (const t of liste)
-      p.appendChild(taksitKarti(t, krediMap.get(t.kredi_id), b, buAy));
+    const ekListe = gunEk.get(TAKVIM_GUN) || [];
+    if (!liste.length && !ekListe.length) p.appendChild(el('div','bos','Bu gün ödeme yok.'));
+    else {
+      /* Gun paneli taksitKarti'yi YENIDEN KULLANIYOR: kirilim, "Ltd gidere
+         yazilmaz", Odeme gir ve dekont dugmeleri orada ZATEN dogru.
+         ⚠ Kredi satirlarina "kredi" etiketi EKLENMEDI: satirin hali
+           degismeyecek (kabul kriteri) ve "N. taksit" ibaresi kaynagi
+           zaten soyluyor. Kart ve cek satirlari turunu ACIKCA yazar. */
+      for (const t of liste)
+        p.appendChild(taksitKarti(t, krediMap.get(t.kredi_id), b, buAy));
+      for (const e of ekListe)
+        p.appendChild(takvimEkKarti(e, b));
+    }
     duzen.appendChild(p);
   }
 
@@ -2204,6 +2294,45 @@ function takvimYenile(ctx){
   alt.appendChild(bt);
   kap.appendChild(alt);
   if (TAKVIM_LISTE) kap.appendChild(tumTaksitlerCiz(ctx));
+}
+
+/* BT · Gun panelindeki KART ve CEK satiri. Desen ICAT EDILMEDI:
+   vMaden/vCek'in tk kutusu + kutuErisim; tiklaninca kredi taksitinin
+   taksitEkraniAc'a gittigi gibi kendi detayina gider (kartDetayAc /
+   cekDetayAc). Kaynak turu SATIRDA YAZAR — kullanici neyin ne oldugunu
+   isaret renginden degil metinden ayirt eder. */
+function takvimEkKarti(e, b){
+  const gecikti = e.tarih < b;
+  const kutu = el('div','tk' + (gecikti ? ' gecikti' : '')); kutu.style.cursor = 'pointer';
+  const ust = el('div','tk-ust');
+  if (e.tur === 'kart'){
+    kutu.onclick = () => kartDetayAc(e.kart.id);
+    kutuErisim(kutu, 'Kart ödemesi, ' + e.kart.ad + (e.kart.banka ? ' ' + e.kart.banka : '')
+      + ', kalan ' + tlk(e.kalanKurus) + (gecikti ? ', son ödeme günü geçti' : '') + ', detayı aç');
+    ust.appendChild(el('div','tk-ad', 'Kart · ' + e.kart.ad + (e.kart.banka ? ' · ' + e.kart.banka : '')));
+    ust.appendChild(el('div','tk-tutar', tlk(e.kalanKurus)));
+    kutu.appendChild(ust);
+    kutu.appendChild(el('div','tk-orta', 'ekstre ' + e.donem.donem
+      + (e.kart.sahip === 'ltd' ? ' · Ltd' : ' · Şahıs')
+      + (gecikti ? '' : ' · son ödeme günü')));
+  } else {
+    kutu.onclick = () => cekDetayAc(e.cek.id);
+    kutuErisim(kutu, 'Çek, ' + e.cek.banka + ', ' + e.cek.kime + ', ' + tlk(e.kalanKurus)
+      + (gecikti ? ', vadesi geçti' : '') + ', detayı aç');
+    ust.appendChild(el('div','tk-ad', 'Çek · ' + e.cek.banka));
+    ust.appendChild(el('div','tk-tutar', tlk(e.kalanKurus)));
+    kutu.appendChild(ust);
+    kutu.appendChild(el('div','tk-orta', e.cek.kime
+      + (e.cek.sahip === 'ltd' ? ' · Ltd' : ' · Şahıs')
+      + (e.cek.cek_no ? ' · no ' + e.cek.cek_no : '')));
+  }
+  /* Rozet yalniz IS VARSA — gecikme is'tir, bekleme degil. */
+  if (gecikti){
+    const r = el('div'); r.style.marginTop = '6px';
+    r.appendChild(el('span','rozet rz-eksik', e.tur === 'kart' ? 'GÜNÜ GEÇTİ' : 'VADESİ GEÇTİ'));
+    kutu.appendChild(r);
+  }
+  return kutu;
 }
 
 /* Tum kalan taksitler — 2 satirlik sade satir. Dokununca o gune gider. */
