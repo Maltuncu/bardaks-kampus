@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-24-1">
+<meta name="surum" content="2026-08-24-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1624,6 +1624,39 @@ function bdAc(btn, id){
 }
 
 let OZ_O = null;         // vOzet'in aylik ozeti — kart-3 ve kart-5'e girer
+/* ===== BQ · ALTI ESKI BLOK BES KARTIN ICINE (2026-08-24-2) =====
+   Ozet'te bes kart (DUN · 7 GUN · BU AY · BORC SINIFLARI · BUGUN DUZELT)
+   altlarindaki alti blogu (GUNLUK GERCEK CIRO · Uyarilar · AY RAPORU ·
+   KASA KOPRUSU · NAKIT CIKISI · AY KARI) zaten ozetliyordu; bloklar
+   kaldirilmadigi icin AYNI RAKAM ekranda iki kez duruyordu.
+   Olculdu (375px, temsili ay, owner): Ozet 4677px; bunun 3167px'i alti blok.
+   Bloklar SILINMEDI, kartlarin icine tasindi:
+     dordu + kasa koprusu -> BU AY karti (katli)
+     Uyarilar             -> BUGUN DUZELT karti (mukerrer satir suzulur)
+   ⚠ PERSONEL GORUNUMU DEGISMEDI: bes kart yalniz owner'da var
+     (odemelerBlogu rol kapisi), personelde bloklar YERINDE duruyor.
+   OZ_EK · vOzet bloklarin HTML'ini burada birakir, odemelerBlogu okur.
+   Uyarilar HAM LISTE olarak gecer — mukerrer suzgeci kart-2/kart-5'in
+   kendi listesini bilen odemelerBlogu icinde calisiyor. */
+let OZ_EK = null;
+let OZ_ODEME_CTX = null;   // odemelerBlogu'nun son ctx'i (bkz. bankaBakiyeKaydet)
+/* Para kaybettiren uyari ile isleyis uyarisi ayri agirlikta gosterilir.
+   ⚠ vOzet'ten MODUL KAPSAMINA alindi: ayni satiri artik iki yer ciziyor
+   (personelde vOzet, owner'da odemelerBlogu) — tek kaynak kalsin. */
+const UY_AGIR   = { fatura:1, cek:1, vade:1 };
+const UY_ETIKET = { vade:'VADE', stok:'STOK', talep:'YAPILACAK', eksik_gun:'EKSİK GÜN', fatura:'FATURA', cek:'ÇEK' };
+const UY_HEDEF  = { vade:'tedarikci', fatura:'tedarikci', cek:'tedarikci', stok:'stok', talep:'talep', eksik_gun:'gunsonu' };
+function uyariSatir(x){
+  return `<div class="${UY_AGIR[x.tip]?'uyari-agir':'uyari-orta'} uy-sr"${
+      x.tip==='eksik_gun' ? '' : ` onclick="sekmeAc('${UY_HEDEF[x.tip]||'ozet'}')"`}>
+    <span class="uy-et">${UY_ETIKET[x.tip]||'UYARI'}</span>
+    <span class="uy-mt">${esc(x.mesaj)}</span>
+    ${x.tip==='eksik_gun' ? `<button class="btn2" style="margin-left:8px"
+        onclick="event.stopPropagation();kapaliGunIsaretle('${x.tarih}')">Kapalıydı</button>
+      <button class="btn2" style="margin-left:4px"
+        onclick="event.stopPropagation();sekmeAc('gunsonu')">Gir</button>` : ''}
+  </div>`;
+}
 /* borc.html kutuErisim kalibinin AYNISI — mevcut desen, yenisi yazilmadi. */
 function bfErisim(kutu, etiket){
   kutu.setAttribute('role','button'); kutu.tabIndex = 0;
@@ -1636,6 +1669,11 @@ function bfErisim(kutu, etiket){
 async function odemelerBlogu(hedefId, ctx){
   const el = document.getElementById(hedefId); if (!el) return;
   if (!PROFIL || PROFIL.rol !== 'owner') return;
+  /* ⚠ ctx HATIRLANIR. bankaBakiyeKaydet bu blogu ctx'SIZ yeniden ciziyor;
+     donem kayboldugu icin BU AY basligi bosalip "rapor" baglantisi
+     ayRaporuAc('undefined')'a dusuyordu. Blogun icine ayin dokumu de
+     girdiginden bu artik sessiz degil, gorunur bir kayip olurdu. */
+  if (ctx) OZ_ODEME_CTX = ctx; else ctx = OZ_ODEME_CTX;
   ctx = ctx || {};
   const b = bugun(), s7 = BB_GUN(b,7), s30 = BB_GUN(b,30), dun = BB_GUN(b,-1);
   /* ⚠ TAKVİM HAFTASI (BB_HAFTA), kayan 7 gün DEĞİL: 31.08 "bu hafta" değil.
@@ -1843,6 +1881,25 @@ async function odemelerBlogu(hedefId, ctx){
   const dg = ctx.donem ? ayAdi(ctx.donem) : '';
   const gs = dunGs.data;
 
+  /* ---- BQ · TASINAN ALTI BLOK (vOzet -> OZ_EK) ----
+     BU AY kartina giren dort blok + kasa koprusu HAZIR HTML olarak gelir.
+     Uyarilar HAM gelir; mukerrer satir BURADA suzulur, cunku hangi satirin
+     bes kartta zaten oldugunu yalniz bu fonksiyon bilir:
+       · 'vade' uyarisi — kart-2 listesi 30 gune kadar TUM acik/tutar_yok
+         vadeyi satir satir gosteriyor; uyari kumesi (durum='acik') onun
+         ALT KUMESI. Pencere disinda kalan (uyari_gun > 30) vade DUSMEZ.
+       · 'eksik_gun' uyarisi — DUNUN satiri kart-5'te zaten var (D listesi).
+         Daha eski eksik gunler dusmez, "Kapalıydı/Gir" dugmeleriyle kalir.
+     ⚠ ACIL sayaci suzgecten SONRAKI listeden hesaplanir; rozet ile altindaki
+       satirlar ayni sayiyi soylesin. */
+  const ek = OZ_EK || {};
+  const uyL = (ek.uyarilar || []).filter(x =>
+    !(x.tip === 'vade' && x.tarih <= s30) && !(x.tip === 'eksik_gun' && x.tarih === dun));
+  const uyAcik = uyL.filter(x => UY_AGIR[x.tip]);      // para riski — kapali kartta da gorunur
+  const uyGizli = uyL.filter(x => !UY_AGIR[x.tip]);    // isleyis — "tumunu gor" arkasinda
+  const d5Gizli = DGizli.length + uyGizli.length;
+  const d5Tum = D.length + uyL.length;
+
   /* ---- BES KART · onaylanan telefon gorseli ---- */
   el.innerHTML = `
     ${!bankalar.length ? `<div class="uyari-orta kb-sr">Ödeme gücü hesaplanamıyor · banka bakiyesi eksik
@@ -1865,7 +1922,10 @@ async function odemelerBlogu(hedefId, ctx){
       ${L.length ? '' : bosDurum('liste','30 gün içinde ödeme yok','Kredi, kart ekstresi, vergi vadesi ve kart taksiti burada birleşir.')}
     </div>
     <div class="kart" id="bfAy" style="cursor:pointer" onclick="ayRaporuAc('${ctx.donem}')">
-      ${kbaslik('BU AY', dg + ' · KTÜ', '<span class="k">rapor ›</span>')}
+      ${kbaslik('BU AY', dg + ' · KTÜ', `<div class="kb-sag" style="text-align:right"><span class="k">rapor ›</span>${
+        ek.buAy ? `<button class="btn2 kb-bt" id="bfEkb" aria-expanded="false" aria-controls="bfEkk"
+          style="display:block;margin:6px 0 0 auto" data-t="ayın dökümü"
+          onclick="event.stopPropagation();bdAc(this,'bfEk')">ayın dökümü</button>` : ''}</div>`)}
       ${OZ_O ? `<div class="bilgi-not" style="margin-top:0">gerçek ciro <b>${tl(OZ_O.gercek_ciro)}</b> · nakit çıkışı <b>${tl(OZ_O.nakit_cikisi)}</b> · kâr <b>${tl(OZ_O.gercek_ay_kari)}</b>${!OZ_O.stok_bazli ? ' <span class="rozet rz-uyari">tahmin</span>' : ''}</div>`
              : '<div class="bilgi-not" style="margin-top:0">Bu ay için kayıt yok.</div>'}
       <div class="bilgi-not" onclick="event.stopPropagation()"><b>Ödeme gücü:</b> kasa ${kasaM} · banka ${bankaM}
@@ -1877,6 +1937,8 @@ async function odemelerBlogu(hedefId, ctx){
         <button class="btn" id="bbKaydet" onclick="bankaBakiyeKaydet()">Kaydet</button><div class="hata-msg" id="bbMsg"></div>
         <div class="ipucu" style="margin-top:6px">Fotoğraf: şu an bankada ne var. Toplanmaz, en yenisi geçerli.</div>
       </div>
+      ${ek.buAy ? `<div id="bfEkk" hidden onclick="event.stopPropagation()"
+        style="border-top:1px solid var(--cizgi);margin-top:12px;padding-top:12px">${ek.buAy}</div>` : ''}
     </div>
     <div class="kart" id="bfBorc" style="cursor:pointer" onclick="bfGit('borc.html')">
       ${kbaslik('BORÇ SINIFLARI', 'Üç ayrı sınıf — toplanmaz', '<span class="k">borç ›</span>')}
@@ -1888,13 +1950,19 @@ async function odemelerBlogu(hedefId, ctx){
       <div class="sr-alt" style="margin:-2px 0 0">cari ${tk2(cariT)} + maden rayiç ${tk2(madenBugun)} <b>(piyasayla değişir)</b>${kurFarki !== null ? ' · kur farkı ' + (kurFarki >= 0 ? '+' : '−') + tk2(Math.abs(kurFarki)) : ''}${fiyatiYok ? ' · fiyatı olmayan kayıt hariç' : ''}</div>
     </div>
     <div class="kart" id="bfDuzelt">
-      ${kbaslik('BUGÜN DÜZELT', D.length + ' iş', DGizli.length ? `<button class="btn2 kb-bt" id="bfD5b" aria-expanded="false" aria-controls="bfD5k"
-        data-t="tümünü gör (${D.length})" onclick="bdAc(this,'bfD5')">tümünü gör (${D.length})</button>` : '')}
+      ${kbaslik('BUGÜN DÜZELT', D.length + ' iş' + (uyL.length ? ' · ' + uyL.length + ' uyarı' : ''),
+        `${uyAcik.length ? `<span class="rozet rz-hata">ACİL ${uyAcik.length}</span>` : ''}${d5Gizli ? `<button class="btn2 kb-bt" id="bfD5b" aria-expanded="false" aria-controls="bfD5k"
+        data-t="tümünü gör (${d5Tum})" onclick="bdAc(this,'bfD5')">tümünü gör (${d5Tum})</button>` : ''}`)}
       ${DAcik.map((d) => `<div class="uyari-orta uy-sr"${d[2] ? ' onclick="' + d[2] + '"' : ''}><span class="uy-et">${d[0].toUpperCase()}</span><span style="flex:1">${d[1]}</span><span class="k">${d[2] ? (d[3] || 'Aç') + ' ›' : '—'}</span></div>`).join('')}
-      <div id="bfD5k" hidden>${DGizli.map((d) => `<div class="uyari-orta uy-sr"${d[2] ? ' onclick="' + d[2] + '"' : ''}><span class="uy-et">${d[0].toUpperCase()}</span><span style="flex:1">${d[1]}</span><span class="k">${d[2] ? (d[3] || 'Aç') + ' ›' : '—'}</span></div>`).join('')}</div>
-      ${D.length ? '' : bosDurum('uyari','Düzeltilecek iş yok','Eksik giriş kalmadığında bu kart boş kalır.')}
+      ${uyAcik.map(uyariSatir).join('')}
+      <div id="bfD5k" hidden>${DGizli.map((d) => `<div class="uyari-orta uy-sr"${d[2] ? ' onclick="' + d[2] + '"' : ''}><span class="uy-et">${d[0].toUpperCase()}</span><span style="flex:1">${d[1]}</span><span class="k">${d[2] ? (d[3] || 'Aç') + ' ›' : '—'}</span></div>`).join('')}${uyGizli.map(uyariSatir).join('')}</div>
+      ${(D.length || uyL.length) ? '' : bosDurum('uyari','Düzeltilecek iş yok','Eksik giriş kalmadığında bu kart boş kalır.')}
     </div>`;
-  paraBaglaHepsi(['bbBakiye']);
+  /* BQ · Kasa koprusu artik BU AY kartinin icinde ve bu cikti ASENKRON —
+     vOzet bunlari cagirdiginda alanlar henuz yoktu. Baglama ve yukleme
+     iste burada, HTML yazildiktan hemen sonra. */
+  paraBaglaHepsi(['bbBakiye', 'ohTutar']);
+  if (ek.buAy) ownerHareketYukle(ek.donem || ctx.donem || bugun().slice(0,7));
   const sel = document.getElementById('bbBanka');
   if (!bankalar.length) sel.value = '__yeni';
   const yeniAlan = () => { document.getElementById('bbYeniBanka').style.display = sel.value === '__yeni' ? 'block' : 'none'; };
@@ -2254,40 +2322,16 @@ async function vOzet(){
     u.unshift({ tip:'talep', mesaj: acikTalep.length + ' bekleyen yapılacak/alınacak' + (gunFarki >= 1 ? ` (en eskisi ${gunFarki} gündür)` : ''), tarih: acikTalep[0].created_at });
   }
   // Para kaybettiren uyarı (fatura/çek/vade) ile işleyiş uyarısı ayrı ağırlıkta gösterilir
-  const AGIR = { fatura:1, cek:1, vade:1 };
-  const ETIKET = {vade:'VADE',stok:'STOK',talep:'YAPILACAK',eksik_gun:'EKSİK GÜN',fatura:'FATURA',cek:'ÇEK'};
-  const HEDEF = {vade:'tedarikci',fatura:'tedarikci',cek:'tedarikci',stok:'stok',talep:'talep',eksik_gun:'gunsonu'};
-  const sirali = [...u].sort((a,b)=>(AGIR[b.tip]||0)-(AGIR[a.tip]||0));
-  const agirSayi = u.filter(x=>AGIR[x.tip]).length;
+  // (UY_AGIR / UY_ETIKET / UY_HEDEF / uyariSatir modül kapsamında — bkz. BQ)
+  const sirali = [...u].sort((a,b)=>(UY_AGIR[b.tip]||0)-(UY_AGIR[a.tip]||0));
+  const agirSayi = u.filter(x=>UY_AGIR[x.tip]).length;
 
-  el.innerHTML = `
-    <div class="ay-gez">
-      <button onclick="ozAyDegistir(-1)" aria-label="Önceki ay">‹</button>
-      <div><div class="ay-ad">${ayAdi(ay)}</div>
-        <div class="ay-alt">${ay===bugun().slice(0,7)
-          ? 'bu ay · '+new Date().toLocaleDateString('tr-TR')
-          : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
-      <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
-    </div>
-    <div id="kararBlok"></div>
-    ${PROFIL.rol === 'owner' ? '' : `<div class="ozet-grid">
-      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
-        <div class="d">${g?tl(g.toplam):'—'}</div>
-        <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Elde kalan +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
-      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU (GERÇEK)</div>
-        <div class="d">${o?tl(o.gercek_ciro):'—'}</div>
-        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${o&&+o.z_disi_nakit>0?'<br>Z raporu '+tl(o.ciro):''}</div></div>
-      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
-        <div class="e">NAKİT ÇIKIŞI</div>
-        <div class="d" style="color:var(--hata)">${o?tl(o.nakit_cikisi):'—'}</div>
-        <div class="aciklama">bu ay elden çıkan<br>${o&&+o.odenmeyen_alis>0?'+ '+tl(o.odenmeyen_alis)+' bekliyor':'ödenmemiş alış yok'}</div></div>
-      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
-        <div class="e">AY KÂRI (GERÇEK)</div>
-        <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.gercek_ay_kari):'—'}</div>
-        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${o&&+o.z_disi_nakit>0?'Elde kalan '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
-    </div>`}
-
-    ${GC.kayitliGun ? `<div class="kart">
+  /* ---- BQ · ALTI BLOK · İÇERİK burada, YERİ role göre ----
+     Blokların gövdesi (kart kabuğu HARİÇ) bir kez kuruluyor. Personel eski
+     yerinde kart kabuğuyla görür; owner'da odemelerBlogu bunları BU AY ve
+     BUGÜN DÜZELT kartlarının içine koyar. Tek gövde, iki yerleşim. */
+  const sahip = PROFIL.rol === 'owner';
+  const blokCiro = !GC.kayitliGun ? '' : `
       ${kbaslik('GÜNLÜK GERÇEK CİRO', ayAdi(ay),
         `<div class="kb-sag">${tl(GC.toplamGercek)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${GC.kayitliGun} kayıtlı gün</span></div>`)}
       <div class="gc-ust">
@@ -2305,33 +2349,21 @@ async function vOzet(){
         dediğinden AZ para sayılmış. Bu Z dışı satış değil <b>kasa açığı</b> — grafikte koyu
         kırmızı sütun. O günlere dokunup kontrol et.</div>` : ''}
       ${GC.kasaSayilmayanGun ? `<div class="uyari-orta">${GC.kasaSayilmayanGun} günde kasa
-        sayılmamış — o günlerin Z dışı nakdi bilinmiyor, toplama dahil edilmedi.</div>` : ''}
-    </div>` : ''}
+        sayılmamış — o günlerin Z dışı nakdi bilinmiyor, toplama dahil edilmedi.</div>` : ''}`;
 
-    <div class="kart">
+  const blokUyari = `
       ${kbaslik(agirSayi?'ACİL '+agirSayi:'', 'Uyarılar', `<div class="kb-sag">${u.length}</div>`)}
       ${u.length===0
         ? bosDurum('uyari','Bekleyen uyarı yok','Vadesi geçen fatura, biten stok veya eksik gün olduğunda burada görürsün.')
-        : sirali.map(x=>`
-          <div class="${AGIR[x.tip]?'uyari-agir':'uyari-orta'} uy-sr"${
-              x.tip==='eksik_gun' ? '' : ` onclick="sekmeAc('${HEDEF[x.tip]||'ozet'}')"`}>
-            <span class="uy-et">${ETIKET[x.tip]||'UYARI'}</span>
-            <span class="uy-mt">${esc(x.mesaj)}</span>
-            ${x.tip==='eksik_gun' ? `<button class="btn2" style="margin-left:8px"
-                onclick="event.stopPropagation();kapaliGunIsaretle('${x.tarih}')">Kapalıydı</button>
-              <button class="btn2" style="margin-left:4px"
-                onclick="event.stopPropagation();sekmeAc('gunsonu')">Gir</button>` : ''}
-          </div>`).join('')}
-    </div>
+        : sirali.map(uyariSatir).join('')}`;
 
-    ${o && PROFIL.rol==='owner' ? `<div class="kart"
-      style="border-color:var(--vurgu,#2E7D4F);border-width:2px">
+  const blokAyRaporu = !o ? '' : `
       ${kbaslik('AY RAPORU', ayAdi(ay),
         `<button class="btn" style="padding:8px 18px" onclick="ayRaporuAc('${ay}')">Aç</button>`)}
       <div class="ipucu">Ayın tamamı tek sayfada: gün gün ciro, ödemeler, giderler,
-        vergi, personel, kâr, depo ve gelecek ay. Ay sonunda aynısı e-postana gelir.</div>
-    </div>` : ''}
-    ${PROFIL.rol==='owner' ? `<div class="kart">
+        vergi, personel, kâr, depo ve gelecek ay. Ay sonunda aynısı e-postana gelir.</div>`;
+
+  const blokKasaKoprusu = `
       ${kbaslik('KASA KÖPRÜSÜ', 'Kendi Paran', `<button class="btn2" onclick="katlaAc('ohKutu',this)">Aç</button>`)}
       <div id="ohOzet">Yükleniyor...</div>
       <div id="ohKutu" style="display:none">
@@ -2355,9 +2387,9 @@ async function vOzet(){
         <button class="btn" id="ohKaydet" onclick="ownerHareketKaydet()">Kaydet</button>
         <div class="hata-msg" id="ohMsg"></div>
         <div id="ohListe"></div>
-      </div>
-    </div>` : ''}
-    ${o?`<div class="kart" id="ayDokum">
+      </div>`;
+
+  const blokNakit = !o ? '' : `
       ${kbaslik('NAKİT ÇIKIŞI', ayAdi(ay), '<div class="kb-sag" style="color:var(--hata)">'+tl(o.nakit_cikisi)+'</div>')}
       <div class="ipucu">Bu ay <b>gerçekten elinden çıkan</b> para. Faturanın kesilmesi değil, ödenmesi sayılır.</div>
       ${ozSatir('Tedarikçiye ödenen', tl(o.odenen_tedarikci))}
@@ -2366,9 +2398,9 @@ async function vOzet(){
       ${+o.personel_avans ? ozSatir('Personel avansı', tl(o.personel_avans)) : ''}
       ${ozSatir('TOPLAM ÇIKIŞ', tl(o.nakit_cikisi), true)}
       ${+o.odenmeyen_alis > 0 ? `<div class="uyari-orta" style="margin-top:10px">Bu ayın alışlarından
-        <b>${tl(o.odenmeyen_alis)}</b> henüz ödenmedi — sonraki aylarda çıkacak.</div>` : ''}
-    </div>
-    <div class="kart">
+        <b>${tl(o.odenmeyen_alis)}</b> henüz ödenmedi — sonraki aylarda çıkacak.</div>` : ''}`;
+
+  const blokKar = !o ? '' : `
       ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
       <div class="ipucu">${o.stok_bazli
         ? 'Depo sayımına dayalı: maliyet = açılış deposu + ay içi alış − kapanış deposu. Depodan kullanılan mal da maliyete giriyor.'
@@ -2411,13 +2443,62 @@ async function vOzet(){
         ${o.stok_bazli
           ? 'Maliyet depo sayımından geliyor: aldığın değil, <b>tükettiğin</b> mal maliyet sayılıyor. Depodan kullandığın mal da hesaba giriyor.'
           : 'Şu an yalnız o ay satın alınan mal maliyet sayılıyor. Depodan kullanırsan o maliyet hiçbir yerde görünmez — iki uçlu sayım (açılış + kapanış) girilene kadar bu rakam tahmindir.'}
-      </div>
-    </div>`:''}`;
+      </div>`;
+
+  /* Owner'da bloklar BU AY / BUGÜN DÜZELT kartına gider — kart kabuğu yerine
+     ince ayraç. Kart içinde kart, iki çerçeve demek olurdu. */
+  let ilkBolum = true;
+  const ayrac = (ic, id) => { if (!ic) return '';        // boş blok ayraç da açmaz
+    const bas = ilkBolum ? '' : 'border-top:1px solid var(--cizgi);margin-top:14px;padding-top:14px';
+    ilkBolum = false;
+    return `<div${id?` id="${id}"`:''}${bas?` style="${bas}"`:''}>${ic}</div>`; };
+  OZ_EK = !sahip ? null : {
+    donem: ay,
+    buAy: ayrac(blokCiro) + ayrac(blokNakit, 'ayDokum')
+        + ayrac(blokKar) + ayrac(blokKasaKoprusu) + ayrac(blokAyRaporu),
+    uyarilar: sirali
+  };
+
+  el.innerHTML = `
+    <div class="ay-gez">
+      <button onclick="ozAyDegistir(-1)" aria-label="Önceki ay">‹</button>
+      <div><div class="ay-ad">${ayAdi(ay)}</div>
+        <div class="ay-alt">${ay===bugun().slice(0,7)
+          ? 'bu ay · '+new Date().toLocaleDateString('tr-TR')
+          : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
+      <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
+    </div>
+    <div id="kararBlok"></div>
+    ${PROFIL.rol === 'owner' ? '' : `<div class="ozet-grid">
+      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
+        <div class="d">${g?tl(g.toplam):'—'}</div>
+        <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Elde kalan +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
+      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU (GERÇEK)</div>
+        <div class="d">${o?tl(o.gercek_ciro):'—'}</div>
+        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${o&&+o.z_disi_nakit>0?'<br>Z raporu '+tl(o.ciro):''}</div></div>
+      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="e">NAKİT ÇIKIŞI</div>
+        <div class="d" style="color:var(--hata)">${o?tl(o.nakit_cikisi):'—'}</div>
+        <div class="aciklama">bu ay elden çıkan<br>${o&&+o.odenmeyen_alis>0?'+ '+tl(o.odenmeyen_alis)+' bekliyor':'ödenmemiş alış yok'}</div></div>
+      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
+        <div class="e">AY KÂRI (GERÇEK)</div>
+        <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.gercek_ay_kari):'—'}</div>
+        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${o&&+o.z_disi_nakit>0?'Elde kalan '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
+    </div>`}
+
+    ${sahip ? '' : `
+    ${blokCiro ? `<div class="kart">${blokCiro}</div>` : ''}
+
+    <div class="kart">${blokUyari}</div>
+
+    ${blokNakit ? `<div class="kart" id="ayDokum">${blokNakit}</div>
+    <div class="kart">${blokKar}</div>` : ''}`}`;
+  /* ⚠ OZ_EK, kararBlogu'ndan ÖNCE dolmuş olmalı — odemelerBlogu onu okuyup
+     blokları BU AY / BUGÜN DÜZELT kartına yerleştiriyor.
+     ⚠ ownerHareketYukle ve ohTutar bağlaması BURADAN ALINDI: kasa köprüsü
+     artık odemelerBlogu'nun ASENKRON çıktısının içinde; burada çağrılsaydı
+     #ohOzet henüz yokken sessizce dönerdi ("Yükleniyor..." kalırdı). */
   OZ_O = o; kararBlogu(!!g, ay);   // D2 · sapma uyarısı da bunun içinde
-  if (PROFIL.rol === 'owner'){
-    paraBaglaHepsi(['ohTutar']);
-    ownerHareketYukle(ay);
-  }
   /* BF · borc.html'den donuste de ayni yer (sessionStorage koprusu) */
   const sk = sessionStorage.getItem('ozScroll');
   if (sk){ OZ_SCROLL = +sk; sessionStorage.removeItem('ozScroll'); }
