@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-23-4">
+<meta name="surum" content="2026-08-24-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1710,9 +1710,12 @@ async function odemelerBlogu(hedefId, ctx){
   }
   L.sort((a,c) => a.t.localeCompare(c.t));
 
-  /* ---- PENCERELER · tutarı olmayan TOPLAMA GİRMEZ, sayılır ---- */
+  /* ---- PENCERELER · tutarı olmayan TOPLAMA GİRMEZ, sayılır ----
+     ⚠ BO · n ESKIDEN tum kalemleri sayiyordu, ts ayni kalemi BIR DAHA —
+     canli sonuc "1 ödeme · 0,00 TL + 1 tutarsız" (tek kalem, tutari yok)
+     ve "0,00 geçti" alarmi bosuna telaslandirdi. n artik tutari OLAN kalem. */
   const pen = (f) => { const s = L.filter(f); const ts = s.filter(x => x.tutar == null).length;
-    return { n:s.length, t:s.reduce((a,x)=>a+(x.tutar||0),0), ts }; };
+    return { n:s.length - ts, t:s.reduce((a,x)=>a+(x.tutar||0),0), ts }; };
   /* ⚠ Alarm ve "dogrulanmis" toplam gi (odeme bilgisi girilmemis) dislar. */
   const gec = pen(x => x.t < b && !x.gi && !x.dv),
         gecGi = L.filter(x => x.t < b && x.gi).length,
@@ -1720,7 +1723,11 @@ async function odemelerBlogu(hedefId, ctx){
         haf = pen(x => x.t >= b && x.t <= hSon),
         g7 = pen(x => x.t >= b && x.t <= s7), g30 = pen(x => x.t >= b && x.t <= s30),
         g7d = pen(x => x.t >= b && x.t <= s7 && !x.gi);
-  const pz = (p) => p.n + ' ödeme · ' + tl(p.t) + (p.ts ? ' + <b style="color:var(--uyari)">' + p.ts + ' tutarsız</b>' : '');
+  /* BO · "0 ödeme · 0,00 TL" HICBIR dalda yazilmaz; yalniz tutarsiz varsa
+     "M kalemin tutarı girilmemiş" — o eksik VERIDIR, odeme degil. */
+  const pz = (p) => p.n
+    ? p.n + ' ödeme · ' + tl(p.t) + (p.ts ? ' + <b style="color:var(--uyari)">' + p.ts + ' tutarsız</b>' : '')
+    : p.ts + ' kalemin tutarı girilmemiş';
   el.dataset.g7 = JSON.stringify(g7);   // BC3 ölçümü için; ekranda gösterilmez
 
   /* ---- ELDE · kasa + banka · fark hesaplanmaz ---- */
@@ -1849,9 +1856,12 @@ async function odemelerBlogu(hedefId, ctx){
       ${kbaslik('ÖNÜMÜZDEKİ 7 GÜN', tl(g7d.t) + ' doğrulanmış', gec.n ? `<span class="rozet rz-hata">geçti ${tl(gec.t)}</span>` : '')}
       ${gecGi ? `<div class="sr-alt">${gecGi} kartın ödeme bilgisi girilmemiş — alarma sayılmadı, "Bugün düzelt"te</div>` : ''}
       ${gecDv ? `<div class="sr-alt">${gecDv} kartın kalanı devretti — ödeme yapılmış, alarm değil</div>` : ''}
-      ${gec.n ? grup('Vadesi geçti: ' + pz(gec), 'uyari-agir', grupGec, 0) : ''}
-      ${grup('Bu hafta (' + BB_GG(hBas) + '–' + BB_GG(hSon) + '): ' + pz(haf), 'uyari-orta', grupHaf, 3)}
-      ${grup('30 gün (→ ' + BB_GG(s30) + '): ' + pz(g30), '', grupSonra, 0)}
+      ${gec.n ? grup('Vadesi geçti: ' + pz(gec), 'uyari-agir', grupGec, 0)
+        /* BO · tutari bilinmeyen vadenin tarihi gecti = EKSIK VERI, gecikmis
+           odeme degil: alarm cubugu yok, satir listede kaliyor. */
+        : gec.ts ? grup(pz(gec), '', grupGec, 0) : ''}
+      ${(haf.n || haf.ts) ? grup('Bu hafta (' + BB_GG(hBas) + '–' + BB_GG(hSon) + '): ' + pz(haf), 'uyari-orta', grupHaf, 3) : ''}
+      ${(g30.n || g30.ts) ? grup('30 gün (→ ' + BB_GG(s30) + '): ' + pz(g30), '', grupSonra, 0) : ''}
       ${L.length ? '' : bosDurum('liste','30 gün içinde ödeme yok','Kredi, kart ekstresi, vergi vadesi ve kart taksiti burada birleşir.')}
     </div>
     <div class="kart" id="bfAy" style="cursor:pointer" onclick="ayRaporuAc('${ctx.donem}')">
