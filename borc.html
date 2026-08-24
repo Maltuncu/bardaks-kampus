@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-5">
+<meta name="surum" content="borc-2026-08-24-6">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3517,6 +3517,19 @@ const AX_BANKA = [
   ['enpara',   'Enpara']
 ];
 
+/* ⚠ BY · MARKA -> BANKA SOZLUGU. Olculdu (gercek Bankkart dosyasi,
+   tum metin tarandi): banka adi HIC gecmiyor, alan adi da yok; yalniz
+   "Bankkart" geciyor (9 kez). Bankkart ve Maximum, Turkiye Is
+   Bankasi'nin kart MARKALARIDIR — cikarim degil, bilinen esleme.
+   Alan adi yolu ONCE denenir (Maximum'da o kazanir, cikti degismez);
+   bulunamazsa marka aranir. Marka da yoksa alan BOS kalir, uydurulmaz.
+   ⚠ KART NUMARASINDAN (BIN) banka cikarma YOK — o kural duruyor.
+   [aranan kelime (axSade), banka adi, oneri anahtari, ekrandaki adi] */
+const AX_MARKA = [
+  ['bankkart', 'Türkiye İş Bankası', 'isbank', 'Bankkart'],
+  ['maximum',  'Türkiye İş Bankası', 'isbank', 'Maximum']
+];
+
 const AX_TUTAR = /^[-−]?\d{1,3}(?:\.\d{3})*,\d{2}(?:\s*(?:TL|TRY))?$/i;
 const AX_TARIH = /(\d{2})[./-](\d{2})[./-](\d{4})/;
 
@@ -3573,12 +3586,51 @@ function axSatirlar(parcalar){
 
 function axOku(parcalar){
   const satirlar = axSatirlar(parcalar);
+  const tumIsk = Object.values(AX_SOZLUK).flatMap(t => t.isk);
+
+  /* ⚠ BY · SARAN SUTUN BASLIGI BIRLESTIRILIR. Olculdu (gercek Bankkart,
+     pdftotext -layout): "Faiz Ücretler ve" baslik satirinda, "Kesintiler"
+     BIR ALT satirda sutunun x araliginda girintili — sozlukteki tam
+     etiket hicbir satirda olusmuyordu, faizKesinti 'yok' kaliyordu ve
+     iki sutunu toplama kurali (BB) hic devreye girmiyordu.
+     KURAL DAR, uc kilit birden:
+       1) ust parca tek basina HICBIR esanlamliyi icermiyor (calisan
+          eslesmeye DOKUNULMAZ — Maximum yolu ayni, olculdu)
+       2) ust parca bir esanlamlinin ON EKI (rastgele metin birlesmez)
+       3) alt parca EN FAZLA BIR satir altta (2..24), x araligi ORTUSUYOR,
+          tutar degil ve birlesim esanlamliya TAM ESIT
+     Eslesince ustun iskelet+ham'i birlesik yazilir, satir iskeleti
+     yeniden kurulur; alt parca yerinde kalir (deger taramasinin sarma
+     tespiti onu gorur). */
+  for (const s of satirlar){
+    for (const p of s.items){
+      if (p.isk.length < 3) continue;
+      if (tumIsk.some(sn => p.isk.indexOf(sn) >= 0)) continue;          // kilit 1
+      if (!tumIsk.some(sn => sn.length > p.isk.length && sn.startsWith(p.isk))) continue; // kilit 2
+      let q = null;
+      for (const s2 of satirlar){
+        const dy = s2.y - s.y;
+        if (dy <= 2 || dy > 24) continue;                               // kilit 3a
+        q = s2.items.find(q2 => !AX_TUTAR.test(q2.ham.trim())
+          && q2.isk.length > 0
+          && q2.x < p.x + (p.g || 0) + 2 && q2.x + (q2.g || 0) > p.x - 2  // kilit 3b
+          && tumIsk.some(sn => sn === p.isk + q2.isk));                 // kilit 3c
+        if (q) break;
+      }
+      if (!q) continue;
+      p.isk = p.isk + q.isk;
+      p.ham = p.ham + ' ' + q.ham;
+      s.isk = '';
+      for (const it of s.items){ it.iBas = s.isk.length; s.isk += it.isk; it.iSon = s.isk.length; }
+    }
+  }
+
   /* Herhangi bir alanin esanlamlisini TASIYAN parca "etiket"tir; deger
      taramasi bir etiketin USTUNDEN GECEMEZ. Olculdu: ozet dipnotu
      "Devreden Bakiye Alacak Kayıtları Borç Kayıtları | Hesap Özeti
      Borcu 347.386,08" TEK satir — engel olmasa uc sutunun ucu de
-     satirin sagindaki 347.386,08'i alirdi. */
-  const tumIsk = Object.values(AX_SOZLUK).flatMap(t => t.isk);
+     satirin sagindaki 347.386,08'i alirdi.
+     ⚠ BY · bu hesap birlestirmeden SONRA: birlesik baslik da etikettir. */
   for (const s of satirlar)
     for (const it of s.items)
       it.etiketMi = it.isk.length > 2 && tumIsk.some(sn => it.isk.indexOf(sn) >= 0);
@@ -3629,6 +3681,34 @@ function axOku(parcalar){
           const it2 = s2.items.find(it => Math.abs(it.x - etiketIt.x) <= 12
                                           && !it.etiketMi && uygun(it.ham));
           if (it2){ deger = it2.ham; kural = 'hemen altında'; break; }
+        }
+      }
+      /* 3b · BY · SARMA SATIRININ ALTINDA — yalniz PARA alanlari.
+         Olculdu (gercek Bankkart): baslik satiri sarilinca ("Kesintiler"
+         alt satira dusuyor) deger satiri basligin IKI satir altinda
+         kaliyor (28.4pt), kural 3'un 24'luk penceresi yetismiyordu.
+         PENCERE DAR — genisletmek alakasiz tutari almak, SESSIZ YANLIS
+         demek (bulamamaktan kotu). Uc kilit:
+           · yalniz kural 3 BOS kaldiysa calisir (Maximum yolu degismez)
+           · ikinci bakis ANCAK arada (2..24) SALT METIN satiri varsa
+             acilir — icinde TEK TUTAR bile olan satir sarma DEGILDIR ve
+             pencere hic acilmaz. Arasi bos olan uzak tutara UZANILMAZ.
+           · bakilan yer sarmanin HEMEN alti (2..24) — yani EN FAZLA BIR
+             sarma satiri atlanir, ucuncu satira tasilmaz.
+         Deger yine kural 3'un dar nokta olcutuyle (|dx| <= 12).
+         Birden cok FARKLI aday cikarsa asagida 3c zaten BELIRSIZ der. */
+      if (!deger && tanim.tip === 'para'){
+        const sarma = satirlar.find(s2 => { const dy = s2.y - s.y;
+          return dy > 2 && dy <= 24 && s2.items.length > 0
+            && !s2.items.some(it => AX_TUTAR.test(it.ham.trim())); });
+        if (sarma){
+          for (const s2 of satirlar){
+            const dy = s2.y - sarma.y;
+            if (dy <= 2 || dy > 24) continue;
+            const it2 = s2.items.find(it => Math.abs(it.x - etiketIt.x) <= 12
+                                            && !it.etiketMi && uygun(it.ham));
+            if (it2){ deger = it2.ham; kural = 'sarma satırının altında'; break; }
+          }
         }
       }
       if (!deger) continue;   // degersiz eslesme ADAY DEGILDIR (sarkan etiket paracigi)
@@ -3739,7 +3819,27 @@ function axOku(parcalar){
                       ham: ad, anahtar: b.anahtar };
   } else if (bul.size > 1)
     alanlar.banka = { durum:'belirsiz', etiket: [...bul.keys()].join(' / ') };
-  else alanlar.banka = { durum:'yok' };
+  else {
+    /* BY · alan adi yoksa MARKA. Iki marka ayni bankaya gidiyor; ileride
+       farkli bankalara giden marka eklenirse coklu-eslesme BELIRSIZ der
+       (alan adi yolundaki desenle ayni).
+       ⚠ axIskelet, axSade DEGIL: axSade cekirdegin DISINDA tanimli ve
+         cagirmak cekirdegi kendi kendine yetersiz birakiyordu (olculdu:
+         Node dizenegi ReferenceError verdi). Marka kelimeleri ASCII —
+         iskelet suzgeci ayni sonucu verir. */
+    const sadeMetin = axIskelet(tumMetin);
+    const markalar = new Map();
+    for (const [kelime, ad, anahtar, gorunen] of AX_MARKA)
+      if (sadeMetin.indexOf(kelime) >= 0 && !markalar.has(ad))
+        markalar.set(ad, { anahtar, gorunen });
+    if (markalar.size === 1){
+      const [ad, m] = [...markalar.entries()][0];
+      alanlar.banka = { durum:'ok', etiket: 'marka adından (' + m.gorunen + ')',
+                        kural: 'marka sözlüğünden', ham: ad, anahtar: m.anahtar };
+    } else if (markalar.size > 1)
+      alanlar.banka = { durum:'belirsiz', etiket: [...markalar.keys()].join(' / ') };
+    else alanlar.banka = { durum:'yok' };
+  }
   return alanlar;
 }
 /* AZ-CEKIRDEK-SONU */
