@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-23-3">
+<meta name="surum" content="borc-2026-08-23-4">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -166,6 +166,8 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .bant .bas{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .bant .bas .et{font-size:11px;font-weight:700;color:var(--soluk);letter-spacing:.4px}
 .bant .bas .dg{font-size:22px;font-weight:600;white-space:nowrap}
+.bant .bas .dg-buyuk{font-size:27px;font-weight:800;white-space:nowrap}
+.bant .tasarruf{color:var(--ok);font-weight:700}
 .bant .kirilim{font-size:11px;color:var(--soluk);line-height:1.4;margin-top:1px;overflow-wrap:anywhere}
 /* Satirlar AKAN METIN: her rakam icin ayri flex satiri kullanmak bandi
    330px'e (ekranin %41'i) cikarmisti. Iki-uc rakam tek satirda, sayilar
@@ -1578,10 +1580,12 @@ async function bantVerisi(){
 function seritCiz(v){
   const kutu = el('div');
   const sinif = [
-    { k:'kredi', ad:'Kredi',  ton:'sg-kredi', ov:'var(--ana)', tutar: v.S.anapara },
+  /* BJ · Serit artik TOPLAM ODEYECEGIM'in dagilimi (faiz dahil nominal,
+     sahis+Ltd) — K0 kirilimiyla AYNI payda. Eski hali anapara dagilimiydi. */
+    { k:'kredi', ad:'Kredi',  ton:'sg-kredi', ov:'var(--ana)', tutar: v.krediParcaToplam },
     { k:'sahis', ad:'Şahıs',  ton:'sg-sahis', ov:'var(--ok)',  tutar: v.sahisKalan },
     { k:'maden', ad:'Maden',  ton:'sg-maden', ov:'#C8952B',    tutar: v.madenBugun, rayic:true },
-    { k:'kart',  ad:'Kart',   ton:'sg-kart',  ov:'#6B4E9E',    tutar: v.kartSahis }
+    { k:'kart',  ad:'Kart',   ton:'sg-kart',  ov:'#6B4E9E',    tutar: v.kartSahis + v.kartLtd }
   ];
   const toplam = sinif.reduce((a,x) => a + x.tutar, 0);
   if (toplam <= 0) return null;
@@ -1606,7 +1610,7 @@ function seritCiz(v){
     /* ⚠ Metinler 375px'te TEK SATIR kalacak sekilde OLCULEREK secildi.
        "bugün kapatsam · faiz hariç" iki satira sariyordu (31px); soru
        burada, kapsam dipte. Ikisi birden 50px yerine 65px ediyordu. */
-    lej.appendChild(el('span','bs','bugün kapatsam'));
+    lej.appendChild(el('span','bs','vadesinde ödenirse'));
     for (const x of cizilen){
       const p = el('span', 'pr' + (secili === x.k ? ' sec' : ''));
       const ov = el('span','ov'); ov.style.background = x.ov;
@@ -1673,7 +1677,7 @@ function seritCiz(v){
      `toplam` bu fonksiyonun yukarisinda zaten cizilen siniflarin
      toplami olarak duruyor ve seridin paydasi odur. */
   dip.appendChild(el('div','serit-payda',
-    'Yüzdeler ' + tlk(toplam) + ' üzerinden — bugün kapatılsa ödenecek tutarın dağılımı.'));
+    'Yüzdeler ' + tlk(toplam) + ' üzerinden — vadesinde ödenirse toplam borcun dağılımı (faiz dahil, şahıs+Ltd).'));
   /* ⚠ M3 · "faiz hariç · Ltd hariç" BURADAN CIKARILDI. Bu satir bandin
      TAMAMI icin gecerliymis gibi duruyordu; oysa katman 2 ve katman 4
      Ltd'yi ICERIYOR ve kendi kapsam notlarinda oyle yaziyor. Ayni
@@ -1723,6 +1727,86 @@ function bantCiz(v){
 
   /* ===== BLOK 1 · SENİN BORCUN (şahıs şirketi) =====
      Hiçbir Ltd rakamı buraya girmez, tersi de. */
+  /* ==== BJ · KATMAN 0 · TOPLAM ODEYECEGIM — EN USTE, EN BUYUK ====
+     Kullanicinin itirazi: "bugun nasil kapatayim; en uste FAIZLERIYLE ne
+     ise o olmali." Toplam = kredi NOMINALI (faiz DAHIL, sahis+Ltd) +
+     kart + sahis cari + maden rayic. NOMINAL bilerek: taksitler vadesinde
+     odenecek, faiz DOGACAK. Hesaplarin hepsi zaten bantVerisi'nde. */
+  const kartToplam = v.kartSahis + v.kartLtd;
+  const krediNominal = v.krediParcaToplam;              // banttaki "Taksit nominali" ile AYNI
+  const toplamOde = krediNominal + kartToplam + v.sahisKalan + v.madenBugun;
+  /* Bugun kapatsam: anapara + kirilimsiz (faiz ayrimi bilinmeyen nominali
+     ile) + cari + kart + maden. Tasarruf = toplam − kapatsam; tanim geregi
+     gelecek faiz+masraf toplamina ESIT olmali — degilse asagida bagirir. */
+  const kapatsam = v.sAnapara + v.S.kirilimsiz + v.madenBugun
+                 + v.L.anapara + v.L.kirilimsiz + v.kartLtd;
+  const tasarruf = toplamOde - kapatsam;
+  b.appendChild(el('div','blok-et','TOPLAM BORÇ · şahıs + Ltd'));
+  const k0 = katman(null, null);
+  const bas0 = el('div','bas');
+  bas0.appendChild(el('span','et','Toplam ödeyeceğim · faiz dahil'));
+  bas0.appendChild(el('span','dg dg-buyuk', tlk(toplamOde)));
+  k0.appendChild(bas0);
+  k0.appendChild(el('div','kirilim','vadesinde ödenirse — doğacak faiz ve masraf dahil'));
+  /* KIRILIM · buyukten kucuge, yuzdesiyle. Payda = toplamOde. */
+  const yasGun = (() => {   // kullanilan turlarin SON fiyatlarinin en eskisi
+    const turler = [...new Set(v.maden.kayitlar.map(m => m.tur))];
+    let enEski = null;
+    for (const t of turler){ const f = sonFiyat(v.maden.fiyatlar, t);
+      if (f && (enEski === null || f.tarih < enEski)) enEski = f.tarih; }
+    return enEski === null ? null : gunFarki(bugun(), enEski);
+  })();
+  const yuz = (x) => toplamOde ? (x / toplamOde * 100) : 0;
+  const kir = [
+    { ad: 'Krediler (faiz dahil)', t: krediNominal },
+    { ad: 'Altın / gümüş (rayiç)', t: v.madenBugun, maden: true },
+    { ad: 'Şahıslar', t: v.sahisKalan },
+    { ad: 'Kartlar', t: kartToplam }
+  ].filter(x => x.t > 0).sort((a, c) => c.t - a.t);
+  for (const x of kir){
+    const sr0 = el('div','sr');
+    sr0.appendChild(el('b', null, x.ad + ' '));
+    sr0.appendChild(el('b', null, tk(x.t)));
+    sr0.appendChild(document.createTextNode('  %' + Math.round(yuz(x.t))));
+    if (x.maden && yasGun !== null){
+      sr0.appendChild(document.createTextNode(' · '));
+      /* ⚠ Fiyat ESKIYSE toplam yaniltir ve kullanici bilmiyordu. 7+ gun
+         uyari renginde. Otomatik fiyat CEKILMIYOR — elle giris yolu ayni. */
+      sr0.appendChild(el('span', yasGun >= 7 ? 'eksik' : null,
+        'fiyat ' + (yasGun === 0 ? 'bugün' : yasGun + ' gün önce')));
+    }
+    k0.appendChild(sr0);
+  }
+  /* ⚠ CEK KARARI: RAKAM YOK. Kullanici ~cek oldugunu soyluyor ama sistemde
+     cek KAYDI yok (sahis borcunda cek ayrimi yok) — sistem bilmedigi
+     rakami YAZMAZ, eksikligi SOYLER. Cekler girilince kendiliginden
+     sahis kirilimina dahil olur ve bu kutu o gun kalkar. */
+  k0.appendChild(el('div','uyari-orta',
+    'Çekler sistemde kayıtlı değil — bu toplamda YOK. Şahıs borcu olarak '
+  + 'girildiğinde toplama kendiliğinden dahil olur.'));
+  /* HANGISI KIMIN · Ltd'nin eski ayri blogu BURAYA tasindi — ayni rakam
+     iki yerde durmasin (D3 kurali). Ayri tuzel kisilik ibaresi korunuyor. */
+  const sSahibin = toplamOde - (v.L.nominal + v.kartLtd);
+  satir(k0, 'Şahıs işletmesi ', { v: tk(sSahibin) },
+        ' · Bardaks Ltd ', { v: tk(v.L.nominal + v.kartLtd) }, ' ',
+        { v: 'ayrı tüzel kişilik', s: 'eksik' });
+  if (v.L.kirilimsizAdet)
+    satir(k0, 'Ltd içinde kırılımsız ', { v: tk(v.L.kirilimsiz) },
+          ' (' + v.L.kirilimsizAdet + ' taksit — anapara/faiz ayrımı yok)');
+  /* BUGUN HEPSINI KAPATSAM + tasarruf */
+  const basK = el('div','bas');
+  basK.appendChild(el('span','et','Bugün hepsini kapatsam'));
+  basK.appendChild(el('span','dg', tlk(kapatsam)));
+  k0.appendChild(basK);
+  k0.appendChild(el('div','kirilim','doğmamış faizi ödemezdim'));
+  const ts = el('div','sr');
+  ts.appendChild(el('span','tasarruf','Erken kapatma tasarrufu ' + tlk(tasarruf)));
+  k0.appendChild(ts);
+  /* IC TUTARLILIK · tasarruf, gelecek faiz+masraf toplamina esit OLMALI */
+  if (tasarruf !== v.S.faizMasraf + v.L.faizMasraf)
+    k0.appendChild(el('div','uyari-agir','Tasarruf hesabı gelecek faiz toplamıyla tutmuyor — '
+      + tlk(tasarruf) + ' ≠ ' + tlk(v.S.faizMasraf + v.L.faizMasraf) + '. Formül bağları kontrol edilmeli.'));
+
   b.appendChild(el('div','blok-et','ŞAHIS ŞİRKETİ · senin borcun'));
 
   /* ---- KATMAN 1 · BUGUNKU YUK ---- */
@@ -1827,26 +1911,10 @@ function bantCiz(v){
      Ayri tuzel kisilik: sahibin gider/kar hesabina GIRMEZ. Nominal
      gosteriliyor cunku bu kredilerin buyuk kisminda anapara/faiz kirilimi
      YOK — "anapara" diye eksik bir rakam yazmak yaniltirdi. */
-  if (v.L.nominal || v.kartLtd){
-    const s = el('div','sr ltd');
-    s.appendChild(el('span','rozet rz-ltd','LTD'));
-    s.appendChild(document.createTextNode(' '));
-    s.appendChild(el('b', null, tk(v.lNominal)));
-    /* ⚠ "bu ay" BURADAN KALDIRILDI. Ayni sayi iki yerdeydi: burada ve
-       2. katmanin kiriliminda. Ayni sayi iki yerde tutulursa ileride
-       birbirinden AYRI DUSER. "Bu ay cikacak nakit" artik 2. KATMANIN
-       isi; Ltd blogu Ltd'ye OZEL olani tutuyor — nominal ve kirilimsiz.
-       ⚠ DEGER KAYBI YOK: lBuAy 2. katmanin kiriliminda gorunuyor,
-         kurus kumesi testi bunu kanitliyor. */
-    /* "ayri tuzel, gidere girmez" aciklamasi Krediler ekraninda ZATEN var
-       ("Limited sirket — bu kredinin hicbir kalemi gidere yazilmaz");
-       bantta rozet + ayirici cizgi ayrimi zaten soyluyor. */
-    if (v.L.kirilimsizAdet)
-      s.appendChild(document.createTextNode(' · kırılımsız ' + tk(v.L.kirilimsiz)));
-    /* Ltd AYRI YUKUMLULUK — dagilimin da, uc katmanin da DISINDA. */
-    const kl = katman('Ayrı yükümlülük · Limited', 'nominal · dağılımın dışında');
-    kl.appendChild(s);
-  }
+  /* BJ · LTD ayri blogu KALDIRILDI: ayni rakam KATMAN 0'daki "Hangisi
+     kimin" satirinda — iki yerde durursa bir gun ayrisir (D3 kurali).
+     "Ltd seride girmez" kurali da degisti: serit artik TOPLAMIN
+     (sahis+Ltd, faiz dahil) dagilimi; kimin oldugu K0'da yazili. */
 
   /* ---- KATMAN 3 · ILERI DONEM YUKU ---- */
   const k3 = katman('İleri dönem yükü', 'şahıs + Ltd');
