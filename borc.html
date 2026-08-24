@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-23-4">
+<meta name="surum" content="borc-2026-08-24-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -944,7 +944,7 @@ function hataTrIc(m){
   if (/kredi_tur_chk/i.test(s))       return 'Kredi türü ticari, şahıs veya ltd olmalı.';
   if (/kart_limit_chk/i.test(s))      return 'Kart limiti sıfırdan büyük olmalı. Bilinmiyorsa boş bırak.';
   if (/kd_asgari_chk/i.test(s))       return 'Asgari tutar eksi olamaz.';
-  if (/kd_donem_odemesi_chk/i.test(s)) return 'Bu ekstreye ödenen tutar eksi olamaz.';
+  if (/kd_donem_odemesi_chk/i.test(s)) return 'Bu ekstreye ödediğim tutar eksi olamaz.';
   if (/kd_faiz_chk/i.test(s))         return 'Faiz tutarı eksi olamaz. Bilinmiyorsa boş bırak.';
   if (/kd_vergi_masraf_chk/i.test(s)) return 'Faiz vergisi/masrafı eksi olamaz. Bilinmiyorsa boş bırak.';
   /* ⚠ ux_kart_donem KISMI tekil: ayni kartta ayni ay IKI KEZ acik olamaz.
@@ -3474,7 +3474,7 @@ async function ekstreOnayEkrani(a, dosya){
   /* C · HER ALAN YANINDA KAYNAK ETIKETI */
   const ALAN = [['banka','Banka'],['kartAdi','Kart türü'],['kesim','Hesap kesim tarihi'],
     ['sonOdeme','Son ödeme tarihi'],['limit','Kart limiti'],['devir','Devir'],
-    ['yeni','Yeni harcama'],['odenen','Ödenen'],['hesapOzeti','Hesap özeti borcu'],
+    ['yeni','Yeni harcama'],['odenen','Alacak kayıtları'],['hesapOzeti','Hesap özeti borcu'],
     ['asgari','Asgari tutar'],['faiz','Faiz (FZ)'],['vergi','Faiz vergisi (VR/FN)']];
   const sar = el('div','tablo-sar'); const t = document.createElement('table');
   const hr = document.createElement('tr');
@@ -3505,7 +3505,7 @@ async function ekstreOnayEkrani(a, dosya){
       + ' = ' + tlk(a.hesapOzeti.kurus)));
   else if (kp.durum === 'tutmuyor')
     k.appendChild(el('div','uyari-agir','✗ Ekstre kendi içinde TUTMUYOR. '
-      + 'devir + yeni − ödenen = ' + tlk(kp.sol) + ', ama hesap özeti borcu '
+      + 'devir + yeni − alacak kayıtları = ' + tlk(kp.sol) + ', ama hesap özeti borcu '
       + tlk(a.hesapOzeti.kurus) + '. Fark ' + tlk(Math.abs(kp.fark))
       + '. Dört rakamdan en az biri yanlış okundu — kaydetmeden önce ekstreden bak.'));
   else
@@ -4234,7 +4234,7 @@ async function kartDetayAc(kartId, duzenlenenId){
       const t = document.createElement('table');
       const hr = document.createElement('tr');
       /* AV · uc sutun eklendi: ASGARI · BU EKSTREYE ÖDENEN · KAPANMAMIŞ */
-      ['DÖNEM','DEVİR','YENİ','DÜZELTME','ÖDENEN','KALAN','ASGARİ','ÖDEDİĞİM','KAPANMAMIŞ','DURUM','FAİZ','VERGİ','EKSTRE',''].forEach((h,i) =>
+      ['DÖNEM','DEVİR','YENİ','DÜZELTME','ALACAK KAYITLARI','KALAN','ASGARİ','BU EKSTREYE ÖDEDİĞİM','KAPANMAMIŞ','DURUM','FAİZ','VERGİ','EKSTRE',''].forEach((h,i) =>
         hr.appendChild(el('th', ((i>=1 && i<=8) || i===10 || i===11) ? 'sag' : null, h)));
       t.appendChild(hr);
       for (const d of liste){
@@ -4294,7 +4294,7 @@ async function kartDetayAc(kartId, duzenlenenId){
       }
       sar.appendChild(t); k.appendChild(sar);
       k.appendChild(el('div','kucuk',
-        'KALAN = devir + yeni harcama + düzeltme − ödenen. Ayrı bir sütunda tutulmaz, '
+        'KALAN = devir + yeni harcama + düzeltme − alacak kayıtları. Ayrı bir sütunda tutulmaz, '
       + 'girdilerden hesaplanır; böylece girdilerle ayrışamaz.'));
       const tut = liste.filter(d => d.devir_tutarsiz);
       if (tut.length)
@@ -4333,7 +4333,7 @@ async function kartDetayAc(kartId, duzenlenenId){
       const eksikOd = liste.filter(d => d.odeme_turu === 'eksik');
       if (eksikOd.length)
         k.appendChild(el('div','uyari-agir',
-          eksikOd.length + ' dönemde ödenen tutar ASGARİNİN ALTINDA: '
+          eksikOd.length + ' dönemde bu ekstreye ödediğim tutar ASGARİNİN ALTINDA: '
           + eksikOd.map(d => d.donem).join(', ')
           + '. Asgarinin altı ödeme, kartın gecikmeye düşmesi ve ceza faizi demektir.'));
     }
@@ -4409,11 +4409,13 @@ function donemFormu(kart, liste, duz){
      dondurdugu ogeye dogrudan baglaniyor. */
   const yn = alan('Yeni harcama', 'kdYeni', duz ? fm(duz.yeni_harcama) : '', 'decimal');
   const dz2 = alan('Düzeltme (iade/indirim eksi yazılır)', 'kdDuzeltme', duz ? fm(duz.duzeltme) : '', 'decimal');
-  const od = alan('Ödenen', 'kdOdenen', duz ? fm(duz.odenen) : '', 'decimal');
-  /* ⚠ AV · IKI FARKLI "ODEME". Yukaridaki "Ödenen" EKSTRENIN ALACAK
-     satiri — kalan'i HESAPLAR. Asagidaki, bu ekstreye KARSILIK kesimden
-     SONRA yapilan odeme — kalan'i DEGISTIRMEZ. Karistirilirsa ayni para
-     iki kez sayilir; etiketler bu yuzden uzun. */
+  const od = alan('Alacak kayıtları (ekstreden · dönem içinde geçen ödemeler)', 'kdOdenen', duz ? fm(duz.odenen) : '', 'decimal');
+  /* ⚠ AV/BN · IKI FARKLI "ODEME". Yukaridaki "Alacak kayıtları" EKSTRENIN
+     kendi kelimesi (Is Bankasi: Devreden Bakiye · Alacak Kayitlari · Borc
+     Kayitlari · Hesap Ozeti Borcu) — kalan'i HESAPLAR. Asagidaki, bu
+     ekstreye KARSILIK kesimden SONRA yapilan odeme — kalan'i DEGISTIRMEZ.
+     Ikisine de "odenen" denince kullanici eslestiremedi (BN); artik ayni
+     ekranda "oden" kokunden tek etiket var. Alan adi `odenen` DEGISMEDI. */
   alan('Asgari tutar (ekstreden, bilinmiyorsa boş)', 'kdAsgari', duz ? fm(duz.asgari_tutar) : '', 'decimal');
   alan('Bu ekstreye karşılık ödediğim (bilinmiyorsa boş)', 'kdOdedim', duz ? fm(duz.donem_odemesi) : '', 'decimal');
   /* ⚠ AW · FAIZ ve VERGI AYRI TUTULUYOR, tek "maliyet" alaninda
@@ -4481,7 +4483,7 @@ function donemSatiriUret(kart){
   };
   const dev = oku('kdDevir','Devir', false);       if (!dev.ok) return dev;
   const yen = oku('kdYeni','Yeni harcama', false); if (!yen.ok) return yen;
-  const odn = oku('kdOdenen','Ödenen', false);     if (!odn.ok) return odn;
+  const odn = oku('kdOdenen','Alacak kayıtları', false);     if (!odn.ok) return odn;
   /* Duzeltme EKSI olabilir — paraCoz eksi isareti okumaz, ayrica bakiyoruz */
   const dzH = document.getElementById('kdDuzeltme').value.trim();
   const eksi = /^\s*-/.test(dzH);
@@ -4501,7 +4503,7 @@ function donemSatiriUret(kart){
     return { ok:true, deger:(r.kurus/100).toFixed(2), kurus:r.kurus };
   };
   const asg = secmeli('kdAsgari','Asgari tutar');   if (!asg.ok) return asg;
-  const odm = secmeli('kdOdedim','Bu ekstreye ödenen'); if (!odm.ok) return odm;
+  const odm = secmeli('kdOdedim','Bu ekstreye ödediğim'); if (!odm.ok) return odm;
   const fz  = secmeli('kdFaiz','Faiz tutarı');       if (!fz.ok)  return fz;
   const vr  = secmeli('kdVergi','Faiz vergisi/masrafı'); if (!vr.ok) return vr;
 
@@ -4523,7 +4525,7 @@ async function donemOnizle(kart, liste, kaydet, duz){
   if (!r.ok){ mesaj('kartMsg','hata', r.hata); return; }
 
   ov.appendChild(el('div','bilgi',
-    r.donem + ' · KALAN = devir + yeni + düzeltme − ödenen = ' + tlk(r.kalan)));
+    r.donem + ' · KALAN = devir + yeni + düzeltme − alacak kayıtları = ' + tlk(r.kalan)));
 
   const onceki = liste.filter(x => x.donem < r.donem).sort((a,b) => b.donem.localeCompare(a.donem))[0];
   if (onceki && kr(r.satir.devir) !== kr(onceki.kalan))
@@ -4540,8 +4542,8 @@ async function donemOnizle(kart, liste, kaydet, duz){
      trg_audit_kart_donem ile audit_log'a dusuyor. */
   if (duz){
     const ALAN = [['donem','Dönem',0],['devir','Devir',1],['yeni_harcama','Yeni harcama',1],
-                  ['duzeltme','Düzeltme',1],['odenen','Ödenen',1],['asgari_tutar','Asgari',1],
-                  ['donem_odemesi','Bu ekstreye ödenen',1],['faiz_tutari','Faiz',1],
+                  ['duzeltme','Düzeltme',1],['odenen','Alacak kayıtları',1],['asgari_tutar','Asgari',1],
+                  ['donem_odemesi','Bu ekstreye ödediğim',1],['faiz_tutari','Faiz',1],
                   ['vergi_masraf_tutari','Faiz vergisi',1]];
     const gos = (v, para) => v == null || v === '' ? '—' : (para ? tl(v) : v);
     const esit = (a, b, para) => (a == null ? null : (para ? kr(a) : a)) === (b == null ? null : (para ? kr(b) : b));
@@ -5048,7 +5050,9 @@ async function sahisDetayAc(hesapId, sessiz){
     const gercekOdeme = ho.filter(o => o.tur !== 'ters' && !TERSLENEN.has(o.id));
     sat('Kalan bakiye', tlk(kalan));
     sat('Toplam borç', tlk(kr(h.borc_toplam)));
-    sat('Ödenen', tlk(kr(h.odeme_toplam)));
+    /* BN · "Ödenen" yalin etiketi ekranda tek ada indirildi; sahis borcuna
+       yapilan odemeler senin odemelerin — "Ödediğim". Alan adi degismedi. */
+    sat('Ödediğim', tlk(kr(h.odeme_toplam)));
     sat('Hareket', hb.length + ' borç / ' + gercekOdeme.length + ' ödeme');
     if (h.aciklama) bas.appendChild(el('div','kucuk', h.aciklama));
     const ey = el('div','tk-eylem');
