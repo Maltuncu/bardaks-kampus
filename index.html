@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-24-2">
+<meta name="surum" content="2026-08-24-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1657,6 +1657,76 @@ function uyariSatir(x){
         onclick="event.stopPropagation();sekmeAc('gunsonu')">Gir</button>` : ''}
   </div>`;
 }
+
+/* ===== BR · TEKRAR EDEN UYARI TEK SATIRA (2026-08-24-3) =====
+   Olculdu (375px, temsili ay): "Ödenmemiş fatura (vade girilmemiş, N gün)"
+   satirlari kapali kartta 11 satir tutuyordu; kart 1276px'ti. On bir satir
+   TEK IS soyluyor — vade girmek. Ayni tur artik kapali kartta TEK OZET
+   satiri: sayi + (varsa) toplam. Ayrinti "tumunu gor"un arkasinda, satirlar
+   bugunku haliyle tek tek; hicbiri silinmiyor.
+
+   ⚠ GRUP ANAHTARI MESAJ KALIBINDAN cikiyor, cunku v_uyarilar yalniz
+     (tip, mesaj, tarih) donduruyor — tutar icin ayri kolon YOK. 'fatura'
+     tipi IKI AYRI IS tasiyor (vadesi gecti = ODE / vadesi girilmemis =
+     VADE GIR); tek grup yapilsaydi baslik yalan soylerdi.
+   ⚠ KALIP TUTMAZSA GRUP YOK: satir eskisi gibi tek tek gorunur. Yanlis
+     baslik yerine eski davranis. Gorunumun mesaj metni degisirse burasi
+     da degismeli (kaynak: v_uyarilar, taban migration'i). */
+const UY_GRUP = [
+  { k:'fatura_vadesiz', tip:'fatura', on:'Ödenmemiş fatura (vade girilmemiş',
+    ad:n => n + ' faturanın vadesi girilmemiş', eylem:'Gir' },
+  { k:'fatura_gecmis',  tip:'fatura', on:'Vadesi geçmiş fatura:',
+    ad:n => n + ' faturanın vadesi geçti', eylem:'Öde' },
+  { k:'cek',       tip:'cek',       ad:n => n + ' çekin vadesi yaklaştı/geçti', eylem:'Gör' },
+  { k:'vade',      tip:'vade',      ad:n => n + ' vadenin ödeme günü yaklaştı', eylem:'Gör' },
+  { k:'stok',      tip:'stok',      ad:n => n + ' ürün kritik seviyede',        eylem:'Gör' },
+  { k:'eksik_gun', tip:'eksik_gun', ad:n => n + ' günün gün sonu girilmemiş',   eylem:'Gir' }
+];
+/* Tutar mesajin SONUNDA, to_char(...,'FM999G999G990D00') || ' TL' bicimiyle.
+   ⚠ KURUSA cevrilip TAM SAYI toplanir — float toplami kurus kaydirir. */
+const UY_TUTAR_KALIP = /(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})\s*TL\s*$/;
+function uyariKurus(mesaj){
+  const m = UY_TUTAR_KALIP.exec(String(mesaj || ''));
+  return m ? Number(m[1].replace(/\./g, '')) * 100 + Number(m[2]) : null;
+}
+const uyariKurusTl = k => Math.floor(k / 100).toLocaleString('tr-TR')
+  + ',' + String(k % 100).padStart(2, '0') + ' TL';
+/* Doner: { ozet, ayrinti, acil, ayrintiAdet }
+     ozet    — kapali kartta gorunen satirlar (grup ozeti VEYA tek satir)
+     ayrinti — YALNIZ gruplanan turlerin tek tek satirlari ("tumunu gor")
+     acil    — para riskli GRUP sayisi (satir sayisi DEGIL) */
+function uyariGrupla(liste){
+  const bulunan = new Map();
+  let tekNo = 0;
+  for (const x of liste || []){
+    const g = UY_GRUP.find(y => y.tip === x.tip && (!y.on || String(x.mesaj || '').startsWith(y.on)));
+    const anahtar = g ? g.k : 'tek' + (++tekNo);      // kalip tutmadi — kendi basina
+    if (!bulunan.has(anahtar)) bulunan.set(anahtar, { g, uye: [] });
+    bulunan.get(anahtar).uye.push(x);
+  }
+  let ozet = '', ayrinti = '', acil = 0, ayrintiAdet = 0;
+  for (const { g, uye } of bulunan.values()){
+    const ilk = uye[0];
+    if (uye[0] && UY_AGIR[ilk.tip]) acil++;
+    if (!g || uye.length === 1){ ozet += uyariSatir(ilk); continue; }   // tek örnek: değişmez
+    /* Toplam yalniz TUM uyelerin tutari okunabildiyse yazilir — eksik
+       toplami "toplam" diye gostermek yanlis rakam olurdu. */
+    const krs = uye.map(x => uyariKurus(x.mesaj));
+    const toplam = krs.every(v => v != null) ? krs.reduce((a, v) => a + v, 0) : null;
+    /* ⚠ uy-et ROZETI YOK: grup cumlesi turu zaten soyluyor ("11 FATURAnın
+       vadesi girilmemiş"). Rozet burada tekrar olurdu ve 375px'te satiri
+       IKI SATIRA kiriyordu (olculdu: rozetli 59px, rozetsiz 44px).
+       Tek tek satirlar ayrintida rozetini KORUYOR. */
+    ozet += `<div class="${UY_AGIR[ilk.tip] ? 'uyari-agir' : 'uyari-orta'} uy-sr"
+        onclick="sekmeAc('${UY_HEDEF[ilk.tip] || 'ozet'}')">
+      <span class="uy-mt" style="flex:1">${esc(g.ad(uye.length))}${toplam != null ? ' · ' + uyariKurusTl(toplam) : ''}</span>
+      <span class="k">${g.eylem} ›</span>
+    </div>`;
+    ayrinti += uye.map(uyariSatir).join('');
+    ayrintiAdet += uye.length;
+  }
+  return { ozet, ayrinti, acil, ayrintiAdet };
+}
 /* borc.html kutuErisim kalibinin AYNISI — mevcut desen, yenisi yazilmadi. */
 function bfErisim(kutu, etiket){
   kutu.setAttribute('role','button'); kutu.tabIndex = 0;
@@ -1895,9 +1965,11 @@ async function odemelerBlogu(hedefId, ctx){
   const ek = OZ_EK || {};
   const uyL = (ek.uyarilar || []).filter(x =>
     !(x.tip === 'vade' && x.tarih <= s30) && !(x.tip === 'eksik_gun' && x.tarih === dun));
-  const uyAcik = uyL.filter(x => UY_AGIR[x.tip]);      // para riski — kapali kartta da gorunur
-  const uyGizli = uyL.filter(x => !UY_AGIR[x.tip]);    // isleyis — "tumunu gor" arkasinda
-  const d5Gizli = DGizli.length + uyGizli.length;
+  /* BR · Tur basina TEK ozet satiri; ayrinti "tumunu gor"un arkasinda.
+     ⚠ ACIL sayaci artik GRUP sayar: on bir vadesiz fatura tek is, tek alarm.
+       Onceden satir sayiyordu ve "ACİL 16" gercekte 4 isi anlatiyordu. */
+  const uyG = uyariGrupla(uyL);
+  const d5Gizli = DGizli.length + uyG.ayrintiAdet;
   const d5Tum = D.length + uyL.length;
 
   /* ---- BES KART · onaylanan telefon gorseli ---- */
@@ -1951,11 +2023,11 @@ async function odemelerBlogu(hedefId, ctx){
     </div>
     <div class="kart" id="bfDuzelt">
       ${kbaslik('BUGÜN DÜZELT', D.length + ' iş' + (uyL.length ? ' · ' + uyL.length + ' uyarı' : ''),
-        `${uyAcik.length ? `<span class="rozet rz-hata">ACİL ${uyAcik.length}</span>` : ''}${d5Gizli ? `<button class="btn2 kb-bt" id="bfD5b" aria-expanded="false" aria-controls="bfD5k"
+        `${uyG.acil ? `<span class="rozet rz-hata">ACİL ${uyG.acil}</span>` : ''}${d5Gizli ? `<button class="btn2 kb-bt" id="bfD5b" aria-expanded="false" aria-controls="bfD5k"
         data-t="tümünü gör (${d5Tum})" onclick="bdAc(this,'bfD5')">tümünü gör (${d5Tum})</button>` : ''}`)}
       ${DAcik.map((d) => `<div class="uyari-orta uy-sr"${d[2] ? ' onclick="' + d[2] + '"' : ''}><span class="uy-et">${d[0].toUpperCase()}</span><span style="flex:1">${d[1]}</span><span class="k">${d[2] ? (d[3] || 'Aç') + ' ›' : '—'}</span></div>`).join('')}
-      ${uyAcik.map(uyariSatir).join('')}
-      <div id="bfD5k" hidden>${DGizli.map((d) => `<div class="uyari-orta uy-sr"${d[2] ? ' onclick="' + d[2] + '"' : ''}><span class="uy-et">${d[0].toUpperCase()}</span><span style="flex:1">${d[1]}</span><span class="k">${d[2] ? (d[3] || 'Aç') + ' ›' : '—'}</span></div>`).join('')}${uyGizli.map(uyariSatir).join('')}</div>
+      ${uyG.ozet}
+      <div id="bfD5k" hidden>${DGizli.map((d) => `<div class="uyari-orta uy-sr"${d[2] ? ' onclick="' + d[2] + '"' : ''}><span class="uy-et">${d[0].toUpperCase()}</span><span style="flex:1">${d[1]}</span><span class="k">${d[2] ? (d[3] || 'Aç') + ' ›' : '—'}</span></div>`).join('')}${uyG.ayrinti}</div>
       ${(D.length || uyL.length) ? '' : bosDurum('uyari','Düzeltilecek iş yok','Eksik giriş kalmadığında bu kart boş kalır.')}
     </div>`;
   /* BQ · Kasa koprusu artik BU AY kartinin icinde ve bu cikti ASENKRON —
