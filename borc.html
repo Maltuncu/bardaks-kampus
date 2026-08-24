@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-4">
+<meta name="surum" content="borc-2026-08-24-5">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -353,6 +353,34 @@ main{padding:14px;max-width:640px;margin:0 auto}
   /* menu hucresi sag ust kosede */
   .maden-t td:last-child{position:absolute;top:8px;right:8px;padding:0}
   .maden-t td:last-child::before{display:none}
+}
+
+/* ===== BX · EKSTRE ONAY TABLOSU <768px'TE KARTLASIR =====
+   Kalip FAZ 2c·A (maden-t) ile AYNI: DOM degismez, her satir bir kart,
+   hucre etiketini data-et'ten alir. min-width:0 SART (ayni olcum:
+   global tablo kurali min-width veriyor, kirpilan icerik gizli tasar).
+   ⚠ OLCULDU: .maden-t CSS'i duruyor ama sinifi tasiyan tablo KALMAMIS —
+     maden ekrani AN-B'de kutuya cevrilmis, data-et yazan JS yok. Desen
+     KOPYALANDI (ortaklastirilmadi: oksuz CSS'e baglanmak, biri onu
+     temizlediginde bu tabloyu da sessizce bozardi).
+   Kart sirasi: ALAN basligi ustte · OKUNAN buyuk · KAYNAK ETIKET ve
+   NASIL BULUNDU kucuk puntoda. >=768px'te dort sutun AYNEN durur. */
+@media(max-width:767px){
+  .tablo-sar:has(.ax-t){overflow-x:visible}
+  .ax-t, .ax-t tbody, .ax-t tr, .ax-t td{display:block;width:auto;min-width:0}
+  .ax-t tr:first-of-type{display:none}           /* baslik satiri kartta gereksiz */
+  .ax-t tr{border:1.5px solid var(--cizgi);border-radius:12px;
+    padding:10px 12px;margin:0 0 10px;background:var(--kart)}
+  .ax-t td{border:none;padding:2px 0;text-align:left!important}
+  .ax-t td[data-et="ALAN"]{font-size:11px;font-weight:800;letter-spacing:.5px;
+    color:var(--soluk);padding-bottom:0}
+  .ax-t td[data-et="OKUNAN"]{font-size:17px;font-weight:600;padding-bottom:4px}
+  .ax-t td[data-et="KAYNAK ETİKET"],.ax-t td[data-et="NASIL BULUNDU"]{
+    display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+    font-size:11.5px;color:var(--soluk)}
+  .ax-t td[data-et="KAYNAK ETİKET"]::before,.ax-t td[data-et="NASIL BULUNDU"]::before{
+    content:attr(data-et);font-size:10px;font-weight:800;letter-spacing:.5px;
+    color:var(--soluk);flex:none}
 }
 
 /* ===== FAZ 2b·G4 · MOBILDE IZGARA TAM GENISLIK =====
@@ -3776,22 +3804,52 @@ async function ekstreOnayEkrani(a, dosya){
        (Faiz)"). Hangisinden geldigini KAYNAK ETIKET sutunu zaten yaziyor. */
     ['asgari','Asgari tutar'],['faiz','Faiz'],['vergi','Faiz vergisi']];
   const sar = el('div','tablo-sar'); const t = document.createElement('table');
+  t.className = 'ax-t';                    // BX · <768px'te kartlasir (CSS'te)
   const hr = document.createElement('tr');
   ['ALAN','OKUNAN','KAYNAK ETİKET','NASIL BULUNDU'].forEach((h,i) =>
     hr.appendChild(el('th', i === 1 ? 'sag' : null, h)));
   t.appendChild(hr);
+  /* ⚠ BX · Bu ek axOku'da o.kural'a yaziliyor (cekirdek DEGISMEDI —
+     ciktisi olculuyor, birebir ayni kalmali). GOSTERIMDE kirpilir:
+     olculdu, en sagdaki sutunda kesiliyordu ("hemen altında · e") ve
+     kullanici eksi rakamla arti toplami celiski saniyordu. Aciklama
+     artik rakamin ALTINDA (asagida), kural sutunu yalniz eslesme
+     kuralini soyluyor — ayni sey iki yerde yazmiyor. */
+  const EK_EKSI = ' · eksi işaret pozitife çevrildi';
   for (const ik of ALAN){
     const o = a[ik[0]] || { durum:'yok' };
     const tr = document.createElement('tr');
-    tr.appendChild(td(ik[1]));
-    const dh = document.createElement('td'); dh.className = 'sag';
+    const c1 = td(ik[1]); c1.dataset.et = 'ALAN'; tr.appendChild(c1);
+    const dh = document.createElement('td'); dh.className = 'sag'; dh.dataset.et = 'OKUNAN';
     /* ⚠ BOS = BOS. Belirsiz alan "?" ile isaretlenir ve DOLU SAYILMAZ. */
-    if (o.durum === 'ok') dh.textContent = o.ham;
+    if (o.durum === 'ok'){
+      if (o.kurus != null){
+        /* BX-A · PARA ALANI KAYDEDILECEK DEGERI GOSTERIR, ham metni
+           degil. Olculdu: faiz "11,078.37" (Ingiliz bicim) ve yeni
+           harcama "-106.802,77 TL" (eksi) ham haliyle duruyordu; deger
+           DOGRUYDU ama gorunen rakam yaniltiyordu. Ham KAYBOLMAZ:
+           bicimlenmisten FARKLIYSA altina kucuk puntoda duser; ayniysa
+           ikinci satir hic cikmaz (gurultu). Hicbir deger degismiyor —
+           kayit yolu zaten o.kurus okuyor. */
+        const deger = tk(o.kurus);
+        dh.appendChild(el('div', null, deger));
+        const hamN = String(o.ham || '').trim().replace(/\s*(TL|TRY)\s*$/i, '').trim();
+        if (hamN !== deger){
+          const alt = el('div','kucuk', 'PDF’te: ' + o.ham
+            + ((o.kural || '').indexOf(EK_EKSI) >= 0 ? ' · eksi kaldırıldı' : ''));
+          alt.style.marginTop = '2px';
+          dh.appendChild(alt);
+        }
+      } else dh.textContent = o.ham;     // tarih ve metin alanlari: eskisi gibi
+    }
     else if (o.durum === 'belirsiz') dh.appendChild(el('span','rozet rz-eksik','? BELİRSİZ'));
     else dh.appendChild(el('span','gri','—'));
     tr.appendChild(dh);
-    tr.appendChild(td(o.etiket ? '"' + o.etiket + '"' : '—'));
-    tr.appendChild(td(o.kural || (o.durum === 'belirsiz' ? 'birden çok etiket eşleşti' : 'bulunamadı')));
+    const c3 = td(o.etiket ? '"' + o.etiket + '"' : '—');
+    c3.dataset.et = 'KAYNAK ETİKET'; tr.appendChild(c3);
+    const c4 = td((o.kural || '').replace(EK_EKSI, '')
+      || (o.durum === 'belirsiz' ? 'birden çok etiket eşleşti' : 'bulunamadı'));
+    c4.dataset.et = 'NASIL BULUNDU'; tr.appendChild(c4);
     t.appendChild(tr);
   }
   sar.appendChild(t); k.appendChild(sar);
