@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-1">
+<meta name="surum" content="borc-2026-08-24-3">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -242,6 +242,10 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .sg-sahis{background:repeating-linear-gradient(45deg,var(--ok),var(--ok) 3px,#256A42 3px,#256A42 6px)}
 .sg-maden{background:repeating-linear-gradient(-45deg,#C8952B,#C8952B 3px,#A87A1E 3px,#A87A1E 6px)}
 .sg-kart {background:repeating-linear-gradient(0deg,#6B4E9E,#6B4E9E 2px,#543D7D 2px,#543D7D 4px)}
+/* ⚠ CEK dokusu digerlerinden AYRI: 90deg (dikey cizgi) ve daha genis
+   aralik. Gri tonlu baskida kredi(duz)/sahis(45)/maden(-45)/kart(0) ile
+   karismaz — renk tek basina bilgi tasimiyor. */
+.sg-cek  {background:repeating-linear-gradient(90deg,#0F6E72,#0F6E72 4px,#0A4E51 4px,#0A4E51 8px)}
 /* ⚠ YALNIZ altin segmentin etiketi KOYU. Beyaz yazi altin uzerinde 2.70/3.84
    veriyordu; siyah yazi 7.79/5.47 verir ve altin rengi AYNEN kalir — renk
    maden'in kimligi, gradyana dokunulmadi. Diger uc segment BEYAZ kalir:
@@ -536,6 +540,20 @@ td.sag,th.sag{text-align:right}
 .tk-gider{font-size:13px;font-weight:600;color:var(--ok);margin-top:4px}
 .tk-gider.yok{color:var(--soluk);font-weight:700}
 .tk-eylem{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+/* ===== CEK (v112) · kenarlik YOK, gruplama boslukla; tek vurgu rengi ===== */
+.cek-buyuk{font-size:34px;font-weight:600;line-height:1.1;white-space:nowrap;
+  font-variant-numeric:tabular-nums;margin:2px 0 2px}
+.cek-alt{font-size:13px;color:var(--soluk);line-height:1.5}
+.cek-sec{display:flex;gap:8px;margin:2px 0 4px}
+/* ⚠ Secili hal #bolumSerit button.aktif ile AYNI dil — yeni renk YOK.
+   Secim ayrica ✓ ve aria-checked ile de soyleniyor; renk tek basina
+   bilgi tasimaz (gri tonlu ciktida ✓ kaliyor). */
+.cek-sec-b{flex:1;min-height:44px;padding:0 12px;border-radius:22px;
+  background:var(--acik);color:var(--ana);font-size:16px;font-weight:700}
+.cek-sec-b.secili{background:var(--ana);color:#fff}
+/* Satir ici metin dugmesi — banka onerisi. Dokunma hedefi 44px. */
+.baglanti{background:none;color:var(--ana);font-size:13px;font-weight:700;
+  padding:0 2px;min-height:44px;text-decoration:underline}
 /* v92 · odeme formu ve odeme listesi — taksit kartinin ICINDE acilir */
 .odeme-form,.odeme-liste{margin-top:10px;padding-top:10px;border-top:2px dashed var(--cizgi)}
 .tk.kismi{border-color:var(--uyari)}
@@ -678,6 +696,9 @@ td.sag,th.sag{text-align:right}
     <button data-b="kartlar"  onclick="ekranAc('kartlar')">Kartlar</button>
     <button data-b="maden"    onclick="ekranAc('maden')">Maden</button>
     <button data-b="sahis"    onclick="ekranAc('sahis')">Şahıs</button>
+    <!-- ⚠ EN SONA. Mevcut bes sekmenin yeri DEGISMEZ; serit yatay kayiyor
+         ve arada bir yer acmak kas hafizasini bozar. -->
+    <button data-b="cek"      onclick="ekranAc('cek')">Çek</button>
   </nav>
   <main id="icerik"></main>
   <!-- UYGULAMANIN alt çubuğu — index.html ile aynı sekmeler/ikonlar/sıra -->
@@ -961,6 +982,16 @@ function hataTrIc(m){
          + 'Önce o kartın paylaşımını kaldır, sonra arşivle.';
   }
   if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
+  /* v112 · cek. ⚠ ux_cek_no ve cek_odendi_chk asagidaki genel `_chk`
+     dusme satirindan ONCE gelmeli, yoksa "Girilen deger kurallari
+     saglamiyor" diye is gormez bir cumleye duserler. */
+  if (/ux_cek_no/i.test(s))       return 'Bu banka için bu çek numarası zaten girilmiş.';
+  if (/cek_sahip_chk/i.test(s))   return 'Çek Ltd veya şahıs olmalı.';
+  if (/cek_odendi_chk/i.test(s))  return 'Ödendi işaretlenen çekte ödeme tarihi zorunlu.';
+  if (/cek_tutar_chk/i.test(s))   return 'Çek tutarı sıfırdan büyük olmalı.';
+  if (/cek_banka_chk/i.test(s))   return 'Banka boş bırakılamaz.';
+  if (/cek_kime_chk/i.test(s))    return 'Çeği kime verdiğin boş bırakılamaz.';
+  if (/cek_durum_chk/i.test(s))   return 'Çek durumu bekliyor, ödendi veya karşılıksız olmalı.';
   if (/_chk\b/i.test(s))              return 'Girilen değer kuralları sağlamıyor.';   // AQ · '+ s' kisit adini tasiyordu
   if (/duplicate key/i.test(s))       return 'Bu kayıt zaten var.';
   /* v100/v101 · ters kayit RPC'lerinin YEDI kodu. v101 GIDERE_ISLENMIS'i
@@ -1244,6 +1275,28 @@ function kartSonDonemler(donemler){
   return m;
 }
 
+/* ⚠ CEK · v112. IKI SORGU:
+     acik   -> v_cek_acik   (durum='bekliyor', vade sirali, kalan_gun/gecikti)
+     gecmis -> cek          (odendi + karsiliksiz)
+   ⚠ HATA YUTULUR AMA SESSIZ DEGIL. Diger getir* fonksiyonlari `throw`
+     ediyor ve ekranin TAMAMINI dusuruyor; cek en yeni parca ve tek basina
+     Takvim/Krediler/Kartlar/Maden/Sahis'i karartmamali. Hata `hata`
+     alaninda tasinir, ekranlar onu YAZAR (sessiz sifir degil). */
+async function cekGetir(){
+  try{
+    const [a, g] = await Promise.all([
+      sb.from('v_cek_acik').select('*'),
+      sb.from('cek').select('id,sahip,banka,cek_no,vade_tarihi,tutar,kime,durum,odendi_tarih')
+        .eq('is_deleted', false).neq('durum','bekliyor').order('vade_tarihi', { ascending:false })]);
+    if (a.error) throw a.error;
+    if (g.error) throw g.error;
+    return { acik: a.data || [], gecmis: g.data || [], hata: null };
+  }catch(e){
+    console.error('cekGetir', e);
+    return { acik: [], gecmis: [], hata: hataTr(e && e.message || String(e)) };
+  }
+}
+
 async function madenGetir(){
   const [m,f] = await Promise.all([
     sb.from('maden').select('id,tur,gram,kime,tarih,alis_tutar,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
@@ -1391,6 +1444,7 @@ async function ekranAc(ad){
     else if (ad === 'kartlar')  await vKartlar();
     else if (ad === 'maden')    await vMaden();
     else if (ad === 'sahis')    await vSahis();
+    else if (ad === 'cek')      await vCek();
   }catch(e){
     c.textContent = '';
     const k = el('div','kart');
@@ -1401,8 +1455,18 @@ async function ekranAc(ad){
 
 /* ================== UST OZET BANDI (her ekranda) ================== */
 async function bantVerisi(){
-  const [krediler, taksitler, sahis, maden, kart] = await Promise.all([
-    krediGetir(), taksitGetir(null), sahisGetir(), madenGetir(), kartGetir()]);
+  const [krediler, taksitler, sahis, maden, kart, cek] = await Promise.all([
+    krediGetir(), taksitGetir(null), sahisGetir(), madenGetir(), kartGetir(), cekGetir()]);
+
+  /* ⚠ CEK · NOMINAL. Iskonto/ciro hesabi YOK — cekin uzerindeki tutar ne
+     ise borc odur. Acik cekler (durum='bekliyor') toplama girer; odenmis
+     ve karsiliksiz cekler GIRMEZ.
+     ⚠ sahip sozlugu kart.sahip ile AYNI (sahis|ltd), kredi.tur ile DEGIL. */
+  let cekSahis = 0, cekLtd = 0;
+  for (const c of cek.acik){
+    if (c.sahip === 'ltd') cekLtd += kr(c.tutar); else cekSahis += kr(c.tutar);
+  }
+  const cekToplam = cekSahis + cekLtd;
 
   /* KART KALANI — her kartin EN SON donemindeki kalan.
      Donemi hic girilmemis kart 0 SAYILMAZ; kac tane oldugu yazilir. */
@@ -1563,6 +1627,7 @@ async function bantVerisi(){
   return { krediler, taksitler, ko, buAyKurus, buAyOdenen, sahisKalan,
            madenBugun, madenAlis, farkBugun, farkKurus, fiyatiYok, alisiYok,
            hesaplanan, tahminSayisi, maden, sahis,
+           cek, cekToplam, cekSahis, cekLtd,
            kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz, buAyKart,
            kartDonemleri: [...kartDonemleri].sort(),
            S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma };
@@ -1585,7 +1650,11 @@ function seritCiz(v){
     { k:'kredi', ad:'Kredi',  ton:'sg-kredi', ov:'var(--ana)', tutar: v.krediParcaToplam },
     { k:'sahis', ad:'Şahıs',  ton:'sg-sahis', ov:'var(--ok)',  tutar: v.sahisKalan },
     { k:'maden', ad:'Maden',  ton:'sg-maden', ov:'#C8952B',    tutar: v.madenBugun, rayic:true },
-    { k:'kart',  ad:'Kart',   ton:'sg-kart',  ov:'#6B4E9E',    tutar: v.kartSahis + v.kartLtd }
+    { k:'kart',  ad:'Kart',   ton:'sg-kart',  ov:'#6B4E9E',    tutar: v.kartSahis + v.kartLtd },
+    /* ⚠ CEK · doku mevcut dortten AYRI (dikey degil YATAY cizgi, 3px
+       araliksiz) ve gri tonlu ciktida da ayrisir — renk tek basina bilgi
+       tasimaz. Nominal: iskonto hesabi yok. */
+    { k:'cek',   ad:'Çek',    ton:'sg-cek',   ov:'#0F6E72',    tutar: v.cekToplam }
   ];
   const toplam = sinif.reduce((a,x) => a + x.tutar, 0);
   if (toplam <= 0) return null;
@@ -1734,12 +1803,16 @@ function bantCiz(v){
      odenecek, faiz DOGACAK. Hesaplarin hepsi zaten bantVerisi'nde. */
   const kartToplam = v.kartSahis + v.kartLtd;
   const krediNominal = v.krediParcaToplam;              // banttaki "Taksit nominali" ile AYNI
-  const toplamOde = krediNominal + kartToplam + v.sahisKalan + v.madenBugun;
+  /* ⚠ CEK NOMINAL girer (v112): cekin uzerindeki tutar ne ise borc odur.
+     Iskonto/ciro/kesif hesabi YOK — bu yuzden toplamOde ve kapatsam AYNI
+     rakami alir; cekte "dogmamis faiz" diye bir sey yoktur, erken kapatma
+     tasarrufu URETMEZ. Tasarruf nobetcisi bu yuzden bozulmaz. */
+  const toplamOde = krediNominal + kartToplam + v.sahisKalan + v.madenBugun + v.cekToplam;
   /* Bugun kapatsam: anapara + kirilimsiz (faiz ayrimi bilinmeyen nominali
      ile) + cari + kart + maden. Tasarruf = toplam − kapatsam; tanim geregi
      gelecek faiz+masraf toplamina ESIT olmali — degilse asagida bagirir. */
   const kapatsam = v.sAnapara + v.S.kirilimsiz + v.madenBugun
-                 + v.L.anapara + v.L.kirilimsiz + v.kartLtd;
+                 + v.L.anapara + v.L.kirilimsiz + v.kartLtd + v.cekToplam;
   const tasarruf = toplamOde - kapatsam;
   b.appendChild(el('div','blok-et','TOPLAM BORÇ · şahıs + Ltd'));
   const k0 = katman(null, null);
@@ -1761,7 +1834,8 @@ function bantCiz(v){
     { ad: 'Krediler (faiz dahil)', t: krediNominal },
     { ad: 'Altın / gümüş (rayiç)', t: v.madenBugun, maden: true },
     { ad: 'Şahıslar', t: v.sahisKalan },
-    { ad: 'Kartlar', t: kartToplam }
+    { ad: 'Kartlar', t: kartToplam },
+    { ad: 'Çekler', t: v.cekToplam }
   ].filter(x => x.t > 0).sort((a, c) => c.t - a.t);
   for (const x of kir){
     const sr0 = el('div','sr');
@@ -1777,18 +1851,17 @@ function bantCiz(v){
     }
     k0.appendChild(sr0);
   }
-  /* ⚠ CEK KARARI: RAKAM YOK. Kullanici ~cek oldugunu soyluyor ama sistemde
-     cek KAYDI yok (sahis borcunda cek ayrimi yok) — sistem bilmedigi
-     rakami YAZMAZ, eksikligi SOYLER. Cekler girilince kendiliginden
-     sahis kirilimina dahil olur ve bu kutu o gun kalkar. */
-  k0.appendChild(el('div','uyari-orta',
-    'Çekler sistemde kayıtlı değil — bu toplamda YOK. Şahıs borcu olarak '
-  + 'girildiğinde toplama kendiliğinden dahil olur.'));
+  /* ⚠ ESKI "Cekler sistemde kayitli degil" UYARISI KALDIRILDI (v112).
+     Cekler artik kendi tablosunda ve YUKARIDAKI kirilimda; uyarinin isi
+     bitti. Yerine hicbir sey konmadi — ozet eklenirken ozetlenen blok
+     AYNI turda kalkar, yoksa ekran birikir. */
   /* HANGISI KIMIN · Ltd'nin eski ayri blogu BURAYA tasindi — ayni rakam
-     iki yerde durmasin (D3 kurali). Ayri tuzel kisilik ibaresi korunuyor. */
-  const sSahibin = toplamOde - (v.L.nominal + v.kartLtd);
+     iki yerde durmasin (D3 kurali). Ayri tuzel kisilik ibaresi korunuyor.
+     ⚠ Ltd cekleri de Ltd tarafina yaziliyor; sahis cekleri toplamdan
+       dusulmez, kendiliginden sahis tarafinda kalir. */
+  const sSahibin = toplamOde - (v.L.nominal + v.kartLtd + v.cekLtd);
   satir(k0, 'Şahıs işletmesi ', { v: tk(sSahibin) },
-        ' · Bardaks Ltd ', { v: tk(v.L.nominal + v.kartLtd) }, ' ',
+        ' · Bardaks Ltd ', { v: tk(v.L.nominal + v.kartLtd + v.cekLtd) }, ' ',
         { v: 'ayrı tüzel kişilik', s: 'eksik' });
   if (v.L.kirilimsizAdet)
     satir(k0, 'Ltd içinde kırılımsız ', { v: tk(v.L.kirilimsiz) },
@@ -3224,9 +3297,21 @@ const AX_SOZLUK = {
   limit:      { tip:'para',  syn:['kart limiti','kredi kartı limiti'] },
   devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç'] },
   yeni:       { tip:'para',  syn:['dönem içi borç kayıtları','borç kayıtları','dönem içi harcamalar','yeni harcamalar'] },
-  odenen:     { tip:'para',  syn:['dönem içi alacak kayıtları','alacak kayıtları','yapılan ödemeler','ödemeler toplamı'] },
+  odenen:     { tip:'para',  syn:['dönem içi alacak kayıtları','alacak kayıtları','yapılan ödemeler','ödemeler toplamı','ödemeleriniz'] },
   hesapOzeti: { tip:'para',  syn:['hesap özeti borcu','dönem borcu','güncel borç'] },
-  asgari:     { tip:'para',  syn:['ödenmesi gereken asgari tutar','asgari ödeme tutarı','asgari tutar'] }
+  asgari:     { tip:'para',  syn:['ödenmesi gereken asgari tutar','asgari ödeme tutarı','asgari tutar'] },
+  /* ⚠ BB · IS BANKASI BANKKART OZET TABLOSU BES SUTUNLU:
+       Devreden Bakiye | Harcamalarınız | Faiz Ücretler ve Kesintiler
+       | Ödemeleriniz | Dönem Borcu
+     Bizim formulumuz DORT terimli (devir + yeni + duzeltme - alacak =
+     kalan) ve faiz AYRI BIR TERIM DEGIL. Bu yuzden ilk uc sutunun
+     karsiligi hazir (devir / odenen / hesapOzeti), ortadaki IKI sutun
+     TOPLANIP yeni_harcama olur — asagida, alan dongusunun ardindan.
+     Sozlukte durmalarinin ikinci sebebi: sozlukteki her etiket ayni
+     zamanda ENGELDIR (etiketMi), yani bes sutunlu satirda her baslik
+     bir oncekinin saga taramasini durdurur. */
+  harcama:     { tip:'para', syn:['harcamalarınız'] },
+  faizKesinti: { tip:'para', syn:['faiz ücretler ve kesintiler'] }
 };
 for (const alan of Object.keys(AX_SOZLUK))
   AX_SOZLUK[alan].isk = AX_SOZLUK[alan].syn.map(axIskelet)
@@ -3236,9 +3321,31 @@ for (const alan of Object.keys(AX_SOZLUK))
    varsa o etiket BASKA bir alandir. Olculdu: "Kullanılabilir Kart
    Limiti", "Bir Sonraki Hesap Kesim Tarihi", "Ertelenebilir/Ertelenen/
    Taksitlendirilen Hesap Özeti Borcu" ayni dosyada bir arada.
-   ("Ertelenen" brif listesinde yoktu, gercek dosyada VAR — eklendi.) */
-const AX_NITELEYICI = ['bir sonraki','kullanılabilir','ertelenebilir','ertelenen',
+   ("Ertelenen" brif listesinde yoktu, gercek dosyada VAR — eklendi.)
+   ⚠ BB · 'bir sonraki' -> 'sonraki'. Is Bankasi Bankkart "Sonraki Hesap
+     Kesim Tarihi" ve "Sonraki Son Ödeme Tarihi" diyor, "Bir Sonraki"
+     demiyor; okuyucu ikisini ayirt edemiyordu (olculdu: kesim ve son
+     odeme BELIRSIZ kaliyordu). 'sonraki' kisa hali "Bir Sonraki"yi de
+     kapsar — once endsWith ile bakiliyor, ayri madde gerekmiyor. */
+const AX_NITELEYICI = ['sonraki','kullanılabilir','ertelenebilir','ertelenen',
   'taksitlendirilen','vadelendirilen','nakit','toplam','önceki','geciken'].map(axIskelet);
+
+/* ⚠ BB · DOVIZ VARYANTI. Ayni etiketin TL ve USD/EUR surumu yan yana
+   duruyor ("Dönem Borcu TL" / "Dönem Borcu USD", "Asgari Ödeme Tutarı
+   TL" / "... USD"); ikisi de aday olunca alan BELIRSIZ kaliyordu.
+   Etiketin HEMEN ARDINDAN gelen metin bunlardan biriyle basliyorsa o
+   etiket baska para birimine aittir.
+   ⚠ "TL yoksa REDDET" DEGIL, "USD/EUR ise reddet": Maximum ekstresinde
+     etiketin doviz eki HIC YOK ("Hesap Özeti Borcu 347.386,08") ve o
+     satirlar aynen okunmaya devam etmeli.
+   ⚠ BILINEN SINIR (olculdu): iki varyant AYNI SATIRDA ve USD ONCE ise
+     satirin tamami elenir, alan BOS kalir — yanlis okumaz, okumaz.
+     Bir satirda yalniz ILK eslesmeye bakiliyor (niteleyici kuralinda da
+     boyle). Olculen iki dosyada varyantlar AYRI SATIRLARDA; bu yuzden
+     tarama dongusu buyutulmedi — gereksiz aday uretip mevcut Maximum
+     okumasini bozma riski var. Gercekten yan yana yazan bir urun
+     cikarsa cozum bu dongudur. */
+const AX_DOVIZ_RED = ['usd','eur'].map(axIskelet);
 
 /* ⚠ DUZELTME 4 · BANKA ALAN ADINDAN. "Sayfanin en ust satiri" gercek
    dosyada "Sayfa 1 / 2" cikti — YANLISTI. Alan adi sozlugu; bulunamazsa
@@ -3336,6 +3443,9 @@ function axOku(parcalar){
          degil) EK'li eslesmeyi boyle yener. */
       const once = s.isk.slice(0, idx);
       if (AX_NITELEYICI.some(n => once.length >= n.length && once.endsWith(n))) continue;
+      /* BB · doviz varyanti: etiketin hemen ardi USD/EUR ise BASKA alandir */
+      const sonra = s.isk.slice(idx + sn.length);
+      if (AX_DOVIZ_RED.some(d => sonra.startsWith(d))) continue;
       const etiketIt = s.items.find(it => it.iSon > idx);
       const sonIt    = s.items.find(it => it.iSon >= idx + sn.length);
       etiketGoruldu = etiketGoruldu || (etiketIt ? etiketIt.ham : null);
@@ -3392,6 +3502,26 @@ function axOku(parcalar){
     else { const a0 = adaylar[0]; alanlar[alan] = Object.assign({ durum:'ok' }, a0); }
   }
 
+  /* ⚠ BB · OZET TABLOSUNUN IKI SUTUNU TEK TERIME. Is Bankasi Bankkart
+     harcamayi ve faiz/ucret/kesintiyi AYRI sutunlarda yaziyor; bizim
+     modelimizde faiz ayri bir terim degil, ikisi birlikte yeni_harcama.
+     Kabul olcutunden: 417.850,00 + 230.580,25 − 67.878,40 = 580.551,85.
+     ⚠ YALNIZ 'yeni' baska turlu okunamadiysa devreye girer. Maximum
+       ekstresinde "Dönem İçi Borç Kayıtları" TEK sutun ve dogrudan
+       okunuyor — bu yol ona hic dokunmaz.
+     ⚠ IKISI DE OKUNMALI. Biri eksikken digerini "yeni harcama" diye
+       yazmak, eksik sutunu SESSIZCE sifir saymak olurdu. */
+  if ((!alanlar.yeni || alanlar.yeni.durum !== 'ok')
+      && alanlar.harcama && alanlar.harcama.durum === 'ok'
+      && alanlar.faizKesinti && alanlar.faizKesinti.durum === 'ok'){
+    alanlar.yeni = { durum:'ok',
+      kurus: alanlar.harcama.kurus + alanlar.faizKesinti.kurus,
+      ham: alanlar.harcama.ham + ' + ' + alanlar.faizKesinti.ham,
+      /* ⚠ Tirnaksiz: onay ekrani etiketi zaten tirnaga aliyor. */
+      etiket: alanlar.harcama.etiket + ' + ' + alanlar.faizKesinti.etiket,
+      kural: 'özet tablosunun iki sütunu toplandı' };
+  }
+
   /* Faiz/vergi islem satirinin ICINDEN (tek parca geldigi olculdu).
      ⚠ Iki sayi bicimi de kabul: "FZ:11.078,37" (TR) ve "FZ:11,078.37"
        (gercek dosyada boyle) — paraCoz ikisini de dogru cozer. */
@@ -3402,6 +3532,43 @@ function axOku(parcalar){
     kural:'işlem satırı içinden', ham: fz[1], kurus: paraCoz(fz[1]).kurus } : { durum:'yok' };
   alanlar.vergi = vr && paraCoz(vr[1]).ok ? { durum:'ok', etiket:'VR/FN:',
     kural:'işlem satırı içinden', ham: vr[1], kurus: paraCoz(vr[1]).kurus } : { durum:'yok' };
+
+  /* ⚠ BB · IS BANKASI'NDA FAIZ TEK PARCA DEGIL, AYRI ISLEM SATIRLARI:
+       "Kredi faizi" -> faiz · "BSMV (Faiz)" -> faiz vergisi
+     Maximum'un "FZ:/VR/FN:" tek parcasi burada YOK; once o denenir,
+     bulunamazsa satir taramasina dusulur.
+     ⚠ BUNLAR BAKIYEYI DEGISTIRMEZ — bilgi alani. axKapi denklemine
+       girmezler; faiz zaten yeni_harcama icindeki kesinti sutununda.
+     ⚠ ORAN SATIRI DISLANIR: "Akdi Kredi Faizi Oranı 4,25" da 'kredifaizi'
+       tasiyor ve "4,25" tutar desenine UYUYOR. Orani faiz sanmak yerine
+       'oran' gecen satir hic okunmaz.
+     ⚠ SATIRDA TEK TUTAR OLMALI. Birden cok sayi varsa hangisinin faiz
+       oldugu BILINMEZ — tahmin yerine BELIRSIZ. Ayni tutari tekrarlayan
+       satirlar belirsizlik degildir. */
+  const axSatirTutari = (iskAra) => {
+    const bulunan = [];
+    for (const s of satirlar){
+      if (s.isk.indexOf(iskAra) < 0 || s.isk.indexOf('oran') >= 0) continue;
+      const tutarlar = s.items.filter(it => AX_TUTAR.test(it.ham.trim()));
+      if (tutarlar.length !== 1){ bulunan.push(null); continue; }
+      const r = paraCoz(tutarlar[0].ham);
+      bulunan.push(r.ok ? { ham: tutarlar[0].ham.trim(), kurus: r.kurus } : null);
+    }
+    if (!bulunan.length) return null;
+    if (bulunan.some(x => !x)) return 'belirsiz';
+    return [...new Set(bulunan.map(x => x.kurus))].length > 1 ? 'belirsiz' : bulunan[0];
+  };
+  const axIslemAlani = (alan, etiket, iskAra) => {
+    if (alanlar[alan] && alanlar[alan].durum === 'ok') return;   // FZ:/VR/FN: kazandi
+    const r = axSatirTutari(iskAra);
+    if (r === 'belirsiz')
+      alanlar[alan] = { durum:'belirsiz', etiket: etiket + ' (satırda birden çok tutar)' };
+    else if (r)
+      alanlar[alan] = { durum:'ok', etiket: etiket, kural:'işlem satırından',
+                        ham: r.ham, kurus: r.kurus };
+  };
+  axIslemAlani('faiz',  'Kredi faizi', axIskelet('kredi faizi'));
+  axIslemAlani('vergi', 'BSMV (Faiz)', axIskelet('bsmv (faiz)'));
 
   /* DUZELTME 4 · banka alan adindan */
   const kucuk = tumMetin.toLowerCase();
@@ -3475,7 +3642,10 @@ async function ekstreOnayEkrani(a, dosya){
   const ALAN = [['banka','Banka'],['kartAdi','Kart türü'],['kesim','Hesap kesim tarihi'],
     ['sonOdeme','Son ödeme tarihi'],['limit','Kart limiti'],['devir','Devir'],
     ['yeni','Yeni harcama'],['odenen','Alacak kayıtları'],['hesapOzeti','Hesap özeti borcu'],
-    ['asgari','Asgari tutar'],['faiz','Faiz (FZ)'],['vergi','Faiz vergisi (VR/FN)']];
+    /* ⚠ BB · Etiketten "(FZ)"/"(VR/FN)" cikarildi: kaynak artik iki turlu
+       olabiliyor (Maximum "FZ:/VR/FN:" · Is Bankasi "Kredi faizi"/"BSMV
+       (Faiz)"). Hangisinden geldigini KAYNAK ETIKET sutunu zaten yaziyor. */
+    ['asgari','Asgari tutar'],['faiz','Faiz'],['vergi','Faiz vergisi']];
   const sar = el('div','tablo-sar'); const t = document.createElement('table');
   const hr = document.createElement('tr');
   ['ALAN','OKUNAN','KAYNAK ETİKET','NASIL BULUNDU'].forEach((h,i) =>
@@ -3718,6 +3888,11 @@ function ozetCiz(v, ekran, ek){
   } else if (ekran === 'sahis'){
     parca.push(['Şahıs', tk(v.sahisKalan)],
                ['hesap', String(v.sahis.hesaplar.length)]);
+  } else if (ekran === 'cek'){
+    parca.push(['Çek', tk(v.cekToplam)], ['adet', String(v.cek.acik.length)]);
+    /* Gecikmis cek IS demektir — rozet degil ama ozette sayilir. */
+    const gec = v.cek.acik.filter(c => c.gecikti).length;
+    if (gec) parca.push(['vadesi geçen', String(gec)]);
   }
   for (const [et, dg] of parca){
     const p = el('span','so-p');
@@ -5436,6 +5611,403 @@ async function sahisBorcSil(borc, acan){
       () => sb.rpc('rpc_sahis_borc_pasife_al',{p_borc:borc.id,p_neden:neden}),
       async () => { await sahisTazele(); mesaj('sahisMsg','ok','Borç hareketi arşivlendi.'); },
       'sahis_borc')});
+}
+
+/* ================== 6 · CEK ================== */
+/* ⚠ VERILEN cekler. Musteri ceki (alinan cek) YOK.
+   ⚠ CEK_DETAY · maden/sahis ile ayni gerekce: detaydan yapilan islem
+     kullaniciyi LISTEYE atmasin. */
+let CEK_DETAY = null;
+async function cekTazele(){ return CEK_DETAY ? cekDetayAc(CEK_DETAY, true) : vCek(); }
+
+/* Form durumu EKRAN CIZIMLERI ARASINDA yasar: kullanici 20+ cegi arka
+   arkaya giriyor ve her kayitta sahip/banka secimini yeniden yapmak
+   istemiyor. Kaydetten sonra ekran YENIDEN CIZILMIYOR (mesaj kaybolmasin
+   diye) ama arsivleme/odendi yollari ciziyor — o zaman da secim korunur. */
+const CEK_FORM = { sahip:'ltd', banka:'' };
+
+/* Son kullanilan bankalar — mevcut ceklerden turetilir, sabit liste YOK. */
+function cekSonBankalar(cek){
+  const gorulen = [];
+  for (const c of [...cek.acik, ...cek.gecmis]){
+    const b = String(c.banka || '').trim();
+    if (b && !gorulen.some(x => x.toLocaleLowerCase('tr') === b.toLocaleLowerCase('tr')))
+      gorulen.push(b);
+    if (gorulen.length === 3) break;
+  }
+  return gorulen;
+}
+
+async function vCek(){
+  CEK_DETAY = null;
+  const c = document.getElementById('icerik');
+  const v = await bantVerisi();
+  const { acik, gecmis, hata } = v.cek;
+  c.textContent = '';
+  c.appendChild(ozetCiz(v,'cek'));
+  const msg = el('div','msg'); msg.id = 'cekMsg'; c.appendChild(msg);
+
+  /* ⚠ SORGU DUSTUYSE SESSIZ KALMA. Rakamlar 0 gorunur ve bu YANILTIR. */
+  if (hata){
+    const hk = el('div','kart');
+    hk.appendChild(el('div','uyari-agir',
+      'Çekler okunamadı: ' + hata + '\nAşağıdaki toplamlar çekleri İÇERMİYOR.'));
+    c.appendChild(hk);
+  }
+
+  /* ---- a · TOPLAM ---- */
+  const t = el('div','kart');
+  t.appendChild(el('div','kbaslik','Açık çekler'));
+  /* RAKAM ICERI, DURUM DISARI: buyuk rakam kutunun icinde, kirilimi altinda. */
+  t.appendChild(el('div','cek-buyuk', tlk(v.cekToplam)));
+  t.appendChild(el('div','cek-alt',
+    acik.length + ' çek · Ltd ' + tk(v.cekLtd) + ' · şahıs ' + tk(v.cekSahis)));
+  c.appendChild(t);
+
+  /* ---- b · EN YAKIN VADE · hic acik cek yoksa CIZILMEZ ---- */
+  if (acik.length){
+    const gecen = acik.filter(x => x.gecikti);
+    const yk = el('div','kart');
+    if (gecen.length){
+      /* Vadesi gecmis cek: para bugun cikmis olmaliydi. Once o. */
+      const enEski = gecen[0];
+      const u = el('div','uyari-agir');
+      u.appendChild(el('div', null, gecen.length + ' çekin vadesi geçti'));
+      u.appendChild(el('div', null, trGun(enEski.vade_tarihi) + ' · ' + enEski.banka
+        + ' · ' + Math.abs(Number(enEski.kalan_gun)) + ' gün önce'));
+      u.appendChild(el('div', null, tlk(kr(gecen.reduce((a,x) => a + Number(x.tutar), 0)))));
+      yk.appendChild(u);
+    }
+    const yakin = acik.find(x => !x.gecikti);
+    if (yakin){
+      const u = el('div','uyari-orta');
+      u.appendChild(el('div', null, 'En yakın · ' + trGun(yakin.vade_tarihi)));
+      u.appendChild(el('div', null, yakin.banka + ' · ' + Number(yakin.kalan_gun) + ' gün'));
+      u.appendChild(el('div', null, tlk(kr(yakin.tutar))));
+      yk.appendChild(u);
+    }
+    if (yk.childNodes.length) c.appendChild(yk);
+  }
+
+  /* ---- c · LISTE · vade sirasiyla (gorunum zaten sirali) ---- */
+  const lk = el('div','kart');
+  lk.appendChild(el('div','kbaslik','Çekler (' + acik.length + ')'));
+  if (!acik.length){
+    lk.appendChild(el('div','bos','Açık çek yok. Aşağıdaki formdan ekle.'));
+  } else {
+    /* ⚠ DORTTEN FAZLASI KATLI. Brifte "Krediler kalibi" deniyordu ama
+       Krediler'de boyle bir kisaltma YOK (arandi, bulunamadi); dosyada
+       var olan katlama deseni ozetCiz'inki — hidden + aria-expanded.
+       O kopyalandi, yenisi ICAT EDILMEDI. */
+    const GORUNEN = 4;
+    const ilk = acik.slice(0, GORUNEN), kalan = acik.slice(GORUNEN);
+    const kutuCiz = (x, hedef) => {
+      const kutu = el('div','tk'); kutu.style.cursor = 'pointer';
+      kutu.dataset.cek = x.id;
+      kutu.onclick = () => cekDetayAc(x.id);
+      kutuErisim(kutu, x.banka + ' çeki, vade ' + trGun(x.vade_tarihi)
+        + ', ' + tlk(kr(x.tutar)) + (x.gecikti ? ', vadesi geçti' : '') + ', detayı aç');
+      const ust = el('div','tk-ust');
+      ust.appendChild(el('div','tk-ad', trGun(x.vade_tarihi) + ' · ' + x.banka));
+      ust.appendChild(el('div','tk-tutar', tlk(kr(x.tutar))));
+      kutu.appendChild(ust);
+      /* ⚠ Ltd/Sahis ROZET DEGIL, duz metin (tasarim kurali 3). */
+      const alt = [ (x.sahip === 'ltd' ? 'Ltd' : 'Şahıs'), x.kime ];
+      if (!x.gecikti) alt.push(Number(x.kalan_gun) + ' gün');
+      kutu.appendChild(el('div','tk-orta', alt.join(' · ')));
+      /* ⚠ ROZET YALNIZ IS VARSA: 'vadesi gecti' rozet alir, 'bekliyor' ALMAZ. */
+      if (x.gecikti){
+        const r = el('div'); r.style.marginTop = '6px';
+        r.appendChild(el('span','rozet rz-eksik','VADESİ GEÇTİ'));
+        kutu.appendChild(r);
+      }
+      if (x.cek_no) kutu.appendChild(el('div','kucuk','çek no ' + x.cek_no));
+      hedef.appendChild(kutu);
+    };
+    for (const x of ilk) kutuCiz(x, lk);
+    if (kalan.length){
+      const gizli = el('div'); gizli.hidden = true;
+      const ac = el('button','btn2','+' + kalan.length + ' çek daha');
+      ac.type = 'button'; ac.setAttribute('aria-expanded','false');
+      ac.onclick = () => {
+        if (!gizli.firstChild) for (const x of kalan) kutuCiz(x, gizli);
+        gizli.hidden = !gizli.hidden;
+        ac.setAttribute('aria-expanded', String(!gizli.hidden));
+        ac.textContent = gizli.hidden ? '+' + kalan.length + ' çek daha' : 'kısalt';
+      };
+      lk.appendChild(ac); lk.appendChild(gizli);
+    }
+  }
+  c.appendChild(lk);
+
+  /* ---- d · ODENMIS/KARSILIKSIZ · katli, hic yoksa da GIZLENMEZ ---- */
+  const gk = el('div','kart');
+  const gecTop = gecmis.reduce((a,x) => a + kr(x.tutar), 0);
+  gk.appendChild(el('div','kbaslik','Kapanmış çekler'));
+  if (!gecmis.length){
+    gk.appendChild(el('div','bos','Henüz yok.'));
+  } else {
+    const ozet = el('button','btn2', gecmis.length + ' çek kapandı · toplam ' + tlk(gecTop));
+    ozet.type = 'button'; ozet.setAttribute('aria-expanded','false');
+    const kutu = el('div'); kutu.hidden = true;
+    ozet.onclick = () => {
+      if (!kutu.firstChild) for (const x of gecmis){
+        const s = el('div','satir');
+        s.appendChild(el('span','et', trGun(x.vade_tarihi) + ' · ' + x.banka + ' · ' + x.kime));
+        const sag = el('span','dg');
+        sag.appendChild(el('span', null, tlk(kr(x.tutar)) + ' '));
+        sag.appendChild(el('span','rozet ' + (x.durum === 'odendi' ? 'rz-yesil' : 'rz-eksik'),
+          x.durum === 'odendi' ? 'ödendi ' + trGun(x.odendi_tarih) : 'KARŞILIKSIZ'));
+        s.appendChild(sag); kutu.appendChild(s);
+      }
+      kutu.hidden = !kutu.hidden;
+      ozet.setAttribute('aria-expanded', String(!kutu.hidden));
+    };
+    gk.appendChild(ozet); gk.appendChild(kutu);
+  }
+  c.appendChild(gk);
+
+  /* ---- e · CEK EKLE ---- */
+  c.appendChild(cekFormu(v));
+}
+
+/* ---------- cek ekle formu ---------- */
+function cekFormu(v){
+  const f = el('div','kart');
+  f.appendChild(el('div','kbaslik','Çek ekle'));
+  /* ⚠ BASARI MESAJI FORMUN USTUNDE ve KALIR. Kart tarafinda mesaj()
+     sonrasi ekran yeniden ciziliyordu ve 'kaydedildi' HIC gorunmuyordu. */
+  const fm = el('div','msg'); fm.id = 'cekFormMsg'; f.appendChild(fm);
+
+  /* Kimin adina · IKI DUGME, select DEGIL: tek dokunus. */
+  f.appendChild(el('label', null, 'Kimin adına'));
+  const sg = el('div','cek-sec');
+  const dugmeler = {};
+  for (const [deger, ad] of [['ltd','Bardaks Ltd'], ['sahis','Şahıs']]){
+    const b = el('button','cek-sec-b', ad); b.type = 'button';
+    b.setAttribute('role','radio');
+    b.onclick = () => { CEK_FORM.sahip = deger; guncelle(); };
+    dugmeler[deger] = b; sg.appendChild(b);
+  }
+  sg.setAttribute('role','radiogroup');
+  sg.setAttribute('aria-label','Kimin adına');
+  const guncelle = () => {
+    for (const d of Object.keys(dugmeler)){
+      const secili = CEK_FORM.sahip === d;
+      dugmeler[d].classList.toggle('secili', secili);
+      /* ⚠ Secim RENKLE DEGIL, aria-checked + isaret ile de soyleniyor —
+         renk tek basina bilgi tasimaz. */
+      dugmeler[d].setAttribute('aria-checked', String(secili));
+      dugmeler[d].textContent = (secili ? '✓ ' : '') + (d === 'ltd' ? 'Bardaks Ltd' : 'Şahıs');
+    }
+  };
+  f.appendChild(sg);
+
+  const alan = (etiket, id, tip, mod) => {
+    f.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input'); i.id = id; i.type = tip || 'text';
+    if (mod) i.setAttribute('inputmode', mod);
+    f.appendChild(i); return i;
+  };
+  alan('Tutar','cTutar','text','decimal');
+  alan('Vade tarihi','cVade','date');
+  const bankaG = alan('Banka','cBanka');
+  bankaG.value = CEK_FORM.banka;
+
+  /* son kullanilanlar — tiklaninca alani doldurur */
+  const sonlar = cekSonBankalar(v.cek);
+  if (sonlar.length){
+    const sat = el('div','kucuk');
+    sat.appendChild(document.createTextNode('son kullandıkların: '));
+    sonlar.forEach((b, i) => {
+      if (i) sat.appendChild(document.createTextNode(' · '));
+      const d = el('button','baglanti', b); d.type = 'button';
+      d.onclick = () => { bankaG.value = b; CEK_FORM.banka = b; bankaG.focus(); };
+      sat.appendChild(d);
+    });
+    f.appendChild(sat);
+  }
+
+  alan('Kime verdim','cKime');
+  const cn = alan('Çek no','cCekNo');
+  cn.setAttribute('autocomplete','off');
+  f.appendChild(el('div','kucuk','zorunlu değil'));
+
+  const b = el('button','btn','Kaydet ve yenisini ekle');
+  b.id = 'cKaydet'; b.onclick = cekKaydet;
+  f.appendChild(b);
+
+  /* ⚠ IKINCI CEK YUZEYI UYARISI. tedarikci_odeme.yontem='cek' bugun BOS
+     (olculdu) ama ileride dolarsa ayni cek iki yerde durabilir. */
+  f.appendChild(el('div','kucuk',
+    'Tedarikçiye ödeme olarak verdiğin çeği Alış ekranından girdiysen buraya '
+  + 'tekrar girme — iki yerde durur.'));
+
+  guncelle();
+  return f;
+}
+
+async function cekKaydet(){
+  mesajTemizle('cekFormMsg');
+  const btn = document.getElementById('cKaydet');
+  const g = id => document.getElementById(id);
+  const ham = g('cTutar').value.trim();
+
+  /* ⚠ NEGATIF TUZAGI · paraCoz'un [^\d.,] suzgeci EKSI ISARETINI SILIYOR:
+     '-5' sessizce 5,00 olur. Cekte bu, borcu ters yone yazmak demektir.
+     HAM METINDE eksi varsa ACIKCA reddedilir — sessizce pozitife
+     CEVRILMEZ. (Aynisi maden alis tutarinda da var ama orada 0 kontrolu
+     yakaliyordu; burada yakalamiyor.) */
+  if (/[-−]/.test(ham))
+    return mesaj('cekFormMsg','hata','Çek tutarı eksi olamaz. Eksi işaretini kaldır.');
+  const p = paraCoz(ham);
+  if (!p.ok)        return mesaj('cekFormMsg','hata','Tutar: ' + p.hata);
+  if (p.kurus <= 0) return mesaj('cekFormMsg','hata','Çek tutarı sıfırdan büyük olmalı.');
+
+  const vade  = g('cVade').value;
+  const banka = g('cBanka').value.trim();
+  const kime  = g('cKime').value.trim();
+  const cekNo = g('cCekNo').value.trim();
+  if (!vade)  return mesaj('cekFormMsg','hata','Vade tarihi zorunlu.');
+  if (!banka) return mesaj('cekFormMsg','hata','Banka boş bırakılamaz.');
+  if (!kime)  return mesaj('cekFormMsg','hata','Çeği kime verdiğin boş bırakılamaz.');
+
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('cek').insert({
+    sahip: CEK_FORM.sahip, banka, cek_no: cekNo || null,
+    vade_tarihi: vade, tutar: (p.kurus/100).toFixed(2), kime,
+    giren_id: PROFIL ? PROFIL.id : null });
+  btn.disabled = false; btn.textContent = 'Kaydet ve yenisini ekle';
+  if (error){ hataYaz('cekFormMsg','Çek eklenemedi.', error); return; }
+
+  /* ⚠ EKRANI YENIDEN CIZME. Kart tarafinda bu yuzden 'kaydedildi' hic
+     gorunmemisti. Form ELDE temizlenir; 'Kimin adina' ve 'Banka' KORUNUR
+     — arka arkaya ayni bankanin cekleri giriliyor. */
+  CEK_FORM.banka = banka;
+  g('cTutar').value = ''; g('cVade').value = ''; g('cKime').value = ''; g('cCekNo').value = '';
+  mesaj('cekFormMsg','ok', tlk(p.kurus) + ' çek kaydedildi. Yenisini girebilirsin.');
+  g('cTutar').focus();
+}
+
+/* ---------- tek cekin kunyesi ---------- */
+async function cekDetayAc(cekId, sessiz){
+  seritiHizala();          // ekranAc'tan gecmiyor, serit kaymis kalirdi
+  const c = document.getElementById('icerik');
+  if (!sessiz){ c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...')); }
+  try{
+    const v = await bantVerisi();
+    const x = [...v.cek.acik, ...v.cek.gecmis].find(y => y.id === cekId);
+    if (!x){ c.textContent=''; c.appendChild(el('div','uyari-agir','Çek bulunamadı.')); return; }
+    CEK_DETAY = cekId;
+
+    c.textContent = '';
+    const geri = el('button','btn2','← Çeklere dön');
+    geri.onclick = async () => {
+      CEK_DETAY = null;
+      await ekranAc('cek');
+      const kutu = document.querySelector('#icerik .tk[data-cek="' + cekId + '"]');
+      if (kutu) kutu.focus();
+    };
+    c.appendChild(geri);
+
+    const bas = el('div','kart');
+    const bl = el('div','kbaslik', x.banka + ' · ' + tlk(kr(x.tutar)));
+    bl.tabIndex = -1; bas.appendChild(bl);
+    const sat = (e2, d2) => { const s = el('div','satir');
+      s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d2)); bas.appendChild(s); return s; };
+    sat('Banka', x.banka);
+    sat('Çek no', x.cek_no || '—');
+    sat('Vade', trGun(x.vade_tarihi));
+    sat('Tutar', tlk(kr(x.tutar)));
+    sat('Kime', x.kime);
+    sat('Kimin adına', x.sahip === 'ltd' ? 'Bardaks Ltd' : 'Şahıs');
+    if (x.durum !== 'bekliyor')
+      sat('Durum', x.durum === 'odendi' ? 'Ödendi · ' + trGun(x.odendi_tarih) : 'Karşılıksız');
+    if (x.aciklama) bas.appendChild(el('div','kucuk', x.aciklama));
+
+    const msg = el('div','msg'); msg.id = 'cekMsg';
+
+    if (x.durum === 'bekliyor'){
+      const ey = el('div','tk-eylem');
+      const bo = el('button','btn2','Ödendi');
+      bo.onclick = () => cekOdendiAc(x);
+      ey.appendChild(bo);
+      const bk = el('button','btn2','Karşılıksız');
+      bk.onclick = () => cekKarsiliksiz(x);
+      ey.appendChild(bk);
+      ey.appendChild(digerMenu([['Çeği arşivle', (a) => cekSil(x, a)]]));
+      bas.appendChild(ey);
+    } else {
+      const ey = el('div','tk-eylem');
+      ey.appendChild(digerMenu([['Çeği arşivle', (a) => cekSil(x, a)]]));
+      bas.appendChild(ey);
+    }
+    c.appendChild(bas);
+    c.appendChild(msg);
+  }catch(e){
+    c.textContent = '';
+    const k = el('div','kart');
+    k.appendChild(el('div','uyari-agir','Çek açılamadı: ' + hataTr(e && e.message)));
+    c.appendChild(k); console.error(e);
+  }
+}
+
+/* ⚠ cek_odendi_chk IKI YONLU: durum='odendi' ise odendi_tarih ZORUNLU.
+   Tarihsiz gonderilmez — sunucu zaten reddeder, ekran once sorar. */
+function cekOdendiAc(x){
+  const d = document.createElement('dialog'); d.className = 'pm';
+  d.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas'); bas.id = 'cekOdBas';
+  bas.appendChild(document.createTextNode('Çek ödendi'));
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  d.appendChild(el('div','pm-ad', x.banka + ' · ' + trGun(x.vade_tarihi)));
+  d.appendChild(el('div','pm-tutar', tlk(kr(x.tutar))));
+  const l = el('label', null, 'Ödeme tarihi (zorunlu)'); l.setAttribute('for','cOdTarih');
+  const i = document.createElement('input'); i.id = 'cOdTarih'; i.type = 'date'; i.value = bugun();
+  d.appendChild(l); d.appendChild(i);
+  const h = el('div','pm-hata'); h.hidden = true; d.appendChild(h);
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn','Ödendi olarak işaretle');
+  vaz.type = ona.type = 'button';
+  ey.appendChild(vaz); ey.appendChild(ona); d.appendChild(ey);
+  document.body.appendChild(d); d.showModal();
+  const kapat = () => { d.close(); d.remove(); };
+  vaz.onclick = kapat;
+  ona.onclick = async () => {
+    if (!i.value){ h.hidden = false; h.textContent = 'Ödeme tarihi zorunlu.'; return; }
+    ona.disabled = true; ona.textContent = 'İşleniyor...';
+    const { error } = await sb.from('cek')
+      .update({ durum:'odendi', odendi_tarih: i.value }).eq('id', x.id);
+    if (error){ ona.disabled = false; ona.textContent = 'Ödendi olarak işaretle';
+                h.hidden = false; h.textContent = hataTr(error.message); return; }
+    kapat();
+    await cekTazele();
+    mesaj('cekMsg','ok','Çek ödendi olarak işaretlendi.');
+  };
+}
+
+/* ⚠ KARSILIKSIZ · odendi_tarih BOS KALIR (cek_odendi_chk gerektiriyor). */
+async function cekKarsiliksiz(x){
+  if (!confirm('ÇEK KARŞILIKSIZ\n\n' + x.banka + ' · ' + tlk(kr(x.tutar))
+    + '\n\nBorç açık kalır, çek listeden düşer.\nOnaylıyor musun?')) return;
+  const { error } = await sb.from('cek')
+    .update({ durum:'karsiliksiz', odendi_tarih: null }).eq('id', x.id);
+  if (error){ hataYaz('cekMsg','Çek güncellenemedi.', error); return; }
+  await cekTazele();
+  mesaj('cekMsg','ok','Çek karşılıksız olarak işaretlendi.');
+}
+
+/* ⚠ DELETE YETKISI YOK — arsivleme is_deleted uzerinden, pasifeAlAc kalibi.
+   RPC yazilmadi (kapsam disi): dogrudan UPDATE. Gerekce sunucu tarafinda
+   ZORUNLU DEGIL, o yuzden ekran kendi zorunlulugunu pasifeAlAc ile koyuyor
+   ve silme_nedeni alanina yaziyor. */
+async function cekSil(x, acan){
+  pasifeAlAc(acan, { tur:'Çek', ad: x.banka + ' · ' + trGun(x.vade_tarihi),
+    kim: x.kime, tutar: tlk(kr(x.tutar)),
+    uygula: (neden) => pasifeAlUygula(
+      () => sb.from('cek').update({ is_deleted:true, silme_nedeni:neden }).eq('id', x.id),
+      async () => { CEK_DETAY = null; await ekranAc('cek'); mesaj('cekMsg','ok','Çek arşivlendi.'); },
+      'cek')});
 }
 
 /* ================== ACILIS ================== */
