@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-23-3">
+<meta name="surum" content="2026-08-23-4">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -326,6 +326,7 @@ main{padding:14px;max-width:640px;margin:0 auto}
 }
 /* LİSTE */
 .liste-satir{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #F2ECD9;font-size:14px;gap:8px}
+.vade-hedef{outline:2px solid var(--ana);border-radius:8px;padding:10px 6px} /* BL · Ozet'ten gelinen vade */
 .liste-satir:last-child{border-bottom:none}
 .l-sol .b{font-weight:700}.l-sol .k{font-size:12px;color:var(--soluk)}
 .l-sag{text-align:right;font-weight:800;white-space:nowrap}
@@ -1699,7 +1700,7 @@ async function odemelerBlogu(hedefId, ctx){
     const yok = v.durum === 'tutar_yok' || v.tutar == null;
     if (yok) tutarsiz++;
     L.push({ t:v.vade_tarihi, ad:esc(v.aciklama||v.tur), alt:'vergi/vade'+(yok?' · <b style="color:var(--uyari)">tutar bekleniyor</b>':''),
-             tutar: yok ? null : +v.tutar, k:'vergi' });
+             tutar: yok ? null : +v.tutar, k:'vergi', id: v.id });
   }
   let ekstrede = 0;
   for (const x of taksit.data||[]){
@@ -1798,7 +1799,18 @@ async function odemelerBlogu(hedefId, ctx){
   /* Kapali kartta GORUNENLER: is SAYISI + gun sonu satirlari (bugun/dun).
      Geri kalani "tumunu gor" arkasinda — kart-5 sabah 6 satirla acilmasin. */
   const DAcik = D.filter(x => x[0] === 'gunsonu'), DGizli = D.filter(x => x[0] !== 'gunsonu');
-  const satir = (x) => `<div class="sr"><div><div class="sr-ad"><span class="rozet rz-gri" style="margin-right:6px">${BB_GG(x.t)}</span>${x.ad}</div>
+  /* BL · Satir TIKLANIR, kaynagina goturur. Olculdu: onceden hicbir odeme
+     satirinda onclick yoktu; kullanici hakli olarak "o ekranin icine girmem
+     gerekmiyor mu" diye sordu. kutuErisim kalibi: role=button + tabindex +
+     Enter/Space. aria-label BILEREK YOK: verilseydi satirin kendi icerigini
+     (tarih · ad · tutar) ekran okuyucudan GIZLERDI; role=button'da erisilebilir
+     ad zaten icerikten gelir. */
+  const gitYolu = (x) => x.k === 'kredi' ? "bfGit('borc.html#krediler')"
+    : x.k === 'kart' ? "bfGit('borc.html#kartlar')"
+    : x.k === 'vergi' ? `ozVadeGit('${x.id || ''}')`
+    : "sekmeAc('tedarikci')";
+  const satir = (x) => `<div class="sr" role="button" tabindex="0" data-git="${x.k}" style="cursor:pointer"
+      onclick="${gitYolu(x)}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><div><div class="sr-ad"><span class="rozet rz-gri" style="margin-right:6px">${BB_GG(x.t)}</span>${x.ad}</div>
       <div class="sr-alt">${x.alt}</div></div><div class="sr-tut">${x.tutar == null ? '<span style="color:var(--uyari)">—</span>' : tl(x.tutar)}</div></div>`;
   /* BD kalibi: kapanan LISTE, rakam degil; bugun/yarin satiri gizlenmez. */
   const yarin = BB_GUN(b, 1);
@@ -1887,6 +1899,11 @@ async function odemelerBlogu(hedefId, ctx){
   if (OZ_SCROLL) window.scrollTo(0, OZ_SCROLL);   // rAF gizli sekmede atesLENMIYOR (olculdu)
 }
 function bfGit(href){ sessionStorage.setItem('ozScroll', String(window.scrollY)); location.href = href; }
+/* BL · Ozet'teki vade satirindan vergi ekranina, O VADE gorunur halde.
+   Hedef 60 gunluk pencere disindaysa vergiVadeYukle once "hepsini goster"e
+   gecer, sonra satiri ortalar ve cerceveler. */
+let VADE_HEDEF = null;
+function ozVadeGit(id){ VADE_HEDEF = id || null; sekmeAc('vergi'); }
 
 async function bankaBakiyeKaydet(){
   const g = id => document.getElementById(id);
@@ -3929,7 +3946,10 @@ function gdTemel(){
       <input type="text" inputmode="decimal" id="gdKdvTutar" placeholder="0,00">
       <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;color:var(--metin);font-weight:700">
         <input type="checkbox" id="gdKasadan" style="width:20px;height:20px;flex:none"> Kasadan nakit ödendi
-      </label>
+      </label>${PROFIL.rol === 'owner' ? `
+      <label>Bu ödeme bir vadeye mi ait? (kira, MTV gibi)</label>
+      <select id="gdVade"><option value="">Hayır — vadeye bağlı değil</option></select>
+      <div class="bilgi-not" id="gdVadeNot" hidden></div>` : ''}
       <label>Açıklama</label><input type="text" id="gdAciklama" placeholder="örn: Temmuz elektrik faturası">
       <label>Belge (fotoğraf veya PDF)</label>
       <input type="file" id="gdFoto" accept="image/*,application/pdf,.pdf">
@@ -3940,7 +3960,48 @@ function gdTemel(){
       <div class="hata-msg" id="gdMsg"></div>
     </div>`;
   paraBaglaHepsi(['gdTutar','gdKdvTutar']);
+  gdVadeDoldur();
   giderListe();
+}
+/* BL · Acik vadeler gider formuna. Olculdu: rpc_gider_kaydet'te p_vade yoktu,
+   vadeyi otomatik kapatan tetik yok — kira odenince vade "gecti" kalmaya devam
+   ediyordu ve vadeKapat penceresi olmayan bir yolu vaat ediyordu (v110 acti).
+   Secim ONERIDIR: tutar bossa vadedeki tutar teklif edilir; FARKLI tutar
+   yazilabilir (kismi odeme, gecikme zammi) — fark kaydetmeden GOSTERILIR,
+   ENGELLENMEZ. Personelde cizilmez: vade RLS'te owner-only (owner_all_vade),
+   personele bos liste "vade yok" diye yalan soylerdi. */
+let GD_VADELER = [];
+async function gdVadeDoldur(){
+  const s = document.getElementById('gdVade'); if (!s) return;
+  const { data } = await sb.from('v_vade_liste')
+    .select('id,aciklama,vade_tarihi,tutar').eq('durum','acik')
+    .eq('sube_id', AKTIF_SUBE).order('vade_tarihi');
+  GD_VADELER = data || [];
+  s.innerHTML = '<option value="">Hayır — vadeye bağlı değil</option>' +
+    GD_VADELER.map(v => `<option value="${v.id}">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')} · ${esc(v.aciklama)}${v.tutar != null ? ' · '+tl(v.tutar) : ''}</option>`).join('');
+  s.onchange = () => {
+    const v = GD_VADELER.find(x => x.id === s.value);
+    const t = document.getElementById('gdTutar');
+    if (v && v.tutar != null && t && paraDeger('gdTutar') === 0)
+      t.value = (+v.tutar).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    gdVadeFark();
+  };
+  const t = document.getElementById('gdTutar');
+  if (t) t.addEventListener('input', gdVadeFark);
+}
+function gdVadeFark(){
+  const s = document.getElementById('gdVade'), n = document.getElementById('gdVadeNot');
+  if (!s || !n) return;
+  const v = GD_VADELER.find(x => x.id === s.value);
+  if (!v){ n.hidden = true; return; }
+  const od = paraDeger('gdTutar');
+  if (v.tutar == null){
+    n.hidden = false; n.textContent = 'Bu vadenin tutarı sistemde yok — girdiğin tutar geçerli olur.';
+  } else if (od > 0 && Math.abs(od - +v.tutar) >= 0.005){
+    n.hidden = false;
+    n.textContent = 'Vadede ' + tl(v.tutar) + ' yazıyor · ödenen ' + tl(od)
+      + ' — farklı tutar kaydedilebilir (kısmi ödeme / gecikme zammı).';
+  } else n.hidden = true;
 }
 function gdFis(){
   document.getElementById('gdIcerik').innerHTML = `
@@ -3978,22 +4039,29 @@ async function giderKaydet(mod){
   let foto=null;
   try{ foto = await fotoYukle('gdFoto','fatura'); }
   catch(e){ mesaj('gdMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Gideri Kaydet'; return; }
+  /* BL · vade secildiyse anahtara GIRER: ayni gun/tutar vadesiz kayittan sonra
+     vadeli kayit MESRU ikinci istektir; anahtar ayni kalsa sunucu eski sonucu
+     oynatir ve vade SESSIZCE kapanmazdi. Vadesiz yolda dizi degismiyor —
+     anahtar bugunkuyle bayt bayt ayni. */
+  const vadeId = (document.getElementById('gdVade')||{}).value || null;
   const data = await rpcCagir('rpc_gider_kaydet',{
     /* ⚠ gdKasadan ANAHTARDA: ayni tutari kasadan ve bankadan girmek AYRI
        islemdir; disarida birakmak ikinci mesru kaydi engellerdi.
        ⚠ gdAciklama GIRMEZ — serbest metin, tek harf degisse koruma bosa
        cikardi. Etiket 'gider': sunucu _idem_kontrol'u bununla arar. */
     p_idem: await idemKararli('gider',[AKTIF_SUBE, document.getElementById('gdTarih').value,
-            kategori, tutar, document.getElementById('gdKasadan').checked]),
+            kategori, tutar, document.getElementById('gdKasadan').checked, ...(vadeId ? [vadeId] : [])]),
     p_sube: AKTIF_SUBE,
     p_tarih: document.getElementById('gdTarih').value,
     p_kategori: kategori,
     p_aciklama: document.getElementById('gdAciklama').value.trim()||null,
     p_tutar: tutar, p_kdv_orani: null, p_kdv_tutar: kdvT, p_foto: foto,
     p_kasadan: document.getElementById('gdKasadan').checked,
-    p_tedarikci: null
+    p_tedarikci: null, p_vade: vadeId
   },'gdKaydet','gdMsg','Kaydedildi ✓');
-  if (data && data.ok){ ['gdTutar','gdKdvTutar','gdAciklama'].forEach(i=>document.getElementById(i).value=''); document.getElementById('gdFoto').value=''; document.getElementById('gdKasadan').checked=false; giderListe(); }
+  if (data && data.ok){ ['gdTutar','gdKdvTutar','gdAciklama'].forEach(i=>document.getElementById(i).value=''); document.getElementById('gdFoto').value=''; document.getElementById('gdKasadan').checked=false;
+    if (vadeId){ const n = document.getElementById('gdVadeNot'); if (n) n.hidden = true; gdVadeDoldur(); }  // kapanan vade listeden duser
+    giderListe(); }
 }
 async function giderListe(){
   const { data } = await sb.from('gider').select('*, gider_kategori(ad)').eq('is_deleted',false)
@@ -7178,6 +7246,18 @@ async function vergiVadeYukle(){
         ? `<button class="btn2" style="margin-top:8px" onclick="VADE_HEPSI=${!VADE_HEPSI};vergiVadeYukle()">${
             VADE_HEPSI ? 'Sadece yakın vadeleri göster' : gizli+' vade daha var — hepsini göster'}</button>`
         : '');
+  /* BL · Ozet'ten gelindiyse hedef vadeyi gorunur kil. Hedef daraltilmis
+     listede yoksa ama var olan bir kayitsa "hepsini goster"e gecilir. */
+  if (VADE_HEDEF){
+    if (!liste.some(v => v.id === VADE_HEDEF) && !VADE_HEPSI && hepsi.some(v => v.id === VADE_HEDEF)){
+      VADE_HEPSI = true; return vergiVadeYukle();
+    }
+    const i = liste.findIndex(v => v.id === VADE_HEDEF); VADE_HEDEF = null;
+    if (i >= 0 && el.children[i]){
+      el.children[i].classList.add('vade-hedef');
+      el.children[i].scrollIntoView({ block:'center' });
+    }
+  }
 }
 /* Bir vadeyi ödeme kaydı olmadan kapatmak: yalnız "tutar çıkmadı" veya "iptal".
    Ödeme yapıldıysa ödeme kaydı girilir, vade kendiliğinden kapanır. */
@@ -7206,8 +7286,12 @@ function vadeKapat(id, ad){
   d.setAttribute('aria-modal','true');
   const bas = yap('div','pm-bas', `"${ad}" kapatılacak.`); bas.id = 'vkBas';
   d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  /* BL · Eski metin dogru seyi soyluyordu ama YOL YOKTU (rpc_gider_kaydet'te
+     p_vade yoktu). v110 yolu acti; metin artik yolu GOSTERIYOR. */
   const uy = yap('div','pm-aciklama',
-    'Ödeme YAPILDIYSA burayı kullanma — ödemeyi kaydet, vade kendiliğinden kapanır.');
+    'Ödeme YAPILDIYSA burayı kullanma. Ödemeyi kaydetmek için: Giderler → Temel Gider → '
+    + '"Bu ödeme bir vadeye mi ait?" alanından bu vadeyi seç — kaydedince vade kendiliğinden kapanır. '
+    + 'Vergi ödemesi Vergi → Ödeme Kaydet ile girilir, en yakın açık vadeye kendiliğinden bağlanır.');
   uy.id = 'vkUyari'; d.setAttribute('aria-describedby', uy.id); d.appendChild(uy);
   const grup = yap('div','pm-secim');
   grup.setAttribute('role','radiogroup'); grup.setAttribute('aria-label','Kapatma sebebi');
