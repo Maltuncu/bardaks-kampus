@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-10">
+<meta name="surum" content="borc-2026-08-24-11">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3615,6 +3615,36 @@ function axOku(parcalar){
   const satirlar = axSatirlar(parcalar);
   const tumIsk = Object.values(AX_SOZLUK).flatMap(t => t.isk);
 
+  /* ⚠ CD · AYNI SATIRDA X-BITISIK PARCALAR KAYNAKLANIR. Olculdu (gercek
+     pdf.js dokumu): Turkce harf dusen her yerde parca bolunuyor —
+     "Bir" + " " + "nceki" AYNI bantta UC parca (bosluk parcasi zaten
+     atiliyor, aradaki bosluk ~9pt). Ikili etiket birlestirme boyle bir
+     basligi HIC kuramaz; etiket gorunumu de yarim kaliyordu ("Son",
+     "Minimum"). Kural DAR: ayni bant + x boslugu <= 10pt (olculen kopma
+     bosluklari 4.5-8.9pt; en dar SUTUN araligi 15.6pt — deger sutunlari
+     kaynaklanamaz) + IKISI DE tam tutar DEGIL (tutarlar asla
+     yapistirilmaz). Ham'lar arasina bosluk konur, iskelet bitisik. */
+  for (const s of satirlar){
+    for (let i = 0; i < s.items.length - 1; ){
+      const a = s.items[i], b = s.items[i + 1];
+      /* ⚠ bosluk NEGATIF ise (parcalar ortusuyor) kaynaklanMAZ: gercek
+         dokumde tum kopma bosluklari >= 0 (olculdu 0..8.9pt); ortusme
+         ancak yanlis genislik bilgisinden dogar ve iki ayri sutunu tek
+         etikete yapistirir — olculdu, uc baslik tek parcaya kaynayip
+         hepsine ayni degeri veriyordu. -1 yuvarlama payi. */
+      const bosluk = b.x - (a.x + (a.g || 0));
+      if (!AX_TUTAR.test(a.ham.trim()) && !AX_TUTAR.test(b.ham.trim())
+          && bosluk >= -1 && bosluk <= 10){
+        a.ham = a.ham + ' ' + b.ham;
+        a.isk = a.isk + b.isk;
+        a.g = (b.x + (b.g || 0)) - a.x;
+        s.items.splice(i + 1, 1);
+      } else i++;
+    }
+    s.isk = '';
+    for (const it of s.items){ it.iBas = s.isk.length; s.isk += it.isk; it.iSon = s.isk.length; }
+  }
+
   /* ⚠ BY · SARAN SUTUN BASLIGI BIRLESTIRILIR. Olculdu (gercek Bankkart,
      pdftotext -layout): "Faiz Ücretler ve" baslik satirinda, "Kesintiler"
      BIR ALT satirda sutunun x araliginda girintili — sozlukteki tam
@@ -3638,29 +3668,32 @@ function axOku(parcalar){
       if (p.isk.length < 3) continue;
       if (tumIsk.some(sn => p.isk.indexOf(sn) >= 0)) continue;          // kilit 1
       if (!tumIsk.some(sn => sn.length > p.isk.length && sn.startsWith(p.isk))) continue; // kilit 2
-      /* ⚠ CB · kilit 3a "en fazla bir alt satir" -> "en fazla bir alt
-         DOLU satir". Olculdu (gercek Enpara): "Bir önceki"(s9) ile
-         "ekstre borcu"(s11) arasinda TAMAMEN BOS s10 var (28.4pt);
-         24'luk pencere birlesmeyi goremiyordu, devir ve faizKesinti
-         etiketleri hic kurulmuyordu. Bos satir parca uretmez, bant da
-         uretmez — dolayisiyla "ilk DOLU satir" y sirasindaki ilk
-         banttir; karar ORADA verilir, ikinci dolu satira GECILMEZ
-         (sinir hala TEK dolu satir). Tavan 40pt: bir bos satir payi. */
+      /* ⚠ CD · kilit 3a artik PT ILE, bant/dolu-satir sayisi DEGIL.
+         Olculdu (gercek pdf.js dokumu): Enpara basligi DORT ayri y
+         bandina yayiliyor (220.9/225.2/229.1/232.4 — araya operator
+         bantlari giriyor); "bir alt dolu satir" kurali ust yarim
+         (220.9) ile alt yarimi (232.4, dy=11.5pt) HIC bulusturamiyordu.
+         Alt parca ust parcanin KENDI y'sinden en fazla 15pt asagida ve
+         x araligi ortusuyorsa birlesir — aradan kac bant gectigi
+         onemsiz. 15pt: olculen baslik-ici mesafe 11.5pt (Enpara) ve
+         14.2pt (Ziraat fikstur varsayimi — birebirlik kriteri onu da
+         kapsamayi zorunlu kiliyor; gorevdeki 14pt Ziraat'i dusururdu).
+         Genisletme yasak: 15 ustu SESSIZ YANLIS uretir. */
       let q = null, qSatir = null;
       for (const s2 of satirlar){
-        const dy = s2.y - s.y;
+        const dy = s2.y - p.y;
         if (dy <= 2) continue;
-        if (dy > 40) break;                                             // kilit 3a
+        if (dy > 15) break;                                             // kilit 3a
         q = s2.items.find(q2 => !AX_TUTAR.test(q2.ham.trim())
           && q2.isk.length > 0
           && q2.x < p.x + (p.g || 0) + 2 && q2.x + (q2.g || 0) > p.x - 2  // kilit 3b
           && tumIsk.some(sn => sn === p.isk + q2.isk));                 // kilit 3c
-        qSatir = s2;
-        break;                       // ilk dolu satir her durumda son durak
+        if (q){ qSatir = s2; break; }
       }
       if (!q) continue;
       p.isk = p.isk + q.isk;
       p.ham = p.ham + ' ' + q.ham;
+      p.altY = q.y;               // CD · deger penceresi buradan olculur
       q.isk = '';                                                       // alt parca tuketildi
       for (const sat of [s, qSatir]){
         sat.isk = '';
@@ -3745,6 +3778,33 @@ function axOku(parcalar){
           const it2 = s2.items.find(it => Math.abs(it.x - etiketIt.x) <= 12
                                           && !it.etiketMi && uygun(it.ham));
           if (it2){ deger = it2.ham; kural = 'hemen altında'; break; }
+        }
+      }
+      /* 3a2 · CD · SUTUN HIZASINDAN — pt penceresi + x ARALIK ortusmesi.
+         Olculdu (gercek pdf.js dokumu): "demeler" etiketi x=123.4'te
+         (dusen O harfinin boslugu yuzunden kaymis), degeri 150.000,00
+         x=109.7'de — kural 3'un nokta olcutu (|dx|<=12) 13.7pt farki
+         KACIRIYOR; oysa parca ARALIKLARI genisce ortusuyor. Pencere:
+         etiketin EN ALT y'sinden (birlesik basliklarda alt parcanin
+         y'si — p.altY) en fazla 21pt asagi; ayni araliktaki ILK uygun
+         deger alinir. 21pt OLCULMUS: baslik->deger 14.6pt, en uzak
+         mesru cift "demeler"->deger 20.4pt (gorevdeki 20pt onu kil payi
+         dusururdu; 21 ustu SESSIZ YANLIS — genisletme yasak. Ornek:
+         ozet tablosu "Ekstre borcu" basligi degerinden 21.8pt uzakta
+         ve BILEREK disarida — hesapOzeti ust bloktan tek adayla
+         geliyor, ikinci belirsiz aday dogmuyor). */
+      if (!deger && tanim.tip !== 'metin'){
+        const taban = etiketIt.altY || etiketIt.y;
+        const eBas = etiketIt.x - 2, eSon = etiketIt.x + (etiketIt.g || 0) + 2;
+        for (const s2 of satirlar){
+          for (const it of s2.items){
+            const dy = it.y - taban;
+            if (dy <= 2 || dy > 21) continue;
+            if (it.etiketMi || !uygun(it.ham)) continue;
+            if (it.x >= eSon || it.x + (it.g || 0) <= eBas) continue;
+            deger = it.ham; kural = 'sütun hizasından'; break;
+          }
+          if (deger) break;
         }
       }
       /* 3c · CB · TARIH: ALT SATIRDA SAGINDA. Olculdu (gercek Enpara):
@@ -4009,78 +4069,14 @@ function axOku(parcalar){
     else alanlar.banka = { durum:'yok' };
   }
 
-  /* ==================================================================
-     ⚠ CC · SIRALI SUTUN SABLONU — bankaya bagli, banka tespitinden SONRA.
-     Olculdu (gercek Enpara icerik akisi, tmp/enpara-konum.txt): ozet
-     tablosunun ALTI RAKAMI TEK BITISIK PARCA —
-       "369.672,20 TL150.000,00 TL...360.972,74 TL" (hepsi x=36.1) —
-     hizalanacak ayri parca YOK, AX_TUTAR tam-eslesmesi uymuyor, alti
-     alan da etiket yolundan cikmiyor. Basliklar da dort ayri y'ye
-     yayilmis ve Turkce harf dusen yerlerden bolunmus; hicbir ikili
-     birlesim esanlamli uretmiyor. Etiket yolu burada YAPISAL olarak
-     calismaz; sutun SIRASI ise bankanin sabit sablonu.
-     KILITLER — sessiz yanlis atama OLMAZ:
-       · yalniz sablonu TANIMLI bankada (bugun yalniz Enpara); Ziraat/
-         Maximum icin sablon YOK, etiket yolu AYNEN
-       · >= 3 tutari PESPESE tasiyan parca OZET DEGER SATIRIDIR; bolme
-         yalniz bu kosulda. Pespese = eslesmeler cikarilinca artik
-         karakter kalmaz (tarih/aciklama tasiyan islem satirlari boyle
-         elenir). Boyle parca birden coksa atama YOK.
-       · SAYI TUTMALI: sablon alti bekliyor, satirda alti tutar olacak;
-         degilse atama YOK, bos alanlar BELIRSIZ (eksik sutunu sifir
-         saymak yasak).
-       · DENKLEM TUTMALI (kendini dogrulama):
-           devir − odenen + harcama + nakitAvans + faizKesinti = kalan
-         Tutmuyorsa sira yanlistir: atama IPTAL, alanlar BELIRSIZ.
-       · Etiket yolundan ZATEN 'ok' gelmis alanla celisirse atama YOK
-         (Enpara'da hesapOzeti ust bloktan geliyor — sablonun 6. sutunu
-         onunla birebir ayni cikmali, denklemin disinda ikinci kapi).
-     Bolunen tutarlar GENEL aday akisina SOKULMAZ — yalniz sablon atar;
-     olculdu: bolunmus x'ler etiketlerle sahte hizalanip baska alanlari
-     BELIRSIZ'e dusurebiliyordu. */
-  const AX_SABLON = {
-    enpara: { alanlar: ['devir','odenen','harcama','nakitAvans','faizKesinti','hesapOzeti'],
-              isaret:  [ +1,    -1,      +1,       +1,          +1 ] }
-  };
-  const sablon = alanlar.banka && alanlar.banka.durum === 'ok'
-              && AX_SABLON[alanlar.banka.anahtar];
-  if (sablon){
-    const cokluTutar = [];
-    for (const s of satirlar)
-      for (const it of s.items){
-        const ham = it.ham.trim();
-        const es = ham.match(AX_TUTAR_G) || [];
-        if (es.length >= 3 && ham.replace(AX_TUTAR_G, '').trim() === '')
-          cokluTutar.push(es);
-      }
-    const belirsizBirak = (neden) => {
-      for (const ad of sablon.alanlar)
-        if (!alanlar[ad] || alanlar[ad].durum !== 'ok')
-          alanlar[ad] = { durum:'belirsiz', etiket:'özet satırı — ' + neden };
-    };
-    if (cokluTutar.length === 1 && cokluTutar[0].length === sablon.alanlar.length){
-      const hamlar = cokluTutar[0];
-      const krs = hamlar.map(t => paraCoz(t).kurus);
-      let sol = 0;
-      for (let i = 0; i < sablon.isaret.length; i++) sol += sablon.isaret[i] * krs[i];
-      const denklemTutuyor = sol === krs[krs.length - 1];
-      const celiski = sablon.alanlar.some((ad, i) =>
-        alanlar[ad] && alanlar[ad].durum === 'ok' && alanlar[ad].kurus !== krs[i]);
-      if (denklemTutuyor && !celiski){
-        sablon.alanlar.forEach((ad, i) => {
-          if (alanlar[ad] && alanlar[ad].durum === 'ok') return;   // dolu alana dokunma
-          alanlar[ad] = { durum:'ok', kurus: krs[i], ham: hamlar[i],
-            etiket: 'özet satırı ' + (i + 1) + '. sütun',
-            kural: 'sıralı sütun şablonu (' + alanlar.banka.ham + ') · denklem doğrulandı' };
-        });
-        yeniyiTopla();          // sablonun doldurdugu uc sutundan yeni_harcama
-      } else belirsizBirak(denklemTutuyor ? 'mevcut değerle çelişti' : 'denklem tutmadı');
-    } else if (cokluTutar.length >= 1){
-      belirsizBirak('sütun sayısı şablonla uyuşmadı');
-    }
-    /* coklu-tutar parcasi hic yoksa: dokunulmaz — etiket yolu ne
-       bulduysa o (baska bir Enpara sablonu/sayfasi olabilir). */
-  }
+  /* ⚠ CD · ESKI 'SIRALI SUTUN SABLONU' (AX_SABLON) BURADAN KALDIRILDI.
+     Var olmayan bir yapiya yazilmisti: ham icerik-akisi ayristiricisi
+     ozet satirini TEK bitisik parca gostermisti; gercek pdf.js ayni TJ
+     dizisini kerning noktalarindan bolup ALTI AYRI parca uretiyor
+     (olculdu: tmp/enpara-pdfjs.txt). Sablon hicbir gercek dosyada
+     tetiklenmiyordu; onunla gelen 'coklu tutar tasiyan parcayi bol'
+     kurali da kaldirildi — pdf.js zaten boluyor. Kaldirma sonrasi
+     Ziraat/Maximum ciktilarinin degismedigi olculdu. */
   return alanlar;
 }
 /* AZ-CEKIRDEK-SONU */
