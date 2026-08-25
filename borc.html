@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-9">
+<meta name="surum" content="borc-2026-08-24-10">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3850,36 +3850,43 @@ function axOku(parcalar){
        okunuyor — bu yol ona hic dokunmaz.
      ⚠ IKISI DE OKUNMALI. Biri eksikken digerini "yeni harcama" diye
        yazmak, eksik sutunu SESSIZCE sifir saymak olurdu. */
-  if ((!alanlar.yeni || alanlar.yeni.durum !== 'ok')
-      && alanlar.harcama && alanlar.harcama.durum === 'ok'
-      && alanlar.faizKesinti && alanlar.faizKesinti.durum === 'ok'){
-    /* ⚠ CA · ENPARA UCUNCU SUTUN: "Nakit avans / Artı bakiye transferi"
-       de yeni_harcamaya girer (modelde ayri terim yok). UC HAL:
-         · nakitAvans OK        -> UC sutun toplanir (Enpara)
-         · alan hic gorulmedi   -> IKI sutun toplanir (Ziraat — o dosyada
-                                   boyle bir sutun YOK, eski yol AYNEN)
-         · sutun VAR ama okunamadi (etiket gorulmus / belirsiz)
-                                -> TOPLAMA YAPILMAZ. Okunamayan sutunu
-                                   sifir saymak SESSIZ EKSIK rakam olur;
-                                   alan bos kalir, kapi kurulamaz, ekran
-                                   zaten "bulunamadi" der. */
-    const na = alanlar.nakitAvans;
-    const naOkunamadi = na && na.durum !== 'ok' && (na.etiket || na.durum === 'belirsiz');
-    if (na && na.durum === 'ok'){
-      alanlar.yeni = { durum:'ok',
-        kurus: alanlar.harcama.kurus + na.kurus + alanlar.faizKesinti.kurus,
-        ham: alanlar.harcama.ham + ' + ' + na.ham + ' + ' + alanlar.faizKesinti.ham,
-        etiket: alanlar.harcama.etiket + ' + ' + na.etiket + ' + ' + alanlar.faizKesinti.etiket,
-        kural: 'özet tablosunun üç sütunu toplandı' };
-    } else if (!naOkunamadi){
-      alanlar.yeni = { durum:'ok',
-        kurus: alanlar.harcama.kurus + alanlar.faizKesinti.kurus,
-        ham: alanlar.harcama.ham + ' + ' + alanlar.faizKesinti.ham,
-        /* ⚠ Tirnaksiz: onay ekrani etiketi zaten tirnaga aliyor. */
-        etiket: alanlar.harcama.etiket + ' + ' + alanlar.faizKesinti.etiket,
-        kural: 'özet tablosunun iki sütunu toplandı' };
+  /* ⚠ CC · Islev olarak: IKI kez cagrilir — burada (etiket yolundan gelen
+     sutunlarla, Ziraat) ve asagida SABLON atamasindan sonra (Enpara —
+     sablonun doldurdugu harcama/nakitAvans/faizKesinti'den yeni turesin).
+     Govde CA'daki halin AYNISI, yalniz sarmalandi. */
+  const yeniyiTopla = () => {
+    if ((!alanlar.yeni || alanlar.yeni.durum !== 'ok')
+        && alanlar.harcama && alanlar.harcama.durum === 'ok'
+        && alanlar.faizKesinti && alanlar.faizKesinti.durum === 'ok'){
+      /* ⚠ CA · ENPARA UCUNCU SUTUN: "Nakit avans / Artı bakiye transferi"
+         de yeni_harcamaya girer (modelde ayri terim yok). UC HAL:
+           · nakitAvans OK        -> UC sutun toplanir (Enpara)
+           · alan hic gorulmedi   -> IKI sutun toplanir (Ziraat — o dosyada
+                                     boyle bir sutun YOK, eski yol AYNEN)
+           · sutun VAR ama okunamadi (etiket gorulmus / belirsiz)
+                                  -> TOPLAMA YAPILMAZ. Okunamayan sutunu
+                                     sifir saymak SESSIZ EKSIK rakam olur;
+                                     alan bos kalir, kapi kurulamaz, ekran
+                                     zaten "bulunamadi" der. */
+      const na = alanlar.nakitAvans;
+      const naOkunamadi = na && na.durum !== 'ok' && (na.etiket || na.durum === 'belirsiz');
+      if (na && na.durum === 'ok'){
+        alanlar.yeni = { durum:'ok',
+          kurus: alanlar.harcama.kurus + na.kurus + alanlar.faizKesinti.kurus,
+          ham: alanlar.harcama.ham + ' + ' + na.ham + ' + ' + alanlar.faizKesinti.ham,
+          etiket: alanlar.harcama.etiket + ' + ' + na.etiket + ' + ' + alanlar.faizKesinti.etiket,
+          kural: 'özet tablosunun üç sütunu toplandı' };
+      } else if (!naOkunamadi){
+        alanlar.yeni = { durum:'ok',
+          kurus: alanlar.harcama.kurus + alanlar.faizKesinti.kurus,
+          ham: alanlar.harcama.ham + ' + ' + alanlar.faizKesinti.ham,
+          /* ⚠ Tirnaksiz: onay ekrani etiketi zaten tirnaga aliyor. */
+          etiket: alanlar.harcama.etiket + ' + ' + alanlar.faizKesinti.etiket,
+          kural: 'özet tablosunun iki sütunu toplandı' };
+      }
     }
-  }
+  };
+  yeniyiTopla();
 
   /* Faiz/vergi islem satirinin ICINDEN (tek parca geldigi olculdu).
      ⚠ Iki sayi bicimi de kabul: "FZ:11.078,37" (TR) ve "FZ:11,078.37"
@@ -3904,14 +3911,23 @@ function axOku(parcalar){
      ⚠ SATIRDA TEK TUTAR OLMALI. Birden cok sayi varsa hangisinin faiz
        oldugu BILINMEZ — tahmin yerine BELIRSIZ. Ayni tutari tekrarlayan
        satirlar belirsizlik degildir. */
+  /* ⚠ CC · TUTAR SATIR HAM'INDAN GLOBAL ARANIR, parca-tam-eslesmeden
+     DEGIL. Olculdu (gercek Enpara icerik akisi): islem satiri TEK
+     BITISIK parca — "30/07/2026Faizlerin KKDF'si* 1.400,41 TL" — hicbir
+     parca tek basina AX_TUTAR'a tam uymuyor ve faiz/vergi BELIRSIZ
+     kaliyordu. Satirdaki parcalarin ham'lari ' ' ile birlestirilip
+     icinden tutar deseni cekilir. "Tek tutar" kurali AYNEN: satirda
+     birden cok FARKLI desen cikarsa null (belirsiz adayi). Tarih
+     (30/07/2026) desene uymaz — virgul sart. */
+  const AX_TUTAR_G = /[-−]?\d{1,3}(?:\.\d{3})*,\d{2}(?:\s*(?:TL|TRY))?/g;
   const axSatirTutari = (iskAra) => {
     const bulunan = [];
     for (const s of satirlar){
       if (s.isk.indexOf(iskAra) < 0 || s.isk.indexOf('oran') >= 0) continue;
-      const tutarlar = s.items.filter(it => AX_TUTAR.test(it.ham.trim()));
+      const tutarlar = s.items.map(i => i.ham).join(' ').match(AX_TUTAR_G) || [];
       if (tutarlar.length !== 1){ bulunan.push(null); continue; }
-      const r = paraCoz(tutarlar[0].ham);
-      bulunan.push(r.ok ? { ham: tutarlar[0].ham.trim(), kurus: r.kurus } : null);
+      const r = paraCoz(tutarlar[0]);
+      bulunan.push(r.ok ? { ham: tutarlar[0].trim(), kurus: r.kurus } : null);
     }
     if (!bulunan.length) return null;
     if (bulunan.some(x => !x)) return 'belirsiz';
@@ -3991,6 +4007,79 @@ function axOku(parcalar){
     } else if (markalar.size > 1)
       alanlar.banka = { durum:'belirsiz', etiket: [...markalar.keys()].join(' / ') };
     else alanlar.banka = { durum:'yok' };
+  }
+
+  /* ==================================================================
+     ⚠ CC · SIRALI SUTUN SABLONU — bankaya bagli, banka tespitinden SONRA.
+     Olculdu (gercek Enpara icerik akisi, tmp/enpara-konum.txt): ozet
+     tablosunun ALTI RAKAMI TEK BITISIK PARCA —
+       "369.672,20 TL150.000,00 TL...360.972,74 TL" (hepsi x=36.1) —
+     hizalanacak ayri parca YOK, AX_TUTAR tam-eslesmesi uymuyor, alti
+     alan da etiket yolundan cikmiyor. Basliklar da dort ayri y'ye
+     yayilmis ve Turkce harf dusen yerlerden bolunmus; hicbir ikili
+     birlesim esanlamli uretmiyor. Etiket yolu burada YAPISAL olarak
+     calismaz; sutun SIRASI ise bankanin sabit sablonu.
+     KILITLER — sessiz yanlis atama OLMAZ:
+       · yalniz sablonu TANIMLI bankada (bugun yalniz Enpara); Ziraat/
+         Maximum icin sablon YOK, etiket yolu AYNEN
+       · >= 3 tutari PESPESE tasiyan parca OZET DEGER SATIRIDIR; bolme
+         yalniz bu kosulda. Pespese = eslesmeler cikarilinca artik
+         karakter kalmaz (tarih/aciklama tasiyan islem satirlari boyle
+         elenir). Boyle parca birden coksa atama YOK.
+       · SAYI TUTMALI: sablon alti bekliyor, satirda alti tutar olacak;
+         degilse atama YOK, bos alanlar BELIRSIZ (eksik sutunu sifir
+         saymak yasak).
+       · DENKLEM TUTMALI (kendini dogrulama):
+           devir − odenen + harcama + nakitAvans + faizKesinti = kalan
+         Tutmuyorsa sira yanlistir: atama IPTAL, alanlar BELIRSIZ.
+       · Etiket yolundan ZATEN 'ok' gelmis alanla celisirse atama YOK
+         (Enpara'da hesapOzeti ust bloktan geliyor — sablonun 6. sutunu
+         onunla birebir ayni cikmali, denklemin disinda ikinci kapi).
+     Bolunen tutarlar GENEL aday akisina SOKULMAZ — yalniz sablon atar;
+     olculdu: bolunmus x'ler etiketlerle sahte hizalanip baska alanlari
+     BELIRSIZ'e dusurebiliyordu. */
+  const AX_SABLON = {
+    enpara: { alanlar: ['devir','odenen','harcama','nakitAvans','faizKesinti','hesapOzeti'],
+              isaret:  [ +1,    -1,      +1,       +1,          +1 ] }
+  };
+  const sablon = alanlar.banka && alanlar.banka.durum === 'ok'
+              && AX_SABLON[alanlar.banka.anahtar];
+  if (sablon){
+    const cokluTutar = [];
+    for (const s of satirlar)
+      for (const it of s.items){
+        const ham = it.ham.trim();
+        const es = ham.match(AX_TUTAR_G) || [];
+        if (es.length >= 3 && ham.replace(AX_TUTAR_G, '').trim() === '')
+          cokluTutar.push(es);
+      }
+    const belirsizBirak = (neden) => {
+      for (const ad of sablon.alanlar)
+        if (!alanlar[ad] || alanlar[ad].durum !== 'ok')
+          alanlar[ad] = { durum:'belirsiz', etiket:'özet satırı — ' + neden };
+    };
+    if (cokluTutar.length === 1 && cokluTutar[0].length === sablon.alanlar.length){
+      const hamlar = cokluTutar[0];
+      const krs = hamlar.map(t => paraCoz(t).kurus);
+      let sol = 0;
+      for (let i = 0; i < sablon.isaret.length; i++) sol += sablon.isaret[i] * krs[i];
+      const denklemTutuyor = sol === krs[krs.length - 1];
+      const celiski = sablon.alanlar.some((ad, i) =>
+        alanlar[ad] && alanlar[ad].durum === 'ok' && alanlar[ad].kurus !== krs[i]);
+      if (denklemTutuyor && !celiski){
+        sablon.alanlar.forEach((ad, i) => {
+          if (alanlar[ad] && alanlar[ad].durum === 'ok') return;   // dolu alana dokunma
+          alanlar[ad] = { durum:'ok', kurus: krs[i], ham: hamlar[i],
+            etiket: 'özet satırı ' + (i + 1) + '. sütun',
+            kural: 'sıralı sütun şablonu (' + alanlar.banka.ham + ') · denklem doğrulandı' };
+        });
+        yeniyiTopla();          // sablonun doldurdugu uc sutundan yeni_harcama
+      } else belirsizBirak(denklemTutuyor ? 'mevcut değerle çelişti' : 'denklem tutmadı');
+    } else if (cokluTutar.length >= 1){
+      belirsizBirak('sütun sayısı şablonla uyuşmadı');
+    }
+    /* coklu-tutar parcasi hic yoksa: dokunulmaz — etiket yolu ne
+       bulduysa o (baska bir Enpara sablonu/sayfasi olabilir). */
   }
   return alanlar;
 }
