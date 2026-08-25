@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-8">
+<meta name="surum" content="borc-2026-08-24-9">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3499,6 +3499,9 @@ for (const alan of Object.keys(AX_SOZLUK))
      kapsar — once endsWith ile bakiliyor, ayri madde gerekmiyor. */
 const AX_NITELEYICI = ['sonraki','kullanılabilir','ertelenebilir','ertelenen',
   'taksitlendirilen','vadelendirilen','nakit','toplam','önceki','geciken'].map(axIskelet);
+/* CB · satir GENELI tarih elemesinde kullanilan alt kume: yalniz zaman
+   kaydiran niteleyiciler. Gerekce yukarida (CA/CB blogu). */
+const AX_NITELEYICI_ZAMAN = ['sonraki','önceki','geciken'].map(axIskelet);
 
 /* ⚠ BB · DOVIZ VARYANTI. Ayni etiketin TL ve USD/EUR surumu yan yana
    duruyor ("Dönem Borcu TL" / "Dönem Borcu USD", "Asgari Ödeme Tutarı
@@ -3635,15 +3638,25 @@ function axOku(parcalar){
       if (p.isk.length < 3) continue;
       if (tumIsk.some(sn => p.isk.indexOf(sn) >= 0)) continue;          // kilit 1
       if (!tumIsk.some(sn => sn.length > p.isk.length && sn.startsWith(p.isk))) continue; // kilit 2
+      /* ⚠ CB · kilit 3a "en fazla bir alt satir" -> "en fazla bir alt
+         DOLU satir". Olculdu (gercek Enpara): "Bir önceki"(s9) ile
+         "ekstre borcu"(s11) arasinda TAMAMEN BOS s10 var (28.4pt);
+         24'luk pencere birlesmeyi goremiyordu, devir ve faizKesinti
+         etiketleri hic kurulmuyordu. Bos satir parca uretmez, bant da
+         uretmez — dolayisiyla "ilk DOLU satir" y sirasindaki ilk
+         banttir; karar ORADA verilir, ikinci dolu satira GECILMEZ
+         (sinir hala TEK dolu satir). Tavan 40pt: bir bos satir payi. */
       let q = null, qSatir = null;
       for (const s2 of satirlar){
         const dy = s2.y - s.y;
-        if (dy <= 2 || dy > 24) continue;                               // kilit 3a
+        if (dy <= 2) continue;
+        if (dy > 40) break;                                             // kilit 3a
         q = s2.items.find(q2 => !AX_TUTAR.test(q2.ham.trim())
           && q2.isk.length > 0
           && q2.x < p.x + (p.g || 0) + 2 && q2.x + (q2.g || 0) > p.x - 2  // kilit 3b
           && tumIsk.some(sn => sn === p.isk + q2.isk));                 // kilit 3c
-        if (q){ qSatir = s2; break; }
+        qSatir = s2;
+        break;                       // ilk dolu satir her durumda son durak
       }
       if (!q) continue;
       p.isk = p.isk + q.isk;
@@ -3691,10 +3704,17 @@ function axOku(parcalar){
          satiri GELECEK doneme baglar; satir elenince tek aday kalir.
          YALNIZ TARIHTE: para satirlarinda niteleyici baska sutunun mesru
          basliginin parcasi olabiliyor ("Nakit avans...", "Bir önceki
-         ekstre borcu") — orada satir geneli eleme alanlari oldururdu. */
+         ekstre borcu") — orada satir geneli eleme alanlari oldururdu.
+         ⚠ CB · DARALTILDI: satir geneli eleme yalniz ZAMAN KAYDIRAN
+           niteleyicilerle (sonraki/önceki). Olculdu (gercek Enpara):
+           "Son ödeme tarihi" ile "Kullanılabilir kart limiti" AYNI
+           BANTTA — tam liste kullanilinca komsu sutunun 'kullanılabilir'i
+           gercek etiketi de eliyordu ve son odeme HIC bulunamiyordu.
+           'kullanılabilir/nakit/toplam...' tarih tasiyan bir alani
+           baska doneme KAYDIRMAZ; eleme gerekcesi yalniz zamandir. */
       if (tanim.tip === 'tarih'){
         const dis = once + s.isk.slice(idx + sn.length);
-        if (AX_NITELEYICI.some(n => dis.indexOf(n) >= 0)) continue;
+        if (AX_NITELEYICI_ZAMAN.some(n => dis.indexOf(n) >= 0)) continue;
       }
       /* BB · doviz varyanti: etiketin hemen ardi USD/EUR ise BASKA alandir */
       const sonra = s.isk.slice(idx + sn.length);
@@ -3725,6 +3745,36 @@ function axOku(parcalar){
           const it2 = s2.items.find(it => Math.abs(it.x - etiketIt.x) <= 12
                                           && !it.etiketMi && uygun(it.ham));
           if (it2){ deger = it2.ham; kural = 'hemen altında'; break; }
+        }
+      }
+      /* 3c · CB · TARIH: ALT SATIRDA SAGINDA. Olculdu (gercek Enpara):
+         "Son ödeme tarihi" satirinin sag tarafi BASKA ETIKETLE kapali
+         ("Kullanılabilir kart limiti" — kural 1 engele carpip duruyor)
+         ve degeri 10/08/2026 BIR ALT satirda, deger SUTUNUNDA duruyor —
+         etiketin x'iyle hizali DEGIL, o yuzden kural 3 ve sarma
+         penceresi de goremiyor. Kilitler DAR:
+           · yalniz TARIH alanlari
+           · ilk DOLU alt satir (bos satir atlanir), tavan 40pt; karar
+             orada — ikinci satira gecilmez
+           · o satirda HICBIR ETIKET yok (etiketli satir baskasinin
+             bolgesidir) ve satirda TEK tarih var (coksa hangisi
+             oldugu bilinemez — tahmin yok)
+           · deger etiketin SAGINDA (x buyuk)
+         "Bir sonraki ... son ödeme tarihi ise 09/09/2026" satiri buraya
+         DUSMEZ: o satir kendi etiketini tasir (etiketli satir kilidi)
+         ve o etiket satir-geneli 'sonraki' elemesiyle zaten dusuyor. */
+      if (!deger && tanim.tip === 'tarih'){
+        for (const s2 of satirlar){
+          const dy = s2.y - s.y;
+          if (dy <= 2) continue;
+          if (dy > 40) break;
+          if (s2.items.some(it => it.etiketMi)) break;
+          const tarihler = s2.items.filter(it => AX_TARIH.test(it.ham));
+          if (tarihler.length === 1 && tarihler[0].x > etiketIt.x && uygun(tarihler[0].ham)){
+            deger = tarihler[0].ham.match(AX_TARIH)[0];
+            kural = 'alt satırda sağında';
+          }
+          break;                     // ilk dolu satir: karar burada
         }
       }
       /* 3b · BY/CA · SARMA SATIRLARININ ALTINDA — para ve tarih alanlari.
