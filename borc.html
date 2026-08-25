@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-7">
+<meta name="surum" content="borc-2026-08-24-8">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3449,14 +3449,21 @@ function axIskelet(t){
 /* ⚠ BANKA BAZLI PARSER YOK — ESANLAMLI LISTESI VAR (AX karari korundu). */
 const AX_SOZLUK = {
   kartAdi:    { tip:'metin', syn:['kart türü','kart tipi','kart adı','ürün adı'] },
-  kesim:      { tip:'tarih', syn:['hesap kesim tarihi','ekstre kesim tarihi'] },
+  /* ⚠ CA · ENPARA etiketleri (gercek dosyayla olculdu, 2026-08-24).
+     Sozluk TURKCE yazilir — pdftotext'in ASCII gosterimini degil,
+     PDF'in gercek metnini esler (axIskelet ikisini ayni iskelete indirir
+     sanma: 'ü' SILINIR, 'u' KALIR). */
+  kesim:      { tip:'tarih', syn:['hesap kesim tarihi','ekstre kesim tarihi','ekstre tarihi'] },
   sonOdeme:   { tip:'tarih', syn:['son ödeme tarihi','son ödeme günü'] },
   limit:      { tip:'para',  syn:['kart limiti','kredi kartı limiti'] },
-  devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç'] },
+  devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç','bir önceki ekstre borcu'] },
   yeni:       { tip:'para',  syn:['dönem içi borç kayıtları','borç kayıtları','dönem içi harcamalar','yeni harcamalar'] },
-  odenen:     { tip:'para',  syn:['dönem içi alacak kayıtları','alacak kayıtları','yapılan ödemeler','ödemeler toplamı','ödemeleriniz'] },
-  hesapOzeti: { tip:'para',  syn:['hesap özeti borcu','dönem borcu','güncel borç'] },
-  asgari:     { tip:'para',  syn:['ödenmesi gereken asgari tutar','asgari ödeme tutarı','asgari tutar'] },
+  /* 'ödemeler' KISA ve bilerek EN SONDA: uzun eslesme kisa eslesmeyi
+     yener (asagida siralama), 'Ödemeleriniz' tasiyan satirda uzun hali
+     kazanir. Enpara ozet tablosunda baslik yalin 'Ödemeler'. */
+  odenen:     { tip:'para',  syn:['dönem içi alacak kayıtları','alacak kayıtları','yapılan ödemeler','ödemeler toplamı','ödemeleriniz','ödemeler'] },
+  hesapOzeti: { tip:'para',  syn:['hesap özeti borcu','dönem borcu','güncel borç','ekstre borcu'] },
+  asgari:     { tip:'para',  syn:['ödenmesi gereken asgari tutar','asgari ödeme tutarı','asgari tutar','minimum ödeme tutarı'] },
   /* ⚠ BB · IS BANKASI BANKKART OZET TABLOSU BES SUTUNLU:
        Devreden Bakiye | Harcamalarınız | Faiz Ücretler ve Kesintiler
        | Ödemeleriniz | Dönem Borcu
@@ -3467,8 +3474,14 @@ const AX_SOZLUK = {
      Sozlukte durmalarinin ikinci sebebi: sozlukteki her etiket ayni
      zamanda ENGELDIR (etiketMi), yani bes sutunlu satirda her baslik
      bir oncekinin saga taramasini durdurur. */
-  harcama:     { tip:'para', syn:['harcamalarınız'] },
-  faizKesinti: { tip:'para', syn:['faiz ücretler ve kesintiler'] }
+  harcama:     { tip:'para', syn:['harcamalarınız','harcamalar ve yansıyan taksitler'] },
+  faizKesinti: { tip:'para', syn:['faiz ücretler ve kesintiler','faiz, vergiler, ücretler ve diğer'] },
+  /* ⚠ CA · ENPARA ALTI SUTUNLU. Ziraat'in bes sutununa ek olarak
+     "Nakit avans / Artı bakiye transferi" AYRI sutun. Bizim modelde
+     ayri terim degil — yeni_harcamaya girer (asagida, UC sutunlu
+     toplama). Etiket 'nakit' niteleyicisiyle BASLIYOR; sorun degil,
+     onek denetimi etiketin ONUNE bakar, icine degil. */
+  nakitAvans:  { tip:'para', syn:['nakit avans / artı bakiye transferi'] }
 };
 for (const alan of Object.keys(AX_SOZLUK))
   AX_SOZLUK[alan].isk = AX_SOZLUK[alan].syn.map(axIskelet)
@@ -3610,15 +3623,19 @@ function axOku(parcalar){
        2) ust parca bir esanlamlinin ON EKI (rastgele metin birlesmez)
        3) alt parca EN FAZLA BIR satir altta (2..24), x araligi ORTUSUYOR,
           tutar degil ve birlesim esanlamliya TAM ESIT
-     Eslesince ustun iskelet+ham'i birlesik yazilir, satir iskeleti
-     yeniden kurulur; alt parca yerinde kalir (deger taramasinin sarma
-     tespiti onu gorur). */
+     Eslesince ustun iskelet+ham'i birlesik yazilir; ALT PARCA TUKETILIR
+     (iskeleti bosaltilir). ⚠ CA olcumu: tuketilmezse alt parca kendi
+     basina da bir esanlamliysa ("ekstre borcu" hem devirin kuyrugu hem
+     hesapOzeti'nin Enpara esanlamlisi) ayni metin IKINCI kez etiket
+     olur ve yanlis degere baglanip alani BELIRSIZ'e dusurur — olculdu.
+     Iki satirin da iskeleti yeniden kurulur. Sarma tespiti ham'a
+     bakiyor, bosalan iskelet onu etkilemez. */
   for (const s of satirlar){
     for (const p of s.items){
       if (p.isk.length < 3) continue;
       if (tumIsk.some(sn => p.isk.indexOf(sn) >= 0)) continue;          // kilit 1
       if (!tumIsk.some(sn => sn.length > p.isk.length && sn.startsWith(p.isk))) continue; // kilit 2
-      let q = null;
+      let q = null, qSatir = null;
       for (const s2 of satirlar){
         const dy = s2.y - s.y;
         if (dy <= 2 || dy > 24) continue;                               // kilit 3a
@@ -3626,13 +3643,16 @@ function axOku(parcalar){
           && q2.isk.length > 0
           && q2.x < p.x + (p.g || 0) + 2 && q2.x + (q2.g || 0) > p.x - 2  // kilit 3b
           && tumIsk.some(sn => sn === p.isk + q2.isk));                 // kilit 3c
-        if (q) break;
+        if (q){ qSatir = s2; break; }
       }
       if (!q) continue;
       p.isk = p.isk + q.isk;
       p.ham = p.ham + ' ' + q.ham;
-      s.isk = '';
-      for (const it of s.items){ it.iBas = s.isk.length; s.isk += it.isk; it.iSon = s.isk.length; }
+      q.isk = '';                                                       // alt parca tuketildi
+      for (const sat of [s, qSatir]){
+        sat.isk = '';
+        for (const it of sat.items){ it.iBas = sat.isk.length; sat.isk += it.isk; it.iSon = sat.isk.length; }
+      }
     }
   }
 
@@ -3663,6 +3683,19 @@ function axOku(parcalar){
          degil) EK'li eslesmeyi boyle yener. */
       const once = s.isk.slice(0, idx);
       if (AX_NITELEYICI.some(n => once.length >= n.length && once.endsWith(n))) continue;
+      /* ⚠ CA · TARIH alanlarinda niteleyici SATIRIN TAMAMINDA aranir
+         (etiket araligi haric). OLCULDU (Enpara): "Bir sonraki
+         ekstrenizin tarihi 30/08/2026, son ödeme tarihi ise 09/09/2026"
+         satirinda etiketin HEMEN ONU '...30082026' — onek denetimi
+         gecirdi, alan BELIRSIZ kaldi. Satirin basindaki 'sonraki' butun
+         satiri GELECEK doneme baglar; satir elenince tek aday kalir.
+         YALNIZ TARIHTE: para satirlarinda niteleyici baska sutunun mesru
+         basliginin parcasi olabiliyor ("Nakit avans...", "Bir önceki
+         ekstre borcu") — orada satir geneli eleme alanlari oldururdu. */
+      if (tanim.tip === 'tarih'){
+        const dis = once + s.isk.slice(idx + sn.length);
+        if (AX_NITELEYICI.some(n => dis.indexOf(n) >= 0)) continue;
+      }
       /* BB · doviz varyanti: etiketin hemen ardi USD/EUR ise BASKA alandir */
       const sonra = s.isk.slice(idx + sn.length);
       if (AX_DOVIZ_RED.some(d => sonra.startsWith(d))) continue;
@@ -3694,32 +3727,40 @@ function axOku(parcalar){
           if (it2){ deger = it2.ham; kural = 'hemen altında'; break; }
         }
       }
-      /* 3b · BY · SARMA SATIRININ ALTINDA — yalniz PARA alanlari.
-         Olculdu (gercek Bankkart): baslik satiri sarilinca ("Kesintiler"
-         alt satira dusuyor) deger satiri basligin IKI satir altinda
-         kaliyor (28.4pt), kural 3'un 24'luk penceresi yetismiyordu.
-         PENCERE DAR — genisletmek alakasiz tutari almak, SESSIZ YANLIS
-         demek (bulamamaktan kotu). Uc kilit:
-           · yalniz kural 3 BOS kaldiysa calisir (Maximum yolu degismez)
-           · ikinci bakis ANCAK arada (2..24) SALT METIN satiri varsa
-             acilir — icinde TEK TUTAR bile olan satir sarma DEGILDIR ve
-             pencere hic acilmaz. Arasi bos olan uzak tutara UZANILMAZ.
-           · bakilan yer sarmanin HEMEN alti (2..24) — yani EN FAZLA BIR
-             sarma satiri atlanir, ucuncu satira tasilmaz.
-         Deger yine kural 3'un dar nokta olcutuyle (|dx| <= 12).
+      /* 3b · BY/CA · SARMA SATIRLARININ ALTINDA — para ve tarih alanlari.
+         Olculdu (gercek Bankkart): baslik sarilinca deger IKI satir
+         altta kaliyordu. CA olcumu (gercek Enpara) daha derin: ozet
+         tablosunun basligi UC satira yayiliyor ("Bir önceki /
+         ekstre borcu" + iki alt baslik satiri), deger satiri basliktan
+         DORT satir asagida. BY'nin tek-sarma penceresi yetismedi.
+         Kural satir satir ILERLER, korukorune y penceresi ACMAZ:
+           · yalniz kural 1-3 BOS kaldiysa calisir (Maximum yolu degismez)
+           · sonraki satirlar y sirasiyla gezilir. Icinde TUTAR olan ilk
+             satir DEGER SATIRIDIR: x hizamda (|dx| <= 12) uygun deger
+             varsa alinir; yoksa DURULUR — daha asagisi baska bolgedir.
+           · tutarsiz satir SARMA metnidir; EN FAZLA UC sarma atlanir
+             (Enpara: 3). Dorduncude vazgecilir.
+           · hic sarma atlamadan 24pt'ten uzaga UZANILMAZ (arasi bos
+             uzak tutar: olculmus tuzak, kenar 11) ve 90pt'ten oteye
+             hicbir kosulda gecilmez.
          Birden cok FARKLI aday cikarsa asagida 3c zaten BELIRSIZ der. */
-      if (!deger && tanim.tip === 'para'){
-        const sarma = satirlar.find(s2 => { const dy = s2.y - s.y;
-          return dy > 2 && dy <= 24 && s2.items.length > 0
-            && !s2.items.some(it => AX_TUTAR.test(it.ham.trim())); });
-        if (sarma){
-          for (const s2 of satirlar){
-            const dy = s2.y - sarma.y;
-            if (dy <= 2 || dy > 24) continue;
+      if (!deger && tanim.tip !== 'metin'){
+        let sarmaSayisi = 0;
+        for (const s2 of satirlar){
+          const dy = s2.y - s.y;
+          if (dy <= 2) continue;
+          if (dy > 90) break;
+          if (s2.items.some(it => AX_TUTAR.test(it.ham.trim()))
+              || (tanim.tip === 'tarih' && s2.items.some(it => AX_TARIH.test(it.ham)))){
+            /* deger satiri: ya burada ya hicbir yerde */
+            if (dy > 24 && sarmaSayisi === 0) break;
             const it2 = s2.items.find(it => Math.abs(it.x - etiketIt.x) <= 12
                                             && !it.etiketMi && uygun(it.ham));
-            if (it2){ deger = it2.ham; kural = 'sarma satırının altında'; break; }
+            if (it2){ deger = it2.ham;
+                      kural = dy > 24 ? 'sarma satırının altında' : 'hemen altında'; }
+            break;
           }
+          if (++sarmaSayisi > 3) break;
         }
       }
       if (!deger) continue;   // degersiz eslesme ADAY DEGILDIR (sarkan etiket paracigi)
@@ -3762,12 +3803,32 @@ function axOku(parcalar){
   if ((!alanlar.yeni || alanlar.yeni.durum !== 'ok')
       && alanlar.harcama && alanlar.harcama.durum === 'ok'
       && alanlar.faizKesinti && alanlar.faizKesinti.durum === 'ok'){
-    alanlar.yeni = { durum:'ok',
-      kurus: alanlar.harcama.kurus + alanlar.faizKesinti.kurus,
-      ham: alanlar.harcama.ham + ' + ' + alanlar.faizKesinti.ham,
-      /* ⚠ Tirnaksiz: onay ekrani etiketi zaten tirnaga aliyor. */
-      etiket: alanlar.harcama.etiket + ' + ' + alanlar.faizKesinti.etiket,
-      kural: 'özet tablosunun iki sütunu toplandı' };
+    /* ⚠ CA · ENPARA UCUNCU SUTUN: "Nakit avans / Artı bakiye transferi"
+       de yeni_harcamaya girer (modelde ayri terim yok). UC HAL:
+         · nakitAvans OK        -> UC sutun toplanir (Enpara)
+         · alan hic gorulmedi   -> IKI sutun toplanir (Ziraat — o dosyada
+                                   boyle bir sutun YOK, eski yol AYNEN)
+         · sutun VAR ama okunamadi (etiket gorulmus / belirsiz)
+                                -> TOPLAMA YAPILMAZ. Okunamayan sutunu
+                                   sifir saymak SESSIZ EKSIK rakam olur;
+                                   alan bos kalir, kapi kurulamaz, ekran
+                                   zaten "bulunamadi" der. */
+    const na = alanlar.nakitAvans;
+    const naOkunamadi = na && na.durum !== 'ok' && (na.etiket || na.durum === 'belirsiz');
+    if (na && na.durum === 'ok'){
+      alanlar.yeni = { durum:'ok',
+        kurus: alanlar.harcama.kurus + na.kurus + alanlar.faizKesinti.kurus,
+        ham: alanlar.harcama.ham + ' + ' + na.ham + ' + ' + alanlar.faizKesinti.ham,
+        etiket: alanlar.harcama.etiket + ' + ' + na.etiket + ' + ' + alanlar.faizKesinti.etiket,
+        kural: 'özet tablosunun üç sütunu toplandı' };
+    } else if (!naOkunamadi){
+      alanlar.yeni = { durum:'ok',
+        kurus: alanlar.harcama.kurus + alanlar.faizKesinti.kurus,
+        ham: alanlar.harcama.ham + ' + ' + alanlar.faizKesinti.ham,
+        /* ⚠ Tirnaksiz: onay ekrani etiketi zaten tirnaga aliyor. */
+        etiket: alanlar.harcama.etiket + ' + ' + alanlar.faizKesinti.etiket,
+        kural: 'özet tablosunun iki sütunu toplandı' };
+    }
   }
 
   /* Faiz/vergi islem satirinin ICINDEN (tek parca geldigi olculdu).
@@ -3816,7 +3877,37 @@ function axOku(parcalar){
                         ham: r.ham, kurus: r.kurus };
   };
   axIslemAlani('faiz',  'Kredi faizi', axIskelet('kredi faizi'));
+  /* CA · Enpara faizi "Alışveriş faizi" satirinda. Sira: FZ: tek parcasi
+     (Maximum) -> Kredi faizi (Ziraat) -> Alisveris faizi (Enpara);
+     axIslemAlani dolu alana DOKUNMAZ, oncekiler kazanir. */
+  axIslemAlani('faiz',  'Alışveriş faizi', axIskelet('alışveriş faizi'));
   axIslemAlani('vergi', 'BSMV (Faiz)', axIskelet('bsmv (faiz)'));
+
+  /* ⚠ CA · ENPARA VERGISI IKI KALEM: "Faizlerin KKDF'si" + "Faiz ve
+     ücretlerin BSMV'si" — OLCULDU, ikisi ayni tutarda (1.400,41 + 1.400,41).
+     ORAN VARSAYILMAZ (Ziraat'te BSMV faizin %5'iydi; burada degil) —
+     okunan toplanir. Ziraat'in "BSMV (Faiz)" tek kalemi yukarida ZATEN
+     dolduysa buraya dusulmez. Iki kalemden BIRI 'belirsiz' ise vergi
+     BELIRSIZ olur; yalniz biri varsa TEK kalem yazilir (islem kalemi
+     sutun degildir: dosyada yoksa gercekten yoktur, sifir sayma degil).
+     Kaynak etiketi topladigi kalemleri yazar (kabul 3). */
+  if (!alanlar.vergi || alanlar.vergi.durum !== 'ok'){
+    const kkdf = axSatirTutari(axIskelet('faizlerin kkdf'));
+    const bsmv = axSatirTutari(axIskelet('ücretlerin bsmv'));
+    if (kkdf === 'belirsiz' || bsmv === 'belirsiz')
+      alanlar.vergi = { durum:'belirsiz', etiket:'KKDF/BSMV (satırda birden çok tutar)' };
+    else if (kkdf && bsmv)
+      alanlar.vergi = { durum:'ok', kurus: kkdf.kurus + bsmv.kurus,
+        ham: kkdf.ham + ' + ' + bsmv.ham,
+        etiket: "Faizlerin KKDF'si + Faiz ve ücretlerin BSMV'si",
+        kural: 'iki işlem kalemi toplandı' };
+    else if (kkdf || bsmv){
+      const t = kkdf || bsmv;
+      alanlar.vergi = { durum:'ok', kurus: t.kurus, ham: t.ham,
+        etiket: kkdf ? "Faizlerin KKDF'si" : "Faiz ve ücretlerin BSMV'si",
+        kural: 'işlem satırından' };
+    }
+  }
 
   /* DUZELTME 4 · banka alan adindan */
   const kucuk = tumMetin.toLowerCase();
