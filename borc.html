@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-6">
+<meta name="surum" content="borc-2026-08-24-7">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3517,17 +3517,28 @@ const AX_BANKA = [
   ['enpara',   'Enpara']
 ];
 
-/* ⚠ BY · MARKA -> BANKA SOZLUGU. Olculdu (gercek Bankkart dosyasi,
+/* ⚠ BY/BZ · MARKA -> BANKA SOZLUGU. Olculdu (gercek Bankkart dosyasi,
    tum metin tarandi): banka adi HIC gecmiyor, alan adi da yok; yalniz
-   "Bankkart" geciyor (9 kez). Bankkart ve Maximum, Turkiye Is
-   Bankasi'nin kart MARKALARIDIR — cikarim degil, bilinen esleme.
-   Alan adi yolu ONCE denenir (Maximum'da o kazanir, cikti degismez);
-   bulunamazsa marka aranir. Marka da yoksa alan BOS kalir, uydurulmaz.
+   "Bankkart" geciyor (9 kez). Alan adi yolu ONCE denenir (Maximum'da o
+   kazanir); bulunamazsa marka aranir. Marka da yoksa alan BOS kalir,
+   uydurulmaz.
+   ⚠ BZ · DUZELTME — ILK YAZIM YANLISTI. Bir onceki tur "Bankkart, Is
+     Bankasi'nin markasidir" diye yazilmisti ve canlida Ziraat ekstresine
+     "Türkiye İş Bankası" yaziliyordu. DOGRUSU:
+       Bankkart -> T.C. ZIRAAT BANKASI
+       Maximum  -> Turkiye Is Bankasi
+     Kaynak: KART SAHIBI iki gercek ekstreyle teyit etti
+     (Z260815CBKKTRC313720 ve Z260815BBSNKKMC574646 — ikisi de Ziraat).
+     Ikinci kanit dosyanin kendi icinde: "Bankkart Lira" ZIRAAT'in puan
+     birimidir ve metinde 9 kez geciyor.
+   ⚠ BU SOZLUGE TAHMINLE SATIR EKLENMEZ. Yeni marka ancak GERCEK
+     dosyasiyla teyit edilip KAYNAGI bu bloga yazilarak girer
+     (Bonus/World/Axess/Paraf vb. bilerek YOK — dosyalari elimizde yok).
    ⚠ KART NUMARASINDAN (BIN) banka cikarma YOK — o kural duruyor.
-   [aranan kelime (axSade), banka adi, oneri anahtari, ekrandaki adi] */
+   [aranan kelime (iskelet), banka adi, oneri anahtari, ekrandaki adi] */
 const AX_MARKA = [
-  ['bankkart', 'Türkiye İş Bankası', 'isbank', 'Bankkart'],
-  ['maximum',  'Türkiye İş Bankası', 'isbank', 'Maximum']
+  ['bankkart', 'T.C. Ziraat Bankası', 'ziraat', 'Bankkart'],
+  ['maximum',  'Türkiye İş Bankası',  'isbank', 'Maximum']
 ];
 
 const AX_TUTAR = /^[-−]?\d{1,3}(?:\.\d{3})*,\d{2}(?:\s*(?:TL|TRY))?$/i;
