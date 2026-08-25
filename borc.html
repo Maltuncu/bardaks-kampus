@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-11">
+<meta name="surum" content="borc-2026-08-24-12">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3624,6 +3624,18 @@ function axOku(parcalar){
      bosluklari 4.5-8.9pt; en dar SUTUN araligi 15.6pt — deger sutunlari
      kaynaklanamaz) + IKISI DE tam tutar DEGIL (tutarlar asla
      yapistirilmaz). Ham'lar arasina bosluk konur, iskelet bitisik. */
+  /* ⚠ CE · TEK KARAKTERLIK OPERATOR PARCASI ETIKET MALZEMESI DEGILDIR.
+     Olculdu (gercek PDF, cekirdekten gecirildi): ozet tablosunun
+     "-" "+" "=" parcalari kendi y bantlarinda duruyor ve pdf.js'in
+     PARCA SIRASINA gore bazen etiket bantlarina karisiyor; kaynaklama
+     onlari yutunca etiket ham'i kirleniyor ("Harcamalar ve + yansıyan
+     taksitler +"), x-zinciri kayip komsu sutunun yarimi yanlis etikete
+     kapiliyor — nakitAvans ve faizKesinti sahipsiz kaliyordu.
+     Kural yalniz ETIKET tarafinda (kaynaklama + birlestirme); deger
+     aramasina dokunmaz. COK karakterli parcalar ("Nakit avans / Artı")
+     ETKILENMEZ — tek karakter icin. */
+  const AX_OPERATOR = (t) => { const k = String(t).trim();
+    return k.length === 1 && '+-=*x×/:'.indexOf(k) >= 0; };
   for (const s of satirlar){
     for (let i = 0; i < s.items.length - 1; ){
       const a = s.items[i], b = s.items[i + 1];
@@ -3633,7 +3645,8 @@ function axOku(parcalar){
          etikete yapistirir — olculdu, uc baslik tek parcaya kaynayip
          hepsine ayni degeri veriyordu. -1 yuvarlama payi. */
       const bosluk = b.x - (a.x + (a.g || 0));
-      if (!AX_TUTAR.test(a.ham.trim()) && !AX_TUTAR.test(b.ham.trim())
+      if (!AX_OPERATOR(a.ham) && !AX_OPERATOR(b.ham)
+          && !AX_TUTAR.test(a.ham.trim()) && !AX_TUTAR.test(b.ham.trim())
           && bosluk >= -1 && bosluk <= 10){
         a.ham = a.ham + ' ' + b.ham;
         a.isk = a.isk + b.isk;
@@ -3685,6 +3698,7 @@ function axOku(parcalar){
         if (dy <= 2) continue;
         if (dy > 15) break;                                             // kilit 3a
         q = s2.items.find(q2 => !AX_TUTAR.test(q2.ham.trim())
+          && !AX_OPERATOR(q2.ham)                                       // CE · operator etiket olmaz
           && q2.isk.length > 0
           && q2.x < p.x + (p.g || 0) + 2 && q2.x + (q2.g || 0) > p.x - 2  // kilit 3b
           && tumIsk.some(sn => sn === p.isk + q2.isk));                 // kilit 3c
