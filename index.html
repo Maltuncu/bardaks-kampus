@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-26-1">
+<meta name="surum" content="2026-08-26-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -425,7 +425,17 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
 <body>
 
 <!-- ================= GİRİŞ ================= -->
-<div id="girisEkran">
+<!-- ⚠ VE · GIZLI BASLAR. Eskiden gorunur basliyordu ve baslat() oturumu
+     dogrulayana kadar (getSession + gerekirse ag uzerinden jeton tazeleme
+     + profil sorgusu) giris formu EKRANDA KALIYORDU; kullanici her
+     yenilemede "sistem beni attı" saniyordu. Borc ekranindan Ozet'e tam
+     sayfa gecisinde belirgindi.
+     ⚠ GUVENLIK AGI SART: gizli baslayinca baslat() beklenmedik bir hatayla
+       duserse kullanici BOS EKRAN gorur ve giris yapamaz. Dosyanin en
+       altindaki baslat().catch(...) bu yuzden var — ikisi BIRLIKTE
+       degistirildi, biri digeri olmadan tasinmaz. Kalip borc.html'den
+       KOPYALANDI (orada zaten calisiyor). -->
+<div id="girisEkran" class="gizli">
   <div class="logoDaire">
     <div class="logoYazi">bardak's</div>
     <div class="logoAltCizgi"></div>
@@ -8363,7 +8373,24 @@ async function kategoriSil(id, ad){
 }
 
 /* ================== BAŞLAT ================== */
-baslat();
+/* ⚠ VE · GIRIS EKRANI ARTIK GIZLI BASLIYOR (bkz. #girisEkran yorumu).
+   Bu catch onun GUVENLIK AGI: baslat() herhangi bir yerde duserse
+   (ag kopmasi, jeton hatasi, beklenmedik istisna) kullanici bos ekranda
+   KILITLENMESIN — form gosterilir ve sebebi Turkce yazilir.
+   ⚠ Ham hata metni gosterilmez, hataTr'den gecer (ev kalibi).
+   ⚠ baslat()'in kendi iki dali (oturum yok / profil yok) DEGISMEDI;
+     bu yalniz beklenmedik istisnayi yakalar.
+   Kalip borc.html'in acilisiyla BIREBIR AYNI — yenisi icat edilmedi. */
+baslat().catch(e => {
+  document.getElementById('girisEkran').classList.remove('gizli');
+  /* ⚠ Cevrilmis metin GENEL cumleyse ikinci kez yazma — ayni sey iki
+     satirda tekrar ediyordu (olculdu). Kalip dosyanin kendi deseninden
+     (bkz. `tr && tr !== HATA_GENEL`), yenisi icat edilmedi. */
+  const tr = hataTr(e && e.message);
+  mesaj('girisHata','hata','Bağlantı kurulamadı. Tekrar giriş yapmayı dene.'
+    + (tr && tr !== HATA_GENEL ? '\n' + tr : ''));
+  console.error('baslat()', e);
+});
 </script>
 </body>
 </html>
