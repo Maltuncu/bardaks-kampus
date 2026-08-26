@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-12">
+<meta name="surum" content="borc-2026-08-24-13">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3455,8 +3455,23 @@ const AX_SOZLUK = {
      sanma: 'ü' SILINIR, 'u' KALIR). */
   kesim:      { tip:'tarih', syn:['hesap kesim tarihi','ekstre kesim tarihi','ekstre tarihi'] },
   sonOdeme:   { tip:'tarih', syn:['son ödeme tarihi','son ödeme günü'] },
-  limit:      { tip:'para',  syn:['kart limiti','kredi kartı limiti'] },
-  devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç','bir önceki ekstre borcu'] },
+  /* ⚠ CF · MAXIMILES (Is Bankasi Black) etiketleri — gercek dosyayla
+     olculdu (2026-08-24). Belgede YEDI limit etiketi var; yalniz
+     "Toplam Kart Limiti" esanlamli. Digerlerinin elenmesi OLCULDU,
+     ek kural GEREKMEDI: "Kullanılabilir ..." onek elemesiyle dusuyor,
+     "Müşteri Limiti" ve "Nakit Çekme Limiti" hicbir esanlamliyla
+     ESLESMIYOR (iskeletleri 'kartlimiti' icermez). */
+  limit:      { tip:'para',  syn:['kart limiti','kredi kartı limiti','toplam kart limiti'] },
+  /* ⚠ CF · Maximiles devri BUYUK harfle basiliyor: "BİR ÖNCEKİ HESAP
+     ÖZETİ BAKİYENİZ". Iskelet BUYUK İ'yi SILER (ASCII disi), kucuk
+     i'yi TUTAR — kucuk yazimli esanlamlinin iskeleti bu satirla
+     ESLESEMEZ (olculdu: 'birnceki...' vs 'brncek...'). Ayni metnin
+     BUYUK yazimi ikinci esanlamli olarak eklendi; sozluk ayni
+     suzgecten gectigi icin belgenin iskeletini birebir uretir.
+     Bastaki/sondaki yildizlari iskelet zaten siler. Enpara'nin
+     "bir önceki ekstre borcu"su AYRI metin — ikisi de duruyor. */
+  devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç','bir önceki ekstre borcu',
+                                  'bir önceki hesap özeti bakiyeniz','BİR ÖNCEKİ HESAP ÖZETİ BAKİYENİZ'] },
   yeni:       { tip:'para',  syn:['dönem içi borç kayıtları','borç kayıtları','dönem içi harcamalar','yeni harcamalar'] },
   /* 'ödemeler' KISA ve bilerek EN SONDA: uzun eslesme kisa eslesmeyi
      yener (asagida siralama), 'Ödemeleriniz' tasiyan satirda uzun hali
@@ -3554,10 +3569,25 @@ const AX_BANKA = [
    [aranan kelime (iskelet), banka adi, oneri anahtari, ekrandaki adi] */
 const AX_MARKA = [
   ['bankkart', 'T.C. Ziraat Bankası', 'ziraat', 'Bankkart'],
-  ['maximum',  'Türkiye İş Bankası',  'isbank', 'Maximum']
+  ['maximum',  'Türkiye İş Bankası',  'isbank', 'Maximum'],
+  /* CF · Maximiles ailesi -> Is Bankasi. KAYNAK: kart sahibi teyit
+     etti, 2026-08 (VISA MAXIMILES BLACK ekstresi — belgede banka adi
+     hic gecmiyor, alan adi maximiles.com.tr AX_BANKA'da yok; marka
+     yolu devreye girer). Bu sozluge TAHMINLE satir eklenmez. */
+  ['maximiles','Türkiye İş Bankası',  'isbank', 'Maximiles'],
+  ['maxipuan', 'Türkiye İş Bankası',  'isbank', 'MaxiPuan'],
+  ['maximil',  'Türkiye İş Bankası',  'isbank', 'MaxiMil']
 ];
 
 const AX_TUTAR = /^[-−]?\d{1,3}(?:\.\d{3})*,\d{2}(?:\s*(?:TL|TRY))?$/i;
+/* ⚠ CF · SUS KIRPMA. Olculdu (gercek Maximiles): asgari "*49.099,56 TL"
+   basinda YILDIZLA basiliyor ve tam-eslesme deseni tutmuyordu. Bastaki/
+   sondaki yildiz ve bosluk SUSTUR, kirpilir; desen SONRA aynen uygulanir
+   (desen gevsetilmedi). EKSI ISARETI KIRPILMAZ — anlam tasiyor; kirpma
+   listesi yalniz * ve bosluk. Cekirdekteki tum tutar testleri bu
+   yardimci uzerinden gecer ki yildizli tutar her yerde ayni sey sayilsin. */
+const axSusKirp = (t) => String(t == null ? '' : t).replace(/^[\s*]+|[\s*]+$/g, '');
+const axTutarMi = (t) => AX_TUTAR.test(axSusKirp(t));
 const AX_TARIH = /(\d{2})[./-](\d{2})[./-](\d{4})/;
 
 /* pdf.js YALNIZ burada, YALNIZ istendiginde yuklenir — sayfa acilisi
@@ -3646,7 +3676,7 @@ function axOku(parcalar){
          hepsine ayni degeri veriyordu. -1 yuvarlama payi. */
       const bosluk = b.x - (a.x + (a.g || 0));
       if (!AX_OPERATOR(a.ham) && !AX_OPERATOR(b.ham)
-          && !AX_TUTAR.test(a.ham.trim()) && !AX_TUTAR.test(b.ham.trim())
+          && !axTutarMi(a.ham) && !axTutarMi(b.ham)
           && bosluk >= -1 && bosluk <= 10){
         a.ham = a.ham + ' ' + b.ham;
         a.isk = a.isk + b.isk;
@@ -3697,7 +3727,7 @@ function axOku(parcalar){
         const dy = s2.y - p.y;
         if (dy <= 2) continue;
         if (dy > 15) break;                                             // kilit 3a
-        q = s2.items.find(q2 => !AX_TUTAR.test(q2.ham.trim())
+        q = s2.items.find(q2 => !axTutarMi(q2.ham)
           && !AX_OPERATOR(q2.ham)                                       // CE · operator etiket olmaz
           && q2.isk.length > 0
           && q2.x < p.x + (p.g || 0) + 2 && q2.x + (q2.g || 0) > p.x - 2  // kilit 3b
@@ -3729,9 +3759,9 @@ function axOku(parcalar){
   const alanlar = {};
   for (const alan of Object.keys(AX_SOZLUK)){
     const tanim = AX_SOZLUK[alan];
-    const uygun = tanim.tip === 'para'  ? (t) => AX_TUTAR.test(t.trim())
+    const uygun = tanim.tip === 'para'  ? (t) => axTutarMi(t)
                 : tanim.tip === 'tarih' ? (t) => AX_TARIH.test(t)
-                : (t) => t.trim().length > 1 && !AX_TUTAR.test(t.trim());
+                : (t) => t.trim().length > 1 && !axTutarMi(t);
     const adaylar = []; let etiketGoruldu = null;
     for (const s of satirlar){
       let sn = null, idx = -1;
@@ -3874,7 +3904,7 @@ function axOku(parcalar){
           const dy = s2.y - s.y;
           if (dy <= 2) continue;
           if (dy > 90) break;
-          if (s2.items.some(it => AX_TUTAR.test(it.ham.trim()))
+          if (s2.items.some(it => axTutarMi(it.ham))
               || (tanim.tip === 'tarih' && s2.items.some(it => AX_TARIH.test(it.ham)))){
             /* deger satiri: ya burada ya hicbir yerde */
             if (dy > 24 && sarmaSayisi === 0) break;
@@ -4220,6 +4250,69 @@ async function ekstreOnayEkrani(a, dosya){
     k.appendChild(el('div','uyari-agir','Denetim YAPILAMADI: ' + kp.eksik.join(', ')
       + ' okunamadı. Eksik alan sıfır SAYILMADI; denklem kurulmadı.'));
 
+  /* ⚠ CF · OKUNAMAYAN IKILI ICIN GIRIS. Olculdu (gercek Maximiles):
+     bu formatta OZET TABLOSU HIC BASILMIYOR — yeni ve odenen kagitta
+     ayri ayri YAZMIYOR, okuyucunun bulamamasi DOGRU davranis. Ama
+     devir ve hesap ozeti okunuyor ve denklem tek:
+       devir + yeni − odenen = hesap özeti
+     BIRI girilirse digeri CIKAR. Blok YALNIZ bu durumda cizilir
+     (devir OK · hesapOzeti OK · yeni YOK · odenen YOK) — Ziraat/
+     Enpara akisina girmez. Ikisi de bosken a'ya DOKUNULMAZ (bugunku
+     kayit yolu aynen). Hesaplanan NEGATIFSE kaydetmek ENGELLENIR. */
+  let cfNegatif = false;
+  if (a.devir && a.devir.durum === 'ok' && a.hesapOzeti && a.hesapOzeti.durum === 'ok'
+      && !(a.yeni && a.yeni.durum === 'ok') && !(a.odenen && a.odenen.durum === 'ok')){
+    const eskiYeni = a.yeni, eskiOdenen = a.odenen;
+    k.appendChild(el('div','bilgi','Bu ekstrede özet tablosu yok: dönem ödemesi ile yeni '
+      + 'harcama ayrı yazmıyor. Birini ekstreden bul ve gir — diğerini denklemden ben çıkarırım. '
+      + 'İkisini de boş bırakırsan bu iki alan kaydedilmez.'));
+    const alanCF = (etiket, id) => {
+      k.appendChild(el('label', null, etiket)).setAttribute('for', id);
+      const i = document.createElement('input');
+      i.id = id; i.type = 'text'; i.setAttribute('inputmode','decimal');
+      k.appendChild(i); return i;
+    };
+    const gOdenen = alanCF('Bu dönem yaptığın ödeme','cfOdenen');
+    const gYeni   = alanCF('Yeni harcama','cfYeni');
+    const notCF = el('div','kucuk'); k.appendChild(notCF);
+    const guncelle = (esas) => {
+      cfNegatif = false;
+      const ham = (esas === 'odenen' ? gOdenen : gYeni).value.trim();
+      if (!ham){                          // bos: bugunku davranis geri gelir
+        a.yeni = eskiYeni; a.odenen = eskiOdenen;
+        notCF.textContent = ''; notCF.className = 'kucuk'; return;
+      }
+      const r = paraCoz(ham);
+      if (!r.ok || r.kurus < 0){
+        notCF.className = 'uyari-agir'; notCF.textContent = 'Tutar okunamadı: ' + (r.hata || ham);
+        cfNegatif = true; a.yeni = eskiYeni; a.odenen = eskiOdenen; return;
+      }
+      /* devir + yeni − odenen = hesapOzeti */
+      const dv = a.devir.kurus, ho = a.hesapOzeti.kurus;
+      const girilen = { durum:'ok', kurus: r.kurus, ham: tk(r.kurus),
+                        etiket:'elle girildi', kural:'elle girildi' };
+      const hesap = esas === 'odenen' ? ho - dv + r.kurus : dv + r.kurus - ho;
+      if (hesap < 0){
+        cfNegatif = true; a.yeni = eskiYeni; a.odenen = eskiOdenen;
+        notCF.className = 'uyari-agir';
+        notCF.textContent = (esas === 'odenen' ? 'Yeni harcama' : 'Ödeme') + ' NEGATİF çıkıyor ('
+          + tk(hesap) + '). Girdiğin tutar denklemle çelişiyor — böyle kaydedilmez.';
+        return;
+      }
+      const cikan = { durum:'ok', kurus: hesap, ham: tk(hesap),
+                      etiket:'denklemden çıkarıldı', kural:'denklemden çıkarıldı' };
+      if (esas === 'odenen'){ a.odenen = girilen; a.yeni = cikan;
+        gYeni.value = tk(hesap); }
+      else { a.yeni = girilen; a.odenen = cikan;
+        gOdenen.value = tk(hesap); }
+      notCF.className = 'kucuk';
+      notCF.textContent = (esas === 'odenen' ? 'Yeni harcama ' : 'Ödeme ') + tk(hesap)
+        + ' — denklemden çıkarıldı: devir ' + tk(dv) + ' + yeni − ödeme = borç ' + tk(ho) + '.';
+    };
+    gOdenen.addEventListener('input', () => guncelle('odenen'));
+    gYeni.addEventListener('input', () => guncelle('yeni'));
+  }
+
   /* A · BU EKSTRE HANGI KARTA AIT? ONERILIR, SECILMEZ. */
   k.appendChild(el('label', null, 'Bu ekstre hangi karta ait?')).setAttribute('for','axKart');
   const sec = document.createElement('select'); sec.id = 'axKart';
@@ -4290,7 +4383,13 @@ async function ekstreOnayEkrani(a, dosya){
     : 'Hesap kesim tarihi okunamadı; dönem belirlenemiyor. Bu ekstre kaydedilemez, elle gir.'));
 
   const kaydet = el('button','btn','Kartı ve dönemi kaydet'); kaydet.id = 'axKaydet';
-  kaydet.onclick = () => ekstreKaydet(a, dosya, donem, kaydet);
+  /* CF · denklemden NEGATIF cikan ikiliyle kayit ENGELLENIR. */
+  kaydet.onclick = () => {
+    if (cfNegatif){ mesaj('kartMsg','hata',
+      'Ödeme/yeni harcama girişi denklemle çelişiyor (negatif). Düzelt ya da ikisini de boş bırak.');
+      return; }
+    ekstreKaydet(a, dosya, donem, kaydet);
+  };
   k.appendChild(kaydet);
   const vaz = el('button','btn2','Vazgeç');
   vaz.onclick = () => ekranAc('kartlar');
