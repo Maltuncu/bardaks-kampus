@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-16">
+<meta name="surum" content="borc-2026-08-24-17">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1506,8 +1506,16 @@ async function bantVerisi(){
   }
   const cekToplam = cekSahis + cekLtd;
 
-  /* KART KALANI — her kartin EN SON donemindeki kalan.
-     Donemi hic girilmemis kart 0 SAYILMAZ; kac tane oldugu yazilir. */
+  /* KART BORCU — her kartin EN SON donemindeki KAPANMAMIS tutar.
+     Donemi hic girilmemis kart 0 SAYILMAZ; kac tane oldugu yazilir.
+     ⚠ CJ · `kalan` DEGIL `kapanmamis`. Ikisi AYRI kavram:
+         kalan      = devir + yeni + duzeltme − alacak   (EKSTRENIN yazdigi)
+         kapanmamis = kalan − donem_odemesi              (GERCEKTE kalan borc)
+       Olculdu: toplam kart borcu kalan ile 1.597.564,32 gorunuyordu,
+       gercegi 1.101.607,09 — 495.957,23 ODENMIS para hala borc
+       sayiliyordu. v107'de kapanmamis = kalan − COALESCE(donem_odemesi,0);
+       yani odeme girilmemis donemde kapanmamis ZATEN kalan'a esittir ve
+       HIC NULL olmaz — yerine koymak veri kaybettirmez (olculdu). */
   const sonDonem = kartSonDonemler(kart.donemler);
   let kartKalan = 0, kartDonemsiz = 0, kartDonemleri = new Set(), kartTutarsiz = 0;
   /* Kart da sahibine gore dogru bloga girer — kart.sahip zaten var (v91).
@@ -1516,8 +1524,8 @@ async function bantVerisi(){
   for (const k of kart.kartlar){
     const d = sonDonem.get(k.id);
     if (!d){ kartDonemsiz++; continue; }
-    kartKalan += kr(d.kalan);
-    if (k.sahip === 'ltd') kartLtd += kr(d.kalan); else kartSahis += kr(d.kalan);
+    kartKalan += kr(d.kapanmamis);
+    if (k.sahip === 'ltd') kartLtd += kr(d.kapanmamis); else kartSahis += kr(d.kapanmamis);
     kartDonemleri.add(d.donem);
     if (d.devir_tutarsiz) kartTutarsiz++;
   }
@@ -1549,7 +1557,12 @@ async function bantVerisi(){
       const hedef = k.son_odeme_gunu > k.kesim_gunu ? M : oncekiAy(M);
       const d = donemAnahtar.get(k.id + '|' + hedef);
       if (!d){ buAyKart.donemYok++; continue; }
-      const kalan = kr(d.kalan);
+      /* ⚠ CJ · KAPANMAMIS. "Bu ay cikacak nakit" sorusunun cevabi
+         ekstrenin yazdigi tutar degil, HENUZ ODENMEMIS olan; odenmis
+         para bir daha cikmaz. Guard da kapanmamis uzerinden: tam
+         odenmis donem bu aya HIC girmez (bugunku niyet aynen korunur,
+         yalniz dogru kolonla). */
+      const kalan = kr(d.kapanmamis);
       if (kalan <= 0) continue;                     // tam odenmis — mesru sifir
       buAyKart.toplam += kalan;
       if (k.sahip === 'ltd') buAyKart.ltd += kalan; else buAyKart.sahis += kalan;
@@ -1579,10 +1592,16 @@ async function bantVerisi(){
     if (!k.aktif || k.kesim_gunu == null || k.son_odeme_gunu == null) continue;
     for (const d of kart.donemler){
       if (d.kart_id !== k.id) continue;
-      if (kr(d.kalan) <= 0 || d.odeme_turu === 'tam') continue;
+      /* ⚠ CJ · DORDUNCU YER — brifte sayilmamisti, OLCUMLE cikti.
+         Takvim 25.08 gununde "5 odeme · 1.563.029,90" diyordu, ayni bes
+         kart icin Kartlar ekrani 1.101.607,09; ayni uygulamada IKI
+         CELISEN BEYAN. Takvimin sorusu "o gun cebimden ne cikacak" —
+         cevap odenmemis kisimdir. bantVerisi icinde ve dosya kapsaminda
+         oldugu icin duzeltildi; degistigi RAPORDA yazili. */
+      if (kr(d.kapanmamis) <= 0 || d.odeme_turu === 'tam') continue;
       const oAy = k.son_odeme_gunu > k.kesim_gunu ? d.donem : sonrakiAy(d.donem);
       const tarih = oAy + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(oAy))).padStart(2,'0');
-      kartOdemeleri.push({ tarih, kart: k, donem: d, kalanKurus: kr(d.kalan) });
+      kartOdemeleri.push({ tarih, kart: k, donem: d, kalanKurus: kr(d.kapanmamis) });
     }
   }
 
@@ -4807,8 +4826,19 @@ function kartKutusu(v, kart, buAy, liste){
   ust.appendChild(sag);
   kutu.appendChild(ust);
 
-  /* ORTA · kutunun en buyuk rakami + vade satiri */
-  kutu.appendChild(el('div','kk-tutar', gosterilen ? tl(gosterilen.kalan) : '—'));
+  /* ORTA · kutunun en buyuk rakami + vade satiri
+     ⚠ CJ · BUYUK RAKAM KAPANMAMIS — kullanicinin sorusu buydu:
+       "odendikten sonra kalan kisim neden gozukmuyor". Eski hal
+       ekstrenin kalanini basiyor, altinda "odendi" diyordu; ayni
+       kutuda IKI CELISEN BEYAN vardi (olculdu: Ziraat Sahis 17.278,68
+       yazip "odendi" diyordu — artik 0,00 ve rozet tutarli).
+     ⚠ RAKAM ICERI, DURUM DISARI: ekstrenin hikayesi rakamin ALTINDA
+       tek satirda. Odeme girilmemisse o satir CIZILMEZ — kapanmamis
+       zaten kalan'a esittir, tekrar olurdu. */
+  kutu.appendChild(el('div','kk-tutar', gosterilen ? tl(gosterilen.kapanmamis) : '—'));
+  if (gosterilen && gosterilen.donem_odemesi != null && kr(gosterilen.donem_odemesi) > 0)
+    kutu.appendChild(el('div','kk-lim', 'ekstre ' + tl(gosterilen.kalan)
+      + ' · ödedim ' + tl(gosterilen.donem_odemesi)));
   const vd = el('div','kk-vade');
   if (!gosterilen) vd.textContent = 'dönem girilmemiş';
   else if (kart.son_odeme_gunu == null) vd.textContent = 'son ödeme günü girilmemiş';
@@ -4835,7 +4865,11 @@ function kartKutusu(v, kart, buAy, liste){
        ⚠ Kalan 0,00 olan donem gorunumde zaten 'tam' gelir (donem_odemesi >=
          kalan); ayrica kalan <= 0 ise de 'tam' sayiliyor ki odeme bilgisi
          girilmemis sifir bakiyeli kart "girilmemis" diye uyarmasin. */
-    const ot = kr(gosterilen.kalan) <= 0 ? 'tam' : (gosterilen.odeme_turu || 'girilmedi');
+    /* ⚠ CJ · SIFIR DENETIMI DE KAPANMAMIS UZERINDEN — rozet, kutunun
+       BUYUK RAKAMIYLA celismesin. Buyuk rakam 0,00 ise rozet her halde
+       "odendi" olur; gorunum zaten donem_odemesi >= kalan halinde 'tam'
+       donuyordu, bu satir onu buyuk rakama BAGLIYOR. */
+    const ot = kr(gosterilen.kapanmamis) <= 0 ? 'tam' : (gosterilen.odeme_turu || 'girilmedi');
     const ek = (metin, sinif, rozet) => { vd.className = 'kk-vade ' + sinif;
       vd.appendChild(document.createTextNode(' · ' + metin));
       if (rozet){ vd.appendChild(document.createTextNode(' ')); vd.appendChild(el('span','rozet rz-eksik',rozet)); } };
@@ -4894,8 +4928,10 @@ function kartKutusu(v, kart, buAy, liste){
   kutu.appendChild(dip);
 
   /* AO'da kurulan erisim deseni — yeni katman YAZILMADI, mevcut cagriliyor. */
+  /* ⚠ CJ · erisilebilir ad da KAPANMAMIS okur — ekran okuyucu kutunun
+     buyuk rakamindan BASKA bir sayi duymamali. */
   kutuErisim(kutu, (kart.banka ? kart.banka + ' ' : '') + kart.ad
-    + ', kalan ' + (gosterilen ? tl(gosterilen.kalan) : 'girilmemiş') + ', detayı aç');
+    + ', borç ' + (gosterilen ? tl(gosterilen.kapanmamis) : 'girilmemiş') + ', detayı aç');
   return kutu;
 }
 
@@ -4941,7 +4977,21 @@ async function vKartlar(duzKartId){
   ozet.appendChild(el('div','cek-alt', v.kart.kartlar.length + ' kart · '
     + (limitYok.length
        ? 'limit hesaplanamaz (' + limitYok.length + ' kartta girilmemiş)'
+       /* ⚠ CJ · kullanilabilir = limit − KART BORCU (kapanmamis toplami).
+          v.kartKalan artik kapanmamis tasiyor; bankanin gozunde de
+          odenmis kisim limitten dusulmustur. */
        : 'limit ' + tk(limitTop) + ' · kullanılabilir ' + tk(limitTop - v.kartKalan))));
+  /* ⚠ CJ · EKSTRENIN HIKAYESI ozette de tek satir: buyuk rakam artik
+     GERCEK borc, ekstre toplami ile odenen ondan turer. */
+  let ekstreTop = 0, odenenTop = 0;
+  for (const kt of v.kart.kartlar){
+    const d = v.sonDonem.get(kt.id); if (!d) continue;
+    ekstreTop += kr(d.kalan);
+    odenenTop += kr(d.kalan) - kr(d.kapanmamis);
+  }
+  if (odenenTop > 0)
+    ozet.appendChild(el('div','cek-alt', 'ekstre toplamı ' + tk(ekstreTop)
+      + ' · ödediğim ' + tk(odenenTop)));
   /* not, dg'nin YANINDA kucuk span — ayri satir 27px yiyordu (olculdu) */
   const satOz = (e2, d2, not) => { const x = el('div','satir');
     x.appendChild(el('span','et', e2));
@@ -4959,7 +5009,13 @@ async function vKartlar(duzKartId){
     if (kt.faiz_orani != null) faizKurus += Math.round(kap * Number(kt.faiz_orani) / 100);
     else { oransizN++; oransizKap += kap; }
   }
-  satOz('Gelecek döneme devreden', tlk(devreden));
+  /* ⚠ CJ · "Gelecek doneme devreden" satiri KALDIRILDI: v.kartKalan
+     artik kapanmamis topladigi icin bu rakam BUYUK RAKAMIN AYNISIYDI.
+     Ayni sayi iki yerde durmaz — deger kaybolmuyor, ustte duruyor.
+     `devreden` degiskeni yalniz ic tutarlilik nobetcisinde kaldi. */
+  if (devreden !== v.kartKalan)
+    ozet.appendChild(el('div','uyari-agir', 'Kart borcu iki yoldan farklı çıkıyor: '
+      + tlk(v.kartKalan) + ' ≠ ' + tlk(devreden) + '. Formül bağları kontrol edilmeli.'));
   satOz('Doğacak faiz (tahmin)', tlk(faizKurus), 'vergi hariç');
   if (oransizN && oransizKap > 0)
     ozet.appendChild(el('div','uyari-orta', oransizN + ' kartın faizi girilmemiş — '
