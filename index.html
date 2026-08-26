@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-24-3">
+<meta name="surum" content="2026-08-26-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -7347,6 +7347,148 @@ async function vYonetim(){
   yetkiYukle();
 }
 const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',diger:'Diğer'};
+
+/* =====================================================================
+   VD · VERGI TAHSIL ALINDISI OKUYUCUSU (banka dekontu)
+   =====================================================================
+   ⚠ NEDEN AYRI: "Belgeyi oku" dugmesi FATURA okuyucusunu (fatura-oku)
+     cagiriyor; onun donduklerine bakildi — tutar, tarih, tedarikci adi,
+     belge no. VERGI TURU diye bir alani YOK, oyle bir sey sorulmuyor.
+     Bu yuzden Tur ve Donem elle secilmek zorundaydi (ekrandaki
+     "TURU ve DONEMI sen sec" yazisi bunu itiraf ediyordu).
+   ⚠ YAPAY ZEKAYA GEREK YOK: vergi kodu, nevi adi ve vergilendirme
+     donemi dekontta DUZ METIN olarak yaziyor. Okuma tamamen istemcide,
+     yeni sunucu cagrisi YOK.
+   ⚠ FIKSTUR/SOZLUK GERCEK CIKTIDAN kuruldu: uygulamanin KENDI
+     pdfMetinCikar'i Node'da birebir calistirilip iki gercek dekontun
+     urettigi metin olculdu (tmp/vergi-metin.mjs). Olculen satirlar:
+       "VERG İ TAHS İ L ALI N DISI"                    <- baslik, harfler ayrik
+       "02 26.08.2026 03 07/2026 - 07/2026 04 ..."      <- odeme tarihi + donem
+       "05 1048 5035SKDAMGAV 791,00"                    <- kalem
+       "06 0015 KDV GERÇEK 2026 1 28.208,66"            <- kalem
+       "TOPLAM 2 28.999,66"
+     ⚠ Turkce harfler AYRI PARCA geliyor ("VERG" + "İ" + " TAHS"),
+       cunku pdfMetinCikar ayni y'deki parcalari BOSLUKLA birlestiriyor.
+       Duz arama TUTMAZ; iskelet (ASCII disi + bosluk silinmis) kullanilir.
+   ===================================================================== */
+const VD_ISKELET = (t) => String(t || '').replace(/[^\x20-\x7E]/g, '')
+  .toUpperCase().replace(/[^A-Z0-9]/g, '');
+/* Vergi kodu -> sistemdeki tur. KAYNAK: dekontun kendi "Vergi T.K." kolonu.
+   ⚠ 0003 (Gelir Stopaj) 'stopaj' DEGIL 'muhsgk': olculdu, odeme takviminde
+     "MUHSGK beyan (Temmuz donemi)" vadesi var, "Stopaj" diye vade YOK ve
+     rpc_vergi_odeme_kaydet vadeyi `vade.tur = p_tur` ile ariyor — 'stopaj'
+     secilirse odeme kaydedilir ama vade ACIK KALIR.
+   ⚠ Damga kalemleri 'diger': sistemde damga turu yok, uydurulmuyor.
+   ⚠ Bu sozluge TAHMINLE satir eklenmez; yeni kod ancak gercek dekontla
+     teyit edilip KAYNAGI buraya yazilarak girer (Bankkart dersi). */
+const VD_KOD = {
+  '0015': 'kdv',            // KDV GERCEK
+  '0003': 'muhsgk',         // G.STOPAJ — muhtasar/MUHSGK beyaniyla odenir
+  '0001': 'gelir_vergisi',  // yillik gelir vergisi
+  '0032': 'gecici_vergi',   // gecici vergi
+  '1046': 'diger',          // TEVK DAMGA V
+  '1048': 'diger'           // 5035 SK DAMGA V
+};
+/* ⚠ VD · FORMA YAZAN TARAF. Kullanicinin karari: doldur ama KAYDETME —
+   ekstre okuyucusuyla ayni desen (oku ve onaylat). Cok kalemli dekontta
+   ANA kalem forma girer, digerleri altta "bunu doldur" dugmesiyle
+   listelenir; her biri AYRI kayit olur, boylece "Ne Kadar Nereye"
+   dagilimi damgayi KDV sanmaz.
+   ⚠ Turu BILINMEYEN kod forma yazilmaz (tur bos kalir, kullanici secer) —
+     uydurma yok. */
+function vergiDekontDoldur(dk, yaz){
+  const g = (id) => document.getElementById(id);
+  const kutu = g('voOkuDurum');
+  const yazAlan = (id, deger) => { const e = g(id); if (!e || deger == null) return false;
+    e.value = deger; e.dispatchEvent(new Event('input',{bubbles:true}));
+    e.classList.add('oku-dolu'); return true; };
+  /* ANA kalem: turu bilinen ve damga/diger OLMAYAN en buyuk tutar;
+     yoksa en buyuk kalem. */
+  const asil = [...dk.kalemler].sort((a,b) => b.tutar - a.tutar);
+  const ana = asil.find(k => k.tur && k.tur !== 'diger') || asil[0];
+  const doldur = (k) => {
+    const d = [];
+    /* ⚠ iki ondalik SART: String(791) "791" verir, para alanina kurussuz
+       rakam yazmak olculdu ve cirkin/yanlis okunmaya acik. */
+    if (yazAlan('voTutar', k.tutar.toFixed(2).replace('.', ','))) d.push('Tutar');
+    if (dk.donem && yazAlan('voDonem', dk.donem)) d.push('Dönem');
+    if (dk.tarih && yazAlan('voTarih', dk.tarih)) d.push('Ödeme tarihi');
+    if (k.tur){ const s = g('voTur');
+      if (s){ s.value = k.tur; s.classList.add('oku-dolu'); d.push('Tür'); } }
+    const nt = g('voNot');
+    if (nt){ nt.value = k.kod + ' ' + k.ad; nt.classList.add('oku-dolu'); d.push('Not'); }
+    yaz('Dolduruldu: ' + d.join(', ')
+      + (k.tur ? ' · kontrol et, Kaydet.' : ' · TÜRÜ sen seç, sonra kaydet.'),
+      k.tur ? 'ok' : 'uyari');
+    digerleriCiz(k);
+  };
+  /* kalan kalemler: her biri ayri kayit — tek tek doldurulur */
+  const digerleriCiz = (secili) => {
+    let alt = document.getElementById('voKalemler');
+    if (!alt){ alt = document.createElement('div'); alt.id = 'voKalemler';
+      kutu.parentNode.insertBefore(alt, kutu.nextSibling); }
+    alt.textContent = '';
+    const kalan = dk.kalemler.filter(k => k !== secili);
+    if (!kalan.length) return;
+    const bas = document.createElement('div');
+    bas.className = 'kucuk';
+    bas.textContent = 'Bu dekontta ' + dk.kalemler.length + ' kalem var (toplam '
+      + tl(dk.toplam) + '). Kaydettikten sonra kalanları da tek tek gir:';
+    alt.appendChild(bas);
+    for (const k of kalan){
+      const s = document.createElement('div');
+      s.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:space-between;min-height:44px';
+      const et = document.createElement('span');
+      et.textContent = k.kod + ' ' + k.ad + ' · ' + tl(k.tutar)
+        + (k.tur ? ' → ' + (VERGI_AD[k.tur] || k.tur) : ' → tür belirsiz');
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn2'; b.textContent = 'Bunu doldur';
+      b.onclick = () => doldur(k);
+      s.appendChild(et); s.appendChild(b); alt.appendChild(s);
+    }
+  };
+  doldur(ana);
+}
+
+/* Doner: null (vergi dekonti degil) ya da
+   { tarih, donem, kalemler:[{kod, ad, tur, tutar}], toplam } */
+function vergiDekontCoz(metin){
+  const satirlar = String(metin || '').split('\n');
+  /* baslik: "VERG İ TAHS İ L ALI N DISI" -> iskelette "ALINDISI" gecer */
+  if (!satirlar.some(s => VD_ISKELET(s).indexOf('ALINDISI') >= 0)) return null;
+
+  const say = (t) => { const r = paraCoz(t); return r.ok ? r.deger : null; };
+  let tarih = null, donem = null;
+  for (const s of satirlar){
+    /* "02 26.08.2026 03 07/2026 - 07/2026 04 ..." — odeme tarihi ILK,
+       donem ay/yil ciftinin BASI (ikisi de ayni satirda, olculdu). */
+    const d = s.match(/(\d{2})\/(\d{4})\s*-\s*\d{2}\/\d{4}/);
+    if (d && !donem){
+      donem = d[2] + '-' + d[1];
+      const t = s.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+      if (t) tarih = t[3] + '-' + t[2] + '-' + t[1];
+    }
+  }
+  /* Kalem satiri: "NN KOD AD ... TUTAR" — NN sira, KOD dort hane.
+     Tutar satirin SONUNDAKI para deseni; aradaki "2026 1" (yil/taksit)
+     tutar DESENINE UYMAZ (virgul sart), karismaz. */
+  const kalemler = [];
+  for (const s of satirlar){
+    const m = s.match(/^\s*\d{2}\s+(\d{4})\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*$/);
+    if (!m) continue;
+    const tutar = say(m[3]);
+    if (tutar == null || tutar <= 0) continue;
+    kalemler.push({ kod: m[1], ad: m[2].replace(/\s+\d{4}\s+\d+\s*$/, '').trim(),
+                    tur: VD_KOD[m[1]] || null, tutar });
+  }
+  if (!kalemler.length) return null;
+  let toplam = null;
+  for (const s of satirlar){
+    const m = s.match(/^\s*TOPLAM\s+\d+\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*$/i);
+    if (m) toplam = say(m[1]);
+  }
+  return { tarih, donem, kalemler, toplam };
+}
 /* VADE LİSTESİ
    Vadeler artık vergi takviminden otomatik üretiliyor (rpc_vade_uret), bu yüzden
    sistemde yıllarca ileriye kayıt var. Hepsini listelemek anlamsız — varsayılan
@@ -7596,6 +7738,12 @@ async function vergiBelgeOku(){
     if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf'){
       const c = await pdfMetinCikar(f);
       if (!c.yeterli) throw new Error('Bu PDF taranmış görünüyor. Fotoğrafını çekip dene.');
+      /* ⚠ VD · VERGI DEKONTU YOLU. Fatura okuyucusuna GITMEDEN once
+         dekont kalibi denenir: TUR ve DONEM yalniz burada cikar (fatura
+         okuyucusunun boyle bir alani YOK). Kalip tutmazsa asagidaki
+         mevcut yol AYNEN calisir — fatura akisi degismedi. */
+      const dk = vergiDekontCoz(c.metin);
+      if (dk){ vergiDekontDoldur(dk, yaz); return; }
       govde = { metin: c.metin };
     } else {
       const k = await fotoKucult(f, 2000, 0.92);

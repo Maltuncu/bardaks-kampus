@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-17">
+<meta name="surum" content="borc-2026-08-24-18">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4684,7 +4684,14 @@ function bantOzet(v){
 }
 
 /* ⚠ TEK KAYNAK · 2. vKartlar'daki limit dongusu buraya tasindi;
-   serit ayni rakami tekrar hesaplamasin. Govde AYNEN kopyalandi. */
+   serit ayni rakami tekrar hesaplamasin. Govde AYNEN kopyalandi.
+   ⚠ CK · KULLANILAN = KAPANMAMIS, `kalan` DEGIL. CJ turunda kart borcu
+     kapanmamis'a gecmisti ama limit cubugu eski mantikta kalmisti:
+     ayni kutuda Black'in borcu 24.668,24 yazarken cubuk "kalan alan
+     227.951,09" (= limit − 122.748,91 EKSTRE borcu) diyordu — ayni
+     uygulamada IKI FARKLI "kullanilabilir limit" tanimi. Odenen kismi
+     banka limitten serbest birakir; ust ozetteki "kullanilabilir" ile
+     artik AYNI tanim. Limiti girilmemis kart yine "hesaplanamaz". */
 function kartLimitOzeti(v){
   const lt = { limit:0, kullanilan:0, limitsiz:0, donemsiz:0, asan:0, adet:0, paylasan:0 };
   for (const kt of v.kart.kartlar){
@@ -4694,7 +4701,7 @@ function kartLimitOzeti(v){
     for (const x of v.kart.kartlar){
       if (x.id !== kt.id && x.limit_paylasan_id !== kt.id) continue;
       const g = v.sonDonem.get(x.id);
-      if (g){ kul += kr(g.kalan); donemVar = true; }
+      if (g){ kul += kr(g.kapanmamis); donemVar = true; }
     }
     if (!donemVar){ lt.donemsiz++; continue; }
     const lim = kr(kt.kart_limiti);
@@ -4899,7 +4906,9 @@ function kartKutusu(v, kart, buAy, liste){
     for (const x of v.kart.kartlar){
       if (x.id !== kart.id && x.limit_paylasan_id !== kart.id) continue;
       const g = v.sonDonem.get(x.id);
-      if (g){ kul += kr(g.kalan); donemVar = true; }
+      /* ⚠ CK · kapanmamis — kutunun BUYUK RAKAMIYLA ayni kolon;
+         kartLimitOzeti ile de ayni tanim (gerekce orada). */
+      if (g){ kul += kr(g.kapanmamis); donemVar = true; }
     }
     if (!donemVar) dip.appendChild(el('div','kk-lim','limit ' + tk(lim) + ' · kullanım bilinmiyor'));
     else {
@@ -5761,6 +5770,64 @@ function donemSil(kart, d, acan){
 let MADEN_DETAY = null;
 async function madenTazele(){ return MADEN_DETAY ? madenDetayAc(MADEN_DETAY, true) : vMaden(); }
 
+/* ==================================================================
+   ⚠ CK · GRAM FIYATI SILME. Kullanici yanlis bir gram fiyati girdi
+   (gumus) ve ekrandan silemedi — duzeltmek icin veritabanina inildi.
+   Fiyat gecmisi satirlarina silme yolu aciliyor.
+
+   ⚠⚠ FIZIKSEL DELETE YAPILAMIYOR — OLCULDU, brifin varsaydigi yol
+      KAPALI: taban dosyasi `GRANT SELECT,INSERT,UPDATE ON maden_fiyat
+      TO authenticated` diyor, DELETE YOK; ustelik v96a (2026-08-16)
+      authenticated'in fiziksel DELETE ayricaligini 41 tablodan
+      BILEREK kaldirmis ve maden_fiyat o listede. `delete()` cagrisi
+      canlida 42501 ile duserdi. Hard delete GRANT DELETE migration'i
+      ister, bu tur migration KAPSAM DISI.
+      Bu yuzden is_deleted ile silinir. GORUNUR SONUC AYNI:
+        · sorgular zaten `.eq('is_deleted',false)` suzuyor — satir her
+          yerden kalkar, rayic yeni son fiyattan hesaplanir
+        · ux_maden_fiyat KISMI tekil (WHERE NOT is_deleted) oldugu icin
+          ayni tur+tarihe DOGRU fiyat yeniden girilebilir — kullanicinin
+          asil ihtiyaci buydu
+      ⚠ PARA KAYITLARINDAKI yumusak silme kurali zaten AYNEN duruyor;
+        burada bir istisna ACILMADI, aksine mevcut desen kullanildi. */
+function madenFiyatSil(f, fiyatlar, tazele){
+  const adTur = f.tur === 'altin' ? 'Altın' : 'Gümüş';
+  const ayniTur = fiyatlar.filter(x => x.tur === f.tur);
+  const sonuncu = ayniTur.length <= 1;
+  const d = document.createElement('dialog'); d.className = 'pm';
+  d.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas'); bas.id = 'mfSilBas';
+  bas.appendChild(el('span','pm-ikon','⚠'));
+  bas.appendChild(document.createTextNode(' Gram fiyatı silinecek'));
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  /* ⚠ SILINEN SATIR YAZIYOR — geri yazmak gerekirse kullanici gorsun. */
+  d.appendChild(el('div','pm-ad', adTur + ' · ' + trGun(f.tarih)));
+  d.appendChild(el('div','pm-tutar', tl(f.gram_fiyat) + '/gr'));
+  if (f.kaynak_notu) d.appendChild(el('div','pm-kim', f.kaynak_notu));
+  /* ⚠ SON FIYATI SILMENIN SONUCU SOYLENIR — engellenmez. */
+  if (sonuncu)
+    d.appendChild(el('div','uyari-agir', 'Bu türün başka fiyatı yok — silersen '
+      + adTur.toLowerCase() + ' için bugünkü değer HESAPLANAMAZ olur.'));
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn-kirmizi','Sil');
+  vaz.type = ona.type = 'button';
+  ey.appendChild(vaz); ey.appendChild(ona); d.appendChild(ey);
+  const hata = el('div','pm-hata'); hata.hidden = true; d.appendChild(hata);
+  document.body.appendChild(d); d.showModal();
+  const kapat = () => { d.close(); d.remove(); };
+  vaz.onclick = kapat;
+  ona.onclick = async () => {
+    ona.disabled = true; ona.textContent = 'Siliniyor...';
+    const { error } = await sb.from('maden_fiyat')
+      .update({ is_deleted:true, silme_nedeni:'ekrandan silindi' }).eq('id', f.id);
+    if (error){ ona.disabled = false; ona.textContent = 'Sil';
+                hata.hidden = false; hata.textContent = hataTr(error.message); return; }
+    kapat();
+    await tazele();                    // detaydan silindiyse DETAYDA kalir
+    mesaj('madenMsg','ok', adTur + ' · ' + trGun(f.tarih) + ' fiyatı silindi.');
+  };
+}
+
 async function vMaden(){
   MADEN_DETAY = null;
   const c = document.getElementById('icerik');
@@ -5896,7 +5963,7 @@ async function vMaden(){
     const sar = el('div','tablo-sar');
     const t = document.createElement('table');
     const hr = document.createElement('tr');
-    ['TÜR','GRAM FİYATI','TARİH','KAYNAK'].forEach((h,i) => hr.appendChild(el('th', i===1?'sag':null, h)));
+    ['TÜR','GRAM FİYATI','TARİH','KAYNAK',''].forEach((h,i) => hr.appendChild(el('th', i===1?'sag':null, h)));
     t.appendChild(hr);
     for (const f of fiyatlar.slice(0,30)){
       const tr = document.createElement('tr');
@@ -5904,6 +5971,13 @@ async function vMaden(){
       tr.appendChild(td(tl(f.gram_fiyat),'sag'));
       tr.appendChild(td(trGun(f.tarih)));
       tr.appendChild(td(f.kaynak_notu || '—'));          // textContent
+      /* CK · yanlis tuslanan fiyat ekrandan silinsin — mevcut btn-mini */
+      const sh = document.createElement('td');
+      const sb2 = el('button','btn-mini','Sil'); sb2.type = 'button';
+      sb2.setAttribute('aria-label', (f.tur === 'altin' ? 'Altın' : 'Gümüş') + ' '
+        + trGun(f.tarih) + ' fiyatını sil');
+      sb2.onclick = () => madenFiyatSil(f, fiyatlar, vMaden);
+      sh.appendChild(sb2); tr.appendChild(sh);
       t.appendChild(tr);
     }
     sar.appendChild(t); fl.appendChild(sar); c.appendChild(fl);
@@ -5993,13 +6067,19 @@ async function madenDetayAc(madenId, sessiz){
       const sar = el('div','tablo-sar');
       const t = document.createElement('table');
       const hr = document.createElement('tr');
-      ['GRAM FİYATI','TARİH','KAYNAK'].forEach((h,i) => hr.appendChild(el('th', i===0?'sag':null, h)));
+      ['GRAM FİYATI','TARİH','KAYNAK',''].forEach((h,i) => hr.appendChild(el('th', i===0?'sag':null, h)));
       t.appendChild(hr);
       for (const f of gecmis.slice(0,30)){
         const tr = document.createElement('tr');
         tr.appendChild(td(tl(f.gram_fiyat),'sag'));
         tr.appendChild(td(trGun(f.tarih)));
         tr.appendChild(td(f.kaynak_notu || '—'));        // textContent
+        /* CK · tazele = madenTazele -> kullanici DETAYDA kalir */
+        const sh = document.createElement('td');
+        const sb2 = el('button','btn-mini','Sil'); sb2.type = 'button';
+        sb2.setAttribute('aria-label', trGun(f.tarih) + ' fiyatını sil');
+        sb2.onclick = () => madenFiyatSil(f, fiyatlar, madenTazele);
+        sh.appendChild(sb2); tr.appendChild(sh);
         t.appendChild(tr);
       }
       sar.appendChild(t); fl.appendChild(sar);
