@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-13">
+<meta name="surum" content="borc-2026-08-24-14">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1293,7 +1293,7 @@ async function sahisGetir(){
    hesaplanmaz: iki yerde hesaplanan sey ayrisir. */
 async function kartGetir(){
   const [k, d] = await Promise.all([
-    sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama,kart_limiti,limit_paylasan_id')
+    sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama,kart_limiti,limit_paylasan_id,faiz_orani')
       .eq('is_deleted', false).order('ad'),
     sb.from('v_kart_donem')
       .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path,asgari_tutar,donem_odemesi,kapanmamis,odeme_turu,devir_farki,faiz_tutari,vergi_masraf_tutari')
@@ -4113,6 +4113,66 @@ function axOku(parcalar){
     else alanlar.banka = { durum:'yok' };
   }
 
+  /* ==================================================================
+     ⚠ CG · AYLIK FAIZ ORANI (faizOrani). OLCULDU: uc bankanin ucunde de
+     yaziyor, iki desende:
+       · Ziraat: TEK UZUN PARCA — "Aylık Faiz Oranları: Alışveriş Faizi
+         %4,25; Alışveriş Gecikme Faizi %4,55; ..."
+       · Enpara / Is Bankasi: SUTUN TABLOSU — "Aylık" satirinin bandinda
+         yuzdeler ayri parcalar; ILK sutun alisveris faizidir.
+     Iki yol SIRAYLA: (1) 'alisveris faizi' gecen parcada hemen ardindan
+     gelen yuzde; (2) iskeleti tam 'aylk' olan parcanin BANDINDAKI ilk
+     yuzde. KILITLER:
+       · 'yillik' gecen parca KESINLIKLE ELENIR (yillik oran girilirse
+         projeksiyon 12 kat sasar — v113 yorumunda da yazili)
+       · 'gecikme' gecen yuzde ALINMAZ
+       · birden cok FARKLI aday -> BELIRSIZ, tahmin yok
+       · deger yuzde SAYISI olarak saklanir: %4,25 -> 4.25 (v113
+         kart.faiz_orani boyle tanimli, AYLIK)
+     ⚠ axDuz cekirdegin KENDI normalizasyonu (axSade DISARIDA — cekirdek
+       kendi kendine yeterli kalir, olculmus ders). Iskelet burada is
+       gormez: '%' ve ',' iskelette siliniyor. */
+  const AX_DUZ_H = { 'Ç':'c','Ğ':'g','İ':'i','I':'i','Ö':'o','Ş':'s','Ü':'u',
+                     'ç':'c','ğ':'g','ı':'i','ö':'o','ş':'s','ü':'u' };
+  const axDuz = (t) => String(t || '').replace(/[ÇĞİIÖŞÜçğıöşü]/g, m => AX_DUZ_H[m]).toLowerCase();
+  const AX_YUZDE = /%\s*(\d{1,3},\d{2})/;
+  {
+    const oranAday = [];
+    /* yol 1 · Ziraat cumlesi */
+    for (const s of satirlar)
+      for (const it of s.items){
+        const d = axDuz(it.ham);
+        if (d.indexOf('yillik') >= 0) continue;
+        const i = d.indexOf('alisveris faizi');
+        if (i < 0) continue;
+        const kuyruk = d.slice(i);
+        const m = AX_YUZDE.exec(kuyruk);
+        if (!m) continue;
+        const gec = kuyruk.indexOf('gecikme');
+        if (gec >= 0 && m.index > gec) continue;        // ilk yuzde gecikmenin ardindaysa alma
+        oranAday.push({ deger: m[1], etiket: 'Alışveriş Faizi', kural: 'faiz oranı satırından' });
+      }
+    /* yol 2 · "Aylık" bandindaki ilk yuzde (Enpara / Is Bankasi tablosu) */
+    if (!oranAday.length)
+      for (const s of satirlar){
+        if (!s.items.some(it => it.isk === 'aylk')) continue;
+        for (const it of s.items){
+          const d = axDuz(it.ham);
+          if (d.indexOf('yillik') >= 0 || d.indexOf('gecikme') >= 0) continue;
+          const m = AX_YUZDE.exec(it.ham);
+          if (m){ oranAday.push({ deger: m[1], etiket: 'Aylık satırı ilk sütun',
+                                  kural: 'faiz tablosundan' }); break; }
+        }
+      }
+    const farkliOran = [...new Set(oranAday.map(o => o.deger))];
+    if (!oranAday.length) alanlar.faizOrani = { durum:'yok' };
+    else if (farkliOran.length > 1)
+      alanlar.faizOrani = { durum:'belirsiz', etiket: farkliOran.map(d => '%' + d).join(' / ') };
+    else alanlar.faizOrani = { durum:'ok', oran: Number(oranAday[0].deger.replace(',', '.')),
+      ham: '%' + oranAday[0].deger, etiket: oranAday[0].etiket, kural: oranAday[0].kural,
+      kim: oranAday[0].deger };
+  }
+
   /* ⚠ CD · ESKI 'SIRALI SUTUN SABLONU' (AX_SABLON) BURADAN KALDIRILDI.
      Var olmayan bir yapiya yazilmisti: ham icerik-akisi ayristiricisi
      ozet satirini TEK bitisik parca gostermisti; gercek pdf.js ayni TJ
@@ -4183,7 +4243,9 @@ async function ekstreOnayEkrani(a, dosya){
     /* ⚠ BB · Etiketten "(FZ)"/"(VR/FN)" cikarildi: kaynak artik iki turlu
        olabiliyor (Maximum "FZ:/VR/FN:" · Is Bankasi "Kredi faizi"/"BSMV
        (Faiz)"). Hangisinden geldigini KAYNAK ETIKET sutunu zaten yaziyor. */
-    ['asgari','Asgari tutar'],['faiz','Faiz'],['vergi','Faiz vergisi']];
+    ['asgari','Asgari tutar'],['faiz','Faiz'],['vergi','Faiz vergisi'],
+    /* CG · kurus tasimaz (oran); tablo para-olmayan dalda ham'i basar: "%4,25" */
+    ['faizOrani','Aylık faiz oranı']];
   const sar = el('div','tablo-sar'); const t = document.createElement('table');
   t.className = 'ax-t';                    // BX · <768px'te kartlasir (CSS'te)
   const hr = document.createElement('tr');
@@ -4373,7 +4435,52 @@ async function ekstreOnayEkrani(a, dosya){
   yk.appendChild(ss);
   yk.appendChild(el('div','kucuk','Limit paylaşımı da ekstrede yazmaz; kart '
     + 'oluştuktan sonra kart ekranından işaretleyebilirsin.'));
-  sec.onchange = () => { yk.hidden = sec.value !== '__yeni'; };
+  /* ⚠ CG · MEVCUT KARTI GUNCELLEME TEKLIFI. Olculdu: ekstreKaydet
+     yalnizca yeni kart dalinda kart alani yaziyordu; mevcut kart
+     secilince ekstredeki limit/faiz ATILIYORDU (KTU ve Axess'in limiti
+     bu yuzden bos). SESSIZ GUNCELLEME YOK: fark varsa tek satirlik
+     teklif cizilir, kutular ISARETSIZ gelir; isaretlenmeyen alan HIC
+     degismez. Fark yoksa satir hic cizilmez; kart secilmeden blok yok. */
+  const teklifKutu = el('div'); teklifKutu.id = 'axTeklif'; k.appendChild(teklifKutu);
+  const teklifCiz = () => {
+    teklifKutu.textContent = '';
+    const kart = v.kart.kartlar.find(x => x.id === sec.value);
+    if (!kart) return;                                  // yeni kart ya da secilmedi
+    const farklar = [];
+    const oku = (o, alanAd) => o && o.durum === 'ok' ? o[alanAd] : null;
+    const limitYeni = oku(a.limit, 'kurus');
+    if (limitYeni != null && kr(kart.kart_limiti) !== limitYeni && !kart.limit_paylasan_id)
+      farklar.push(['axGnLimit', 'Kart limitini güncelle: '
+        + (kart.kart_limiti == null ? '(boş)' : tl(kart.kart_limiti)) + ' → ' + tlk(limitYeni),
+        { kart_limiti: (limitYeni/100).toFixed(2) }]);
+    const oranYeni = oku(a.faizOrani, 'oran');
+    if (oranYeni != null && Number(kart.faiz_orani) !== oranYeni)
+      farklar.push(['axGnFaiz', 'Faiz oranını güncelle: '
+        + (kart.faiz_orani == null ? '(boş)' : '%' + String(kart.faiz_orani).replace('.', ','))
+        + ' → %' + String(oranYeni).replace('.', ','),
+        { faiz_orani: oranYeni }]);
+    const kesimYeni = oku(a.kesim, 'gun'), odemeYeni = oku(a.sonOdeme, 'gun');
+    if ((kesimYeni != null && kart.kesim_gunu !== kesimYeni)
+        || (odemeYeni != null && kart.son_odeme_gunu !== odemeYeni)){
+      const y = {};
+      if (kesimYeni != null) y.kesim_gunu = kesimYeni;
+      if (odemeYeni != null) y.son_odeme_gunu = odemeYeni;
+      farklar.push(['axGnGun', 'Kesim/ödeme gününü güncelle: '
+        + (kart.kesim_gunu ?? '—') + '/' + (kart.son_odeme_gunu ?? '—')
+        + ' → ' + (kesimYeni ?? kart.kesim_gunu ?? '—') + '/' + (odemeYeni ?? kart.son_odeme_gunu ?? '—'), y]);
+    }
+    if (!farklar.length) return;
+    teklifKutu.appendChild(el('div','kucuk','Ekstre, seçili karttan farklı bilgiler taşıyor. '
+      + 'İşaretlediklerin kayıtta karta yazılır; işaretlemediğin HİÇ değişmez.'));
+    for (const [id, metin, yama] of farklar){
+      const sat = el('label'); sat.style.cssText = 'display:flex;gap:8px;align-items:baseline;min-height:44px';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = id;
+      cb.dataset.yama = JSON.stringify(yama);          // ekstreKaydet okur
+      sat.appendChild(cb); sat.appendChild(el('span', null, metin));
+      teklifKutu.appendChild(sat);
+    }
+  };
+  sec.onchange = () => { yk.hidden = sec.value !== '__yeni'; teklifCiz(); };
 
   /* ⚠ DONEM = KESIM AYI, son odeme ayindan DEGIL. Axess'te kesim 29.07,
      son odeme 03.08 — ikisi ayri aya duser ve kullanicinin karari kesimdi. */
@@ -4414,6 +4521,10 @@ async function ekstreKaydet(a, dosya, donem, btn){
     yeniKart = { ad: sy('axAd'), banka: sy('axBanka') || null, sahip: sy('axSahip'),
       kesim_gunu: gun('axKesim'), son_odeme_gunu: gun('axSonOdeme'),
       kart_limiti: lim && lim.kurus > 0 ? (lim.kurus/100).toFixed(2) : null,
+      /* CG · ekstreden okunan AYLIK oran yeni karta da yazilir —
+         "girilen bilgiyi kullan", elle girdirme. Okunamadiysa NULL:
+         projeksiyon 'hesaplanamaz' der, sifir saymaz (v113). */
+      faiz_orani: a.faizOrani && a.faizOrani.durum === 'ok' ? a.faizOrani.oran : null,
       giren_id: PROFIL ? PROFIL.id : null };
   }
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
@@ -4451,9 +4562,26 @@ async function ekstreKaydet(a, dosya, donem, btn){
       : 'Dönem kaydedilemedi. Kart değişmedi.', r2.error);
     return;
   }
+  /* ⚠ CG · TEKLIF: yalniz ISARETLI kutularin yamasi karta yazilir.
+     Donem kaydi BASARILI olduktan sonra calisir — donem duserse kart da
+     degismez. Kart guncellemesi duserse kayit GERI ALINMAZ (donem zaten
+     mesru); sessiz de kalinmaz, mesajda soylenir. */
+  let teklifNotu = '', teklifHatasi = null;
+  if (!yeniKart){
+    const yama = {};
+    for (const cb of document.querySelectorAll('#axTeklif input[type=checkbox]:checked'))
+      Object.assign(yama, JSON.parse(cb.dataset.yama));
+    if (Object.keys(yama).length){
+      const rk = await sb.from('kart').update(yama).eq('id', kartId);
+      if (rk.error) teklifHatasi = rk.error;
+      else teklifNotu = ' Kart bilgisi güncellendi (' + Object.keys(yama).length + ' alan).';
+    }
+  }
   await kartDetayAc(kartId);
-  mesaj('kartMsg','ok', donem + ' ekstresi kaydedildi'
-    + (yol ? ' ve PDF döneme eklendi.' : '.')
+  if (teklifHatasi)
+    hataYaz('kartMsg', donem + ' ekstresi kaydedildi ama kart bilgisi GÜNCELLENEMEDİ.', teklifHatasi);
+  else mesaj('kartMsg','ok', donem + ' ekstresi kaydedildi'
+    + (yol ? ' ve PDF döneme eklendi.' : '.') + teklifNotu
     + (belgeHatasi ? ' ⚠ PDF yüklenemedi (' + belgeHatasi + ') — "+ Ekstre" ile ekleyebilirsin.' : ''));
 }
 
@@ -5230,6 +5358,24 @@ function donemFormu(kart, liste, duz){
      ekranda "oden" kokunden tek etiket var. Alan adi `odenen` DEGISMEDI. */
   alan('Asgari tutar (ekstreden, bilinmiyorsa boş)', 'kdAsgari', duz ? fm(duz.asgari_tutar) : '', 'decimal');
   alan('Bu ekstreye karşılık ödediğim (bilinmiyorsa boş)', 'kdOdedim', duz ? fm(duz.donem_odemesi) : '', 'decimal');
+  /* ⚠ CG · v113 · ODEMENIN GUNU. Varsayilan BUGUN — tek dokunusla
+     degistirilir; tutar girildiyse tarih de dolu GITMEK ZORUNDA (veri
+     eksik kalmasin), tutar bosken tarih GONDERILMEZ (null gider —
+     UPDATE'te eski tarihi de temizler, yoksa kd_odeme_tarih_chk
+     "tarihli-tutarsiz" satiri reddederdi).
+     ⚠ Duzenlemede MEVCUT tarih v_kart_donem'de YOK (gorunum v113'te
+       bilerek genisletilmedi); tek satirlik sorguyla tablodan cekilir
+       ve hem alana hem duz'a yazilir — yoksa her duzenleme bugunu
+       koyup eski tarihi sessizce EZERDI. */
+  k.appendChild(el('label', null, 'Ödemenin günü')).setAttribute('for','kdOdedimTarih');
+  const odTarih = document.createElement('input');
+  odTarih.id = 'kdOdedimTarih'; odTarih.type = 'date'; odTarih.value = bugun();
+  k.appendChild(odTarih);
+  if (duz && duz.donem_id)
+    sb.from('kart_donem').select('donem_odemesi_tarih').eq('id', duz.donem_id).maybeSingle()
+      .then(r => { if (r.data && r.data.donem_odemesi_tarih){
+        odTarih.value = r.data.donem_odemesi_tarih;
+        duz.donem_odemesi_tarih = r.data.donem_odemesi_tarih; } });
   /* ⚠ AW · FAIZ ve VERGI AYRI TUTULUYOR, tek "maliyet" alaninda
      BIRLESTIRILMEDI — ev kalibi kredi_taksit'te de anapara/faiz/vergi
      diye uce bolunmus. Ekstrede de ayri yaziyor: FZ:... VR/FN:...
@@ -5319,12 +5465,19 @@ function donemSatiriUret(kart){
   const fz  = secmeli('kdFaiz','Faiz tutarı');       if (!fz.ok)  return fz;
   const vr  = secmeli('kdVergi','Faiz vergisi/masrafı'); if (!vr.ok) return vr;
 
+  /* CG · v113 tarih kurali: tutar VARSA tarih zorunlu; tutar yoksa null. */
+  const odTar = document.getElementById('kdOdedimTarih');
+  const odTarih = odTar ? odTar.value : '';
+  if (odm.deger != null && !odTarih)
+    return { ok:false, hata:'Ödeme tutarını girdin; gününü de seç (varsayılan bugündü, silinmiş).' };
+
   const kalan = dev.kurus + yen.kurus + dzKurus - odn.kurus;
   return { ok:true, donem, kalan, asgariKurus: asg.kurus, odemeKurus: odm.kurus,
     satir: { kart_id: kart.id, donem,
       devir:(dev.kurus/100).toFixed(2), yeni_harcama:(yen.kurus/100).toFixed(2),
       duzeltme:(dzKurus/100).toFixed(2), odenen:(odn.kurus/100).toFixed(2),
       asgari_tutar: asg.deger, donem_odemesi: odm.deger,
+      donem_odemesi_tarih: odm.deger != null ? odTarih : null,
       faiz_tutari: fz.deger, vergi_masraf_tutari: vr.deger,
       giren_id: PROFIL ? PROFIL.id : null } };
 }
@@ -5355,7 +5508,9 @@ async function donemOnizle(kart, liste, kaydet, duz){
   if (duz){
     const ALAN = [['donem','Dönem',0],['devir','Devir',1],['yeni_harcama','Yeni harcama',1],
                   ['duzeltme','Düzeltme',1],['odenen','Alacak kayıtları',1],['asgari_tutar','Asgari',1],
-                  ['donem_odemesi','Bu ekstreye ödediğim',1],['faiz_tutari','Faiz',1],
+                  ['donem_odemesi','Bu ekstreye ödediğim',1],
+                  ['donem_odemesi_tarih','Ödemenin günü',0],
+                  ['faiz_tutari','Faiz',1],
                   ['vergi_masraf_tutari','Faiz vergisi',1]];
     const gos = (v, para) => v == null || v === '' ? '—' : (para ? tl(v) : v);
     const esit = (a, b, para) => (a == null ? null : (para ? kr(a) : a)) === (b == null ? null : (para ? kr(b) : b));
