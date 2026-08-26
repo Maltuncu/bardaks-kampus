@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-14">
+<meta name="surum" content="borc-2026-08-24-15">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4480,7 +4480,41 @@ async function ekstreOnayEkrani(a, dosya){
       teklifKutu.appendChild(sat);
     }
   };
-  sec.onchange = () => { yk.hidden = sec.value !== '__yeni'; teklifCiz(); };
+  /* ⚠ CH · DONEM ZATEN KAYITLIYSA hataya DUSULMEZ, ONCEDEN gorunur.
+     ux_kart_donem (kart_id, donem) tekil — ayni ekstre ikinci kez
+     kaydedilemez. Eski hal: kullanici kaydetmeyi deneyip unique
+     hatasi yiyordu ve ZATEN GIRILMIS dort ekstrenin faiz/limit
+     bilgisi teklif ozelligiyle DOLDURULAMIYORDU. Simdi cakisma
+     bantVerisi'ndeki donemlerden (YENI SORGU YOK) aninda gorunur;
+     kaydet dugmesi "Kart bilgilerini guncelle"ye doner ve yalniz
+     kart satiri UPDATE edilir.
+     ⚠ DONEM SATIRINA HIC DOKUNULMAZ: kullanicinin ELLE duzelttigi
+       rakamlar (Black'te yeni harcama/alacak elle girildi) ekstreyi
+       yeniden okutup uzerine yazmakla SILINIRDI — o secenek YOK. */
+  const donemVarMi = () => sec.value && sec.value !== '__yeni' && donem
+    && v.kart.donemler.some(d => d.kart_id === sec.value && d.donem === donem);
+  const cakismaKutu = el('div'); k.appendChild(cakismaKutu);
+  const cakismaCiz = () => {
+    cakismaKutu.textContent = '';
+    const kb = document.getElementById('axKaydet');
+    if (!donemVarMi()){
+      if (kb){ kb.style.display = ''; kb.textContent = 'Kartı ve dönemi kaydet'; }
+      return;
+    }
+    cakismaKutu.appendChild(el('div','uyari-orta',
+      'Bu dönem zaten kayıtlı (' + donem + '). Ekstrenin rakamları DEĞİŞTİRİLMEYECEK — '
+      + 'yalnızca kart bilgileri güncellenebilir.'));
+    const farkVar = teklifKutu.querySelectorAll('input[type=checkbox]').length > 0;
+    if (kb){
+      if (farkVar){ kb.style.display = ''; kb.textContent = 'Kart bilgilerini güncelle'; }
+      else {
+        kb.style.display = 'none';
+        cakismaKutu.appendChild(el('div','kucuk',
+          'Bu dönem zaten kayıtlı ve kart bilgileri de aynı — yapılacak bir şey yok.'));
+      }
+    }
+  };
+  sec.onchange = () => { yk.hidden = sec.value !== '__yeni'; teklifCiz(); cakismaCiz(); };
 
   /* ⚠ DONEM = KESIM AYI, son odeme ayindan DEGIL. Axess'te kesim 29.07,
      son odeme 03.08 — ikisi ayri aya duser ve kullanicinin karari kesimdi. */
@@ -4495,7 +4529,8 @@ async function ekstreOnayEkrani(a, dosya){
     if (cfNegatif){ mesaj('kartMsg','hata',
       'Ödeme/yeni harcama girişi denklemle çelişiyor (negatif). Düzelt ya da ikisini de boş bırak.');
       return; }
-    ekstreKaydet(a, dosya, donem, kaydet);
+    /* CH · cakisma karari TIKLAMA ANINDA hesaplanir (secim degismis olabilir) */
+    ekstreKaydet(a, dosya, donem, kaydet, donemVarMi());
   };
   k.appendChild(kaydet);
   const vaz = el('button','btn2','Vazgeç');
@@ -4504,11 +4539,38 @@ async function ekstreOnayEkrani(a, dosya){
   c.appendChild(k);
 }
 
-async function ekstreKaydet(a, dosya, donem, btn){
+async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar){
   mesajTemizle('kartMsg');
   if (!donem){ mesaj('kartMsg','hata','Dönem belirlenemedi.'); return; }
   const sec = document.getElementById('axKart').value;
   if (!sec){ mesaj('kartMsg','hata','Bu ekstrenin hangi karta ait olduğunu seç.'); return; }
+
+  /* isaretli teklif kutularinin toplami — iki dal da kullanir */
+  const teklifYamasi = () => {
+    const y = {};
+    for (const cb of document.querySelectorAll('#axTeklif input[type=checkbox]:checked'))
+      Object.assign(y, JSON.parse(cb.dataset.yama));
+    return y;
+  };
+
+  /* ⚠ CH · DONEM ZATEN KAYITLI: donem satirina HIC dokunulmaz (elle
+     duzeltilmis rakamlar korunur), PDF yeniden YUKLENMEZ (belge zaten
+     o donemde), yalniz ISARETLI teklifler karta yazilir. Hicbir sey
+     isaretli degilse VERITABANINA ISTEK GITMEZ. */
+  if (donemZatenVar){
+    const yama = teklifYamasi();
+    if (!Object.keys(yama).length){
+      mesaj('kartMsg','hata','Güncellenecek bir şey seçmedin.'); return;
+    }
+    btn.disabled = true; btn.textContent = 'Güncelleniyor...';
+    const rk = await sb.from('kart').update(yama).eq('id', sec);
+    btn.disabled = false; btn.textContent = 'Kart bilgilerini güncelle';
+    if (rk.error){ hataYaz('kartMsg','Kart bilgisi güncellenemedi.', rk.error); return; }
+    await kartDetayAc(sec);
+    mesaj('kartMsg','ok','Kart bilgisi güncellendi (' + Object.keys(yama).length
+      + ' alan). ' + donem + ' dönem rakamlarına dokunulmadı.');
+    return;
+  }
   const sy = (id) => document.getElementById(id).value.trim();
   let kartId = sec, yeniKart = null;
   if (sec === '__yeni'){
@@ -4568,9 +4630,7 @@ async function ekstreKaydet(a, dosya, donem, btn){
      mesru); sessiz de kalinmaz, mesajda soylenir. */
   let teklifNotu = '', teklifHatasi = null;
   if (!yeniKart){
-    const yama = {};
-    for (const cb of document.querySelectorAll('#axTeklif input[type=checkbox]:checked'))
-      Object.assign(yama, JSON.parse(cb.dataset.yama));
+    const yama = teklifYamasi();
     if (Object.keys(yama).length){
       const rk = await sb.from('kart').update(yama).eq('id', kartId);
       if (rk.error) teklifHatasi = rk.error;
