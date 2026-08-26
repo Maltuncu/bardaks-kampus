@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-15">
+<meta name="surum" content="borc-2026-08-24-16">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4702,11 +4702,10 @@ function ozetCiz(v, ekran, ek){
     parca.push(['Kredi', tk(v.S.anapara)], ['Ltd', tk(v.lNominal)],
                ['bu ay', tk(o.sBuAy + o.lBuAy)]);
   } else if (ekran === 'kartlar'){
-    const lt = kartLimitOzeti(v);
+    /* ⚠ CI · 'kalan alan' SERITTEN KALDIRILDI: ayni bilgi artik ust
+       ozet kartinda ("kullanilabilir") gorunur duruyor — ekran
+       birikmesi kurali, ayni rakam iki yerde durmaz. */
     parca.push(['Kart', tk(v.kartKalan)], ['bu ay', tk(v.buAyKart.toplam)]);
-    /* ⚠ "hesaplanamaz" HALI KORUNUYOR. Limiti girilmemis kart varsa
-       toplam EKSIKTIR; 0 yazmak "alanin yok" gibi okunur. */
-    parca.push(['kalan alan', lt.adet ? tk(lt.limit - lt.kullanilan) : 'hesaplanamaz']);
   } else if (ekran === 'maden'){
     parca.push(['Rayiç', v.madenBugun ? tk(v.madenBugun) : 'hesaplanamaz'],
                ['maliyet', v.madenAlis ? tk(v.madenAlis) : 'hesaplanamaz']);
@@ -4916,25 +4915,86 @@ async function vKartlar(duzKartId){
        notu ekranin ustunde AYRI kaliyor. Uyariyi ozetin icine gomup
        kucultmek onu gizlemektir. */
   const lt = kartLimitOzeti(v);
-  let limitSayilari = null;
-  if (lt.adet || lt.limitsiz || lt.donemsiz){
-    limitSayilari = el('div','kart');
-    limitSayilari.appendChild(el('div','kbaslik','Toplam limit'));
-    const sat2 = (e2,d2) => { const x = el('div','satir');
-      x.appendChild(el('span','et', e2)); x.appendChild(el('span','dg', d2));
-      limitSayilari.appendChild(x); };
-    sat2('Toplam limit', lt.adet ? tlk(lt.limit) : 'hesaplanamaz');
-    sat2('Kullanılan',   lt.adet ? tlk(lt.kullanilan) : 'hesaplanamaz');
-    sat2('Kalan alan',   lt.adet ? tlk(lt.limit - lt.kullanilan) : 'hesaplanamaz');
-    /* ⚠⚠ KAVRAM UYARISI RAKAMLARIN YANINDA KALIR — maden rayic uyarisiyla
-       AYNI SINIF yanlis okuma. Sistem EKSTRE DONEMI tutuyor, canli hareket
-       TUTMUYOR: "kullanilan" son ekstrenin kalanidir. Bu cumle olmadan
-       "kalan alan" bankadaki kullanilabilir limit sanilir. */
-    limitSayilari.appendChild(el('div','kavram',
-      'Ekstrelere göre — son kesimden bu yana yapılan harcamalar dahil değil. '
-    + 'Bankadaki kullanılabilir limit daha az olabilir.'));
+  /* ==================================================================
+     ⚠ CI · UST OZET · UC CEVAP TEK KARTTA:
+       "toplam limit ne" · "bu ay ne odedim" · "eylule ne devrediyor,
+       faiziyle". EKRAN BIRIKMESI KURALI: eski "Toplam limit" kutusu
+       (serit panelindeki uc satir) bu kartin KAPSAMINA girdi ve
+       KALDIRILDI; ozetCiz seridindeki 'kalan alan' terimi de ayni
+       turda kaldirildi — ayni rakam iki yerde durmaz. Kavram uyarisi
+       (ekstre donemi / canli hareket ayrimi) rakamlarin YANINA tasindi,
+       silinmedi.
+     ⚠ NULL SIFIR SAYILMAZ (v113 COMMENT'i): faizi bilinmeyen kartin
+       kapanmamis borcunu 0 faizle toplamak dogacak faizi OLDUGUNDAN
+       KUCUK gosterir — en tehlikeli hata. O kartlar ayri satirda
+       "hesaplanamiyor" olarak SAYILIR ve tutari yazilir.
+     ⚠ Faiz orani AYLIK; tek ay icin carpilir, yillastirilmaz.
+       Vergi projeksiyona GIRMIYOR ve bu ACIKCA yaziliyor. */
+  const ozet = el('div','kart');
+  ozet.appendChild(el('div','kbaslik','Kartlar özeti'));
+  /* buyuk rakam + alt satir: cek ekranindaki .cek-buyuk/.cek-alt kalibi
+     yeniden kullanildi — yeni CSS ICAT EDILMEDI */
+  ozet.appendChild(el('div','cek-buyuk', tlk(v.kartKalan)));
+  const limitDolu = v.kart.kartlar.filter(x => x.kart_limiti != null);
+  const limitYok  = v.kart.kartlar.filter(x => x.kart_limiti == null && !x.limit_paylasan_id);
+  const limitTop  = limitDolu.reduce((s,x) => s + kr(x.kart_limiti), 0);
+  ozet.appendChild(el('div','cek-alt', v.kart.kartlar.length + ' kart · '
+    + (limitYok.length
+       ? 'limit hesaplanamaz (' + limitYok.length + ' kartta girilmemiş)'
+       : 'limit ' + tk(limitTop) + ' · kullanılabilir ' + tk(limitTop - v.kartKalan))));
+  /* not, dg'nin YANINDA kucuk span — ayri satir 27px yiyordu (olculdu) */
+  const satOz = (e2, d2, not) => { const x = el('div','satir');
+    x.appendChild(el('span','et', e2));
+    const dg = el('span','dg', d2);
+    if (not){ dg.appendChild(document.createTextNode(' '));
+              dg.appendChild(el('span','kucuk', not)); }
+    x.appendChild(dg);
+    ozet.appendChild(x); return x; };
+  /* B · eylule devreden + dogacak faiz (yalniz orani DOLU kartlar) */
+  let devreden = 0, faizKurus = 0, oransizKap = 0, oransizN = 0;
+  for (const kt of v.kart.kartlar){
+    const d = v.sonDonem.get(kt.id); if (!d) continue;
+    const kap = kr(d.kapanmamis);
+    devreden += kap;
+    if (kt.faiz_orani != null) faizKurus += Math.round(kap * Number(kt.faiz_orani) / 100);
+    else { oransizN++; oransizKap += kap; }
   }
-  c.appendChild(ozetCiz(v,'kartlar', limitSayilari));
+  satOz('Gelecek döneme devreden', tlk(devreden));
+  satOz('Doğacak faiz (tahmin)', tlk(faizKurus), 'vergi hariç');
+  if (oransizN && oransizKap > 0)
+    ozet.appendChild(el('div','uyari-orta', oransizN + ' kartın faizi girilmemiş — '
+      + tk(oransizKap) + ' için hesaplanamıyor.'));
+  /* C · bu ay odedigim — tarih v113'te acildi; v_kart_donem gorunumu
+     tasimiyor (bilerek genisletilmedi), tek hafif sorgu tablodan.
+     ⚠ "0 odedim" ile "bilmiyorum" AYNI GORUNMEZ: tarihi girilmemis
+       odeme varken 0,00 yazilmaz. */
+  const buAyOd = satOz('Bu ay ödediğim', '…');
+  sb.from('kart_donem').select('donem_odemesi,donem_odemesi_tarih')
+    .eq('is_deleted', false).not('donem_odemesi', 'is', null)
+    .then(r => {
+      const dg2 = buAyOd.querySelector('.dg');
+      if (r.error){ dg2.textContent = 'okunamadı'; return; }
+      const oy = bugun().slice(0,7);
+      const tarihsiz = (r.data||[]).filter(x => x.donem_odemesi_tarih == null).length;
+      const buAyT = (r.data||[]).filter(x => x.donem_odemesi_tarih
+                       && x.donem_odemesi_tarih.slice(0,7) === oy)
+                     .reduce((s,x) => s + kr(x.donem_odemesi), 0);
+      /* uzun not dg icinde 137px'e sariyordu (olculdu) — ayri kucuk satir */
+      const notKoy = (metin) => buAyOd.appendChild(el('div','kucuk', metin));
+      if (buAyT > 0){
+        dg2.textContent = tlk(buAyT);
+        if (tarihsiz) notKoy('+' + tarihsiz + ' tarihi girilmemiş — eksik olabilir');
+      } else if (tarihsiz){
+        dg2.textContent = 'hesaplanamıyor';
+        notKoy(tarihsiz + ' ödemenin tarihi girilmemiş');
+      } else dg2.textContent = 'bu ay kayıtlı ödeme yok';
+    });
+  /* kavram uyarisi eski kutudan TASINDI — rakamlarin yaninda kalir */
+  ozet.appendChild(el('div','kavram',
+    'Ekstrelere göre — son kesimden bu yana yapılan harcamalar dahil değil. '
+  + 'Bankadaki kullanılabilir limit daha az olabilir.'));
+  c.appendChild(ozetCiz(v,'kartlar', null));
+  c.appendChild(ozet);
   const msg = el('div','msg'); msg.id = 'kartMsg'; c.appendChild(msg);
   c.appendChild(kartUyarisi());
 
