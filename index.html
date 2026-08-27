@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-26-2">
+<meta name="surum" content="2026-08-26-4">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -7066,6 +7066,9 @@ async function vVergi(){
     <div class="kart">
       ${kbaslik('', 'Ödeme Takvimi', '')}
       <div id="vergiVadeler">Yükleniyor...</div>
+      <div class="bilgi-not" id="vergiIsabet"></div>
+      <div class="bilgi-not">Tutarı belli olmayan vadelerde yazan <b>öngörü</b>, aynı türden
+        <b>son ödediğin tutardır</b> — hesap değil, hatırlatma. Kesin rakam dekont gelince belli olur.</div>
       <div class="bilgi-not">KDV ve muhtasar ertesi ayın 26'sı · SGK ve Bağkur ertesi ayın <b>son günü</b>
         · gelir vergisi Mart ve Temmuz.</div>
     </div>
@@ -7079,8 +7082,16 @@ async function vVergi(){
         <option value="sgk">SGK Primi</option><option value="muhsgk">MUHSGK (stopaj+SGK)</option>
         <option value="gecici_vergi">Geçici Vergi</option><option value="gelir_vergisi">Gelir Vergisi</option>
         <option value="stopaj">Stopaj</option><option value="muhasebeci">Muhasebeci Ücreti</option>
+        <option value="mtv">MTV</option>
         <option value="diger">Diğer</option>
       </select>
+      <!-- ⚠ MTV IKI YERE GIRILEBILIR HALE GELDI — CIFT KAYIT TUZAGI.
+           Bu ekranin kendi notu "aracin MTV'si Arac sekmesinde" diyor ve
+           o yol KARDAN DUSUYOR; buraya girilen ise vergi_odeme'ye gider,
+           kara dusmez. Vadede mtv_1/mtv_2 acik durdugu icin tur eklendi,
+           ama hangi yolun dogru oldugu MUHASEBE karari — ekran karar
+           vermez, ikisini birden girmeyi engellemek icin UYARIR. -->
+      <div class="bilgi-not" id="voMtvUyari" hidden></div>
       <label>Tutar</label><input type="text" inputmode="decimal" autocomplete="off" id="voTutar" placeholder="0,00">
       <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
       <label>Belge (dekont fotoğrafı veya PDF)</label>
@@ -7100,6 +7111,18 @@ async function vVergi(){
       <div id="voListe">Yükleniyor...</div>
     </div>`;
   paraBaglaHepsi(['voTutar']);
+  /* MTV secilince cift kayit uyarisi. Uyari SECIME bagli: her zaman
+     duran bir not okunmaz hale gelir, yalniz ilgili anda cikan okunur. */
+  const mt = document.getElementById('voTur'), mu = document.getElementById('voMtvUyari');
+  if (mt && mu){
+    const mtvBak = () => {
+      mu.hidden = mt.value !== 'mtv';
+      if (!mu.hidden) mu.innerHTML = 'Aracın MTV\'sini <b>Araç</b> sekmesinden girersen '
+        + 'işletme gideri olur ve kârdan düşer; buraya girersen düşmez. '
+        + '<b>İkisine birden girme</b> — aynı ödeme iki kez sayılır.';
+    };
+    mt.addEventListener('change', mtvBak); mtvBak();
+  }
   vergiVadeYukle();
   vergiOdenenYukle();
 }
@@ -7356,7 +7379,56 @@ async function vYonetim(){
   paraBagla(document.getElementById('voTutar'));
   yetkiYukle();
 }
-const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',diger:'Diğer'};
+const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',mtv:'MTV',diger:'Diğer'};
+
+/* =====================================================================
+   VADE TURU -> KOK TUR (v115'in istemci kopyasi)
+   =====================================================================
+   ⚠ NEDEN KOPYA: sunucudaki public._vade_tur_kok BILEREK personele ve
+     authenticated'a KAPALI (v111 kalibi). Onu acmak ya da yalniz bunun
+     icin yeni bir RPC yaratmak, kapatilmis bir kapiyi geri acmak olur.
+     Ayni SABIT LISTE burada tekrarlanir; ikisi elle birlikte guncellenir.
+   ⚠ SABIT LISTE, DESEN DEGIL. "_" gorunce kesmek sozlesme_yenileme ve
+     gecici_vergi gibi mesru turleri BOZAR. Bilinmeyen tur AYNEN doner.
+   ⚠ Liste degisirse migrations/.../v115 dosyasindaki CASE de degismeli.
+   ===================================================================== */
+const VADE_KOK = { sgk_4a:'sgk', gelir_vergisi_1:'gelir_vergisi',
+  gelir_vergisi_2:'gelir_vergisi', mtv_1:'mtv', mtv_2:'mtv' };
+const vadeTurKok = (t) => VADE_KOK[t] || t;
+
+/* =====================================================================
+   VADE ONGORUSU · TURETILIR, SAKLANMAZ
+   =====================================================================
+   ⚠ NEDEN SAKLANMIYOR: 83 acik vadenin hicbirinde tutar yok — takvim
+     vadeyi onceden uretiyor, tutar odeme aninda belli oluyor. Ongoruyu
+     vade.tutar'a yazmak, yazildigi gunun rakamini donduruyor ve
+     BAYATLIYOR. Turetilen ongoru her acilista o anki son odemeden
+     hesaplanir; bayatlamaz. Bu yuzden migration YOK.
+   ⚠ ONGORU KESIN RAKAM DEGIL: ekranda "ongoru" kelimesi HER ZAMAN
+     gorunur, tutarin yanina cikplak yazilmaz.
+   ⚠ GECMIS ODEME YOKSA ONGORU DE YOK. Sifir YAZILMAZ — "bilmiyorum"
+     ile "sifir" ayni sey degil ve sifir yazmak butceyi yaniltir.
+   Doner: { ongoru, kaynak } ya da null. */
+function vadeOngoru(tur, odemeler, oncesi){
+  const kok = vadeTurKok(tur);
+  const aday = odemeler.filter(o => vadeTurKok(o.tur) === kok
+    && (!oncesi || (o.odeme_tarihi || '') < oncesi));
+  if (!aday.length) return null;
+  const s = aday[0];                       // odemeler odeme_tarihi DESC sirali
+  return { ongoru: +s.tutar, kaynak: s };
+}
+/* Sapma yuzdesi. ⚠ RENK TEK BASINA BILGI TASIMAZ: isaret (+/-) ve
+   kelime ("fazla"/"az") her zaman yazilir; renk yalnizca pekistirir. */
+function vadeSapma(ongoru, gercek){
+  if (!(ongoru > 0) || gercek == null) return null;
+  const y = (gercek - ongoru) / ongoru * 100;
+  return { yuzde: y, isaret: y >= 0 ? '+' : '−',
+    kelime: y >= 0 ? 'fazla' : 'az',
+    metin: (y >= 0 ? '+' : '−') + '%' + Math.abs(y).toFixed(1).replace('.', ',')
+           + ' ' + (y >= 0 ? 'fazla' : 'az'),
+    /* Fazla cikan uyari tonunda: butceyi asan taraf odur. Az cikan notr. */
+    sinif: y >= 0 ? 'var(--uyari)' : 'var(--soluk)' };
+}
 
 /* =====================================================================
    VD · VERGI TAHSIL ALINDISI OKUYUCUSU (banka dekontu)
@@ -7499,6 +7571,277 @@ function vergiDekontCoz(metin){
   }
   return { tarih, donem, kalemler, toplam };
 }
+
+/* =====================================================================
+   SGK · TAHSILAT DEKONTU OKUYUCUSU
+   =====================================================================
+   ⚠ NEDEN AYRI OKUYUCU: GIB alindisi ile SGK dekontunun kalibi hic
+     ortusmuyor. GIB'de "NN KOD AD TUTAR" seklinde kalem TABLOSU var;
+     SGK dekontunda tablo YOK, bilgiler "Etiket : Deger" satirlarinda.
+     vergiDekontCoz bu belgede null doner (basligi "ALINDISI" degil).
+   ⚠ IKI KALEM, IKI FARKLI SEY — isin ozu bu:
+       Ana Para  -> SGK primi        -> vergi_odeme
+       Komisyon  -> bankanin ucreti  -> GIDER
+     Toplami vergiye yazmak vergiyi sisirir; yalniz ana parayi yazmak
+     her ay tekrarlayan gercek bir masrafi kaybeder. Bu yuzden komisyon
+     AYRI kalem olarak sunulur ve gider formuna gonderilir.
+   ⚠ TUTAR BICIMI INGILIZCE: "50,831.69" ve "1575.78". paraCoz son
+     ayiraci ondalik sayar, ikisini de dogru okur (olculdu).
+   ⚠ TURKCE HARFLER DUSUYOR: VD_ISKELET ASCII disini SILER (cevirmez),
+     "Güvenlik" -> "GVENLIK". Bu yuzden aranacak metin de RUNTIME'DA
+     iskeletten uretilir (SGK_BASLIK) — elle "GUVENLIK" yazmak TUTMAZ.
+   ⚠ SATIR BULMA ISKELETLE, DEGER OKUMA HAM SATIRDAN: etiketler
+     ("Tahsilat Tarihi", "Ana Para", "Banka") saf ASCII, degerleri
+     duz desenle guvenle cikiyor; satiri bulmak icin iskelet sart.
+   ⚠ DONEM DEKONTTA YOK. Uydurulmaz — alan BOSALTILIR, oneri ayri
+     dugmede durur ve NEDEN o ay onerildigi yazilir.
+   ⚠ Sozluge tahminle satir eklenmez (Bankkart dersi). 4A/4B ayrimi
+     dekontun kendi "Açıklama" satirindan okunur.
+   ⚠ Ornek satirlar asagida TEMSILIDIR; gercek tutar/sicil/isim
+     dosyaya yazilmaz. Olcum duzenegi: tmp/vergi-olcum.mjs --sgk
+     (uygulamanin KENDI pdfMetinCikar'iyla, gercek dekontlarla).
+       "Tahsilat Id : 1234567890 Tahsilat Tarihi : 31/07/2025"
+       "Sicil No : 1234567890123456789 Banka : QNB A.S."
+       "Açklama : 4A Prim Borcu"          <- kaynakta 'ı' zaten eksik
+       "Ana Para : 12,345.67"
+       "Komisyon Bilgisi : ... tarafından 89.01"
+       "TL Komisyon alınmıştır."          <- ⚠ TUTAR BIR ONCEKI SATIRDA
+   ===================================================================== */
+const SGK_BASLIK = VD_ISKELET('Sosyal Güvenlik Kurumu');
+/* SGK dekontundaki tur -> sistemdeki tur. KAYNAK: dekontun kendi
+   "Açıklama" satiri ("4A Prim Borcu").
+   ⚠ Sistemde 'sgk_4a' diye bir tur YOK — voTur listesinde 'sgk' ve
+     'bagkur' var (olculdu). Olmayan degeri select'e yazmak alani
+     BOSALTIR ve p_tur bos gider; o yuzden var olan kodlar kullanilir. */
+const SGK_TUR = { '4A': 'sgk', '4B': 'bagkur' };
+
+/* Doner: null (SGK dekonti degil) ya da
+   { tur, tutar, tarih, donemOner, komisyon, banka, tahsilatId, sicil,
+     yazdirma } — okunamayan alan null KALIR, doldurulmaz. */
+function sgkDekontCoz(metin){
+  const satirlar = String(metin || '').split('\n');
+  const isk = satirlar.map(s => VD_ISKELET(s));
+  if (isk.join('').indexOf(SGK_BASLIK) < 0) return null;
+
+  const satirBul = (ipucu) => {
+    const n = VD_ISKELET(ipucu);
+    const i = isk.findIndex(s => s.indexOf(n) >= 0);
+    return i < 0 ? null : { i, ham: satirlar[i] };
+  };
+  /* Satirdaki SON gecerli para. paraCoz "50,831.69" ve "1575.78"in
+     ikisini de dogru cozer; tarih parcalari ("31","07","2026") ayri
+     jeton oldugu icin buraya sokulmaz — cagiran taraf tarih satirini
+     zaten disarida birakir. */
+  const paraBul = (h) => {
+    const hepsi = String(h == null ? '' : h).match(/\d[\d.,]*/g);
+    if (!hepsi) return null;
+    for (let i = hepsi.length - 1; i >= 0; i--){
+      const r = paraCoz(hepsi[i]);
+      if (r.ok && r.deger > 0) return r.deger;
+    }
+    return null;
+  };
+  const tarihCoz = (m) => m ? m[3] + '-' + m[2] + '-' + m[1] : null;
+
+  /* --- odeme tarihi --- */
+  let tarih = null;
+  const st = satirBul('Tahsilat Tarihi');
+  if (st) tarih = tarihCoz((st.ham + ' ' + (satirlar[st.i + 1] || ''))
+    .match(/Tahsilat\s*Tarihi\s*:?\s*(\d{2})[./](\d{2})[./](\d{4})/i));
+
+  /* --- ANA PARA. "Tahsilat Tutari" DEGIL: bu belgede ikisi ayni ama
+     Ana Para daha dar tanim; komisyonu toplama katan bir belgede
+     ikisi ayrisir ve dogru olan Ana Para'dir. --- */
+  const sp = satirBul('Ana Para');
+  const tutar = sp ? paraBul(sp.ham) : null;
+
+  /* --- komisyon: tutar ile "TL Komisyon" AYRI SATIRLARDA (olculdu),
+     blok birlestirilip aranir. Salt tarih olan satir (sayfa altindaki
+     yazdirma tarihi) bloktan CIKARILIR, yoksa yil tutar sanilir. --- */
+  let komisyon = null;
+  const sk = satirBul('Komisyon Bilgisi');
+  if (sk){
+    const blok = satirlar.slice(sk.i, sk.i + 4)
+      .filter(s => !/^\s*\d{2}[./]\d{2}[./]\d{4}\s*$/.test(s)).join(' ');
+    const m = blok.match(/(\d[\d.,]*)\s*TL\s*Komisyon/i)
+           || blok.match(/Komisyon\s*(?:Tutar[^:]*)?:\s*(\d[\d.,]*)/i);
+    if (m) komisyon = paraBul(m[1]);
+  }
+
+  /* --- banka: komisyonun kime odendigini gider aciklamasina yazacagiz --- */
+  let banka = null;
+  const sb2 = satirBul('Banka :');
+  if (sb2){ const m = sb2.ham.match(/Banka\s*:\s*(.+?)\s*$/i);
+    if (m) banka = m[1].trim().slice(0, 40) || null; }
+
+  /* --- 4A / 4B. Yalniz Açıklama ve Tahsilat Türü satirlarinda aranir:
+     butun belgede aramak, sicil/tahsilat numarasindaki bir "4A"yi tur
+     sanmaya acik olurdu. Ikisi de yoksa BOS kalir, kullanici secer. --- */
+  const sa = satirBul('Açıklama'), stu = satirBul('Tahsilat Türü');
+  const turMetin = [sa && sa.ham, stu && stu.ham].filter(Boolean).join(' ');
+  const tm = turMetin.match(/\b4\s?([AB])\b/i);
+  const tur = tm ? (SGK_TUR['4' + tm[1].toUpperCase()] || null) : null;
+
+  /* --- not alanina yazilacak kimlikler --- */
+  const alan = (ipucu, desen) => { const s = satirBul(ipucu); if (!s) return null;
+    const m = s.ham.match(desen); return m ? m[1] : null; };
+  const tahsilatId = alan('Tahsilat Id', /Tahsilat\s*Id\s*:?\s*(\d+)/i);
+  const sicil      = alan('Sicil No',    /Sicil\s*No\s*:?\s*(\d+)/i);
+
+  /* --- sayfa altindaki yazdirma tarihi: tek basina duran gg/aa/yyyy.
+     Odeme tarihiyle celisebiliyor; kullaniciya SOYLENIR. --- */
+  let yazdirma = null;
+  for (const s of satirlar){
+    const m = s.match(/^\s*(\d{2})[./](\d{2})[./](\d{4})\s*$/);
+    if (m) yazdirma = tarihCoz(m);
+  }
+
+  /* --- donem onerisi: SGK primi bir SONRAKI ay odenir, dolayisiyla
+     odeme tarihinin bir ONCEKI ayi. Oneri; alana yazilmaz. --- */
+  let donemOner = null;
+  if (tarih){
+    const y = +tarih.slice(0, 4), a = +tarih.slice(5, 7);
+    const d = new Date(Date.UTC(y, a - 2, 1));
+    donemOner = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+  }
+  return { tur, tutar, tarih, donemOner, komisyon, banka, tahsilatId, sicil, yazdirma };
+}
+
+/* SGK dekontunu forma yazar. Ekstre okuyucusuyla ayni desen: DOLDUR,
+   KAYDETME. Komisyon vergi formuna YAZILMAZ; altta ayri kalem olur. */
+function sgkDekontDoldur(dk, yaz){
+  const g = (id) => document.getElementById(id);
+  const yazAlan = (id, deger) => { const e = g(id); if (!e || deger == null) return false;
+    e.value = deger; e.dispatchEvent(new Event('input',{bubbles:true}));
+    e.classList.add('oku-dolu'); return true; };
+  const kurus = (n) => n.toFixed(2).replace('.', ',');
+  const gunTr = (t) => new Date(t + 'T00:00').toLocaleDateString('tr-TR');
+  const doldu = [], eksik = [];
+
+  if (dk.tutar != null){ if (yazAlan('voTutar', kurus(dk.tutar))) doldu.push('Tutar'); }
+  else eksik.push('Ana Para satırı okunamadı — tutarı elle yaz');
+  if (dk.tarih && yazAlan('voTarih', dk.tarih)) doldu.push('Ödeme tarihi');
+
+  /* Tur: OLMAYAN secenek atanirsa select bosalir — once varligi sinanir. */
+  const stu = g('voTur');
+  if (dk.tur && stu && [...stu.options].some(o => o.value === dk.tur)){
+    stu.value = dk.tur; stu.classList.add('oku-dolu'); doldu.push('Tür');
+  } else eksik.push('Tür (dekontta 4A/4B yazmıyor) — sen seç');
+
+  /* DONEM: belgede YOK. Varsayilan olarak duran bu ayi BIRAKMAK, yanlis
+     donemi sessizce kaydetmek olurdu — alan bosaltilir. */
+  const sd = g('voDonem');
+  if (sd){ sd.value = ''; sd.classList.remove('oku-dolu'); }
+  eksik.push('Dönem');
+
+  const nt = g('voNot');
+  if (nt){
+    nt.value = ['SGK', dk.banka, dk.tahsilatId && ('Tahsilat No ' + dk.tahsilatId),
+      dk.sicil && ('Sicil ' + dk.sicil)].filter(Boolean).join(' · ');
+    nt.dispatchEvent(new Event('input',{bubbles:true}));
+    nt.classList.add('oku-dolu'); doldu.push('Not');
+  }
+
+  /* --- alt kutu: donem onerisi + tarih uyarisi + komisyon kalemi.
+     GIB okuyucusuyla AYNI kutu (voKalemler) kullanilir; boylece art
+     arda iki dekont okununca eskisi ekranda kalmaz. --- */
+  let alt = g('voKalemler');
+  if (!alt){ alt = document.createElement('div'); alt.id = 'voKalemler';
+    const kutu = g('voOkuDurum'); kutu.parentNode.insertBefore(alt, kutu.nextSibling); }
+  alt.textContent = '';
+  const satirKur = (metin, dugmeAd, isle, sinif) => {
+    const s = document.createElement('div');
+    s.style.cssText = 'display:flex;gap:8px;align-items:center;'
+      + 'justify-content:space-between;min-height:44px';
+    const et = document.createElement('span');
+    et.className = sinif || 'bilgi-not'; et.textContent = metin;
+    s.appendChild(et);
+    if (dugmeAd){
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn2'; b.textContent = dugmeAd;
+      b.onclick = isle; s.appendChild(b);
+    }
+    alt.appendChild(s); return s;
+  };
+
+  satirKur(dk.donemOner
+    ? 'Dönem dekontta yazmıyor. SGK primi bir sonraki ay ödenir; ödeme '
+      + 'tarihine göre ' + ayAdi(dk.donemOner) + ' olmalı — değiştirebilirsin.'
+    : 'Dönem dekontta yazmıyor — elle seç.',
+    dk.donemOner ? 'Dönemi yaz' : null,
+    () => { if (yazAlan('voDonem', dk.donemOner))
+      yaz('Dönem ' + ayAdi(dk.donemOner) + ' yazıldı — doğru değilse değiştir.', 'ok'); });
+
+  /* Tarih tutarsizligi: ENGELLEME, SOYLE. Eski belgeyi bilerek giriyor
+     olabilir. Esik bir yil: yazdirma tarihiyle odeme tarihi arasindaki
+     bir yillik fark bu belgede olculdu. */
+  if (dk.tarih){
+    const gunFark = (new Date(bugun() + 'T00:00') - new Date(dk.tarih + 'T00:00')) / 86400000;
+    if (gunFark >= 365){
+      const u = document.createElement('div');
+      u.className = 'uyari-agir'; u.style.margin = '8px 0';
+      u.textContent = 'Belgedeki tarih ' + gunTr(dk.tarih) + ' — doğru mu? '
+        + (dk.yazdirma && dk.yazdirma !== dk.tarih
+          ? 'Belgenin altındaki yazdırma tarihi ' + gunTr(dk.yazdirma) + ', ikisi tutmuyor. '
+          : '')
+        + 'Kayıt, Ödeme Tarihi alanında ne yazıyorsa ona göre yapılır.';
+      alt.appendChild(u);
+    }
+  }
+
+  /* KOMISYON: vergi degil, banka masrafi. Vergi formuna YAZILMAZ. */
+  if (dk.komisyon != null){
+    satirKur((dk.banka ? dk.banka + ' komisyonu' : 'Banka komisyonu')
+      + ' · ' + tl(dk.komisyon) + ' → Gider',
+      'Gidere yaz', () => sgkKomisyonGider(dk));
+    satirKur('Bu tutar vergi değil, bankanın tahsilat ücreti — vergi tutarına '
+      + 'eklenmedi. Önce vergiyi kaydet, sonra bu düğmeye bas.', null, null);
+  }
+
+  yaz('Dolduruldu: ' + (doldu.join(', ') || 'hiçbir alan')
+    + (eksik.length ? ' · ELLE: ' + eksik.join(', ') : '') + '.',
+    eksik.length ? 'uyari' : 'ok');
+}
+
+/* Komisyonu GIDER formuna tasir. Gider tarafinda HICBIR SEY degismedi:
+   mutabakatGir'in kullandigi desen (bolumu sec, ekrani ac, alanlari
+   disaridan doldur) aynen tekrarlandi.
+   ⚠ sekmeAc, formda kaydedilmemis bilgi varsa ONAY sorar ve kullanici
+     vazgecerse ekran DEGISMEZ. O durumda doldurmaya kalkmak, vergi
+     ekranindayken gider alanlarini aramak olurdu — AKTIF_SEKME sinanir.
+   ⚠ Kaydetmez. Kategori bilerek BOS birakilir: hangi kategoriye
+     yazilacagi isletmenin karari, uydurulmaz. */
+function sgkKomisyonGider(dk){
+  const inp = document.getElementById('voFoto');
+  const dosya = inp && inp.files && inp.files[0] ? inp.files[0] : null;
+  const eskiBolum = GIDER_BOLUM;
+  GIDER_BOLUM = 'temel';
+  sekmeAc('gider');
+  if (AKTIF_SEKME !== 'gider'){ GIDER_BOLUM = eskiBolum; return; }
+  /* vGider async; alanlar birkac karede geliyor. Sabit gecikme yerine
+     alan gorunene kadar bakilir — yavas cihazda bos forma yazmasin. */
+  let kalan = 25;
+  const koy = () => {
+    const t = document.getElementById('gdTutar');
+    if (!t){ if (--kalan > 0) setTimeout(koy, 60); return; }
+    t.value = dk.komisyon.toFixed(2).replace('.', ',');
+    t.dispatchEvent(new Event('input',{bubbles:true}));
+    t.classList.add('oku-dolu');
+    const a = document.getElementById('gdAciklama');
+    if (a){ a.value = 'SGK tahsilat komisyonu' + (dk.banka ? ' · ' + dk.banka : '');
+      a.dispatchEvent(new Event('input',{bubbles:true})); a.classList.add('oku-dolu'); }
+    const td = document.getElementById('gdTarih');
+    if (td && dk.tarih && dk.tarih <= bugun()) td.value = dk.tarih;
+    if (dosya){ const f = document.getElementById('gdFoto');
+      if (f){ const dt = new DataTransfer(); dt.items.add(dosya); f.files = dt.files; } }
+    const drm = document.getElementById('gdOkuDurum');
+    if (drm){ drm.className = 'oku-durum uyari';
+      drm.textContent = 'SGK tahsilat komisyonu taşındı — KATEGORİ seç, kontrol et, '
+        + 'sonra Kaydet. Bu tutar vergi değil, bankanın ücreti.'; }
+    window.scrollTo(0,0);
+  };
+  setTimeout(koy, 60);
+}
 /* VADE LİSTESİ
    Vadeler artık vergi takviminden otomatik üretiliyor (rpc_vade_uret), bu yüzden
    sistemde yıllarca ileriye kayıt var. Hepsini listelemek anlamsız — varsayılan
@@ -7518,17 +7861,27 @@ async function vergiVadeYukle(){
   /* Vadenin kendi tutari 89 kayittan 1'inde dolu — takvim vadeyi onceden
      uretiyor, tutar odeme aninda belli oluyor. ODENMIS vadede tutar bagli
      odemede duruyor; oradan okunur. Ikinci sorgu bunun icin. */
-  const [{ data, error }, bagli] = await Promise.all([
+  /* ⚠ UCUNCU SORGU · ONGORU ICIN. Yil filtresi YOK bilerek: bir turun son
+     odemesi gecen yildan kalmis olabilir (gelir vergisi taksitleri gibi)
+     ve yil basinda filtreli sorgu "gecmis odeme yok" derdi. Ekran her
+     acilista taze okur — ongoru saklanmadigi icin bayatlamaz. */
+  const [{ data, error }, bagli, odm] = await Promise.all([
     sb.from('v_vade_liste').select('*').order('vade_tarihi'),
-    sb.from('vade').select('id, vergi_odeme:odendi_vergi_id(tutar), gider:odendi_gider_id(tutar)')
-      .eq('is_deleted', false).eq('durum', 'odendi')
+    sb.from('vade').select('id, vergi_odeme:odendi_vergi_id(id,tutar,tur,odeme_tarihi,donem), gider:odendi_gider_id(tutar)')
+      .eq('is_deleted', false).eq('durum', 'odendi'),
+    sb.from('vergi_odeme').select('id,tur,tutar,odeme_tarihi,donem').eq('is_deleted', false)
+      .order('odeme_tarihi', { ascending:false }).limit(200)
   ]);
   if (error){ el.innerHTML = `<div class="uyari-agir">Vadeler yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
-  const odenenTutar = {};
+  const odenenTutar = {}, bagliOdeme = {};
   (bagli.data || []).forEach(x => {
     const t = x.vergi_odeme?.tutar ?? x.gider?.tutar;
     if (t != null) odenenTutar[x.id] = +t;
+    if (x.vergi_odeme) bagliOdeme[x.id] = x.vergi_odeme;
   });
+  /* ⚠ odm.error SESSIZ GECILMEZ ama ekrani DA DUSURMEZ: vadeler
+     gorunmeye devam etsin, yalnizca ongoru satirlari cikmasin. */
+  const odemeler = odm.error ? [] : (odm.data || []);
   const hepsi = data||[];
   const sinir = tarihStr(new Date(Date.now()+60*864e5));
   const liste = VADE_HEPSI ? hepsi
@@ -7540,18 +7893,47 @@ async function vergiVadeYukle(){
       ? '<div class="bilgi-not">Bu aralıkta vade yok.</div>'
       : liste.map(v => {
           const d = VADE_DURUM[v.durum];
+          /* ---- ONGORU / GERCEK ----------------------------------------
+             Kapanmis vade  : gercek = bagli odeme · ongoru = O ODEMEDEN
+                              ONCEKI ayni kok turden odeme (kendisi DEGIL)
+             Acik + tutarsiz: ongoru = ayni kok turden EN SON odeme
+             Ikisi de yoksa : hicbir sey yazilmaz (eski davranis) */
+          const bo = bagliOdeme[v.id];
+          const gercek = v.tutar ? +v.tutar
+                       : odenenTutar[v.id] != null ? odenenTutar[v.id] : null;
+          const on = bo ? vadeOngoru(v.tur, odemeler, bo.odeme_tarihi)
+                   : gercek == null ? vadeOngoru(v.tur, odemeler, null) : null;
+          const sp = bo && on ? vadeSapma(on.ongoru, gercek) : null;
+          const kaynakAy = on && on.kaynak.donem ? ayAdi(on.kaynak.donem)
+                         : on && on.kaynak.odeme_tarihi
+                           ? new Date(on.kaynak.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR') : '';
           return `<div class="liste-satir">
             <div class="l-sol"><div class="b">${esc(v.aciklama)} ${
               v.gecti ? '<span class="rozet rz-hata">GEÇTİ</span>'
               : v.yakin ? '<span class="rozet rz-uyari">'+(v.kalan_gun===0?'BUGÜN':v.kalan_gun+' GÜN')+'</span>' : ''}</div>
               <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${
                 /* Once vadenin kendi tutari, yoksa odemeden gelen; hicbiri yoksa
-                   HIC YAZMA. Gelecek vadede tutarin belli olmamasi normaldir,
-                   her satira "tutar belli degil" yazmak gurultu. */
-                v.tutar ? ' · '+tl(v.tutar)
-                : odenenTutar[v.id] != null ? ' · '+tl(odenenTutar[v.id])
+                   ONGORU denenir. Ongoru de yoksa HIC YAZMA — gelecek vadede
+                   tutarin belli olmamasi normaldir, her satira "tutar belli
+                   degil" yazmak gurultu. */
+                gercek != null
+                  ? (sp ? ' · öngörü '+tl(on.ongoru)+' · gerçek '+tl(gercek)
+                          + ' · <b style="color:'+sp.sinif+'">'+sp.metin+'</b>'
+                        : ' · '+tl(gercek))
+                : on ? ' · öngörü <b>'+tl(on.ongoru)+'</b>'
+                /* ⚠ SIFIR YAZILMAZ. "Bilmiyorum" ile "sifir" ayni sey degil;
+                   sifir yazmak butceyi yaniltir. Eski kod burada HIC bir sey
+                   yazmiyordu ve gerekcesi "her satira yazmak gurultu" idi —
+                   o gerekce ongoru gelince duser: artik yalniz GERCEKTEN
+                   bilinmeyen satirlarda cikiyor, gurultu degil bilgi. */
+                : v.durum === 'acik' ? ' · <b style="color:var(--uyari)">tutar bekleniyor</b>'
                 : ''}${
-                v.durum_notu ? '<br>'+notKisalt(v.durum_notu, 90) : ''}</div></div>
+                v.durum_notu ? '<br>'+notKisalt(v.durum_notu, 90) : ''}</div>${
+                /* ⚠ Ongorunun NEREDEN geldigi yazilmazsa rakam kesin bilgi
+                   gibi durur. Kaynak her zaman gorunur. */
+                on && gercek == null
+                  ? `<div class="k" style="color:var(--soluk)">geçen sefer bu kadar ödedin${
+                      kaynakAy ? ' ('+esc(kaynakAy)+')' : ''} — kesin tutar değil</div>` : ''}</div>
             <div class="l-sag">${d
               ? `<span class="rozet ${d[0]}">${d[1]}</span>`
               : `<button class="btn2" onclick="vadeKapat('${v.id}','${esc(v.aciklama)}')">Kapat</button>`}</div>
@@ -7561,6 +7943,40 @@ async function vergiVadeYukle(){
         ? `<button class="btn2" style="margin-top:8px" onclick="VADE_HEPSI=${!VADE_HEPSI};vergiVadeYukle()">${
             VADE_HEPSI ? 'Sadece yakın vadeleri göster' : gizli+' vade daha var — hepsini göster'}</button>`
         : '');
+  /* ---- C · YIL SONU ISABET -------------------------------------------
+     ⚠ HEPSI uzerinden hesaplanir, ekrandaki daraltilmis liste uzerinden
+       DEGIL: "hepsini goster"e basinca isabet yuzdesinin degismesi,
+       rakami olcum degil GORUNUM'e bagli kilardi.
+     ⚠ Yalniz ONGORU + GERCEK CIFTI olan kayitlar sayilir. Ilk kez odenen
+       bir turde ongoru YOKTUR; onu ciftmis gibi saymak yuzdeyi sisirir.
+     ⚠ ORTALAMA MUTLAK sapma: +%10 ile -%10 birbirini goturup "sapma yok"
+       demesin. Isabet olculuyor, denge degil.
+     ⚠ UC NOKTADAN AZ ORTALAMA YANILTIR — yuzde YAZILMAZ, sayi yazilir. */
+  const yilS = bugun().slice(0,4);
+  let olculen = 0; const sapmalar = [];
+  for (const v of hepsi){
+    const bo = bagliOdeme[v.id];
+    if (!bo || String(bo.odeme_tarihi).slice(0,4) !== yilS) continue;
+    olculen++;
+    const g = v.tutar ? +v.tutar : odenenTutar[v.id];
+    const o = vadeOngoru(v.tur, odemeler, bo.odeme_tarihi);
+    const s = o ? vadeSapma(o.ongoru, g) : null;
+    if (s) sapmalar.push(Math.abs(s.yuzde));
+  }
+  const iel = document.getElementById('vergiIsabet');
+  if (iel){
+    iel.textContent = olculen === 0
+      ? yilS + ' yılında vadeye bağlanmış ödeme yok — öngörü isabeti henüz ölçülemiyor.'
+      : sapmalar.length < 3
+        ? 'Bu yıl ' + olculen + ' ödeme vadeye bağlandı, ' + sapmalar.length
+          + "'inde öngörü karşılaştırması yapılabildi — henüz yeterli ölçüm yok ("
+          + sapmalar.length + ' kayıt). Üç noktadan az ortalama yanıltır.'
+        : 'Bu yıl ' + olculen + ' ödeme vadeye bağlandı, ' + sapmalar.length
+          + "'inde öngörü ölçüldü · ortalama sapma %"
+          + (sapmalar.reduce((a,b)=>a+b,0) / sapmalar.length).toFixed(1).replace('.', ',')
+          + ' (yönden bağımsız).';
+  }
+
   /* BL · Ozet'ten gelindiyse hedef vadeyi gorunur kil. Hedef daraltilmis
      listede yoksa ama var olan bir kayitsa "hepsini goster"e gecilir. */
   if (VADE_HEDEF){
@@ -7754,6 +8170,13 @@ async function vergiBelgeOku(){
          mevcut yol AYNEN calisir — fatura akisi degismedi. */
       const dk = vergiDekontCoz(c.metin);
       if (dk){ vergiDekontDoldur(dk, yaz); return; }
+      /* ⚠ SGK · TAHSILAT DEKONTU YOLU. GIB alindisi kalibindan SONRA
+         denenir: GIB okuyucusu once sinanirsa mevcut davranis bit bit
+         korunur (olculdu — SGK dekontunda kalem tablosu yok, GIB
+         okuyucusu zaten null donuyor, ikisi birbirine karismiyor).
+         Ikisi de tutmazsa asagidaki fatura yolu AYNEN calisir. */
+      const sg = sgkDekontCoz(c.metin);
+      if (sg){ sgkDekontDoldur(sg, yaz); return; }
       govde = { metin: c.metin };
     } else {
       const k = await fotoKucult(f, 2000, 0.92);
