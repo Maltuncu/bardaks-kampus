@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-2">
+<meta name="surum" content="borc-2026-08-27-3">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -976,13 +976,13 @@ function hataTrIc(m){
   /* v98 · sunucu gerekce sozlesmesi. Ham kodu kullaniciya GOSTERME. */
   if (/YETKI_YOK/i.test(s))     return 'Bu işlem için yetkiniz yok.';
   if (/GEREKCE_KISA/i.test(s))  return 'Gerekçe en az 10 karakter olmalı.';
-  if (/KAYIT_YOK/i.test(s))     return 'Kayıt bulunamadı ya da zaten arşivlenmiş.';
-  if (/TAKSIT_YOK/i.test(s))    return 'Taksit bulunamadı ya da kredi arşivlenmiş. Ekranı yenileyin.';
+  if (/KAYIT_YOK/i.test(s))     return 'Kayıt bulunamadı ya da zaten silinmiş.';
+  if (/TAKSIT_YOK/i.test(s))    return 'Taksit bulunamadı ya da kredi silinmiş. Ekranı yenileyin.';
   if (/NEDEN_ZORUNLU/i.test(s)) return 'Gerekçe zorunlu.';
   if (/ODEME_VAR/i.test(s)){
     const n = s.match(/ODEME_VAR\|(\d+)/i);
-    return n ? 'Bu kredide ' + n[1] + ' ödeme kaydı var. Ödemesi olan kredi arşivlenemez.'
-             : 'Ödemesi olan kredi arşivlenemez.';
+    return n ? 'Bu kredide ' + n[1] + ' ödeme kaydı var. Ödemesi olan kredi silinemez.'
+             : 'Ödemesi olan kredi silinemez.';
   }
   if (/FAZLA_ODEME/i.test(s)){
     const b = s.match(/BAKIYE=([\d.]+)/i), i = s.match(/ISTENEN=([\d.]+)/i);
@@ -991,7 +991,7 @@ function hataTrIc(m){
   }
   if (/SUBE_YOK/i.test(s)) return 'Profilin geçerli bir şubeye bağlı değil; ödeme kaydedilmedi.';
   if (/BORC_HESAP_UYUSMAZ/i.test(s)) return 'Seçilen borç bu hesaba ait değil.';
-  if (/BORC_PASIF_BAKIYE_EKSI/i.test(s)) return 'Bu borç arşivlenirse hesap bakiyesi eksiye düşer.';
+  if (/BORC_PASIF_BAKIYE_EKSI/i.test(s)) return 'Bu borç silinirse hesap bakiyesi eksiye düşer.';
   if (/HESAP_YOK/i.test(s)) return 'Borç hesabı bulunamadı veya pasif.';
   if (/kt_ayrim_chk/i.test(s))
     return 'Kırılım tutmuyor: anapara + faiz + vergi/masraf, taksit tutarına EŞİT olmalı.\n'
@@ -1009,15 +1009,15 @@ function hataTrIc(m){
   /* ⚠ ux_kart_donem KISMI tekil: ayni kartta ayni ay IKI KEZ acik olamaz.
      "Bu kayit zaten var" bu ekranda hicbir sey anlatmiyor — ne yapilacagi yaziliyor. */
   if (/ux_kart_donem/i.test(s))
-    return 'Bu kartta bu ay zaten girilmiş. Var olan satırı DÜZENLE, ya da önce onu arşivle.';
+    return 'Bu kartta bu ay zaten girilmiş. Var olan satırı DÜZENLE, ya da önce onu sil.';
   if (/kart_paylasan_kendi_chk/i.test(s)) return 'Bir kart kendi limitinden kullanamaz.';
   if (/kart_paylasan_limit_chk/i.test(s)) return 'Bir kart hem kendi limitini taşıyıp hem başka kartın limitinden kullanamaz.';
   if (/LIMIT_ZINCIRI/.test(s))        return 'Limit paylaşımı tek seviyedir: paylaşan bir kartın limitinden başka bir kart kullanamaz.';
-  if (/PAYLASILAN_KART_YOK/.test(s))  return 'Limitinden kullanılacak kart bulunamadı ya da arşivlenmiş.';
+  if (/PAYLASILAN_KART_YOK/.test(s))  return 'Limitinden kullanılacak kart bulunamadı ya da silinmiş.';
   if (/PAYLASAN_VAR/i.test(s)){
     const a = s.match(/PAYLASAN_VAR\|(\d+)/i);
     return (a ? a[1] + ' kart' : 'Başka bir kart') + ' bu kartın limitinden kullanıyor. '
-         + 'Önce o kartın paylaşımını kaldır, sonra arşivle.';
+         + 'Önce o kartın paylaşımını kaldır, sonra sil.';
   }
   if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
   /* ⚠ v116 · IKISI DE ODEME_VAR DALINDAN ONCE OLMAK ZORUNDA DEGIL —
@@ -1035,10 +1035,10 @@ function hataTrIc(m){
   if (/MADEN_ODEMELI/i.test(s)){
     const n = s.match(/MADEN_ODEMELI\|(\d+)/i);
     return n ? 'Bu maden borcunda ' + n[1] + ' ödeme kaydı var. '
-               + 'Ödemesi olan maden borcu arşivlenemez.'
-             : 'Ödemesi olan maden borcu arşivlenemez.';
+               + 'Ödemesi olan maden borcu silinemez.'
+             : 'Ödemesi olan maden borcu silinemez.';
   }
-  if (/MADEN_YOK/i.test(s))       return 'Maden borcu bulunamadı ya da arşivlenmiş.';
+  if (/MADEN_YOK/i.test(s))       return 'Maden borcu bulunamadı ya da silinmiş.';
   if (/GRAM_GECERSIZ/i.test(s))   return 'Gram sıfırdan büyük olmalı.';
   if (/FIYAT_GECERSIZ/i.test(s))  return 'Gram fiyatı sıfırdan büyük olmalı.';
   /* v112 · cek. ⚠ ux_cek_no ve cek_odendi_chk asagidaki genel `_chk`
@@ -1976,7 +1976,6 @@ function bantCiz(v){
       if (f && (enEski === null || f.tarih < enEski)) enEski = f.tarih; }
     return enEski === null ? null : gunFarki(bugun(), enEski);
   })();
-  const yuz = (x) => toplamOde ? (x / toplamOde * 100) : 0;
   const kir = [
     { ad: 'Krediler (faiz dahil)', t: krediNominal },
     { ad: 'Altın / gümüş (rayiç)', t: v.madenBugun, maden: true },
@@ -1984,11 +1983,33 @@ function bantCiz(v){
     { ad: 'Kartlar', t: kartToplam },
     { ad: 'Çekler', t: v.cekToplam }
   ].filter(x => x.t > 0).sort((a, c) => c.t - a.t);
-  for (const x of kir){
+  /* ⚠ YUZDELER ARTIK 100 EDIYOR · EN BUYUK KALAN YONTEMI.
+     OLCULEN KUSUR: her satir kendi basina Math.round ediliyordu ve
+     gosterilen yuzdeler 99 ya da 101 cikabiliyordu — ekranin
+     kendisi "topla" demeyi teklif ederken toplami tutmayan bir
+     dagilim gostermek, sahibine sayilarin guvenilmez oldugunu
+     soyler.
+     Yontem: once hepsi asagi yuvarlanir, artan puanlar en buyuk
+     ondalik kalana sahip satirlara BIRER BIRER dagitilir. Toplam
+     tanim geregi 100.
+     ⚠ Paydanin NE OLDUGU zaten ekranda: bu bes satirin ustundeki
+       "Toplam ödeyeceğim" basligi. Ayri bir payda cumlesi (serit
+       dibindeki) MUKERRERDI, kaldirildi. */
+  const payYuzde = (() => {
+    if (!toplamOde) return kir.map(() => 0);
+    const ham = kir.map(x => x.t / toplamOde * 100);
+    const taban = ham.map(Math.floor);
+    let artan = 100 - taban.reduce((a,b) => a+b, 0);
+    const sira = ham.map((h,i) => [h - Math.floor(h), i])
+      .sort((a,b) => b[0] - a[0]);
+    for (const [,i] of sira){ if (artan <= 0) break; taban[i]++; artan--; }
+    return taban;
+  })();
+  kir.forEach((x, i) => {
     const sr0 = el('div','sr');
     sr0.appendChild(el('b', null, x.ad + ' '));
     sr0.appendChild(el('b', null, tk(x.t)));
-    sr0.appendChild(document.createTextNode('  %' + Math.round(yuz(x.t))));
+    sr0.appendChild(document.createTextNode('  %' + payYuzde[i]));
     if (x.maden && yasGun !== null){
       sr0.appendChild(document.createTextNode(' · '));
       /* ⚠ Fiyat ESKIYSE toplam yaniltir ve kullanici bilmiyordu. 7+ gun
@@ -1997,7 +2018,7 @@ function bantCiz(v){
         'fiyat ' + (yasGun === 0 ? 'bugün' : yasGun + ' gün önce')));
     }
     k0.appendChild(sr0);
-  }
+  });
   /* ⚠ ESKI "Cekler sistemde kayitli degil" UYARISI KALDIRILDI (v112).
      Cekler artik kendi tablosunda ve YUKARIDAKI kirilimda; uyarinin isi
      bitti. Yerine hicbir sey konmadi — ozet eklenirken ozetlenen blok
@@ -2021,6 +2042,16 @@ function bantCiz(v){
   k0.appendChild(el('div','kirilim','doğmamış faizi ödemezdim'));
   const ts = el('div','sr');
   ts.appendChild(el('span','tasarruf','Erken kapatma tasarrufu ' + tlk(tasarruf)));
+  /* ⚠ Katman 3'ten TASINDI: tasarrufun sahis/Ltd ayrimi ve kirilimsiz
+     taksitler. Rakam tekrar EDILMIYOR — tasarruf zaten yukarida, burada
+     yalniz ICINDEN kimin ne kadari oldugu yaziliyor ve ancak Ltd'nin
+     payi varsa (0 ise satiri kirletmez, eski davranis). */
+  if (v.L.faizMasraf)
+    ts.appendChild(el('span','kirilim', ' · şahıs ' + tk(v.S.faizMasraf)
+      + ' · Ltd ' + tk(v.L.faizMasraf) + ' (ayrı tüzel kişilik)'));
+  if (v.S.kirilimsizAdet)
+    ts.appendChild(el('span','kirilim', ' · kırılımsız ' + v.S.kirilimsizAdet
+      + ' taksit ' + tk(v.S.kirilimsiz) + ' — faiz ayrımı yok, tasarrufa girmedi'));
   k0.appendChild(ts);
   /* IC TUTARLILIK · tasarruf, gelecek faiz+masraf toplamina esit OLMALI */
   if (tasarruf !== v.S.faizMasraf + v.L.faizMasraf)
@@ -2124,12 +2155,15 @@ function bantCiz(v){
 
   /* Maden ve kisilere olan sahis borcu SAHIBIN yukumlulugu — Ltd'nin degil. */
   if (v.maden.kayitlar.length){
-    satir(k1, 'Maden rayiç ',
-      { v: v.madenBugun ? tk(v.madenBugun) : 'hesaplanamaz' },
-      v.fiyatiYok.length ? ' (' + v.fiyatiYok.join(', ') + ' hariç)' : null,
-      ' · kur farkı ',
+    /* ⚠ RAYIC TUTARI BURADAN KALDIRILDI · MUKERRERDI: ayni sayi katman
+       0'daki "Altın / gümüş (rayiç)" satirinda yuzdesiyle birlikte
+       duruyor. Bu satirin OZGUN tasidigi sey KUR FARKI — o kaliyor.
+       "hesaplanamaz" hali da korunuyor: fiyati olmayan tur varsa
+       parantez notu yine yaziliyor, cunku farkin kapsamini o belirtir. */
+    satir(k1, 'Maden kur farkı ',
       { v: v.farkKurus === null ? 'hesaplanamaz'
-           : (v.farkKurus >= 0 ? '+' : '−') + tk(Math.abs(v.farkKurus)), s: 'fark' });
+           : (v.farkKurus >= 0 ? '+' : '−') + tk(Math.abs(v.farkKurus)), s: 'fark' },
+      v.fiyatiYok.length ? ' (' + v.fiyatiYok.join(', ') + ' fiyatı yok, hariç)' : null);
     /* ⚠ KAVRAM UYARISI · tez: "maden deger artisi YATIRIM KAZANCI
        DEGILDIR; borc yukundeki rayic degisimidir." Rakam DEGISMIYOR,
        yanina ne oldugu yaziliyor. */
@@ -2147,27 +2181,22 @@ function bantCiz(v){
      "Ltd seride girmez" kurali da degisti: serit artik TOPLAMIN
      (sahis+Ltd, faiz dahil) dagilimi; kimin oldugu K0'da yazili. */
 
-  /* ---- KATMAN 3 · ILERI DONEM YUKU ---- */
-  const k3 = katman('İleri dönem yükü', 'şahıs + Ltd');
-  /* ⚠ M1 · buraya TASINDI. Nominal taksit ile faiz+masraf ikisi de
-     gelecege ait — YAN YANA dururlar ama TOPLANMAZLAR: biri odenecek
-     taksitin nominali, digeri o taksitler icinde dogacak faiz/masraf.
-     Ayri satir, ayri etiket, toplam YOK. */
-  /* ⚠ BH · KULLANICI YAKALADI: baslik "şahıs + Ltd" derken satir YALNIZ
-     v.S.faizMasraf basiyordu — Ltd'nin gelecek faizi (30.817,30) ekranda
-     HICBIR YERDE gorunmuyordu. Iki rakam AYRI yazilir, TOPLANMAZ (ayri
-     tuzel kisilik); Ltd 0 ise satiri kirletmez. */
-  satir(k3, 'Gelecek faiz+masraf · şahıs ', { v: tk(v.S.faizMasraf) },
-    v.L.faizMasraf ? ' · Ltd ' : null,
-    v.L.faizMasraf ? { v: tk(v.L.faizMasraf) } : null,
-    v.S.kirilimsizAdet ? ' · kırılımsız (' + v.S.kirilimsizAdet + ') ' : null,
-    v.S.kirilimsizAdet ? { v: tk(v.S.kirilimsiz) } : null);
-  const dip = el('div','dip');
-  dip.appendChild(document.createTextNode('Taksit nominali '));
-  dip.appendChild(el('b', null, tlk(v.krediParcaToplam)));
-  dip.appendChild(document.createTextNode(' (şahıs+Ltd)'
-    + (v.kartDonemsiz ? ' · ' + v.kartDonemsiz + ' kartın dönemi yok' : '')));
-  k3.appendChild(dip);
+  /* ---- KATMAN 3 KALDIRILDI · IKI SATIRI DA MUKERRERDI ----
+     ⚠ OLCULDU (28.08, 375px):
+       "Taksit nominali 2.500.000,00" = KATMAN 0'daki "Krediler (faiz
+         dahil) 2.500.000,00" ile AYNI SAYI, AYNI KAPSAM. Ikisi bir gun
+         ayrisirsa hangisinin dogru oldugu belli olmaz.
+       "Gelecek faiz+masraf · şahıs 220.000,00" = katman 0'daki "Erken
+         kapatma tasarrufu 220.000,00" ile ayni sayi. Tesaduf degil:
+         dosyanin kendi ic tutarlilik kontrolu tasarruf === S.faizMasraf
+         + L.faizMasraf esitligini ZORUNLU tutuyor (asagida duruyor).
+     ⚠ KAYBOLAN BILGI YOK: Ltd'nin gelecek faizi ve kirilimsiz taksitler
+       tasarruf satirina TASINDI (asagida), "kartin donemi yok" uyarisi
+       katman 2'ye tasindi. Ozet eklenirken ozetlenen blok AYNI TURDA
+       kalkar; burada tersi yapildi — mukerrer blok kalkti, tasidigi
+       ozgun parcalar kalan satirlara girdi. */
+  if (v.kartDonemsiz)
+    satir(k2, v.kartDonemsiz + ' kartın dönemi girilmemiş — bu aya girmedi');
 
   /* Ic tutarlilik: her blokta kirilim toplami nominale ESIT olmali */
   const bozuk = [];
@@ -2178,10 +2207,23 @@ function bantCiz(v){
   if (bozuk.length)
     b.appendChild(el('div','uyari-agir', 'Kırılım toplamı tutmuyor — ' + bozuk.join(' · ')));
 
-  /* Serit EN ALTTA: once rakamlar, sonra dagilim. Dagilimi once koymak
-     "toplam borc" izlenimi verirdi — 2b turunda kaldirdigimiz sey. */
-  const serit = seritCiz(v);
-  if (serit) b.appendChild(serit);
+  /* ⚠ DAGILIM SERIDI KALDIRILDI · TAMAMEN MUKERRERDI.
+     OLCULDU (28.08, 375px) — serit + efsane + payda satiri, hemen
+     USTUNDEKI bes kirilim satirinin gorsel tekrariydi:
+       katman 0 : Krediler 2.500.000,00 %59 · Altın/gümüş 825.000,00 %19
+                  · Şahıslar 450.000,00 %11 · Kartlar 398.095,26 %9
+                  · Çekler 85.000,00 %2
+       serit    : Kredi %59 · Şahıs %11 · Maden %19 · Kart %9 · Çek %2
+       payda    : "Yüzdeler 4.258.095,26 TL üzerinden" — bu rakam da
+                  katman 0'in basligindaki "Toplam ödeyeceğim" ile AYNI.
+     Ayni bes sayi, ayni bes yuzde, ayni payda; ikinci kez cizilmesi
+     ekranin en pahali blogu.
+     ⚠ seritCiz() SILINMEDI, yalniz CAGRILMIYOR: fonksiyon yerinde
+       duruyor. Silmek bu turun isi degil; gerekirse tek satirla geri
+       gelir ve bu yorum niye kaldirildigini soyler.
+     ⚠ KAYBOLAN BILGI: seridin dibindeki "kart: veri girilmedi" notu.
+       Ayni uyari katman 2'ye "kartın dönemi girilmemiş" olarak zaten
+       tasindi (yukarida) — bilgi ekranda duruyor. */
   return b;
 }
 
@@ -3083,22 +3125,30 @@ function digerMenu(ogeler){
 }
 
 /* ===== P0-A1 · GUVENLI PASIFE ALMA (prompt() YOK) =====
-   ⚠ "SIL" DEGIL "PASIFE AL": islem soft-delete (is_deleted=true).
-   Satir fiziksel olarak silinmiyor, audit_log'da old_data/new_data ile
-   duruyor. "Silinecek" demek kullaniciya yalan soylemekti.
+   ⚠ SOZCUK 28.08.2026'da "ARSIVLE"DEN "SIL"E DONDU. Onceki gerekce
+   "silinecek demek yalan olurdu" idi; olculdu ki asil yanilticilik
+   OTEKI TARAFTAYDI: sistemde arsiv diye bir yer YOK — hicbir ekranda
+   arsivlenmisler listesi acilmiyor, geri getirme yolu yok. "Arsivle"
+   olmayan bir ozelligi vaat ediyordu. MEKANIK DEGISMEDI: islem hala
+   soft-delete (is_deleted=true), satir fiziksel silinmiyor, audit_log'da
+   old_data/new_data ile duruyor; kullaniciya bunu asagidaki PM_ETKI
+   metni soyluyor ("denetim amaciyla sistemde korunacaktir").
    Gerekce `silme_nedeni` SUTUNU oldugu icin new_data ile audit'e dusuyor.
    ⚠ Bu kapi ARAYUZ kapisidir; sunucuda gerekce hala ZORUNLU DEGIL (P0-A2). */
 const PM_ETKI = 'Bu kayıt aktif listelerden kaldırılacak ve ilgili aktif toplamların '
   + 'dışında tutulacaktır. Kayıt denetim amacıyla sistemde korunacaktır.';
-const PM_TOKEN = 'ARŞİV';
+const PM_TOKEN = 'SİL';
 /* Turkce noktali/noktasiz I: kullanici hangisini yazarsa yazsin kabul. */
 const pmNorm = s => (s||'').trim().toLocaleUpperCase('tr').replace(/İ/g,'I');
-/* ⚠ 'ş'SIZ YAZIM DA KABUL. pmNorm yalniz I/İ'yi esitler; 'arsiv' -> 'ARSIV'
-   ile 'arşiv' -> 'ARŞIV' AYRI kalir ve Turkce klavyesi olmayan bir cihazda
-   kullanici kapiya takilirdi. pmNorm'a DOKUNULMUYOR (kredi/maden/sahis
-   hepsinde ortak); kabul edilen yazimlar listeyle cozuluyor. Kasitli
-   yazma kapisi zayiflamiyor: iki yazim da bilincli yazmayi gerektiriyor. */
-const PM_KABUL = ['ARŞİV','ARSIV'].map(pmNorm);
+/* ⚠ NOKTASIZ YAZIM DA KABUL. pmNorm I/İ'yi esitliyor: 'sil' Turkce
+   buyuk harfte 'SİL' olur, sonra İ->I ile 'SIL'e duser; 'sıl' zaten
+   'SIL'. Yani her iki yazim da AYNI jetona iner ve Turkce klavyesi
+   olmayan cihazda kullanici kapiya takilmaz. Liste yine de acik
+   yaziliyor — davranis kod okunurken gorunsun.
+   pmNorm'a DOKUNULMUYOR (kredi/maden/sahis/kart/cek hepsinde ortak).
+   Kasitli yazma kapisi zayiflamiyor: iki yazim da bilincli yazmayi
+   gerektiriyor. */
+const PM_KABUL = ['SİL','SIL'].map(pmNorm);
 
 function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   let n = 0; const kimlik = (e) => (e.id = 'pm' + (++n));
@@ -3106,7 +3156,7 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   d.setAttribute('aria-modal','true');
   const bas = el('div','pm-bas'); kimlik(bas);
   bas.appendChild(el('span','pm-ikon','⚠'));        // renk TEK BASINA tehlike degil
-  bas.appendChild(document.createTextNode(' ' + tur + ' arşivlenecek'));
+  bas.appendChild(document.createTextNode(' ' + tur + ' silinecek'));
   d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
   d.appendChild(el('div','pm-ad', ad));
   if (kim)   d.appendChild(el('div','pm-kim', kim));
@@ -3126,7 +3176,7 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
   const [dg, dgH] = alan('Onaylamak için "' + PM_TOKEN + '" yazın', 'input');
 
   const ey = el('div','pm-ey');
-  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn-kirmizi','Arşive kaldır');
+  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn-kirmizi','Sil');
   vaz.type = ona.type = 'button'; ona.disabled = true;
   ey.appendChild(vaz); ey.appendChild(ona);          // Vazgec SOLDA
   const hataK = el('div','uyari-agir'); hataK.hidden = true; kimlik(hataK);
@@ -3235,7 +3285,7 @@ function pasifeAlAc(acan, { tur, ad, kim, tutar, uygula }){
     finally {
       isleniyor = false;
       vaz.disabled = ta.disabled = dg.disabled = false;
-      ona.textContent = 'Arşive kaldır';
+      ona.textContent = 'Sil';
       denetle();                       // onay dugmesinin DOGRU durumu geri gelir
     }
     if (s && s.ok){ kapat(s.uyari); return; }
@@ -3260,7 +3310,7 @@ async function pasifeAlUygula(mutasyon, tazele, tabloAdi){
   /* Buraya gelindiyse kayit ZATEN pasife alinmistir. */
   try { await tazele(); }
   catch(e){ console.error('P0-A1 tazeleme ' + tabloAdi, e);
-            return { ok:true, uyari:'Kayıt arşivlendi. Liste tazelenemedi — sayfayı yenileyin.' }; }
+            return { ok:true, uyari:'Kayıt silindi. Liste tazelenemedi — sayfayı yenileyin.' }; }
   return { ok:true };
 }
 
@@ -3271,7 +3321,7 @@ async function krediSil(kredi, acan){
          Kural sunucuda: gerekce >=10 karakter, odeme varsa RED, taksitler de pasif. */
       () => sb.rpc('rpc_kredi_pasife_al',{p_kredi:kredi.id,p_neden:neden}),
       /* FAZ 2 · tazeleme. Buradaki hata mutation hatasi DEGIL. */
-      async () => { await ekranAc('krediler'); mesaj('krediMsg','ok','Kredi arşivlendi.'); },
+      async () => { await ekranAc('krediler'); mesaj('krediMsg','ok','Kredi silindi.'); },
       'kredi')});
 }
 
@@ -3317,7 +3367,7 @@ async function taksitEkraniAc(krediId){
         ? 'girilmemiş' : String(kredi.faiz_orani).replace('.',',') + ' %');
     if (kredi.tur !== 'ticari')
       bas.appendChild(el('div','bilgi', turAdi(kredi.tur) + ' — bu kredinin hiçbir kalemi gidere yazılmaz.'));
-    bas.appendChild(digerMenu([['Krediyi arşivle', (a) => krediSil(kredi, a)]]));
+    bas.appendChild(digerMenu([['Krediyi sil', (a) => krediSil(kredi, a)]]));
     c.appendChild(bas);
 
     const msg = el('div','msg'); msg.id = 'taksitMsg'; c.appendChild(msg);
@@ -4904,7 +4954,12 @@ function ozetCiz(v, ekran, ek){
     /* ⚠ CI · 'kalan alan' SERITTEN KALDIRILDI: ayni bilgi artik ust
        ozet kartinda ("kullanilabilir") gorunur duruyor — ekran
        birikmesi kurali, ayni rakam iki yerde durmaz. */
-    parca.push(['Kart', tk(v.kartKalan)], ['bu ay', tk(v.buAyKart.toplam)]);
+    /* ⚠ 'Kart' PARCASI KALDIRILDI · MUKERRERDI: ayni rakam hemen
+       ALTTAKI "Kartlar özeti" kartinin BUYUK RAKAMI (cek-buyuk).
+       Iki oge yan yana ayni sayiyi yaziyordu. 'bu ay' KALIYOR —
+       ozet kartindaki "Bu ay ödediğim" BASKA bir sey (odenen),
+       buradaki bu ay ODENECEK olan. */
+    parca.push(['bu ay', tk(v.buAyKart.toplam)]);
   } else if (ekran === 'maden'){
     parca.push(['Rayiç', v.madenBugun ? tk(v.madenBugun) : 'hesaplanamaz'],
                ['maliyet', v.madenAlis ? tk(v.madenAlis) : 'hesaplanamaz']);
@@ -5000,7 +5055,7 @@ function kartKutusu(v, kart, buAy, liste){
     + ' · ' + (kart.son_odeme_gunu ? 'ödeme ' + kart.son_odeme_gunu : 'ödeme —')));
   /* ⚠ ⋯ menusu kutunun ICINDE ama kutu tiklamasini TETIKLEMEZ. */
   const dm = digerMenu([['Kartı düzenle', () => vKartlar(kart.id)],
-                        ['Kartı arşivle', (a) => kartSil(kart, liste, a)]]);
+                        ['Kartı sil', (a) => kartSil(kart, liste, a)]]);
   dm.addEventListener('click', (e) => e.stopPropagation());
   sag.appendChild(dm);
   ust.appendChild(sag);
@@ -5309,8 +5364,40 @@ async function vKartlar(duzKartId){
   c.appendChild(k);
   const duzKart = duzKartId ? v.kart.kartlar.find(x => x.id === duzKartId) : null;
   const kf = kartFormu(duzKart, v.kart.kartlar);
-  c.appendChild(kf);
-  if (duzKart) kf.scrollIntoView({ block: 'start' });
+  /* ⚠ FORM KATLANIR · OLCULDU: "Yeni kart" formu 626px, ekranin 2023
+     pikselinin neredeyse ucte biri, ve HER acilista aciktı. Kart YILDA
+     bir eklenir, kart borcu HER GUN okunur; sik yapilan isin onunde
+     duran bir form, ekranin en pahali susu.
+     ⚠ DESEN ICAT EDILMEDI: ozetCiz'in serit-ozet kalibi (buton + hidden
+       div + aria-expanded + ▾/▴, icerik ilk acilista baglanir).
+     ⚠ DUZELTME AKISI BOZULMAZ: duzKartId ile gelindiyse form ACIK
+       baslar ve scrollIntoView eskisi gibi calisir — kullanici
+       "Düzenle"ye basip kapali bir form bulmaz. */
+  if (duzKart){
+    c.appendChild(kf);
+    kf.scrollIntoView({ block: 'start' });
+  } else {
+    const ac = el('button','serit-ozet'); ac.type = 'button';
+    ac.setAttribute('aria-expanded','false');
+    const p = el('span','so-p');
+    p.appendChild(el('span','so-et','yeni kart'));
+    p.appendChild(el('span','so-dg','ekle'));
+    ac.appendChild(p);
+    const okI = el('span','so-ok','▾'); ac.appendChild(okI);
+    ac.setAttribute('aria-label','Yeni kart ekleme formunu aç');
+    c.appendChild(ac);
+    const kutu = el('div'); kutu.hidden = true; c.appendChild(kutu);
+    ac.onclick = () => {
+      if (kutu.hidden){
+        if (!kutu.firstChild) kutu.appendChild(kf);
+        kutu.hidden = false; okI.textContent = '▴';
+        ac.setAttribute('aria-expanded','true');
+      } else {
+        kutu.hidden = true; okI.textContent = '▾';
+        ac.setAttribute('aria-expanded','false');
+      }
+    };
+  }
 }
 
 function kartFormu(duz, kartlar){
@@ -5471,11 +5558,11 @@ async function kartKaydet(duz, kartlar){
 /* AV · kart arsivleme — kredi/maden arsivlemesiyle AYNI mekanik. */
 async function kartSil(kart, liste, acan){
   pasifeAlAc(acan, { tur:'Kart', ad: kart.ad + (kart.banka ? ' · ' + kart.banka : ''),
-    kim: liste.length + ' dönem kaydıyla birlikte arşivlenecek',
+    kim: liste.length + ' dönem kaydıyla birlikte silinecek',
     tutar: liste.length ? tl(liste[0].kalan) : null,
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_kart_pasife_al',{p_kart:kart.id,p_neden:neden}),
-      async () => { await ekranAc('kartlar'); mesaj('kartMsg','ok','Kart ve dönemleri arşivlendi.'); },
+      async () => { await ekranAc('kartlar'); mesaj('kartMsg','ok','Kart ve dönemleri silindi.'); },
       'kart')});
 }
 
@@ -5515,7 +5602,7 @@ async function kartDetayAc(kartId, duzenlenenId){
          tarafindaki "tek odeme varsa arsivlenemez" kurali BURAYA
          KOPYALANMADI — kartta her donem bir ekstredir, o kural
          ekstresi olan hicbir karti arsivlenemez yapardi. */
-    bas.appendChild(digerMenu([['Kartı arşivle', (a) => kartSil(kart, liste, a)]]));
+    bas.appendChild(digerMenu([['Kartı sil', (a) => kartSil(kart, liste, a)]]));
     if (liste.length) sat('Son kalan', tl(liste[0].kalan) + ' (' + liste[0].donem + ')');
     c.appendChild(bas);
 
@@ -5584,7 +5671,7 @@ async function kartDetayAc(kartId, duzenlenenId){
         const bd = el('button','btn-mini','Düzenle');
         bd.onclick = () => kartDetayAc(kartId, d.donem_id);
         ey.appendChild(bd);
-        const ba = el('button','btn-mini','Arşivle');
+        const ba = el('button','btn-mini','Sil');
         ba.onclick = () => donemSil(kart, d, ba);
         ey.appendChild(ba);
         tr.appendChild(ey);
@@ -5933,7 +6020,7 @@ function donemSil(kart, d, acan){
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_kart_donem_pasife_al',{p_donem:d.donem_id,p_neden:neden}),
       async () => { await kartDetayAc(kart.id); mesaj('kartMsg','ok',
-        d.donem + ' arşivlendi. Aynı ay yeniden girilebilir.'); },
+        d.donem + ' silindi. Aynı ay yeniden girilebilir.'); },
       'kart_donem')});
 }
 
@@ -6240,7 +6327,7 @@ async function madenDetayAc(madenId, sessiz){
     const bf = el('button','btn2','Gram fiyatı gir');
     bf.onclick = async () => { MADEN_DETAY = null; await ekranAc('maden'); madenFiyatFormunaGit(m.tur); };
     ey.appendChild(bf);
-    ey.appendChild(digerMenu([['Maden borcunu arşivle',
+    ey.appendChild(digerMenu([['Maden borcunu sil',
       (a) => madenSil(m, a, d.bugunKurus === null ? null : tlk(d.bugunKurus))]]));
     bas.appendChild(ey);
     c.appendChild(bas);
@@ -6584,7 +6671,7 @@ async function madenSil(m, acan, deger){
     kim: m.saflik ? 'saflık ' + m.saflik : null, tutar: deger || null,
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_maden_pasife_al',{p_maden:m.id,p_neden:neden}),
-      async () => { await madenTazele(); mesaj('madenMsg','ok','Maden borcu arşivlendi.'); },
+      async () => { await madenTazele(); mesaj('madenMsg','ok','Maden borcu silindi.'); },
       'maden')});
 }
 
@@ -6762,7 +6849,7 @@ async function sahisDetayAc(hesapId, sessiz){
           if (!iptalKaydi && !iptalEdildi)
             ey.appendChild(digerMenu([['Ödemeyi iptal et', (a) => sahisOdemeIptalAc(x, a)]]));
         } else {
-          ey.appendChild(digerMenu([['Borç hareketini arşivle',(a) => sahisBorcSil(x,a)]]));
+          ey.appendChild(digerMenu([['Borç hareketini sil',(a) => sahisBorcSil(x,a)]]));
         }
         tr.appendChild(ey);
         t.appendChild(tr);
@@ -7079,7 +7166,7 @@ async function sahisBorcSil(borc, acan){
     tutar: tl(borc.tutar),
     uygula: (neden) => pasifeAlUygula(
       () => sb.rpc('rpc_sahis_borc_pasife_al',{p_borc:borc.id,p_neden:neden}),
-      async () => { await sahisTazele(); mesaj('sahisMsg','ok','Borç hareketi arşivlendi.'); },
+      async () => { await sahisTazele(); mesaj('sahisMsg','ok','Borç hareketi silindi.'); },
       'sahis_borc')});
 }
 
@@ -7405,11 +7492,11 @@ async function cekDetayAc(cekId, sessiz){
       const bk = el('button','btn2','Karşılıksız');
       bk.onclick = () => cekKarsiliksiz(x);
       ey.appendChild(bk);
-      ey.appendChild(digerMenu([['Çeği arşivle', (a) => cekSil(x, a)]]));
+      ey.appendChild(digerMenu([['Çeği sil', (a) => cekSil(x, a)]]));
       bas.appendChild(ey);
     } else {
       const ey = el('div','tk-eylem');
-      ey.appendChild(digerMenu([['Çeği arşivle', (a) => cekSil(x, a)]]));
+      ey.appendChild(digerMenu([['Çeği sil', (a) => cekSil(x, a)]]));
       bas.appendChild(ey);
     }
     c.appendChild(bas);
@@ -7476,7 +7563,7 @@ async function cekSil(x, acan){
     kim: x.kime, tutar: tlk(kr(x.tutar)),
     uygula: (neden) => pasifeAlUygula(
       () => sb.from('cek').update({ is_deleted:true, silme_nedeni:neden }).eq('id', x.id),
-      async () => { CEK_DETAY = null; await ekranAc('cek'); mesaj('cekMsg','ok','Çek arşivlendi.'); },
+      async () => { CEK_DETAY = null; await ekranAc('cek'); mesaj('cekMsg','ok','Çek silindi.'); },
       'cek')});
 }
 
