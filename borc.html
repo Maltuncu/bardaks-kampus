@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-1">
+<meta name="surum" content="borc-2026-08-27-2">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1389,16 +1389,42 @@ const turSinif = t => 'rozet ' + (t==='ticari' ? 'rz-ticari' : t==='sahis' ? 'rz
    Dekont eksigi ODEME BAZINDA (dekontsuz_odeme), taksit bazinda degil. */
 function krediOzet(taksitler){
   let kalanKurus=0, kalanAdet=0, sonrakiVade=null, gecmis=0, dekontEksik=0, kismi=0;
+  /* ⚠ EKLENENLER · ekranin cevaplamasi gereken soru "sirada ne var, ne
+     kadar, ne zaman". Bugun bu bilgi listede kayboluyordu.
+       anaparaKurus   : KALAN ANAPARA — nominal DEGIL. Ikisi ayri sey:
+                        nominal gelecek faizi de tasir, anapara "bugun
+                        kapatsam ne oderim"in cevabidir.
+       kirilimsizAdet : anapara/faiz kirilimi GIRILMEMIS taksit sayisi.
+                        Bunlar anaparaya KATILMAZ, uydurulmaz — kac tane
+                        oldugu ekranda YAZILIR (bantVerisi'nin kalibi).
+       sonraki        : en yakin vadeli ODENMEMIS taksitin KENDISI.
+                        Gecikmis varsa SIRADAKI ODUR — "gelecekteki ilk
+                        taksit" demek, geciken borcu sirada saymamak olurdu.
+       odenenAdet     : kapali taksit sayisi (detayda katlanan kisim). */
+  let anaparaKurus=0, kirilimsizAdet=0, odenenAdet=0, sonraki=null;
   const b = bugun();
   for (const t of taksitler){
     dekontEksik += Number(t.dekontsuz_odeme) || 0;
-    if (t.durum === 'kapali') continue;
+    if (t.durum === 'kapali'){ odenenAdet++; continue; }
     kalanKurus += kr(t.kalan); kalanAdet++;
+    if (t.anapara_tutar === null || t.anapara_tutar === undefined) kirilimsizAdet++;
+    else anaparaKurus += kr(t.anapara_tutar) - kr(t.anapara_odenen || 0);
     if (t.durum === 'kismi') kismi++;
     if (t.vade_tarihi < b) gecmis++;
-    if (!sonrakiVade || t.vade_tarihi < sonrakiVade) sonrakiVade = t.vade_tarihi;
+    if (!sonrakiVade || t.vade_tarihi < sonrakiVade){ sonrakiVade = t.vade_tarihi; sonraki = t; }
   }
-  return { kalanKurus, kalanAdet, sonrakiVade, gecmis, dekontEksik, kismi };
+  return { kalanKurus, kalanAdet, sonrakiVade, gecmis, dekontEksik, kismi,
+           anaparaKurus, kirilimsizAdet, odenenAdet, sonraki,
+           toplamAdet: taksitler.length };
+}
+/* Sıradaki taksitin tek satirlik ozeti — liste ve detay AYNI cumleyi
+   kursun diye tek yerde. Gecikmisse gun sayisi GECTI olarak yazilir. */
+function sonrakiTaksitMetni(t, b){
+  if (!t) return null;
+  const gec = t.vade_tarihi < b;
+  const gun = gec ? gunFarki(b, t.vade_tarihi) : gunFarki(t.vade_tarihi, b);
+  return { tarih: trGun(t.vade_tarihi), tutar: tl(t.kalan), gecikti: gec,
+    gun, gunMetni: gec ? gun + ' gün geçti' : gun === 0 ? 'bugün' : gun + ' gün kaldı' };
 }
 /* Verilen tarihte GECERLI fiyat: o tarihten SONRAKI fiyatlar sayilmaz. */
 function fiyatAsOf(fiyatlar, tur, tarih){
@@ -2871,15 +2897,40 @@ async function vKrediler(){
     ad.appendChild(document.createTextNode(' '));
     ad.appendChild(el('span', turSinif(kredi.tur), turKisa(kredi.tur)));
     ust.appendChild(ad);
-    ust.appendChild(el('div','tk-tutar', tlk(o.kalanKurus)));
+    /* ⚠ BUYUK RAKAM ARTIK KALAN ANAPARA — nominal degil. "Bugun kapatsam
+       ne oderim"in cevabi anaparadir; nominal gelecek faizi de tasir.
+       ⚠ KIRILIM YOKSA ANAPARA YAZILMAZ: uydurmak yerine nominal yazilir
+         ve HANGISI oldugu alt satirda ACIKCA soylenir (Ltd kredilerinin
+         cogunda kirilim girilmemis — olculdu, bantVerisi ayni sebeple
+         Ltd'yi nominal gosteriyor). */
+    const anaparaVar = o.kalanAdet > 0 && o.kirilimsizAdet === 0;
+    ust.appendChild(el('div','tk-tutar', anaparaVar ? tlk(o.anaparaKurus) : tlk(o.kalanKurus)));
     k.appendChild(kart);
     kart.appendChild(ust);
 
-    const alt = el('div','tk-orta');
-    alt.textContent = (o.kalanAdet ? o.kalanAdet + ' taksit kaldı' : 'tüm taksitler ödendi')
-      + (o.sonrakiVade ? ' · sonraki vade ' + trGun(o.sonrakiVade) : '')
-      + ' · girilen ' + (grup.get(kredi.id) || []).length + '/' + kredi.taksit_sayisi;
-    kart.appendChild(alt);
+    kart.appendChild(el('div','tk-orta',
+      o.kalanAdet === 0 ? 'tüm taksitler ödendi'
+      : anaparaVar ? 'kalan anapara · nominal ' + tlk(o.kalanKurus)
+      : 'kalan (kırılım girilmemiş, anapara hesaplanamıyor)'));
+
+    /* ⚠ SIRADAKI TAKSIT · listenin en cok arananinin cevabi. Eskiden
+       yalniz "sonraki vade 05.07.2026" yaziyordu; TUTARI ve KAC GUN
+       KALDIGI yoktu, yani "ne kadar, ne zaman" sorusu ekranda
+       cevapsizdi. */
+    const s = sonrakiTaksitMetni(o.sonraki, bugun());
+    if (s){
+      const sr = el('div','tk-orta');
+      sr.appendChild(el('span','et','SIRADAKİ '));
+      sr.appendChild(el('span', null, s.tarih + ' · ' + s.tutar + ' · '));
+      sr.appendChild(el('span', s.gecikti ? 'rozet rz-eksik' : null, s.gunMetni));
+      kart.appendChild(sr);
+    }
+    kart.appendChild(el('div','tk-orta',
+      (o.kalanAdet ? o.kalanAdet + ' taksit kaldı' : 'tüm taksitler ödendi')
+      + ' · girilen ' + (grup.get(kredi.id) || []).length + '/' + kredi.taksit_sayisi));
+
+    /* ⚠ ROZET YALNIZ IS VARSA. Gecikme yoksa "0 gecikmis" gibi bir
+       satir da CIKMAZ — bos rozet gurultu, is yokken uyari yanlis alarm. */
     if (o.gecmis || o.dekontEksik){
       const r = el('div'); r.style.marginTop = '6px';
       if (o.gecmis) r.appendChild(el('span','rozet rz-eksik', o.gecmis + ' GECİKMİŞ'));
@@ -3250,24 +3301,109 @@ async function taksitEkraniAc(krediId){
     bas.appendChild(bl);
     const sat = (e2,d) => { const s = el('div','satir');
       s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d)); bas.appendChild(s); };
-    sat('Anapara', tl(kredi.anapara));
+    /* ⚠ UST BLOK · sirasi degisti: once KALAN ANAPARA (bugun kapatsam ne
+       oderim), sonra taksit sayaci. Alis anaparasi ve faiz orani
+       kunye bilgisi — asagi alindi; ust satirlar karar verdiren
+       rakamlar icin. */
+    if (o.kirilimsizAdet === 0 && o.kalanAdet > 0)
+      sat('Kalan anapara', tlk(o.anaparaKurus));
+    else if (o.kalanAdet > 0)
+      sat('Kalan anapara', 'hesaplanamıyor — ' + o.kirilimsizAdet + ' taksitte kırılım yok');
+    sat('Kalan (nominal)', tlk(o.kalanKurus) + ' (' + o.kalanAdet + ' taksit)');
+    sat('Taksit', taksitler.length + ' / ' + kredi.taksit_sayisi + ' girildi · '
+        + o.odenenAdet + ' ödendi');
+    sat('Alış anaparası', tl(kredi.anapara));
     sat('Faiz oranı', (kredi.faiz_orani === null || kredi.faiz_orani === undefined)
         ? 'girilmemiş' : String(kredi.faiz_orani).replace('.',',') + ' %');
-    sat('Taksit', taksitler.length + ' / ' + kredi.taksit_sayisi + ' girildi');
-    sat('Kalan', tlk(o.kalanKurus) + ' (' + o.kalanAdet + ' taksit)');
     if (kredi.tur !== 'ticari')
       bas.appendChild(el('div','bilgi', turAdi(kredi.tur) + ' — bu kredinin hiçbir kalemi gidere yazılmaz.'));
     bas.appendChild(digerMenu([['Krediyi arşivle', (a) => krediSil(kredi, a)]]));
     c.appendChild(bas);
 
     const msg = el('div','msg'); msg.id = 'taksitMsg'; c.appendChild(msg);
-    c.appendChild(topluFormu(kredi, taksitler));
+
+    /* =================================================================
+       SIRADAKI TAKSIT · EKRANIN EN USTUNDE, KAYDIRMADAN BASILABILIR
+       =================================================================
+       ⚠ OLCULDU: bu blok eklenmeden once ilk "Ödeme gir" dugmesi
+         sayfanin 5032. pikselindeydi — 812px'lik ekranda ilk goruntude
+         SIFIR odeme dugmesi vardi. Sahibin en sik yaptigi is bu.
+       ⚠ YENI ODEME YOLU YAZILMADI: dugme mevcut odemeFormuAc'i aciyor,
+         o da rpc_taksit_odeme_kaydet'i cagiriyor. Ikinci bir yol acmak,
+         kirilim ve gider kontrollerini atlayan bir kapi olurdu.
+       ================================================================= */
+    if (o.sonraki){
+      const s = sonrakiTaksitMetni(o.sonraki, b);
+      const sk = el('div','kart');
+      const sb2 = el('div','kbaslik','SIRADAKİ TAKSİT');
+      sk.appendChild(sb2);
+      const su = el('div','tk-ust');
+      const sad = el('div','tk-ad');
+      sad.appendChild(el('span', null, o.sonraki.sira + '. taksit · ' + s.tarih + ' '));
+      /* ⚠ toLocaleUpperCase('tr') SART: duz toUpperCase() "geçti" -> "GEÇTI"
+         yapiyor, noktali I kayboluyor. Olculdu, ekranda "54 GÜN GEÇTI"
+         yaziyordu. */
+      if (s.gecikti) sad.appendChild(el('span','rozet rz-eksik', s.gunMetni.toLocaleUpperCase('tr-TR')));
+      else sad.appendChild(el('span','rozet rz-yesil', s.gunMetni));
+      su.appendChild(sad);
+      su.appendChild(el('div','tk-tutar', s.tutar));
+      sk.appendChild(su);
+      if (o.sonraki.durum === 'kismi')
+        sk.appendChild(el('div','tk-orta','Kısmi ödenmiş · ödenen '
+          + tl(o.sonraki.odenen) + ' · kalan ' + tl(o.sonraki.kalan)));
+      const sey = el('div','tk-eylem');
+      const sbt = el('button','btn', o.sonraki.durum === 'kismi' ? 'Ödeme ekle' : 'Ödedim');
+      /* Form BU kartin icine aciliyor; odemeFormuAc kabi disaridan alir. */
+      sbt.onclick = () => odemeFormuAc(sk, o.sonraki);
+      sey.appendChild(sbt);
+      sk.appendChild(sey);
+      c.appendChild(sk);
+    }
 
     const k = el('div','kart');
     k.appendChild(el('div','kbaslik','Bu kredinin taksitleri'));
     if (!taksitler.length) k.appendChild(el('div','bos','Bu kredide henüz taksit yok.'));
-    else for (const t of taksitler) k.appendChild(taksitKarti(t, kredi, b, buAy));
+    else {
+      /* ⚠ ODENMISLER KATLANIR · ekran birikmesi kurali. 24 taksitli bir
+         kredide 14 odenmis kutu, sıradakini 5000 piksel asagi itiyordu.
+         Kaybolmuyorlar — TEK SATIRA katlaniyor ve acilabiliyor.
+         ⚠ DESEN ICAT EDILMEDI: ozetCiz'in serit-ozet kalibi (buton +
+           hidden div + aria-expanded + ▾/▴ + icerigi ILK ACILISTA kur)
+           birebir kopyalandi. */
+      const odenmis = taksitler.filter(t => t.durum === 'kapali');
+      const acik    = taksitler.filter(t => t.durum !== 'kapali');
+      if (odenmis.length){
+        const kat = el('button','serit-ozet'); kat.type = 'button';
+        kat.setAttribute('aria-expanded','false');
+        const p = el('span','so-p');
+        p.appendChild(el('span','so-et','ödendi'));
+        p.appendChild(el('span','so-dg', String(odenmis.length)));
+        kat.appendChild(p);
+        kat.appendChild(el('span', null, ' taksit · göster'));
+        const kok = el('span','so-ok','▾'); kat.appendChild(kok);
+        kat.setAttribute('aria-label', odenmis.length + ' ödenmiş taksit. Listeyi aç.');
+        k.appendChild(kat);
+        const kutu = el('div'); kutu.hidden = true; k.appendChild(kutu);
+        kat.onclick = () => {
+          if (kutu.hidden){
+            if (!kutu.firstChild)
+              for (const t of odenmis) kutu.appendChild(taksitKarti(t, kredi, b, buAy));
+            kutu.hidden = false; kok.textContent = '▴';
+            kat.setAttribute('aria-expanded','true');
+          } else {
+            kutu.hidden = true; kok.textContent = '▾';
+            kat.setAttribute('aria-expanded','false');
+          }
+        };
+      }
+      if (!acik.length) k.appendChild(el('div','bos','Ödenmemiş taksit yok.'));
+      else for (const t of acik) k.appendChild(taksitKarti(t, kredi, b, buAy));
+    }
     c.appendChild(k);
+
+    /* ⚠ TOPLU FORM EN ALTA ALINDI: taksitler bir kez uretilir, odeme her
+       ay yapilir. Sik yapilan isin onunde durmasi icin sebep yok. */
+    c.appendChild(topluFormu(kredi, taksitler));
   }catch(e){
     c.textContent = '';
     c.appendChild(el('div','uyari-agir','Taksitler açılamadı: ' + hataTr(e && e.message)));
