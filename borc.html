@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-24-18">
+<meta name="surum" content="borc-2026-08-27-1">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1020,6 +1020,27 @@ function hataTrIc(m){
          + 'Önce o kartın paylaşımını kaldır, sonra arşivle.';
   }
   if (/maden_tur_chk|mf_tur_chk/i.test(s)) return 'Maden türü altın veya gümüş olmalı.';
+  /* ⚠ v116 · IKISI DE ODEME_VAR DALINDAN ONCE OLMAK ZORUNDA DEGIL —
+     ikisi de o dizgeyi ICERMIYOR (olculdu). MADEN_ODEMELI adi zaten bu
+     yuzden secildi: "MADEN_ODEME_VAR" olsaydi /ODEME_VAR/ dalina duser
+     ve altin arsivlerken "Bu KREDIDE ... KREDI arsivlenemez" yazardi.
+     ⚠ MADEN_ASIM sunucudan "MADEN_ASIM: kalan gram 4" gibi geliyor;
+     rakam ayiklanir. Ayiklanamazsa rakamsiz ama DOGRU cumle yazilir —
+     ham SQL metni kullaniciya GOSTERILMEZ. */
+  if (/MADEN_ASIM/i.test(s)){
+    const g = s.match(/MADEN_ASIM:\s*kalan gram\s*([\d.,]+)/i);
+    return g ? 'Bu borçta yalnız ' + g[1].replace('.', ',') + ' gram kaldı.'
+             : 'Bu borçta kalan gramdan fazlasını ödeyemezsin.';
+  }
+  if (/MADEN_ODEMELI/i.test(s)){
+    const n = s.match(/MADEN_ODEMELI\|(\d+)/i);
+    return n ? 'Bu maden borcunda ' + n[1] + ' ödeme kaydı var. '
+               + 'Ödemesi olan maden borcu arşivlenemez.'
+             : 'Ödemesi olan maden borcu arşivlenemez.';
+  }
+  if (/MADEN_YOK/i.test(s))       return 'Maden borcu bulunamadı ya da arşivlenmiş.';
+  if (/GRAM_GECERSIZ/i.test(s))   return 'Gram sıfırdan büyük olmalı.';
+  if (/FIYAT_GECERSIZ/i.test(s))  return 'Gram fiyatı sıfırdan büyük olmalı.';
   /* v112 · cek. ⚠ ux_cek_no ve cek_odendi_chk asagidaki genel `_chk`
      dusme satirindan ONCE gelmeli, yoksa "Girilen deger kurallari
      saglamiyor" diye is gormez bir cumleye duserler. */
@@ -1336,11 +1357,27 @@ async function cekGetir(){
 }
 
 async function madenGetir(){
-  const [m,f] = await Promise.all([
+  /* ⚠ v116 · IKI SORGU EKLENDI.
+     kalanlar : v_maden_kalan — kalan gram, odenen gram, odenen tutar ve
+                ALIS-ODEME farki SUNUCUDA hesaplaniyor. Ayni hesabi
+                istemcide tekrar kurmak, iki kaynagin celismesi demekti.
+     odemeler : detay ekranindaki liste icin. Bant zaten tek turda
+                cekiyor; detayda ayri gidis-donus yapmamak icin burada.
+     ⚠ HATA YUTULMUYOR ama EKRANI DA DUSURMUYOR: bu ikisi olmadan maden
+       ekrani eskisi gibi calisir, yalnizca odeme bolumu gorunmez.
+       kayitlar/fiyatlar hatasi ise ESKISI GIBI firlatilir. */
+  const [m,f,k,o] = await Promise.all([
     sb.from('maden').select('id,tur,gram,kime,tarih,alis_tutar,aciklama').eq('is_deleted',false).order('tarih',{ascending:false}),
-    sb.from('maden_fiyat').select('id,tur,gram_fiyat,tarih,kaynak_notu').eq('is_deleted',false).order('tarih',{ascending:false})]);
+    sb.from('maden_fiyat').select('id,tur,gram_fiyat,tarih,kaynak_notu').eq('is_deleted',false).order('tarih',{ascending:false}),
+    sb.from('v_maden_kalan').select('*'),
+    sb.from('maden_odeme').select('id,maden_id,gram,gram_fiyat,tarih,aciklama')
+      .eq('is_deleted',false).order('tarih',{ascending:false})]);
   if (m.error) throw m.error; if (f.error) throw f.error;
-  return { kayitlar:m.data||[], fiyatlar:f.data||[] };
+  if (k.error) console.error('v_maden_kalan', k.error);
+  if (o.error) console.error('maden_odeme', o.error);
+  const kalanlar = new Map((k.data||[]).map(x => [x.maden_id, x]));
+  return { kayitlar:m.data||[], fiyatlar:f.data||[], kalanlar,
+           odemeler:o.data||[], odemeHatasi: (k.error || o.error) || null };
 }
 
 /* ---------- hesaplar (KURUS tam sayi) ---------- */
@@ -5868,15 +5905,30 @@ async function vMaden(){
         + ', bugünkü değer ' + (d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus))
         + ', detayı aç');
       const ust = el('div','tk-ust');
-      ust.appendChild(el('div','tk-ad', (m.tur === 'altin' ? 'Altın' : 'Gümüş') + ' · ' + gramYaz(m.gram)));
+      const ad = el('div','tk-ad');
+      ad.appendChild(document.createTextNode(
+        (m.tur === 'altin' ? 'Altın' : 'Gümüş') + ' · ' + gramYaz(m.gram) + ' '));
+      /* ⚠ v116 · TAM ODENEN BORC KAYBOLMAZ, ISARETLENIR. Listeden dusurmek
+         gecmise bakmayi imkansiz kilardi; rozet hem durumu soyler hem
+         satiri yerinde birakir. Renk TEK BASINA bilgi tasimiyor —
+         "kapandı" kelimesi yaziyor. */
+      const kl = v.maden.kalanlar ? v.maden.kalanlar.get(m.id) : null;
+      if (kl && Number(kl.kalan_gram) <= 0)
+        ad.appendChild(el('span','rozet rz-yesil','kapandı'));
+      else if (kl && Number(kl.odenen_gram) > 0)
+        ad.appendChild(el('span','rozet rz-sari','kısmen ödendi'));
+      ust.appendChild(ad);
       ust.appendChild(el('div','tk-tutar', d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus)));
       kutu.appendChild(ust);
       const oz = [];
+      /* Odeme baslamissa KALAN GRAM en onde: odemeyi belirleyen o. */
+      if (kl && Number(kl.odenen_gram) > 0)
+        oz.push('kalan ' + gramYaz(kl.kalan_gram) + ' · ödenen ' + gramYaz(kl.odenen_gram));
       oz.push('maliyet ' + (d.alisKurus === null ? 'bilinmiyor'
               : tlk(d.alisKurus) + (d.kaynak === 'tahmin' ? ' (tahmini)' : '')));
       if (d.alisKurus !== null && d.bugunKurus !== null){
         const fark = d.bugunKurus - d.alisKurus;
-        oz.push('fark ' + (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark)));
+        oz.push('rayiç farkı ' + (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark)));
       }
       kutu.appendChild(el('div','tk-orta', oz.join(' · ')));
       k.appendChild(kutu);
@@ -5991,7 +6043,7 @@ async function madenDetayAc(madenId, sessiz){
   if (!sessiz){ c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...')); }
   try{
     const v = await bantVerisi();
-    const { kayitlar, fiyatlar } = v.maden;
+    const { kayitlar, fiyatlar, kalanlar, odemeler } = v.maden;
     const m = kayitlar.find(x => x.id === madenId);
     if (!m){ c.textContent=''; c.appendChild(el('div','uyari-agir','Maden kaydı bulunamadı.')); return; }
     MADEN_DETAY = madenId;
@@ -6030,7 +6082,12 @@ async function madenDetayAc(madenId, sessiz){
       asd.appendChild(el('span','rozet rz-sari','tahmini'));
     } else asd.appendChild(el('span', null, tlk(d.alisKurus)));
     sat('Bugünkü değer', d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus));
-    const fs = sat('Fark', '');
+    /* ⚠ v116 · ETIKET "Fark" DEGIL "Rayiç farkı". Ekranda artik IKI ayri
+       fark var — bu rayic (bugunku deger − alis), asagidaki ise ODEME
+       farki (odenen − o gramin alis maliyeti). Ikisine de "Fark" demek
+       en pahali karistirma olurdu. Ustteki kavram uyarisi zaten "Rayiç
+       farkı" diyor; etiket ona uyduruldu. */
+    const fs = sat('Rayiç farkı', '');
     const fsd = fs.querySelector('.dg');
     if (d.alisKurus === null || d.bugunKurus === null) fsd.textContent = '—';
     else {
@@ -6053,6 +6110,147 @@ async function madenDetayAc(madenId, sessiz){
     c.appendChild(bas);
 
     const msg = el('div','msg'); msg.id = 'madenMsg'; c.appendChild(msg);
+
+    /* =================================================================
+       v116 · ODEME BOLUMU
+       =================================================================
+       Sahibin tarif ettigi akis: "girdim o borcum olan hesaba, ona su
+       kadar gr su fiyattan odedim diyorum, sonra kaydedip geri geri
+       cikiyorum" · "odersem parca parca odeyecegim" ·
+       "arada ne kadar fark odedigimi gorecektim".
+       ⚠ KALAN GRAM EN BELIRGIN: odemeyi o belirliyor. Ustteki uc rakamin
+         icinde en buyuk yazan o.
+       ⚠ Bu bolum v_maden_kalan'a bagli; gorunum okunamadiysa (yetki,
+         v116 uygulanmamis) BOLUM HIC CIZILMEZ ve sebebi yazilir —
+         yerine 0 gostermek "borc bitti" sanilmasina yol acardi.
+       ================================================================= */
+    const kl = kalanlar ? kalanlar.get(m.id) : null;
+    if (!kl){
+      const uy = el('div','kart');
+      uy.appendChild(el('div','kbaslik','Ödemeler'));
+      uy.appendChild(el('div','uyari-agir',
+        'Ödeme bilgisi okunamadı. Bu bölüm v_maden_kalan görünümünden geliyor; '
+      + 'görünüm yoksa ya da yetki verilmemişse burası boş kalır. '
+      + 'Ekranı yenileyin, sürerse bildirin.'));
+      c.appendChild(uy);
+    } else {
+      const kalanGram  = Number(kl.kalan_gram)  || 0;
+      const odenenGram = Number(kl.odenen_gram) || 0;
+      const kapandi    = kalanGram <= 0;
+      const ok = el('div','kart');
+      ok.appendChild(el('div','kbaslik', 'Ödemeler'
+        + (kl.odeme_sayisi ? ' (' + kl.odeme_sayisi + ')' : '')));
+
+      /* ---- UC RAKAM · kalan gram EN BELIRGIN ---- */
+      const bk = el('div','tk-ust');
+      bk.appendChild(el('div','tk-ad','KALAN'));
+      const kg = el('div','tk-tutar', kapandi ? 'kapandı' : gramYaz(kalanGram));
+      if (kapandi) kg.style.color = 'var(--ok)';
+      bk.appendChild(kg);
+      ok.appendChild(bk);
+      const s2 = (e2,d2) => { const s = el('div','satir');
+        s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d2));
+        ok.appendChild(s); return s; };
+      s2('Ödenen', gramYaz(odenenGram)
+        + (Number(kl.odenen_tutar) ? ' · ' + tlk(kr(kl.odenen_tutar)) : ''));
+      /* ⚠ FARK · NULL ile SIFIR AYNI SEY DEGIL. alis_tutar girilmemisse
+         sunucu NULL donduruyor; "0" ya da "kar yok" yazmak, olmayan bir
+         kari var sandirirdi. */
+      const fo = s2('Alış–ödeme farkı', '');
+      const fod = fo.querySelector('.dg');
+      if (kl.fark === null || kl.fark === undefined){
+        fod.appendChild(el('span','gri','alış tutarı girilmemiş, fark hesaplanamıyor'));
+      } else if (odenenGram <= 0){
+        fod.appendChild(el('span','gri','henüz ödeme yok'));
+      } else {
+        const fk2 = kr(kl.fark);
+        fod.textContent = (fk2 >= 0 ? '+' : '−') + tlk(Math.abs(fk2))
+          + (fk2 >= 0 ? ' (alıştan pahalı kapattın)' : ' (alıştan ucuz kapattın)');
+        fod.style.color = fk2 > 0 ? 'var(--hata)' : fk2 < 0 ? 'var(--ok)' : '';
+        fod.style.fontWeight = '900';
+      }
+      if (kl.odenen_alis_maliyeti !== null && kl.odenen_alis_maliyeti !== undefined
+          && odenenGram > 0)
+        ok.appendChild(el('div','kucuk', 'Ödenen ' + gramYaz(odenenGram)
+          + ' bu borcu alırken ' + tlk(kr(kl.odenen_alis_maliyeti)) + ' tutuyordu.'));
+
+      /* ---- ODEME EKLEME ---- */
+      if (kapandi){
+        ok.appendChild(el('div','bos','Bu borç tamamen ödendi — yeni ödeme eklenemez.'));
+      } else {
+        const ekle = (etiket, id, tip, mod) => {
+          ok.appendChild(el('label', null, etiket)).setAttribute('for', id);
+          const i = document.createElement('input'); i.id = id; i.type = tip || 'text';
+          if (mod) i.setAttribute('inputmode', mod);
+          ok.appendChild(i); return i;
+        };
+        const ig = ekle('Kaç gram ödedin? (kalan ' + gramYaz(kalanGram) + ')','moGram','text','decimal');
+        const ifi = ekle('Gram başı fiyat (TL)','moFiyat','text','decimal');
+        /* ⚠ ONERI, KILIT DEGIL: o turun EN SON girilmis gram fiyati
+           doldurulur ama alan serbesttir — sahibi FIILEN odedigi fiyati
+           yazacak, piyasa fiyatini degil. */
+        const sonF = sonFiyat(fiyatlar, m.tur);
+        if (sonF){
+          ifi.value = String(sonF.gram_fiyat).replace('.', ',');
+          ok.appendChild(el('div','kucuk', adTur + ' için en son girilen fiyat ('
+            + trGun(sonF.tarih) + ') önerildi — ödediğin fiyat farklıysa değiştir.'));
+        }
+        ekle('Ödeme tarihi','moTarih','date').value = bugun();
+        ekle('Açıklama (zorunlu değil)','moAciklama','text');
+        /* ⚠ TUTAR KAYDETMEDEN ONCE GORUNUR. gram x fiyat kafadan
+           carpilmaz; yanlis tuslama ancak rakami gorunce fark edilir. */
+        const onIzleme = el('div','kavram','Tutar: —');
+        ok.appendChild(onIzleme);
+        const hesapla = () => {
+          const g2 = gramCoz(ig.value), p2 = paraCoz(ifi.value);
+          if (!g2.ok || !p2.ok || g2.deger <= 0 || p2.kurus <= 0){
+            onIzleme.textContent = 'Tutar: —'; return; }
+          onIzleme.textContent = 'Tutar: ' + gramYaz(g2.deger) + ' × ' + tl(p2.kurus/100)
+            + ' = ' + tlk(Math.round(g2.deger * p2.kurus))
+            + (g2.deger > kalanGram ? '  ⚠ kalandan fazla' : '');
+        };
+        ig.addEventListener('input', hesapla); ifi.addEventListener('input', hesapla);
+        hesapla();
+        const bo = el('button','btn','Ödemeyi kaydet'); bo.id = 'moKaydet';
+        bo.onclick = () => madenOdemeKaydet(m);
+        ok.appendChild(bo);
+      }
+
+      /* ---- ODEME LISTESI ---- */
+      const liste = (odemeler||[]).filter(o => o.maden_id === m.id);
+      if (liste.length){
+        const sar = el('div','tablo-sar');
+        const t = document.createElement('table');
+        const hr = document.createElement('tr');
+        ['TARİH','GRAM','GRAM FİYATI','TUTAR',''].forEach((h,i) =>
+          hr.appendChild(el('th', (i===1||i===2||i===3)?'sag':null, h)));
+        t.appendChild(hr);
+        for (const o of liste){
+          const tr = document.createElement('tr');
+          tr.appendChild(td(trGun(o.tarih)));
+          tr.appendChild(td(gramYaz(o.gram),'sag'));
+          tr.appendChild(td(tl(o.gram_fiyat),'sag'));
+          tr.appendChild(td(tlk(Math.round(Number(o.gram) * kr(o.gram_fiyat))),'sag'));
+          const sh = document.createElement('td');
+          const sb2 = el('button','btn-mini','Sil'); sb2.type = 'button';
+          sb2.setAttribute('aria-label', trGun(o.tarih) + ' tarihli '
+            + gramYaz(o.gram) + ' ödemesini sil');
+          sb2.onclick = () => madenOdemeSil(o, m);
+          sh.appendChild(sb2); tr.appendChild(sh);
+          t.appendChild(tr);
+          if (o.aciklama){
+            const tr2 = document.createElement('tr');
+            const c2 = document.createElement('td'); c2.colSpan = 5;
+            c2.className = 'kucuk'; c2.textContent = o.aciklama;
+            tr2.appendChild(c2); t.appendChild(tr2);
+          }
+        }
+        sar.appendChild(t); ok.appendChild(sar);
+      } else if (!kapandi){
+        ok.appendChild(el('div','bos','Bu borca henüz ödeme girilmemiş.'));
+      }
+      c.appendChild(ok);
+    }
 
     /* ⚠ FIYAT GECMISI TURE AITTIR, KAYDA DEGIL — maden_fiyat'ta olculdu:
        alanlar (tur · gram_fiyat · tarih · kaynak_notu), kayit basina fiyat
@@ -6155,6 +6353,94 @@ async function fiyatKaydet(){
   if (error){ hataYaz('madenMsg','Fiyat kaydedilemedi.', error); return; }
   mesaj('madenMsg','ok','Fiyat kaydedildi.');
   await vMaden();
+}
+
+/* ================== v116 · MADEN ODEMESI ==================
+   ⚠ SUNUCU RPC'SI CAGRILIYOR, dogrudan INSERT DEGIL: asim kontrolu ve
+     kilit orada. Tabloya dogrudan yazmak tetigin yakalayacagi bir hatayi
+     ekrandan gecirmis gibi gosterirdi.
+   ⚠ Kaydettikten sonra DETAYDA kalinir (madenTazele) — sahibin tarifi
+     "kaydedip geri geri cikiyorum"; kaydeden kisiyi listeye atmak
+     ikinci parcayi girmeyi zorlastirirdi. */
+async function madenOdemeKaydet(m){
+  mesajTemizle('madenMsg');
+  const btn = document.getElementById('moKaydet');
+  const g = gramCoz(document.getElementById('moGram').value);
+  const p = paraCoz(document.getElementById('moFiyat').value);
+  const tarih = document.getElementById('moTarih').value;
+  if (!g.ok)         return mesaj('madenMsg','hata','Gram: ' + g.hata);
+  if (g.deger <= 0)  return mesaj('madenMsg','hata','Gram sıfırdan büyük olmalı.');
+  if (!p.ok)         return mesaj('madenMsg','hata','Gram fiyatı: ' + p.hata);
+  if (p.kurus <= 0)  return mesaj('madenMsg','hata','Gram fiyatı sıfırdan büyük olmalı.');
+  if (!tarih)        return mesaj('madenMsg','hata','Ödeme tarihi zorunlu.');
+
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { data, error } = await sb.rpc('rpc_maden_odeme_kaydet', {
+    p_maden_id: m.id,
+    p_gram: g.deger.toFixed(3),
+    p_gram_fiyat: (p.kurus/100).toFixed(2),
+    p_tarih: tarih,
+    p_aciklama: document.getElementById('moAciklama').value.trim() || null });
+  btn.disabled = false; btn.textContent = 'Ödemeyi kaydet';
+  if (error){ hataYaz('madenMsg','Ödeme kaydedilemedi.', error); return; }
+  await madenTazele();
+  const kalan = data && data.kalan_gram !== undefined ? Number(data.kalan_gram) : null;
+  mesaj('madenMsg','ok', 'Ödeme kaydedildi'
+    + (data && data.tutar ? ' · ' + tlk(kr(data.tutar)) : '')
+    + (kalan === null ? '' : kalan <= 0
+        ? ' · borç TAMAMEN kapandı.'
+        : ' · kalan ' + gramYaz(kalan) + '.'));
+}
+
+/* ⚠ GEREKCE ZORUNLU (sunucu >=10 karakter istiyor) ve SONUCU SOYLENIR:
+     silinen odeme kalan grami GERI ACAR. Bunu yazmayan bir onay penceresi,
+     kullaniciyi "sadece bir satir siliyorum" sanmaya birakirdi.
+   ⚠ Pencere kalibi madenFiyatSil'den kopyalandi; tek eklenen, gerekce
+     alani ve sayaci (pasifeAlAc'taki gibi). */
+function madenOdemeSil(o, m){
+  const d = document.createElement('dialog'); d.className = 'pm';
+  d.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas'); bas.id = 'moSilBas';
+  bas.appendChild(el('span','pm-ikon','⚠'));
+  bas.appendChild(document.createTextNode(' Ödeme silinecek'));
+  d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+  d.appendChild(el('div','pm-ad', trGun(o.tarih) + ' · ' + gramYaz(o.gram)));
+  d.appendChild(el('div','pm-tutar',
+    tl(o.gram_fiyat) + '/gr · ' + tlk(Math.round(Number(o.gram) * kr(o.gram_fiyat)))));
+  if (o.aciklama) d.appendChild(el('div','pm-kim', o.aciklama));
+  d.appendChild(el('div','pm-etki',
+    'Bu ödeme silinince ' + gramYaz(o.gram) + ' borca GERİ EKLENİR; '
+  + 'kalan gram o kadar artar. Kayıt silinmiş olarak işaretlenir, veri kaybolmaz.'));
+  const et = el('label', null, 'Gerekçe (zorunlu, en az 10 karakter)');
+  et.setAttribute('for','moSilNeden'); d.appendChild(et);
+  const ta = document.createElement('textarea'); ta.id = 'moSilNeden'; ta.rows = 2;
+  d.appendChild(ta);
+  const say = el('div','pm-hata'); say.id = 'moSilSayac'; d.appendChild(say);
+  ta.setAttribute('aria-describedby', say.id);
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), ona = el('button','btn-kirmizi','Sil');
+  vaz.type = ona.type = 'button'; ona.disabled = true;
+  ey.appendChild(vaz); ey.appendChild(ona); d.appendChild(ey);
+  const hata = el('div','pm-hata'); hata.hidden = true; d.appendChild(hata);
+  const denetle = () => { const n = ta.value.trim().length;
+    say.textContent = 'en az 10 karakter · şu an ' + n;
+    ona.disabled = n < 10; };
+  ta.oninput = denetle; denetle();
+  document.body.appendChild(d); d.showModal(); ta.focus();
+  const kapat = () => { d.close(); d.remove(); };
+  vaz.onclick = kapat;
+  d.addEventListener('cancel', e => { e.preventDefault(); kapat(); });
+  ona.onclick = async () => {
+    ona.disabled = true; ona.textContent = 'Siliniyor...';
+    const { error } = await sb.rpc('rpc_maden_odeme_sil',
+      { p_id: o.id, p_neden: ta.value.trim() });
+    if (error){ ona.disabled = false; ona.textContent = 'Sil';
+                hata.hidden = false; hata.textContent = hataTr(error.message); return; }
+    kapat();
+    await madenTazele();
+    mesaj('madenMsg','ok', trGun(o.tarih) + ' tarihli ödeme silindi · '
+      + gramYaz(o.gram) + ' borca geri eklendi.');
+  };
 }
 
 async function madenSil(m, acan, deger){
