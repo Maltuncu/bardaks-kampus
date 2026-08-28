@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-26-4">
+<meta name="surum" content="2026-08-27-1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1496,6 +1496,12 @@ function hataTrIc(m){
      gider silerken "ayı neden açtın" demek operatörü yanlış yere bakmaya
      gönderirdi. Tek ve bağlamdan bağımsız metin. */
   if (m.includes('NEDEN_ZORUNLU')) return 'Neden yazman gerekiyor — kayda geçecek.';
+  /* v117 · GEREKCE_KISA burada YOKTU; taban RPC'leri (rpc_maden_pasife_al,
+     rpc_kredi_pasife_al) bunu firlatiyor ve index.html genel mesaja
+     dusuyordu. Alt dizge catismasi YOK: hicbir mevcut kod bunu icermiyor,
+     bu da hicbirini icermiyor (v116 dersi — orada MADEN_ODEME_VAR,
+     ODEME_VAR dalina dusuyordu). */
+  if (m.includes('GEREKCE_KISA')) return 'Gerekçe en az 10 karakter olmalı.';
   if (m.includes('YETKI_YOK')) return 'Bu işlem için yetkiniz yok.';
   if (m.includes('SUBE_UYUSMUYOR')) return 'Şube uyuşmazlığı.';
   /* v65 · KAYIT_YOK'un karşılığı YOKTU — tarayıcıda ölçüldü, ham kod
@@ -7055,7 +7061,7 @@ async function vVergi(){
     ${Object.keys(tur).length ? `<div class="kart">
       ${kbaslik(yil+' DAĞILIM', 'Ne Kadar Nereye', `<div class="kb-sag">${tl(yilToplam)}</div>`)}
       ${Object.entries(tur).sort((a,b)=>b[1]-a[1])
-          .map(([t,v])=>ozSatir(VERGI_AD[t]||esc(t), tl(v))).join('')}
+          .map(([t,v])=>ozSatir(esc(vergiAd(t)), tl(v))).join('')}
       ${ozSatir(yil+' TOPLAM', tl(yilToplam), true)}
       <div class="bilgi-not" style="margin-top:10px">
         Bu ödemeler <b>kâra düşmez</b> — kâr üzerinden alınan yüklerdir.
@@ -7082,16 +7088,18 @@ async function vVergi(){
         <option value="sgk">SGK Primi</option><option value="muhsgk">MUHSGK (stopaj+SGK)</option>
         <option value="gecici_vergi">Geçici Vergi</option><option value="gelir_vergisi">Gelir Vergisi</option>
         <option value="stopaj">Stopaj</option><option value="muhasebeci">Muhasebeci Ücreti</option>
-        <option value="mtv">MTV</option>
         <option value="diger">Diğer</option>
       </select>
-      <!-- ⚠ MTV IKI YERE GIRILEBILIR HALE GELDI — CIFT KAYIT TUZAGI.
-           Bu ekranin kendi notu "aracin MTV'si Arac sekmesinde" diyor ve
-           o yol KARDAN DUSUYOR; buraya girilen ise vergi_odeme'ye gider,
-           kara dusmez. Vadede mtv_1/mtv_2 acik durdugu icin tur eklendi,
-           ama hangi yolun dogru oldugu MUHASEBE karari — ekran karar
-           vermez, ikisini birden girmeyi engellemek icin UYARIR. -->
-      <div class="bilgi-not" id="voMtvUyari" hidden></div>
+      <!-- ⚠ MTV SECENEGI BILEREK YOK — 27.08.2026 karari.
+           Kisa omurluydu: bir onceki turda eklendi, cift kayit tuzagini
+           uyariyla azaltmaya calisildi, sonra yol tamamen kapatildi.
+           Sebep uyarinin yetersizligi degil, KARARIN kendisi: aracin
+           butun giderleri Arac ekranindan girilir. Buradan girilen MTV
+           vergi_odeme'ye dusuyordu ve ay karindan DUSMUYORDU; Arac'tan
+           girilen dusuyor. Ayni odeme iki kez sayilabiliyordu.
+           ⚠ Buraya tekrar <option value="mtv"> EKLEME. Eklenirse ayni
+             cift sayim geri gelir. Eski kayitlarin etiketi
+             VERGI_AD_KAPALI'dan geliyor, bu listeden DEGIL. -->
       <label>Tutar</label><input type="text" inputmode="decimal" autocomplete="off" id="voTutar" placeholder="0,00">
       <label>Ödeme Tarihi</label><input type="date" id="voTarih" value="${bugun()}">
       <label>Belge (dekont fotoğrafı veya PDF)</label>
@@ -7111,18 +7119,9 @@ async function vVergi(){
       <div id="voListe">Yükleniyor...</div>
     </div>`;
   paraBaglaHepsi(['voTutar']);
-  /* MTV secilince cift kayit uyarisi. Uyari SECIME bagli: her zaman
-     duran bir not okunmaz hale gelir, yalniz ilgili anda cikan okunur. */
-  const mt = document.getElementById('voTur'), mu = document.getElementById('voMtvUyari');
-  if (mt && mu){
-    const mtvBak = () => {
-      mu.hidden = mt.value !== 'mtv';
-      if (!mu.hidden) mu.innerHTML = 'Aracın MTV\'sini <b>Araç</b> sekmesinden girersen '
-        + 'işletme gideri olur ve kârdan düşer; buraya girersen düşmez. '
-        + '<b>İkisine birden girme</b> — aynı ödeme iki kez sayılır.';
-    };
-    mt.addEventListener('change', mtvBak); mtvBak();
-  }
+  /* ⚠ MTV uyari dinleyicisi KALDIRILDI — uyaracak secenek kalmadi.
+     Yol kapandigi icin uyari da gereksiz; duran olu kod, ileride
+     "demek ki MTV buraya girilebiliyormus" diye okunurdu. */
   vergiVadeYukle();
   vergiOdenenYukle();
 }
@@ -7379,7 +7378,27 @@ async function vYonetim(){
   paraBagla(document.getElementById('voTutar'));
   yetkiYukle();
 }
-const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',mtv:'MTV',diger:'Diğer'};
+/* SECILEBILIR vergi turleri. Bu sozluk "yeni kayit hangi turden acilabilir"
+   sorusunun cevabidir; GECMISI OKUMAK icin degil (onun icin asagidaki
+   vergiAd() var). Yeni tur eklerken voTur listesine de eklenmeli — liste
+   bu sozlukten BESLENMIYOR, elle yazili (olculdu). */
+const VERGI_AD = {kdv:'KDV',bagkur:'Bağkur',sgk:'SGK Primi',muhsgk:'MUHSGK',gecici_vergi:'Geçici Vergi',gelir_vergisi:'Gelir Vergisi',stopaj:'Stopaj',muhasebeci:'Muhasebeci',kira:'Kira',sozlesme_yenileme:'Sözleşme Yenileme',diger:'Diğer'};
+/* ⚠ KAPATILMIS TURLER · YALNIZ GORUNTU.
+   Buradaki kodlarla YENI KAYIT ACILAMAZ (VERGI_AD'da yoklar, voTur
+   listesinde secenekleri yok) ama GECMISTE acilmis kayitlar okunabilir
+   kalir. Sozlukten cikarip burayi koymamak, eski satirlarin etiketini
+   ham koda ("mtv") dusururdu.
+   mtv · 27.08.2026 · Karar: aracin BUTUN giderleri Arac ekranindan
+     girilir. Iki yol farkli sonuc veriyordu — Arac'tan girilen ay
+     karindan DUSUYOR, Vergiler'den girilen DUSMUYOR; ayni odeme iki kez
+     sayilabiliyordu. Vergiler tarafi kapatildi.
+   ⚠ Bu satir SILINMEZ. Silinirse tur='mtv' olan eski vergi_odeme
+     satirlari listede "mtv" diye gorunur. */
+const VERGI_AD_KAPALI = { mtv:'MTV (araçtan)' };
+/* Goruntu adi: once secilebilir turler, sonra kapatilmis turler, en son
+   ham kod. Etiket ARAYAN her yer bunu cagirir; VERGI_AD'a dogrudan
+   bakan bir gosterim satiri KALMADI. */
+const vergiAd = (t) => VERGI_AD[t] || VERGI_AD_KAPALI[t] || String(t == null ? '' : t);
 
 /* =====================================================================
    VADE TURU -> KOK TUR (v115'in istemci kopyasi)
@@ -7478,7 +7497,38 @@ const VD_KOD = {
    dagilimi damgayi KDV sanmaz.
    ⚠ Turu BILINMEYEN kod forma yazilmaz (tur bos kalir, kullanici secer) —
      uydurma yok. */
+/* =====================================================================
+   AYNI DEKONT · IKINCI KALEMIN BELGESI
+   =====================================================================
+   ⚠ OLCULEN KUSUR: bir dekontta iki kalem varsa (ornek: KDV 28.208,66 +
+     damga 791,00) ikisi AYRI kayit oluyor — dogru olan bu. Ama ilk
+     kaydetmeden sonra vergiOdemeKaydet dosya alanini temizliyor
+     (voFoto.value=''), dolayisiyla "Bunu doldur" ile girilen IKINCI
+     kalem p_foto=null ile gidiyordu: BELGESIZ kayit. Elle tekrar
+     secilirse de dosyaYukle ayni PDF'i storage'a IKINCI KEZ yukluyor —
+     tek belge, iki kopya, iki ayri yol.
+   ⚠ COZUM: ilk kaydetmede donen storage YOLU akilda tutulur, ayni
+     dekonttan doldurulan sonraki kalemler AYNI yolu kullanir. Tek
+     dosya, iki kayit ayni belgeyi gosterir.
+   ⚠ YANLIS BELGE YAPISTIRMA RISKI: yol tek basina yetmez. Kullanici
+     dekont okuduktan sonra elle alakasiz bir odeme girerse ona da bu
+     belge yapisirdi — yanlis belge, belgesiz kayittan KOTUDUR. Bu
+     yuzden iki kosul birlikte aranir:
+       VO_DEKONT_YOL  : ilk kaydin yuklendigi yol (dekont basina sifirlanir)
+       VO_AYNI_DEKONT : YALNIZ "Bunu doldur" basildiginda true olur,
+                        her kaydetmeden sonra tekrar false'a doner.
+     Yani belge ancak AYNI dekontun bir sonraki kalemine tasinir.
+   ⚠ Elle secilen dosya HER ZAMAN kazanir: voFoto doluysa o yuklenir,
+     hatirlanan yol kullanilmaz.
+   ⚠ Sonradan bir kayittaki belge degistirilirse digeri ESKI yolu
+     gostermeye devam eder. Bu desen sistemde zaten var — belgeEkle
+     degistirme akisi yetim kalan dosya icin nota iz birakiyor.
+   ===================================================================== */
+let VO_DEKONT_YOL = null, VO_AYNI_DEKONT = false;
+
 function vergiDekontDoldur(dk, yaz){
+  /* Yeni dekont okundu — onceki dekontun belgesi buraya TASINMAZ. */
+  VO_DEKONT_YOL = null; VO_AYNI_DEKONT = false;
   const g = (id) => document.getElementById(id);
   const kutu = g('voOkuDurum');
   const yazAlan = (id, deger) => { const e = g(id); if (!e || deger == null) return false;
@@ -7495,13 +7545,30 @@ function vergiDekontDoldur(dk, yaz){
     if (yazAlan('voTutar', k.tutar.toFixed(2).replace('.', ','))) d.push('Tutar');
     if (dk.donem && yazAlan('voDonem', dk.donem)) d.push('Dönem');
     if (dk.tarih && yazAlan('voTarih', dk.tarih)) d.push('Ödeme tarihi');
+    /* ⚠ KAPATILMIS TURU FORMA YAZMA. Bugun VD_KOD'da mtv YOK (olculdu:
+       0015 kdv · 0003 muhsgk · 0001 gelir_vergisi · 0032 gecici_vergi ·
+       1046/1048 diger) — yani okuyucu MTV onermiyor. Ama sozluge
+       ileride mtv gibi KAPATILMIS bir kod girerse, olmayan secenegi
+       atamak select'i SESSIZCE BOSALTIRDI ve kayit tursuz giderdi
+       (SGK okuyucusunda olculmus tuzagin aynisi). Once varlik sinanir. */
     if (k.tur){ const s = g('voTur');
-      if (s){ s.value = k.tur; s.classList.add('oku-dolu'); d.push('Tür'); } }
+      if (s && [...s.options].some(o => o.value === k.tur)){
+        s.value = k.tur; s.classList.add('oku-dolu'); d.push('Tür'); } }
     const nt = g('voNot');
     if (nt){ nt.value = k.kod + ' ' + k.ad; nt.classList.add('oku-dolu'); d.push('Not'); }
+    /* ⚠ Mesaj k.tur'e DEGIL, turun forma GERCEKTEN yazilip yazilmadigina
+       bakar. Eskiden k.tur doluysa "kontrol et, Kaydet" diyordu; yukaridaki
+       varlik sinamasi eklenince bu ikisi ayrisabilir hale geldi ve mesaj
+       bos bir Tur alani icin "hazir" diyebilirdi. */
+    const turYazildi = d.indexOf('Tür') >= 0;
+    /* ⚠ Belgenin tasinacagi SOYLENIR. Sessiz davranis, dosya alani bos
+       gorundugu icin "belgesiz kaydediyorum" sanilmasina yol acardi. */
+    VO_AYNI_DEKONT = true;
+    const belgeNotu = VO_DEKONT_YOL ? ' · belge ilk kayıttan taşınacak' : '';
     yaz('Dolduruldu: ' + d.join(', ')
-      + (k.tur ? ' · kontrol et, Kaydet.' : ' · TÜRÜ sen seç, sonra kaydet.'),
-      k.tur ? 'ok' : 'uyari');
+      + (turYazildi ? ' · kontrol et, Kaydet.' : ' · TÜRÜ sen seç, sonra kaydet.')
+      + belgeNotu,
+      turYazildi ? 'ok' : 'uyari');
     digerleriCiz(k);
   };
   /* kalan kalemler: her biri ayri kayit — tek tek doldurulur */
@@ -7522,7 +7589,7 @@ function vergiDekontDoldur(dk, yaz){
       s.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:space-between;min-height:44px';
       const et = document.createElement('span');
       et.textContent = k.kod + ' ' + k.ad + ' · ' + tl(k.tutar)
-        + (k.tur ? ' → ' + (VERGI_AD[k.tur] || k.tur) : ' → tür belirsiz');
+        + (k.tur ? ' → ' + vergiAd(k.tur) : ' → tür belirsiz');
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'btn2'; b.textContent = 'Bunu doldur';
       b.onclick = () => doldur(k);
@@ -8226,13 +8293,26 @@ async function vergiOdemeKaydet(){
   let foto=null;
   try{ foto = await fotoYukle('voFoto','vergi'); }
   catch(e){ mesaj('voMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Ödemeyi Kaydet'; return; }
+  /* ⚠ AYNI DEKONTUN IKINCI KALEMI · elle secilen dosya YOKSA ve bu form
+     "Bunu doldur" ile ayni dekonttan doldurulduysa, ilk kaydin YOLU
+     yeniden kullanilir. Yeniden yuklenmez: tek belge, iki kayit.
+     Iki kosul da SART — gerekcesi VO_DEKONT_YOL tanimindaki notta. */
+  if (foto == null && VO_AYNI_DEKONT && VO_DEKONT_YOL) foto = VO_DEKONT_YOL;
   const data = await rpcCagir('rpc_vergi_odeme_kaydet',{
     p_donem: document.getElementById('voDonem').value, p_tur: document.getElementById('voTur').value,
     p_tutar: tutar, p_odeme_tarihi: document.getElementById('voTarih').value,
     p_foto: foto, p_not: document.getElementById('voNot').value.trim()||null,
     p_sube: AKTIF_SUBE            // Samsun bağlanınca vergiler karışmasın
   },'voKaydet','voMsg','Vergi ödemesi kaydedildi ✓');
-  if (data && data.ok){ document.getElementById('voTutar').value=''; document.getElementById('voNot').value=''; document.getElementById('voFoto').value=''; vergiOdenenYukle(); }
+  if (data && data.ok){
+    /* Yol hatirlanir (bir sonraki kalem icin), bayrak DUSURULUR: bir
+       sonraki kayit ancak "Bunu doldur" ile gelirse belgeyi devralir.
+       Elle girilen alakasiz bir odeme bu belgeyi ALMAZ. */
+    if (foto) VO_DEKONT_YOL = foto;
+    VO_AYNI_DEKONT = false;
+    document.getElementById('voTutar').value=''; document.getElementById('voNot').value='';
+    document.getElementById('voFoto').value=''; vergiOdenenYukle();
+  }
 }
 /* ---- Banka POS Mutabakatı (PDF parse) ---- */
 function bankaMutabakatKart(){
@@ -8515,19 +8595,89 @@ async function vergiOdenenYukle(){
   const toplam = (data||[]).reduce((a,x)=>a+ +x.tutar,0);
   el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Bu yıl vergi ödemesi kaydı yok.</div>' :
     (data||[]).map(v=>`<div class="liste-satir">
-      <div class="l-sol"><div class="b">${VERGI_AD[v.tur]||esc(v.tur)}</div>
+      <div class="l-sol"><div class="b">${esc(vergiAd(v.tur))}</div>
         <div class="k">${esc(v.donem)}${v.odeme_tarihi?' · '+new Date(v.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}${
           v.notlar?' · '+notKisalt(v.notlar, 90):''}</div></div>
       <div class="l-sag">${tl(v.tutar)}
         <div style="margin-top:4px">${v.foto_path
-          ? belgeBtn(v.foto_path, 'Belge', (VERGI_AD[v.tur]||v.tur)+' '+v.donem)
+          ? belgeBtn(v.foto_path, 'Belge', vergiAd(v.tur)+' '+v.donem)
             + `<button type="button" class="btn2" title="Yanlış belge eklediysen değiştir"
                  style="padding:4px 8px;font-size:12px;margin-left:4px"
                  onclick="belgeEkle('vergi_odeme','${v.id}','vergi',true)">Değiştir</button>`
           : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
-               onclick="belgeEkle('vergi_odeme','${v.id}','vergi',false)">+ Belge</button>`}</div>
+               onclick="belgeEkle('vergi_odeme','${v.id}','vergi',false)">+ Belge</button>`}${
+        /* v117 · SIL. Kalip giderSil ile AYNI (index.html'in kendi
+           deseni): kirmizi kucuk dugme, id ile cift tiklama kilidi,
+           yalniz owner. borc.html'deki digerMenu/pasifeAlAc deseni
+           BU DOSYADA YOK — olculdu, 0 gecis. */
+        PROFIL.rol === 'owner'
+          ? `<button type="button" class="btn2" id="vosil_${v.id}"
+               title="Bu vergi ödemesini sil (gerekçe zorunlu, kayda geçer)"
+               style="padding:4px 8px;font-size:12px;margin-left:4px;color:var(--hata)"
+               onclick="vergiOdemeSil('${v.id}','${esc(vergiAd(v.tur))}','${esc(v.donem)}','${esc(tl(v.tutar))}','${v.odeme_tarihi||''}')">Sil</button>`
+          : ''}</div>
       </div>
     </div>`).join('') + `<div class="liste-satir"><div style="font-weight:800">${yil} YILI TOPLAM</div><div class="l-sag" style="color:var(--ana)">${tl(toplam)}</div></div>`;
+}
+
+/* v117 · VERGI ODEMESI SILME
+   ⚠ NEDEN VAR: sistemdeki TEK modul buydu — kredi/kart/maden/cek/
+     gider/sahis hepsinde gerekceli soft delete var, vergi_odeme'de
+     yoktu. Yanlis tutarla ya da yanlis turle girilen bir odeme
+     KALICIYDI.
+   ⚠ ONAY EKRANI NE SILINDIGINI YAZAR: tur, donem, tutar, tarih.
+     "Bu kaydı sil?" diye soran bir pencere, listede yanlis satira
+     basildigini FARK ETTIRMEZ.
+   ⚠ VADE GERI ACILIRSA SOYLENIR: sunucu acilan vadeleri geri
+     donduruyor; kullanici "sildim, peki vade ne oldu" diye merak
+     etmesin. Sessiz yan etki, yan etkinin en kotusudur.
+   ⚠ AY KILIDI: donemi kapali bir odeme silinemez (trg_donem_kilidi
+     UPDATE'te de calisiyor, AY_KAPALI firlatir). hataTr bunu zaten
+     ceviriyor — ayrica ele alinmadi, dogru mesaj kendiliginden cikar. */
+async function vergiOdemeSil(id, turAd, donem, tutarMetni, tarih){
+  const btn = document.getElementById('vosil_' + id);
+  if (btn && btn.disabled) return;
+
+  const neden = await nedenSor('Bu vergi ödemesi neden siliniyor?',
+    'Gerekçe zorunlu, en az 10 karakter ve kayda geçer (denetim izine yazılır).\n'
+    + 'Örnek: "dekont toplamı girilmiş, içindeki damga vergisi ayrı kayıt olmalıydı"', 10);
+  if (!neden || neden.trim().length < 10){
+    if (neden !== null) bildir('Gerekçe en az 10 karakter olmalı — silinmedi.', 'hata');
+    return;
+  }
+  if (!await onaySor('Vergi ödemesi silinecek (geri alınabilir işaretleme, veri kaybolmaz).',
+        turAd + ' · ' + donem + ' dönemi\n'
+        + 'Tutar: ' + tutarMetni
+        + (tarih ? '\nÖdeme tarihi: ' + new Date(tarih+'T00:00').toLocaleDateString('tr-TR') : '')
+        + '\n\nBu ödemenin kapattığı bir vade varsa YENİDEN AÇILIR.\n\nDevam?', 'Sil')) return;
+
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  const { data, error } = await sb.rpc('rpc_vergi_odeme_sil', { p_id:id, p_neden:neden.trim() });
+  if (error){
+    if (btn){ btn.disabled = false; btn.textContent = 'Sil'; }
+    bildir('Silinemedi: ' + hataTr(error.message), 'hata');
+    return;
+  }
+  /* Acilan vadeler ADIYLA soylenir — "bir vade acildi" demek yetmez,
+     hangisi oldugunu bilmeden kullanici onu arayamaz. */
+  const acikOlanlar = ((data && data.acilan_vadeler) || []).filter(v => v.durum === 'acik');
+  /* ⚠ TAM YENIDEN CIZIM (giderSil -> vGider kalibi). Yalniz listeyi
+     tazelemek YETMEZ: "Ne Kadar Nereye" dagilimi, yil toplami ve ust
+     ozet kartlari vVergi icinde hesaplaniyor; onlar tazelenmezse
+     silinen tutar toplamlarda DURMAYA DEVAM EDER ve ekran kendi
+     icinde celisir. Mesaj da bu yuzden mesaj() degil bildir() —
+     yeniden cizim mesaj() kutusunu silerdi. */
+  /* ⚠ SIRA: ONCE cizim, SONRA bildirim. Tersi olculdu ve mesaj EKRANA
+     HIC GELMEDI: bildir() kutuyu #icerik icine koyuyor, vVergi() ise
+     ilk isi olarak #icerik'i "Yükleniyor..." ile eziyor. Vadenin geri
+     acildigini soyleyen tek cumle boylece kayboluyordu. */
+  await vVergi();
+  bildir('Vergi ödemesi silindi ✓'
+    + (acikOlanlar.length
+        ? ' · ' + acikOlanlar.map(v =>
+            new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR') + ' '
+            + (v.aciklama || vergiAd(v.tur))).join(', ') + ' vadesi yeniden açıldı'
+        : ''), 'ok');
 }
 /* AY KAPATMA
    Eskiden kapanış hiçbir şey denetlemiyordu: eksik gün, sayılmamış kasa,
