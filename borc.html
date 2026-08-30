@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-5">
+<meta name="surum" content="borc-2026-08-27-6">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1014,6 +1014,11 @@ function hataTrIc(m){
   if (/ux_maden_fiyat/i.test(s))      return 'Bu tür için bu tarihe zaten fiyat girilmiş.';
   if (/kredi_tur_chk/i.test(s))       return 'Kredi türü ticari, şahıs veya ltd olmalı.';
   if (/kart_limit_chk/i.test(s))      return 'Kart limiti sıfırdan büyük olmalı. Bilinmiyorsa boş bırak.';
+  /* ⚠ v113'un iki kisidi ceviri LISTESINDE YOKTU — ham SQL metni
+     kullaniciya cikardi. Ekran zaten onlerinde kapi tutuyor; bu satirlar
+     kapiyi ATLAYAN yol icin (betikle yazma, eski sekme). */
+  if (/kart_faiz_ust_chk/i.test(s))   return 'Aylık faiz oranı %100\'den büyük olamaz — yıllık oranı girmiş olabilirsin.';
+  if (/kart_faiz_orani_chk/i.test(s)) return 'Faiz oranı eksi olamaz. Bilinmiyorsa boş bırak.';
   if (/kd_asgari_chk/i.test(s))       return 'Asgari tutar eksi olamaz.';
   if (/kd_donem_odemesi_chk/i.test(s)) return 'Bu ekstreye ödediğim tutar eksi olamaz.';
   if (/kd_faiz_chk/i.test(s))         return 'Faiz tutarı eksi olamaz. Bilinmiyorsa boş bırak.';
@@ -5296,6 +5301,11 @@ function kartKutusu(v, kart, buAy, liste){
       if (asti) dip.appendChild(el('span','rozet rz-eksik','LİMİT AŞILDI'));
     }
   }
+  /* ⚠ ROZET YALNIZ IS VARSA: oran eksikligi ancak DEVREDEN BORC varken
+     is demektir. Orani olmayan ama borcu kapanmis kartta uyari cikmaz —
+     yanlis alarm olurdu (kart uyarisi turunun dersi). */
+  if (kart.faiz_orani == null && gosterilen && kr(gosterilen.kapanmamis) > 0)
+    dip.appendChild(el('div','kk-lim','faiz oranı girilmemiş — devreden borcun maliyeti hesaplanamıyor'));
   if (gosterilen){
     const r = el('div'); r.style.marginTop = '4px';
     if (gosterilen.devir_tutarsiz) r.appendChild(el('span','rozet rz-eksik','DEVİR TUTMUYOR'));
@@ -5571,6 +5581,20 @@ function kartFormu(duz, kartlar){
      0 yazmak "limit dolu" gibi okunur, sunucu da (kart_limit_chk) reddeder. */
   alan('Kart limiti (bilinmiyorsa boş)','ktLimit','text','decimal','örn. 150.000,00',
     duz && duz.kart_limiti != null ? (kr(duz.kart_limiti)/100).toFixed(2).replace('.', ',') : null);
+  /* ⚠ AYLIK · YILLIK DEGIL. Desen kredi formundan (kFaiz) kopyalandi:
+     text + inputmode=decimal, virgullu giris, bos birakilabilir.
+     ⚠ ETIKET VE IPUCU "AYLIK" DIYOR CUNKU: ekstre hem aylik hem yillik
+       basiyor; yillik girilirse butun faiz projeksiyonu 12 KAT sasar.
+       v113'un COMMENT'i de bunu yaziyor ("yillik girilirse projeksiyon
+       12 kat sasar").
+     ⚠ DUZENLEMEDE DOLU GELIR: duz.faiz_orani okunuyor. Bos gelseydi
+       kullanici hicbir sey degistirmeden kaydettiginde oran SILINIRDI —
+       bes kartin oraninin betikle yazildigi bir sistemde en pahali kusur. */
+  alan('Aylık faiz oranı (%) — bilinmiyorsa boş bırak','ktFaiz','text','decimal','örn: 4,25',
+    duz && duz.faiz_orani != null ? String(duz.faiz_orani).replace('.', ',') : null);
+  k.appendChild(el('div','kucuk',
+    'Ekstrede hem aylık hem yıllık yazar. AYLIK olanı gir — örn. %4,25 '
+  + '(yıllık %51,00 DEĞİL). Yıllık girilirse devreden borcun maliyeti 12 kat şişer.'));
   if (duz){
     /* Duzenlemede iki alan daha: limit paylasimi ve aciklama. Yeni-kart
        formuna EKLENMEDI — akis degismesin; paylasimin dogal ani duzenleme. */
@@ -5631,6 +5655,26 @@ async function kartKaydet(duz, kartlar){
       'Kart limiti sıfırdan büyük olmalı. Bilinmiyorsa BOŞ bırak.');
     limit = (pl.kurus / 100).toFixed(2);
   }
+  /* ⚠ FAIZ · kredi formundaki kalibin AYNISI (kFaiz), iki eklemeyle:
+       ust sinir 100 — v113'un kart_faiz_ust_chk kisiti bunu zaten
+         reddediyor ama ham SQL hatasi gostermek yerine ekranda
+         OKUNABILIR cumle cikiyor; sunucu kisiti YERINDE KALIYOR,
+         ekran onun onune bir kapi daha koyuyor.
+       aylik uyarisi — 100 ustu deger neredeyse her zaman YILLIK
+         orandir; mesaj bunu soyluyor, kuru bir "gecersiz" demiyor. */
+  const faizH = document.getElementById('ktFaiz').value.trim();
+  let faiz = null;
+  if (faizH){
+    if (/^\s*[-−]/.test(faizH)) return mesaj('kartMsg','hata',
+      'Faiz oranı eksi olamaz. Bilinmiyorsa BOŞ bırak.');
+    const f = parseFloat(faizH.replace(',','.'));
+    if (!isFinite(f) || f < 0) return mesaj('kartMsg','hata',
+      'Faiz oranı geçersiz. Bilinmiyorsa boş bırak.');
+    if (f > 100) return mesaj('kartMsg','hata',
+      'Aylık faiz oranı %100\'den büyük olamaz. Yıllık oranı girmiş olabilirsin — '
+    + 'ekstredeki AYLIK oranı yaz (örn. %4,25).');
+    faiz = f;
+  }
 
   if (duz){
     /* ⚠ SESSIZ UPDATE YOK — donemOnizle kalibi: hangi alan neydi, ne
@@ -5639,13 +5683,22 @@ async function kartKaydet(duz, kartlar){
     const yeni = { ad, banka: document.getElementById('ktBanka').value.trim() || null,
       sahip, son_odeme_gunu: so.deger, kesim_gunu: ke.deger, kart_limiti: limit,
       limit_paylasan_id: document.getElementById('ktPaylasan').value || null,
+      faiz_orani: faiz,
       aciklama: document.getElementById('ktAciklama').value.trim() || null };
+    /* tip 3 = yuzde. Onizleme tablosu faizi de gostersin — sessiz
+       degisiklik olmasin (donemOnizle kalibinin sarti). */
     const ALAN = [['ad','Kart adı',0],['banka','Banka',0],['sahip','Sahip',0],
       ['kesim_gunu','Kesim günü',0],['son_odeme_gunu','Son ödeme günü',0],
-      ['kart_limiti','Kart limiti',1],['limit_paylasan_id','Limit paylaşımı',2],['aciklama','Açıklama',0]];
+      ['kart_limiti','Kart limiti',1],['faiz_orani','Aylık faiz oranı',3],
+      ['limit_paylasan_id','Limit paylaşımı',2],['aciklama','Açıklama',0]];
     const kartAdi = (id) => { const x = (kartlar||[]).find(q => q.id === id); return x ? x.ad : '—'; };
-    const gos = (v2, tip) => v2 == null || v2 === '' ? '—' : tip === 1 ? tl(v2) : tip === 2 ? kartAdi(v2) : String(v2);
-    const esit = (a2, b2, tip) => (a2 ?? null) === (b2 ?? null) || (tip === 1 && a2 != null && b2 != null && kr(a2) === kr(b2));
+    const gos = (v2, tip) => v2 == null || v2 === '' ? '—' : tip === 1 ? tl(v2)
+      : tip === 2 ? kartAdi(v2) : tip === 3 ? '%' + String(v2).replace('.', ',') : String(v2);
+    /* ⚠ Faizde SAYI karsilastirmasi: 4.25 ile "4.2500" ayni deger ama
+       farkli dizge; duz karsilastirma "degisti" derdi. */
+    const esit = (a2, b2, tip) => (a2 ?? null) === (b2 ?? null)
+      || (tip === 1 && a2 != null && b2 != null && kr(a2) === kr(b2))
+      || (tip === 3 && a2 != null && b2 != null && Number(a2) === Number(b2));
     const dgs = ALAN.filter(([f,,tip]) => !esit(duz[f], yeni[f], tip));
     const ov = document.getElementById('ktOnizleme'); ov.textContent = '';
     const dk = el('div','kart');
@@ -5690,11 +5743,16 @@ async function kartKaydet(duz, kartlar){
   const { error } = await sb.from('kart').insert({
     ad, banka: document.getElementById('ktBanka').value.trim() || null,
     sahip, son_odeme_gunu: so.deger, kesim_gunu: ke.deger, kart_limiti: limit,
+    faiz_orani: faiz,
     giren_id: PROFIL ? PROFIL.id : null });
   btn.disabled = false; btn.textContent = 'Kartı kaydet';
   if (error){ hataYaz('kartMsg','Kart kaydedilemedi.', error); return; }
-  mesaj('kartMsg','ok','Kart kaydedildi.');
+  /* ⚠ SIRA · ONCE CIZIM, SONRA MESAJ. Olculdu: mesaj() once yaziliyordu
+     ve vKartlar() #icerik'i bastan kurarken kartMsg kutusunu YENIDEN
+     yaratiyordu — "Kart kaydedildi." ekrana HIC gelmiyordu. Ayni kusurun
+     ayni bicimi v117'de index.html'de de cikmisti. */
   await vKartlar();
+  mesaj('kartMsg','ok','Kart kaydedildi.');
 }
 
 /* ---------- tek kartin ay ay dokumu ---------- */
@@ -5737,6 +5795,11 @@ async function kartDetayAc(kartId, duzenlenenId){
       s.appendChild(el('span','et', e2)); s.appendChild(el('span','dg', d)); bas.appendChild(s); };
     sat('Son ödeme günü', kart.son_odeme_gunu ? 'ayın ' + kart.son_odeme_gunu + '. günü' : 'girilmemiş');
     sat('Kesim günü', kart.kesim_gunu ? 'ayın ' + kart.kesim_gunu + '. günü' : 'girilmemiş');
+    /* ⚠ "girilmemiş" · SIFIR YAZILMAZ. Orani olmayan kartin devreden
+       borcunun maliyeti hesaplanamiyor; bunu 0 gostermek devretmeyi
+       bedavaymis gibi okutur (takvimdeki devretti satirinin kurali). */
+    sat('Aylık faiz oranı', kart.faiz_orani == null ? 'girilmemiş'
+      : '%' + String(kart.faiz_orani).replace('.', ','));
     sat('Girilen dönem', liste.length + ' ay');
     if (kart.kart_limiti != null) sat('Kart limiti', tl(kart.kart_limiti));
     /* ⚠ AV · ARSIVLEME · mevcut desen KOPYALANDI (Krediyi arsivle /
