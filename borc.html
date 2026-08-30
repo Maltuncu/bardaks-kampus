@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-3">
+<meta name="surum" content="borc-2026-08-27-4">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -285,6 +285,16 @@ main{padding:14px;max-width:640px;margin:0 auto}
   justify-content:center;gap:3px;border:0;padding:0;background:var(--kart);
   border-radius:8px;cursor:pointer}
 .tkv-g.bos{visibility:hidden;pointer-events:none}
+/* Haftalik toplam seridi · IZGARANIN ICINDE, tam genislikte satir.
+   ⚠ grid-column:1/-1 — sutun sayisi 7 KALIR, gun hucresi daralmaz.
+   ⚠ Kenarlik YOK: ayrim ust bosluk ve zemin tonuyla (dosya kurali). */
+.tkv-hafta-toplam{grid-column:1/-1;display:flex;align-items:baseline;gap:6px;
+  padding:3px 6px 5px;margin-top:-1px;background:var(--zemin2,rgba(0,0,0,.03));
+  border-radius:0 0 6px 6px;font-size:11px;line-height:1.3}
+.tkv-hafta-toplam .hs-et{color:var(--soluk);letter-spacing:.02em}
+.tkv-hafta-toplam .hs-dg{font-weight:800;font-variant-numeric:tabular-nums;
+  margin-left:auto;color:var(--metin)}
+.tkv-hafta-toplam .hs-ad{color:var(--soluk)}
 /* ⚠ D6 · Gun sayilari 400. Onceden HEPSI 700'du — her sey kalinsa
    hicbir sey vurgulu degildir; gecikmis gun otekilerden ayrilmiyordu. */
 .tkv-g .sy{font-size:13px;font-weight:400;color:var(--metin);line-height:1}
@@ -1611,7 +1621,10 @@ async function bantVerisi(){
     const d = new Date(Date.UTC(y, m - 2, 1));      // m-2: bir onceki ayin indeksi
     return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0'); };
   const donemAnahtar = new Map(kart.donemler.map(d => [d.kart_id + '|' + d.donem, d]));
-  const buAyKart = { sahis:0, ltd:0, toplam:0, gunYok:0, donemYok:0, pasif:0, gecikmis:0 };
+  const buAyKart = { sahis:0, ltd:0, toplam:0, gunYok:0, donemYok:0, pasif:0, gecikmis:0,
+    /* ⚠ gecikmis SAYAC olarak KALDI (mevcut cagiran satir bozulmasin)
+       ama artik yalniz GERCEK gecikmeleri sayiyor. Uc liste ayri. */
+    gecikenler:[], devredenler:[], asgariYok:[] };
   {
     const M = bugun().slice(0,7), gunBugun = Number(bugun().slice(8,10));
     for (const k of kart.kartlar){
@@ -1629,9 +1642,39 @@ async function bantVerisi(){
       if (kalan <= 0) continue;                     // tam odenmis — mesru sifir
       buAyKart.toplam += kalan;
       if (k.sahip === 'ltd') buAyKart.ltd += kalan; else buAyKart.sahis += kalan;
-      /* Odeme gunu GECTIYSE ve kalan varsa: gecikmis KART odemesi.
-         31'i olmayan ayda gun ayin SON gunune kirpilir. */
-      if (Math.min(k.son_odeme_gunu, ayinSonGunu(M)) < gunBugun) buAyKart.gecikmis++;
+      /* ⚠ UC AYRI DURUM · ESKI HAL 4/4 YANLIS ALARM VERIYORDU.
+         Eski kural: "son odeme gunu gectiyse ve kalan varsa GECIKMIS".
+         ASGARI TUTARA HIC BAKMIYORDU. Canli olcum (30.08.2026): dort
+         kartin dordu de asgariyi ODEMISTI ve uyari yine de basiyordu.
+         Sahibi her ay KASTEN devrediyor; boyle bir uyari hicbir sey
+         soylemez ve GERCEK gecikme oldugu gun ayni cumleyi basacagi
+         icin ayirt EDILEMEZ.
+         ⚠ VERI ZATEN VAR: v_kart_donem.asgari_tutar yukarida (kartGetir)
+           okunuyor — yeni sorgu YOK.
+         ⚠ donem_odemesi = bu ekstreye odenen. kapanmamis = kalan −
+           COALESCE(donem_odemesi,0) oldugu icin ikisi ayni sey; burada
+           NIYETI soyleyen ad kullaniliyor.
+         ⚠ ASGARI NULL ise GECIKMIS SAYILMAZ: bilinmeyen ile gecikmis
+           ayni sey degil. Ayri sayilir, ekranda "ayirt edilemiyor" der.
+         ⚠ KIL PAYI ICIN AYRI ESIK YOK — sahibin karari. Yalniz uc durum. */
+      if (Math.min(k.son_odeme_gunu, ayinSonGunu(M)) < gunBugun){
+        const asgari = (d.asgari_tutar === null || d.asgari_tutar === undefined)
+                       ? null : kr(d.asgari_tutar);
+        const odenen = kr(d.donem_odemesi || 0);
+        if (asgari === null){
+          buAyKart.asgariYok.push({ ad: k.ad, banka: k.banka, kalan });
+        } else if (odenen < asgari){
+          buAyKart.gecikmis++;
+          buAyKart.gecikenler.push({ ad: k.ad, banka: k.banka, kalan, asgari, odenen });
+        } else {
+          /* ⚠ FAIZ ORANI YOKSA SIFIR DA TAHMIN DE YAZILMAZ. Faizi
+             bilinmeyen kartin maliyetini 0 gostermek, devretmeyi
+             bedavaymis gibi okutur — en pahali yanlis. */
+          buAyKart.devredenler.push({ ad: k.ad, banka: k.banka, kalan,
+            faiz: k.faiz_orani == null ? null
+                  : Math.round(kalan * Number(k.faiz_orani) / 100) });
+        }
+      }
     }
   }
 
@@ -2269,10 +2312,77 @@ async function vTakvim(){
   if (v.ko.gecmis > 0)
     c.appendChild(el('div','uyari-agir','Vadesi geçmiş ve ödenmemiş ' + v.ko.gecmis + ' taksit var.'));
   /* ⚠ AR · Kart odemesinin gecikmesi kredi kartindaki EN PAHALI hata.
-     Taksit uyarisiyla AYNI desen — yeni bir uyari bicimi icat edilmedi. */
-  if (v.buAyKart.gecikmis > 0)
-    c.appendChild(el('div','uyari-agir','Son ödeme günü geçmiş ve kalanı olan '
-      + v.buAyKart.gecikmis + ' kart var.'));
+     Taksit uyarisiyla AYNI desen — yeni bir uyari bicimi icat edilmedi.
+     ⚠ ARTIK UC AYRI SATIR. Eski tek cumle ("son odeme gunu gecmis ve
+       kalani olan N kart var") asgariye bakmadigi icin 4/4 yanlis alarm
+       veriyordu; gerceginden ayirt edilemiyordu. Kaynak: buAyKart'in
+       uc listesi (bantVerisi'nde ayrilir, orada gerekcesi yazili). */
+  const bk = v.buAyKart;
+  /* 1 · GERCEK GECIKME — sert */
+  if (bk.gecikenler.length)
+    c.appendChild(el('div','uyari-agir', 'Asgari tutarı ödenmemiş '
+      + bk.gecikenler.length + ' kart var: '
+      + bk.gecikenler.map(x => x.ad + ' (asgari ' + tk(x.asgari)
+          + ' · ödenen ' + tk(x.odenen) + ')').join(' · ')));
+  /* 2 · DEVRETTI — uyari DEGIL, bilgi. Kasitli devir bir hata degil;
+     maliyeti varsa yazilir, bilinmiyorsa BILINMIYOR yazilir. */
+  if (bk.devredenler.length){
+    /* ⚠ KATLI BASLIYOR · bu NORMAL hal, uyari degil. Sahibi her ay
+       kasten devrediyor; dort karti dort satir halinde surekli acik
+       tutmak ekrani 250px sisiriyordu (olculdu). Ozet satirinda karar
+       verdiren iki rakam duruyor — toplam devreden ve TOPLAM AYLIK
+       MALIYET; kart kart dokum bir dokunus uzakta.
+       ⚠ Desen ICAT EDILMEDI: ozetCiz'in serit-ozet kalibi.
+       ⚠ FAIZI BILINMEYEN KART TOPLAMA GIRMEZ ve KAC TANE oldugu
+         ozette YAZAR — "hesaplanan kismi" oldugu gizlenmiyor. */
+    const topKalan = bk.devredenler.reduce((s,x) => s + x.kalan, 0);
+    const faizli   = bk.devredenler.filter(x => x.faiz !== null);
+    const topFaiz  = faizli.reduce((s,x) => s + x.faiz, 0);
+    const faizsizN = bk.devredenler.length - faizli.length;
+    const ac = el('button','serit-ozet'); ac.type = 'button';
+    ac.setAttribute('aria-expanded','false');
+    const p1 = el('span','so-p');
+    p1.appendChild(el('span','so-et', bk.devredenler.length + ' kart devretti'));
+    p1.appendChild(el('span','so-dg', tk(topKalan)));
+    ac.appendChild(p1);
+    const p2 = el('span','so-p');
+    p2.appendChild(el('span','so-et','aylık faizi'));
+    p2.appendChild(el('span','so-dg', faizli.length
+      ? tk(topFaiz) + (faizsizN ? ' (+' + faizsizN + ' hesaplanamıyor)' : '')
+      : 'hesaplanamıyor'));
+    ac.appendChild(p2);
+    const okD = el('span','so-ok','▾'); ac.appendChild(okD);
+    ac.setAttribute('aria-label', bk.devredenler.length
+      + ' kart asgarisi ödenip devretti, toplam ' + tk(topKalan) + '. Dökümü aç.');
+    c.appendChild(ac);
+    const kutuD = el('div'); kutuD.hidden = true; c.appendChild(kutuD);
+    ac.onclick = () => {
+      if (kutuD.hidden){
+        if (!kutuD.firstChild){
+          const d2 = el('div','bilgi');
+          d2.appendChild(document.createTextNode(
+            'Asgarisi ödendi, kalanı gelecek aya devretti — gecikme değil:\n'));
+          for (const x of bk.devredenler)
+            d2.appendChild(document.createTextNode('· ' + x.ad + ' ' + tk(x.kalan)
+              + (x.faiz === null
+                 ? ' — faiz oranı girilmemiş, maliyeti hesaplanamıyor'
+                 : ' · bir aylık faizi ' + tk(x.faiz)) + '\n'));
+          kutuD.appendChild(d2);
+        }
+        kutuD.hidden = false; okD.textContent = '▴';
+        ac.setAttribute('aria-expanded','true');
+      } else {
+        kutuD.hidden = true; okD.textContent = '▾';
+        ac.setAttribute('aria-expanded','false');
+      }
+    };
+  }
+  /* 3 · ASGARI GIRILMEMIS — gecikmis SAYILMIYOR, bilinmiyor deniyor */
+  if (bk.asgariYok.length)
+    c.appendChild(el('div','bilgi', 'Asgari tutarı girilmemiş '
+      + bk.asgariYok.length + ' kartta gecikme olup olmadığı ayırt edilemiyor: '
+      + bk.asgariYok.map(x => x.ad + ' ' + tk(x.kalan)).join(' · ')
+      + '. Ekstredeki asgari tutarı girersen ayrılır.'));
 
   /* ⚠ BT · takvim artik UC kaynak cizer; "taksit yok" tek basina bos
      ekran sebebi degil. Ucü de bossa bos durum. */
@@ -2364,6 +2474,29 @@ function takvimYenile(ctx){
   const ilk = new Date(yil, aySira - 1, 1);
   const bosluk = (ilk.getDay() + 6) % 7;                 // Pazartesi = 0
   const gunSayisi = new Date(yil, aySira, 0).getDate();
+  /* ===== HAFTALIK TOPLAM · SEKIZINCI SUTUN ACILMADI =====
+     ⚠ 375px'te 7 sutun x ~52px. Sekizinci sutun her hucreyi ~7px
+       daraltir ve dokunma hedefi 44px'in ALTINA iner — olculdu, hucre
+       bugun 52px. Bunun yerine haftanin ALTINA `grid-column:1/-1` ile
+       TAM GENISLIKTE ince bir serit konuyor: izgara yine 7 sutun,
+       hucre genisligi HIC degismiyor.
+     ⚠ KAYNAK IZGARAYLA AYNI: gunMap (taksit) + gunEk (kart + cek),
+       tutar da ayni kolonlardan — taksitte kr(t.kalan), ek kayitta
+       e.kalanKurus. Gun hucresinin aria-label'i ve ay basligi da AYNI
+       ikisini topluyor; farkli kaynaktan toplasaydik izgarayla
+       celisirdi. (Vergi vadeleri bu takvimde YOK — index.html'de.)
+     ⚠ ODEMESI OLMAYAN HAFTADA SERIT CIZILMEZ: rozet yalniz is varsa. */
+  let haftaKurus = 0, haftaAdet = 0, sutun = bosluk;
+  const haftaKapat = () => {
+    if (haftaAdet > 0){
+      const s = el('div','tkv-hafta-toplam');
+      s.appendChild(el('span','hs-et', 'hafta'));
+      s.appendChild(el('span','hs-dg', tlk(haftaKurus)));
+      s.appendChild(el('span','hs-ad', haftaAdet + ' ödeme'));
+      izg.appendChild(s);
+    }
+    haftaKurus = 0; haftaAdet = 0;
+  };
   for (let n = 0; n < bosluk; n++){
     const h = el('div','tkv-g bos'); h.setAttribute('aria-hidden','true'); izg.appendChild(h);
   }
@@ -2410,7 +2543,14 @@ function takvimYenile(ctx){
          : ' · ödeme yok'));
     h.onclick = () => { takvimGunSec((TAKVIM_GUN === tar) ? null : tar, ctx); };
     izg.appendChild(h);
+    /* Haftanin toplami: gun hucresinin KENDI kaynagindan, ayni satirda */
+    haftaKurus += liste.reduce((s,t) => s + kr(t.kalan), 0)
+                + ek.reduce((s,e) => s + e.kalanKurus, 0);
+    haftaAdet  += liste.length + ek.length;
+    sutun++;
+    if (sutun % 7 === 0) haftaKapat();        // Pazar doldu, serit
   }
+  haftaKapat();                                // ayin son (yarim) haftasi
   sol.appendChild(izg);
 
   /* --- gun paneli: izgaranin ALTINDA, modal DEGIL --- */
