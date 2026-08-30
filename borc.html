@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-6">
+<meta name="surum" content="borc-2026-08-27-7">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -518,6 +518,9 @@ main{padding:14px;max-width:640px;margin:0 auto}
   line-height:1.5;display:none;white-space:pre-wrap;overflow-wrap:anywhere}
 .msg.hata{display:block;background:#FBEAE7;color:var(--hata)}
 .msg.ok{display:block;background:#E7F0E9;color:var(--ok)}
+/* ⚠ "kaydedildi AMA kontrol et" — ne yesil ne kirmizi. Bu kural
+   olmadan .msg display:none kalir ve uyari HIC gorunmezdi. */
+.msg.uyari{display:block;background:#FBF1E3;color:var(--uyari)}
 
 .tablo-sar{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:10px -3px}
 table{border-collapse:collapse;width:100%;min-width:520px;font-size:15px}
@@ -532,7 +535,11 @@ td.sag,th.sag{text-align:right}
 .ay-bas .tp{font-size:13px;font-weight:600;color:var(--soluk)}
 .tk{border:1.5px solid var(--cizgi);border-radius:12px;padding:12px;margin-bottom:9px;background:var(--kart)}
 /* AY · TEK SATIRLIK OZET SERIDI (tam bant yalniz Takvim'de) */
-.serit-ozet{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+/* ⚠ flex-wrap · OLCULDU: 375px'te devretti seridi 393px isteyip 345px
+   kutuya sigmiyor, overflow-x:auto + scrollbar-width:none yuzunden
+   RAKAM SESSIZCE KESILIYORDU (gizli kaydirma, gorunur ipucu yok).
+   Sarma yalniz sigmayan seritte devreye girer; sigan serit degismez. */
+.serit-ozet{display:flex;flex-wrap:wrap;align-items:center;gap:14px;width:100%;text-align:left;
   background:var(--kart);border:1.5px solid var(--cizgi);border-radius:12px;
   padding:9px 12px;margin-bottom:10px;min-height:46px;cursor:pointer;
   overflow-x:auto;scrollbar-width:none}
@@ -1678,9 +1685,23 @@ async function bantVerisi(){
           /* ⚠ FAIZ ORANI YOKSA SIFIR DA TAHMIN DE YAZILMAZ. Faizi
              bilinmeyen kartin maliyetini 0 gostermek, devretmeyi
              bedavaymis gibi okutur — en pahali yanlis. */
+          /* ⚠ TAHMIN UST SINIRDIR, DUZELTME KATSAYISI YOK.
+             `kalan × aylık oran` faizi BUTUN AYA isletiyor; gercekte faiz
+             son odeme gununden ekstre kesimine kadar isliyor. Olculdu
+             (28.08, gercek ekstreler): tahmin/gercek orani Enpara 0,59 ·
+             KTU 0,83 · Ziraat Ticari 0,87 — TEK BIR SAYI DEGIL. Bir
+             ortalama turetip tahmini "duzeltmek" uydurma bir kesinlik
+             verirdi; tahmin oldugu gibi kaliyor ve ekranda UST SINIR
+             oldugu yaziliyor.
+             ⚠ GERCEK RAKAM YANINDA: o kartin SON EKSTRESINDEKI faiz ve
+               vergi (kart_donem.faiz_tutari / vergi_masraf_tutari).
+               YOKSA null kalir — sifir ya da tahmin YAZILMAZ. */
           buAyKart.devredenler.push({ ad: k.ad, banka: k.banka, kalan,
             faiz: k.faiz_orani == null ? null
-                  : Math.round(kalan * Number(k.faiz_orani) / 100) });
+                  : Math.round(kalan * Number(k.faiz_orani) / 100),
+            gercekFaiz: d.faiz_tutari == null ? null : kr(d.faiz_tutari),
+            gercekVergi: d.vergi_masraf_tutari == null ? null : kr(d.vergi_masraf_tutari),
+            gercekDonem: d.donem });
         }
       }
     }
@@ -2354,7 +2375,13 @@ async function vTakvim(){
     p1.appendChild(el('span','so-dg', tk(topKalan)));
     ac.appendChild(p1);
     const p2 = el('span','so-p');
-    p2.appendChild(el('span','so-et','aylık faizi'));
+    /* ⚠ "en çok" · TAHMIN UST SINIRDIR. Eski etiket "aylık faizi" idi ve
+       hesaplanmis bir gercek gibi okunuyordu; olculdu ki gercek faiz
+       tahminin %59-87'si arasinda cikiyor (faiz tum aya degil, son odeme
+       gununden kesime kadar isliyor). */
+    /* ⚠ "en çok" = ust sinir. "aylık faizi en çok" denenmisti: serit
+       432px'e cikip 345px kutuda RAKAMI kesiyordu (olculdu). */
+    p2.appendChild(el('span','so-et','en çok faiz'));
     p2.appendChild(el('span','so-dg', faizli.length
       ? tk(topFaiz) + (faizsizN ? ' (+' + faizsizN + ' hesaplanamıyor)' : '')
       : 'hesaplanamıyor'));
@@ -2370,11 +2397,29 @@ async function vTakvim(){
           const d2 = el('div','bilgi');
           d2.appendChild(document.createTextNode(
             'Asgarisi ödendi, kalanı gelecek aya devretti — gecikme değil:\n'));
-          for (const x of bk.devredenler)
+          for (const x of bk.devredenler){
             d2.appendChild(document.createTextNode('· ' + x.ad + ' ' + tk(x.kalan)
               + (x.faiz === null
                  ? ' — faiz oranı girilmemiş, maliyeti hesaplanamıyor'
-                 : ' · bir aylık faizi ' + tk(x.faiz)) + '\n'));
+                 : ' · faizi en çok ' + tk(x.faiz)) + '\n'));
+            /* ⚠ GERCEK RAKAM · YALNIZ VARSA. Uc kartta (Axess, Black,
+               Samsun) ekstre faizi girilmemis; onlarda bu satir HIC
+               yazilmaz — "0" ya da tahmin yazmak, olmayan bir olcumu
+               var gibi gosterirdi. */
+            if (x.gercekFaiz !== null)
+              /* ⚠ BOSLUKLA GIRINTI CALISMIYOR: kutu white-space:normal,
+                 bastaki bosluklar cokuyor ve satir ust satira degil,
+                 hicbir seye ait gorunuyordu (ekran goruntusunde olculdu).
+                 Ok isareti girintinin yerini tutar. */
+              d2.appendChild(document.createTextNode('→ '
+                + ayAdi(x.gercekDonem) + ' ekstresinde gerçek: faiz ' + tk(x.gercekFaiz)
+                + (x.gercekVergi !== null ? ' + vergi ' + tk(x.gercekVergi) : '')
+                + '\n'));
+          }
+          d2.appendChild(document.createTextNode(
+            'Tahmin ÜST SINIRDIR: faiz tüm aya değil, son ödeme gününden '
+          + 'ekstre kesimine kadar işler. Gerçek tutar ekstrede yazar ve '
+          + 'üstüne vergi biner.'));
           kutuD.appendChild(d2);
         }
         kutuD.hidden = false; okD.textContent = '▴';
@@ -6033,8 +6078,26 @@ function donemFormu(kart, liste, duz){
      ⚠ Bunlar KALAN'A GIRMEZ: faiz zaten "yeni harcama" icinde bankanin
        ekstresinde toplanmis durumda. Burada AYRICA saklanmasinin sebebi
        devir buyumesini aciklayabilmek. Iki kez toplanmiyor. */
-  alan('Ekstredeki faiz (FZ, bilinmiyorsa boş)', 'kdFaiz', duz ? fm(duz.faiz_tutari) : '', 'decimal');
-  alan('Faiz vergisi/masrafı (VR/FN, bilinmiyorsa boş)', 'kdVergi', duz ? fm(duz.vergi_masraf_tutari) : '', 'decimal');
+  /* ⚠ ETIKET DEGISTI · TESHIS EDILMIS BIR KUSURUN SEBEBIYDI.
+     Olculdu (28.08): Ziraat Şahıs 2026-08 doneminde faiz_tutari = 3.25
+     kayitli; o kartin FAIZ ORANI da %3,25 ve ekstresinde faizKesinti 0,
+     yani o donem HIC faiz islememis. Okuyucu suclu DEGIL — gercek PDF
+     ile calistirildi, `faiz: YOK` donduruyor (asagida kanit). Deger
+     ELLE bu alana yazilmis.
+     Sebep etiketti: "FZ" yalniz Maximum/Is Bankasi ekstresinin isareti.
+     Ziraat ekstresinde FZ: diye bir satir YOK; oradaki faize benzeyen
+     tek sayi "Alışveriş Faizi 3,25" — yani ORAN. Etiket, kullaniciyi
+     tam olarak o sayiya bakmaya gonderiyordu.
+     Yeni etiket bankaya ozel isaret ADI vermiyor ve TUTAR oldugunu
+     soyluyor; ipucu satiri orani ayrica disliyor. */
+  alan('Ekstrede bu döneme işlemiş faiz TUTARI (yoksa boş)', 'kdFaiz',
+    duz ? fm(duz.faiz_tutari) : '', 'decimal');
+  k.appendChild(el('div','kucuk',
+    'Faiz ORANI değil, TUTARI. Ekstrede "Kredi faizi" / "Alışveriş faizi" / '
+  + '"FZ:" satırındaki para tutarı. "Alışveriş Faizi %3,25" gibi bir satır '
+  + 'ORANDIR, buraya yazılmaz. O dönem faiz işlemediyse BOŞ bırak.'));
+  alan('Faiz vergisi/masrafı — TUTAR (yoksa boş)', 'kdVergi',
+    duz ? fm(duz.vergi_masraf_tutari) : '', 'decimal');
   const zn = el('div','kucuk'); zn.id = 'kdZincir'; k.appendChild(zn);
 
   /* ⚠ AW · C · CANLI AYNA — KAPI DEGIL. Kullanici yazdikca kalani gorur;
@@ -6143,6 +6206,23 @@ async function donemOnizle(kart, liste, kaydet, duz){
   ov.appendChild(el('div','bilgi',
     r.donem + ' · KALAN = devir + yeni + düzeltme − alacak kayıtları = ' + tlk(r.kalan)));
 
+  /* ⚠ ORAN-TUTAR KARISMASI NOBETCISI · teshis edilmis kusur (28.08:
+     Ziraat Şahıs faiz_tutari = 3.25 = kartin faiz orani). Girilen faiz
+     kartin AYLIK ORANIYLA BIREBIR ayniysa neredeyse kesin oran
+     yazilmistir — bir faiz tutarinin kurusuna kadar orana esit cikmasi
+     tesadufi olurdu.
+     ⚠ ENGELLEMIYOR, SOYLUYOR: mesru bir tutar da o rakama esit olabilir
+       (ornegin gercekten 3,25 TL faiz islemis). Kapi degil nobetci. */
+  const oranTutarKarismis = kart.faiz_orani != null && r.satir.faiz_tutari != null
+      && Number(r.satir.faiz_tutari) === Number(kart.faiz_orani);
+  const OT_METIN = !oranTutarKarismis ? '' :
+      'Girdiğin faiz tutarı (' + tl(r.satir.faiz_tutari) + ') bu kartın AYLIK FAİZ ORANIYLA '
+    + '(%' + String(kart.faiz_orani).replace('.', ',') + ') birebir aynı. '
+    + 'Oranı tutar sanmış olabilirsin — ekstredeki faiz TUTARINI yaz, '
+    + 'o dönem faiz işlemediyse alanı BOŞ bırak.';
+  if (oranTutarKarismis)
+    ov.appendChild(el('div','uyari-agir', OT_METIN + ' Yine de kaydedilir.'));
+
   const onceki = liste.filter(x => x.donem < r.donem).sort((a,b) => b.donem.localeCompare(a.donem))[0];
   if (onceki && kr(r.satir.devir) !== kr(onceki.kalan))
     ov.appendChild(el('div','uyari-agir',
@@ -6214,7 +6294,15 @@ async function donemOnizle(kart, liste, kaydet, duz){
   /* ⚠ ONCE tazele SONRA mesaj: ters sirada kartDetayAc #kartMsg'i yeniden
      kurup mesaji siliyor ve kayit sessizce gecmis gibi gorunuyordu. */
   await kartDetayAc(kart.id);
-  mesaj('kartMsg','ok', r.donem + ' kaydedildi. Ekstreyi eklemeyi unutma.');
+  /* ⚠ OLCULDU: yeni ay eklerken onizleme YOK — insert dogrudan kosuyor,
+     sonra kartDetayAc #kdOnizleme'yi komple siliyor. Nobetci oraya
+     yazilinca kullanici goremeden ucuyordu; 3.25 tam bu yoldan girdi.
+     Bu yuzden uyari, yeniden kurulan #kartMsg'e tasiniyor. */
+  if (oranTutarKarismis)
+    mesaj('kartMsg','uyari', r.donem + ' kaydedildi — AMA KONTROL ET: ' + OT_METIN
+      + ' Düzeltmek için ayın "Düzenle" düğmesini kullan.');
+  else
+    mesaj('kartMsg','ok', r.donem + ' kaydedildi. Ekstreyi eklemeyi unutma.');
 }
 
 /* AW · donem arsivleme — kart/kredi/maden arsivlemesiyle AYNI mekanik.
