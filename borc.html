@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-4">
+<meta name="surum" content="borc-2026-08-27-5">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -747,6 +747,8 @@ td.sag,th.sag{text-align:right}
     <!-- ⚠ EN SONA. Mevcut bes sekmenin yeri DEGISMEZ; serit yatay kayiyor
          ve arada bir yer acmak kas hafizasini bozar. -->
     <button data-b="cek"      onclick="ekranAc('cek')">Çek</button>
+    <!-- ⚠ EN SONA · ayni gerekce: mevcut alti sekmenin yeri DEGISMEZ. -->
+    <button data-b="finans"   onclick="ekranAc('finans')">Finans</button>
   </nav>
   <main id="icerik"></main>
   <!-- UYGULAMANIN alt çubuğu — index.html ile aynı sekmeler/ikonlar/sıra -->
@@ -1556,6 +1558,7 @@ async function ekranAc(ad){
     else if (ad === 'maden')    await vMaden();
     else if (ad === 'sahis')    await vSahis();
     else if (ad === 'cek')      await vCek();
+    else if (ad === 'finans')   await vFinans();
   }catch(e){
     c.textContent = '';
     const k = el('div','kart');
@@ -6163,6 +6166,388 @@ function donemSil(kart, d, acan){
         d.donem + ' silindi. Aynı ay yeniden girilebilir.'); },
       'kart_donem')});
 }
+
+/* ================== 7 · FINANS ==================
+   Sahibin sorusu: "bu yil ne kazandik, ne kadar vergi odedik, net
+   elimizde ne kaldi" — kalem kalem, dokununca detay.
+
+   ⚠ HIC YENI HESAP YOK. Butun rakamlar 1. turda cikarilan haritadaki
+     kaynaklardan geliyor; kar formulu (gercek_ay_kari) DEGISTIRILMEDI,
+     yalniz OKUNUYOR. Yeni tablo/RPC/migration yok.
+
+   ⚠ CIFT SAYMA · 1. turda OLCULDU, ekran bunlari COZUYOR:
+     1. SGK iki yerde: personel_gider.sgk (TAHAKKUK) ve vergi_odeme
+        tur='sgk' (ODENEN). Ayni paranin iki zamani. Karda DUSULEN
+        tahakkuktur (personel_toplam icinde); odenen hali NAKIT
+        tarafinda. Ekran hangisinin nereye girdigini satirda YAZAR.
+     2. Arac gideri (gider.arac_id dolu) ZATEN gider_net icinde.
+        Kalem gorunur ama toplama IKINCI KEZ GIRMEZ — "giderlerin
+        icinde" etiketi tasir.
+     3. Tedarikciye ODENEN nakit cikisidir, ALIS maliyettir. Kar
+        tarafinda alis (SMM uzerinden), nakit tarafinda odeme
+        kullanilir; ikisi TOPLANMAZ.
+     4. banka_mutabakat tutarlari EKSI saklaniyor. Isaret CALISMA
+        ANINDA olculuyor (isaretDuzelt); "dus" diye tekrar eksiyle
+        carpmak kara EKLERDI.
+     5. MTV yalniz arac yolunda — vergiler kaleminde MTV ARANMIYOR.
+
+   ⚠ SIFIR YAZILMAZ: verisi olmayan kalem "girilmemiş" der. Sifir,
+     olmayan bir gercegi IDDIA eder.
+   ================================================================= */
+let FIN_KAPSAM = 'ay', FIN_DONEM = null, FIN_ACIK = {};
+
+/* banka_mutabakat eksi saklıyor; hangi isaretle geldigini OLCUP
+   mutlak degere ceviriyoruz. Iki kez eksiye cevirme tuzagi burada
+   kapali — cagiran taraf her zaman POZITIF bir "kesinti" aliyor. */
+const isaretDuzelt = (x) => Math.abs(kr(x || 0));
+
+async function finansGetir(donemler){
+  const [oz, vo, bm, pg, am] = await Promise.all([
+    sb.from('v_aylik_ozet').select('*').in('donem', donemler),
+    sb.from('vergi_odeme').select('tur,donem,odeme_tarihi,tutar')
+      .eq('is_deleted', false),
+    sb.from('banka_mutabakat').select('donem,komisyon,maxipuan,okc_ucret,kesinti_toplam,durum')
+      .eq('is_deleted', false).in('donem', donemler),
+    sb.from('personel_gider').select('donem,personel_adi,maas,sgk,prim,yemek,avans')
+      .eq('is_deleted', false).in('donem', donemler),
+    sb.from('v_arac_maliyet').select('donem,plaka,kategori,tutar,kayit')
+      .in('donem', donemler)
+  ]);
+  /* ⚠ HATA YUTULMUYOR. Bir kaynak okunamazsa o kalem "okunamadı" der;
+     sessizce 0 gostermek en tehlikeli hata olurdu. */
+  return {
+    ozet: oz.error ? null : (oz.data || []),
+    vergi: vo.error ? null : (vo.data || []).filter(x =>
+      donemler.includes(String(x.odeme_tarihi || '').slice(0,7))),
+    kesinti: bm.error ? null : (bm.data || []),
+    personel: pg.error ? null : (pg.data || []),
+    arac: am.error ? null : (am.data || []),
+    hata: [oz.error && 'aylık özet', vo.error && 'vergi ödemeleri',
+           bm.error && 'banka mutabakatı', pg.error && 'personel',
+           am.error && 'araç'].filter(Boolean)
+  };
+}
+
+async function vFinans(){
+  const c = document.getElementById('icerik');
+  const buAy = bugun().slice(0,7), buYil = bugun().slice(0,4);
+  if (!FIN_DONEM) FIN_DONEM = buAy;
+  const donemler = FIN_KAPSAM === 'ay' ? [FIN_DONEM]
+    : Array.from({length:12}, (_,i) => FIN_DONEM.slice(0,4) + '-' + String(i+1).padStart(2,'0'));
+  const d = await finansGetir(donemler);
+  c.textContent = '';
+
+  /* ---- DONEM SECICI ---- */
+  const sec = el('div','kart');
+  const sr = el('div','satir');
+  const sol = el('div');
+  for (const [k, ad] of [['ay','Ay'],['yil','Yıl']]){
+    const b = el('button','btn2' + (FIN_KAPSAM === k ? ' yy-aktif' : ''), ad);
+    b.type = 'button';
+    b.onclick = () => { FIN_KAPSAM = k;
+      FIN_DONEM = k === 'ay' ? (FIN_DONEM.length === 7 ? FIN_DONEM : buAy) : FIN_DONEM.slice(0,4) + '-01';
+      FIN_ACIK = {}; vFinans(); };
+    sol.appendChild(b);
+  }
+  sr.appendChild(sol);
+  const inp = document.createElement('input');
+  if (FIN_KAPSAM === 'ay'){ inp.type = 'month'; inp.value = FIN_DONEM; }
+  else { inp.type = 'number'; inp.min = '2020'; inp.max = '2100';
+         inp.value = FIN_DONEM.slice(0,4); inp.style.width = '92px'; }
+  inp.onchange = () => {
+    FIN_DONEM = FIN_KAPSAM === 'ay' ? (inp.value || buAy) : (inp.value || buYil) + '-01';
+    FIN_ACIK = {}; vFinans();
+  };
+  sr.appendChild(inp);
+  sec.appendChild(sr);
+  c.appendChild(sec);
+
+  if (d.hata.length)
+    c.appendChild(el('div','uyari-agir','Şu kaynaklar okunamadı: ' + d.hata.join(', ')
+      + '. O kalemler eksik görünüyor — sıfır sanma, ekranı yenile.'));
+  if (d.ozet === null){
+    c.appendChild(el('div','uyari-agir',
+      'Aylık özet okunamadı. Bu görünüm yalnız işletme sahibine açıktır; '
+    + 'oturumun süresi dolmuş olabilir — çıkıp yeniden gir.'));
+    return;
+  }
+
+  /* ---- DOLULUK · ekran kac ayin dolu oldugunu SOYLER ---- */
+  const dolu = d.ozet.filter(x => Number(x.gun_sayisi) > 0);
+  const toplaOz = (alan) => dolu.reduce((s,x) => s + kr(x[alan]), 0);
+  if (!dolu.length){
+    c.appendChild(el('div','bos', FIN_KAPSAM === 'ay'
+      ? ayAdi(FIN_DONEM) + ' için gün sonu girilmemiş — bu ayın hiçbir rakamı hesaplanamıyor.'
+      : FIN_DONEM.slice(0,4) + ' yılında hiç gün sonu girilmemiş.'));
+    return;
+  }
+  const gunTop = dolu.reduce((s,x) => s + Number(x.gun_sayisi || 0), 0);
+  if (FIN_KAPSAM === 'yil')
+    c.appendChild(el('div','uyari-orta', FIN_DONEM.slice(0,4) + ' yılında '
+      + dolu.length + ' ay dolu (' + dolu.map(x => ayAdi(x.donem)).join(', ')
+      + ') · toplam ' + gunTop + ' gün. Öteki aylar boş — bu rakamlar '
+      + 'yılın tamamı DEĞİL, yalnız dolu ayların toplamı.'));
+  else {
+    const ayGun = new Date(Number(FIN_DONEM.slice(0,4)), Number(FIN_DONEM.slice(5,7)), 0).getDate();
+    const bitmis = FIN_DONEM < buAy;
+    const hedef = bitmis ? ayGun : Number(bugun().slice(8,10));
+    if (gunTop < hedef)
+      c.appendChild(el('div','uyari-orta', ayAdi(FIN_DONEM) + ' için ' + gunTop + '/'
+        + hedef + ' gün girilmiş — ' + (hedef - gunTop) + ' gün eksik, tutarlar eksik.'));
+  }
+
+  /* ---- CIRO · en ustte, en buyuk ---- */
+  const ciroKurus = toplaOz('gercek_ciro');
+  const ck = el('div','kart');
+  ck.appendChild(el('div','kbaslik', (FIN_KAPSAM === 'ay' ? ayAdi(FIN_DONEM)
+    : FIN_DONEM.slice(0,4) + ' (' + dolu.length + ' ay)') + ' · CİRO'));
+  ck.appendChild(el('div','cek-buyuk', tlk(ciroKurus)));
+  ck.appendChild(el('div','cek-alt', gunTop + ' gün · Z cirosu ' + tk(toplaOz('ciro'))
+    + ' + Z dışı nakit ' + tk(toplaOz('z_disi_nakit'))));
+  c.appendChild(ck);
+
+  const msg = el('div','msg'); msg.id = 'finansMsg'; c.appendChild(msg);
+
+  /* ---- KALEM SATIRI · katli baslar, dokununca acilir ----
+     ⚠ Desen ICAT EDILMEDI: ozetCiz'in serit-ozet kalibi. */
+  const kalemKart = el('div','kart');
+  kalemKart.appendChild(el('div','kbaslik','Kalemler'));
+  const kalem = (anahtar, ad, tutarMetin, etiket, detayCiz) => {
+    const b = el('button','serit-ozet'); b.type = 'button';
+    b.setAttribute('aria-expanded', FIN_ACIK[anahtar] ? 'true' : 'false');
+    const p = el('span','so-p');
+    p.appendChild(el('span','so-et', ad));
+    p.appendChild(el('span','so-dg', tutarMetin));
+    b.appendChild(p);
+    if (etiket) b.appendChild(el('span','kucuk', etiket));
+    const okI = el('span','so-ok', FIN_ACIK[anahtar] ? '▴' : '▾'); b.appendChild(okI);
+    b.setAttribute('aria-label', ad + ' ' + tutarMetin + (etiket ? ', ' + etiket : '') + '. Detayı aç.');
+    kalemKart.appendChild(b);
+    const kutu = el('div'); kutu.hidden = !FIN_ACIK[anahtar]; kalemKart.appendChild(kutu);
+    const kur = () => { if (!kutu.firstChild) detayCiz(kutu); };
+    if (FIN_ACIK[anahtar]) kur();
+    b.onclick = () => {
+      if (kutu.hidden){ kur(); kutu.hidden = false; okI.textContent = '▴';
+        b.setAttribute('aria-expanded','true'); FIN_ACIK[anahtar] = true; }
+      else { kutu.hidden = true; okI.textContent = '▾';
+        b.setAttribute('aria-expanded','false'); FIN_ACIK[anahtar] = false; }
+    };
+  };
+  const dSatir = (kutu, et, dg, not) => {
+    const s = el('div','satir');
+    s.appendChild(el('span','et', et));
+    const g = el('span','dg', dg);
+    if (not){ g.appendChild(document.createTextNode(' ')); g.appendChild(el('span','kucuk', not)); }
+    s.appendChild(g); kutu.appendChild(s);
+  };
+  /* ⚠ "girilmemiş" ile "0,00" AYRI. Kaynak hic satir vermediyse
+     rakam YAZILMAZ — sifir olmayan bir gercegi iddia eder. */
+  const yaz = (varMi, kurus) => varMi ? tlk(kurus) : 'girilmemiş';
+
+  /* 1 · GUNLUK NAKIT */
+  kalem('nakit','Günlük nakit', tlk(toplaOz('toplam_nakit')), 'ciro içinde', (k) => {
+    dSatir(k,'Sayılan kasa nakdi', tlk(toplaOz('toplam_nakit')));
+    dSatir(k,'Z dışı nakit', tlk(toplaOz('z_disi_nakit')), 'kâra eklenir');
+    const say = dolu.reduce((s,x) => s + Number(x.kasa_sayilmayan_gun || 0), 0);
+    if (say) k.appendChild(el('div','uyari-orta', say + ' günde kasa sayılmamış — nakit eksik olabilir.'));
+    k.appendChild(el('div','kucuk','Ciro içinde zaten var; ayrıca düşülmez.'));
+  });
+
+  /* 2 · KREDI KARTI */
+  kalem('kart','Kredi kartı', tlk(toplaOz('kart')), 'ciro içinde', (k) => {
+    dSatir(k,'Karttan geçen', tlk(toplaOz('kart')));
+    dSatir(k,'Nakit', tlk(toplaOz('nakit')));
+    k.appendChild(el('div','kucuk','POS kesintisi ayrı kalemde — bu rakam kesinti ÖNCESİdir.'));
+  });
+
+  /* 3 · KESINTILER · isaret olculerek duzeltilir */
+  const kesVar = d.kesinti !== null && d.kesinti.length > 0;
+  const kesToplam = kesVar ? d.kesinti.reduce((s,x) => s + isaretDuzelt(x.kesinti_toplam), 0) : 0;
+  kalem('kesinti','Kesintiler', yaz(kesVar, kesToplam), 'kârda YOK', (k) => {
+    if (!kesVar){ k.appendChild(el('div','bos','Bu dönem için banka mutabakatı girilmemiş.')); return; }
+    for (const x of d.kesinti){
+      dSatir(k, ayAdi(x.donem), tlk(isaretDuzelt(x.kesinti_toplam)),
+        (x.durum === 'farkli' ? 'mutabakat TUTMUYOR' : ''));
+      dSatir(k, '  komisyon', tlk(isaretDuzelt(x.komisyon)));
+      if (x.okc_ucret) dSatir(k, '  ÖKC ücreti', tlk(isaretDuzelt(x.okc_ucret)));
+      if (x.maxipuan)  dSatir(k, '  puan/iade', tlk(isaretDuzelt(x.maxipuan)));
+    }
+    k.appendChild(el('div','uyari-orta',
+      'Bu tutar kâr formülünde YOK — banka kesintisi hiçbir yerde düşülmüyor. '
+    + 'Nakit hesabında bankaya geçenden düşüldü.'));
+  });
+
+  /* 4 · GIDERLER */
+  kalem('gider','Giderler', tlk(toplaOz('gider_net')), 'kârdan düşülü', (k) => {
+    dSatir(k,'Gider toplamı (KDV dahil)', tlk(toplaOz('gider_toplam')));
+    dSatir(k,'İndirilebilir gider KDV', tlk(toplaOz('gider_kdv_ind')));
+    dSatir(k,'Kâra giren (net)', tlk(toplaOz('gider_net')));
+    k.appendChild(el('div','kucuk','Araç masrafları BU RAKAMIN İÇİNDE — araç kalemi ayrıca düşülmez.'));
+  });
+
+  /* 5 · TEDARIKCI ODEMELERI */
+  kalem('tedarikci','Tedarikçi ödemeleri', tlk(toplaOz('odenen_tedarikci')),
+    'nakitte · kârda değil', (k) => {
+    dSatir(k,'Fiilen ödenen', tlk(toplaOz('odenen_tedarikci')), 'nakit çıkışı');
+    dSatir(k,'Dönemin alışı', tlk(toplaOz('alis_toplam')), 'maliyet');
+    const fark = toplaOz('odenen_tedarikci') - toplaOz('alis_toplam');
+    if (fark > 0)
+      k.appendChild(el('div','kucuk','Ödenen alıştan ' + tk(fark)
+        + ' fazla — aradaki fark önceki dönemlerden devreden borcun kapatılması.'));
+    k.appendChild(el('div','kucuk',
+      'İkisi AYNI PARA DEĞİL ve TOPLANMAZ: alış kâra maliyet olarak (SMM), '
+    + 'ödeme nakit çıkışı olarak girer.'));
+  });
+
+  /* 6 · SGK · iki zaman, tek para */
+  const sgkTahakkuk = d.personel === null ? null
+    : d.personel.reduce((s,x) => s + kr(x.sgk), 0);
+  const sgkOdenen = d.vergi === null ? null
+    : d.vergi.filter(x => x.tur === 'sgk').reduce((s,x) => s + kr(x.tutar), 0);
+  kalem('sgk','SGK', sgkTahakkuk === null ? 'okunamadı' : tlk(sgkTahakkuk),
+    'personel içinde düşülü', (k) => {
+    dSatir(k,'Tahakkuk (bu dönemin yükü)', sgkTahakkuk === null ? 'okunamadı' : tlk(sgkTahakkuk),
+      'kârdan düşülen BU');
+    dSatir(k,'Ödenen (SGK dekontu)', sgkOdenen === null ? 'okunamadı'
+      : (sgkOdenen ? tlk(sgkOdenen) : 'girilmemiş'), 'nakit çıkışı');
+    k.appendChild(el('div','uyari-orta',
+      'İkisi AYNI PARANIN İKİ ZAMANI — tahakkuk borcun doğduğu ay, ödeme '
+    + 'kasadan çıktığı ay. Kârdan yalnız TAHAKKUK düşülür; ödenen hâli '
+    + 'nakit tarafında sayılır. İkisi birden düşülürse SGK iki kez gider.'));
+  });
+
+  /* 7 · VERGILER */
+  const vVar = d.vergi !== null && d.vergi.length > 0;
+  const vToplam = vVar ? d.vergi.reduce((s,x) => s + kr(x.tutar), 0) : 0;
+  const gelirV = vVar ? d.vergi.filter(x => x.tur === 'gelir_vergisi' || x.tur === 'gecici_vergi')
+    .reduce((s,x) => s + kr(x.tutar), 0) : 0;
+  kalem('vergi','Vergiler', yaz(vVar, vToplam), 'kârda YOK · nakitte var', (k) => {
+    if (!vVar){ k.appendChild(el('div','bos','Bu dönem için vergi ödemesi girilmemiş.')); return; }
+    const turler = {};
+    for (const x of d.vergi) turler[x.tur] = (turler[x.tur] || 0) + kr(x.tutar);
+    for (const [t, v2] of Object.entries(turler).sort((a,b) => b[1]-a[1]))
+      dSatir(k, VERGI_AD_FIN[t] || t, tlk(v2),
+        (t === 'gelir_vergisi' || t === 'gecici_vergi') ? 'kâra dahil DEĞİL' : '');
+    if (gelirV)
+      k.appendChild(el('div','uyari-orta','Gelir/geçici vergi ' + tk(gelirV)
+        + ' kâr formülünün DIŞINDA. Düşülüp düşülmeyeceği muhasebe kararı — '
+        + 'düşülürse elde kalan tam bu kadar azalır.'));
+    k.appendChild(el('div','kucuk','SGK primi de bu listede; kârdan düşülen tahakkuk hâli SGK kaleminde.'));
+  });
+
+  /* 8 · ARAC · gorunur ama TEKRAR DUSULMEZ */
+  const aVar = d.arac !== null && d.arac.length > 0;
+  const aToplam = aVar ? d.arac.reduce((s,x) => s + kr(x.tutar), 0) : 0;
+  kalem('arac','Araç', yaz(aVar, aToplam), 'giderlerin içinde', (k) => {
+    if (!aVar){ k.appendChild(el('div','bos','Bu dönem için araca bağlı gider girilmemiş.')); return; }
+    const plakalar = {};
+    for (const x of d.arac){
+      if (!plakalar[x.plaka]) plakalar[x.plaka] = [];
+      plakalar[x.plaka].push(x);
+    }
+    for (const [pl, satirlar] of Object.entries(plakalar)){
+      dSatir(k, pl, tlk(satirlar.reduce((s,x) => s + kr(x.tutar), 0)));
+      for (const x of satirlar) dSatir(k, '  ' + (x.kategori || 'Diğer'), tlk(kr(x.tutar)));
+    }
+    k.appendChild(el('div','uyari-orta',
+      'Bu tutar Giderler kaleminin İÇİNDE — toplama ikinci kez GİRMEZ. '
+    + 'Burada yalnız aracın maliyetini ayrıca görmek için duruyor.'));
+  });
+
+  /* 9 · PERSONEL */
+  const pVar = d.personel !== null && d.personel.length > 0;
+  kalem('personel','Personel', tlk(toplaOz('personel_toplam')), 'kârdan düşülü', (k) => {
+    if (!pVar){ k.appendChild(el('div','bos','Bu dönem için personel kaydı girilmemiş.')); return; }
+    const kisi = {};
+    for (const x of d.personel){
+      const t = kr(x.maas) + kr(x.sgk) + kr(x.prim) + kr(x.yemek);
+      kisi[x.personel_adi] = (kisi[x.personel_adi] || 0) + t;
+    }
+    for (const [ad2, t] of Object.entries(kisi).sort((a,b) => b[1]-a[1]))
+      dSatir(k, ad2, tlk(t));
+    dSatir(k,'Toplam (maaş+SGK+prim+yemek)', tlk(toplaOz('personel_toplam')), 'kârdan düşülen');
+    dSatir(k,'Avans', tlk(toplaOz('personel_avans')), 'nakit çıkışı, kârda değil');
+  });
+  c.appendChild(kalemKart);
+
+  /* ================= EN ALTTA IKI RAKAM =================
+     ⚠ TEK RAKAM TABLOYU GIZLER. Olculdu: Temmuz kari 27.067,08 ama
+       ayni ay nakit cikisi 533.802,61. "Kar" tek basina yazilsaydi
+       kasadan cikan yarim milyon gorunmezdi. */
+  const karKurus = toplaOz('gercek_ay_kari');
+  const stokBazli = dolu.every(x => x.stok_bazli === true);
+  const smmSifir = dolu.filter(x => kr(x.smm) === 0);
+
+  const alt = el('div','kart');
+  alt.appendChild(el('div','kbaslik','Sonuç'));
+
+  const karSat = el('div','tk-ust');
+  const karAd = el('div','tk-ad');
+  karAd.appendChild(document.createTextNode('KÂR (tahakkuk) '));
+  if (!stokBazli) karAd.appendChild(el('span','rozet rz-sari','TAHMİN'));
+  karSat.appendChild(karAd);
+  karSat.appendChild(el('div','tk-tutar', tlk(karKurus)));
+  alt.appendChild(karSat);
+  alt.appendChild(el('div','kucuk','ciro − satış KDV − mal maliyeti − gider − personel + Z dışı nakit'));
+  if (!stokBazli)
+    alt.appendChild(el('div','uyari-orta',
+      'Stok sayımı girilmediği için mal maliyeti alıştan hesaplandı — bu kâr TAHMİNDİR. '
+    + 'Ay sonu sayımı girilirse kesinleşir.'));
+  if (smmSifir.length)
+    alt.appendChild(el('div','uyari-agir',
+      smmSifir.map(x => ayAdi(x.donem)).join(', ') + ' için alış girilmemiş — '
+    + 'mal maliyeti EKSİK, kâr olduğundan yüksek görünüyor.'));
+
+  /* NAKIT · giren − cikan. Kesinti bankaya gecenden dusuluyor. */
+  const nakitCikis = toplaOz('nakit_cikisi') + vToplam + kesToplam;
+  const eldeKalan = ciroKurus - nakitCikis;
+  const nkSat = el('div','tk-ust');
+  nkSat.appendChild(el('div','tk-ad','ELDE KALAN (nakit)'));
+  const nkT = el('div','tk-tutar', tlk(eldeKalan));
+  if (eldeKalan < 0) nkT.style.color = 'var(--hata)';
+  nkSat.appendChild(nkT);
+  alt.appendChild(nkSat);
+  alt.appendChild(el('div','kucuk','giren ' + tk(ciroKurus) + ' − çıkan ' + tk(nakitCikis)));
+
+  /* ---- ARADAKI FARK · kalem kalem ---- */
+  const farkB = el('button','serit-ozet'); farkB.type = 'button';
+  farkB.setAttribute('aria-expanded','false');
+  const fp = el('span','so-p');
+  fp.appendChild(el('span','so-et','Kâr ile elde kalan arasındaki fark'));
+  fp.appendChild(el('span','so-dg', tk(karKurus - eldeKalan)));
+  farkB.appendChild(fp);
+  const fok = el('span','so-ok','▾'); farkB.appendChild(fok);
+  alt.appendChild(farkB);
+  const farkK = el('div'); farkK.hidden = true; alt.appendChild(farkK);
+  farkB.onclick = () => {
+    if (farkK.hidden){
+      if (!farkK.firstChild){
+        farkK.appendChild(el('div','kucuk',
+          'Kârda OLMAYAN ama kasadan ÇIKAN kalemler — fark bunlardan doğuyor:'));
+        dSatir(farkK,'Vergi ödemeleri', vVar ? tlk(vToplam) : 'girilmemiş');
+        dSatir(farkK,'Tedarikçiye ödenen', tlk(toplaOz('odenen_tedarikci')),
+          'kârda alış (SMM) var, ödeme yok');
+        dSatir(farkK,'Kredi anapara ödemesi', tlk(toplaOz('borc_anapara_odenen')));
+        dSatir(farkK,'Şahıs borcu ödemesi', tlk(toplaOz('borc_sahis_odenen')));
+        dSatir(farkK,'Personel avansı', tlk(toplaOz('personel_avans')));
+        dSatir(farkK,'Banka kesintisi', kesVar ? tlk(kesToplam) : 'girilmemiş');
+        farkK.appendChild(el('div','kucuk',
+          'Kâr "ne kazandık", elde kalan "kasada ne kaldı" sorusunun cevabı. '
+        + 'Biri ötekinden türetilmez; ikisi ayrı sorudur.'));
+      }
+      farkK.hidden = false; fok.textContent = '▴'; farkB.setAttribute('aria-expanded','true');
+    } else { farkK.hidden = true; fok.textContent = '▾'; farkB.setAttribute('aria-expanded','false'); }
+  };
+  c.appendChild(alt);
+}
+/* Finans ekraninin vergi turu adlari — index.html'deki VERGI_AD'in
+   AYNISI DEGIL, o dosya ayri; burada yalniz GORUNTU adi tutuluyor.
+   ⚠ mtv YOK: MTV yolu arac tarafina alindi, vergi_odeme'de tur olarak
+     acilmiyor (28.08 olcumu: 0 kayit). */
+const VERGI_AD_FIN = { kdv:'KDV', bagkur:'Bağkur', sgk:'SGK primi', muhsgk:'MUHSGK',
+  gecici_vergi:'Geçici vergi', gelir_vergisi:'Gelir vergisi', stopaj:'Stopaj',
+  muhasebeci:'Muhasebeci', kira:'Kira', sozlesme_yenileme:'Sözleşme yenileme',
+  diger:'Diğer' };
 
 /* ================== 4 · MADEN ================== */
 /* ⚠ AN-B · MADEN_DETAY · sahis tarafiyla ayni gerekce: madenSil basarinca
