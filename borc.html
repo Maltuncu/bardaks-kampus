@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-8">
+<meta name="surum" content="borc-2026-08-27-9">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4803,6 +4803,67 @@ function axOku(parcalar){
       kim: oranAday[0].deger };
   }
 
+  /* ==================================================================
+     ⚠ CI · KART TURU 0/7 · SON DORT HANEDEN TURETILIYOR
+     OLCULDU (yedi gercek dosya): hicbir banka "kart türü / kart adı /
+     ürün adı" diye bir etiket BASMIYOR — sozluk yolu yedi dosyada da
+     bos donuyor. Ama MASKELI KART NUMARASI hepsinde var:
+       Enpara  "5269 11** **** 5532"        -> 5532
+       Ziraat  "KART NO : 6502-####-####-1965" -> 1965
+       Ziraat  "KART NO : 5472-####-####-4330" -> 4330
+       Akbank  "5526 09** **** 7799"        -> 7799
+     KARAR: alan KALDIRILMADI, son dort haneden TURETILDI. Kaldirmak
+     iki isi birden goturmesi olurdu — onay tablosundaki satir ve
+     "Yeni kart" formundaki ad on dolgusu; son dort hane ise ekstrenin
+     HANGI KARTA ait oldugunu soyleyen tek guvenilir isaret (sahibin
+     alti karti var, adlari ekstrede yazmiyor).
+     ⚠ SOZLUGE EKLENMEDI. AX_SOZLUK'teki her etiket ayni zamanda
+       tarama ENGELIDIR; oraya bir sey eklemek diger bankalarin
+       okumasini kaydirabilir (daha once olculdu). Bu AYRI bir kural
+       ve YALNIZ sozluk yolu bos donduyse calisir.
+     ⚠ MASKE ZORUNLU. Maskesiz dortlu gruplar bankanin Mersis
+       numarasina da uyuyor ("0015 0015 2640 0497" — Akbank dipnotu,
+       olculdu: maske sarti olmadan 7799 ile 0497 carpisip alani
+       BELIRSIZ yapiyordu). Bankalar kart numarasini her zaman
+       maskeler; maskesiz dizi kart numarasi degildir.
+     ⚠ BELGE EKSTRE GIBI OKUNMADIYSA YAZILMAZ. Iki dosya (islem
+       dekontu, bildirim maili) ekstre degil ve okunmamalari DOGRU;
+       bildirim mailinde kart numarasi GECIYOR ve tek basina bu alani
+       doldurmasi o dosyayi "okunmus" gosterirdi. Kapi: cekirdek
+       alanlardan en az IKISI okunmus olacak. */
+  if (!alanlar.kartAdi || alanlar.kartAdi.durum !== 'ok'){
+    const cekirdekOk = ['kesim','sonOdeme','limit','devir','hesapOzeti','asgari']
+      .filter(k => alanlar[k] && alanlar[k].durum === 'ok').length;
+    if (cekirdekOk >= 2){
+      const PAN = /(?:[0-9*#xX•·]{4}[ \-–—])((?:[0-9*#xX•·]{4}[ \-–—]){2})(\d{4})(?![\d*#])/;
+      const dortlu = new Map();
+      for (const s of satirlar)
+        for (const it of s.items){
+          const m = PAN.exec(it.ham);
+          if (!m) continue;
+          const tam = m[0];
+          if (!/[*#xX•·]/.test(tam)) continue;          // maskesiz -> kart numarasi degil
+          if (!dortlu.has(m[2])) dortlu.set(m[2], tam.trim());
+        }
+      /* ⚠ EK KART · BIRDEN COK NUMARA CIKABILIR, BELIRSIZ DEGILDIR.
+         Olculdu (Ziraat Ticari): ekstrenin BASLIGINDA
+         "5472-####-####-4330", islem listesinin ilerisinde ikinci bir
+         bolum "KART NO : 6508-####-####-4005" — ikincisi EK KARTTIR,
+         ekstre birincisine aittir. Kural konuma dayaniyor: satirlar
+         y'ye gore sirali, ilk gecen numara baslikta olandir. Otekiler
+         GIZLENMEZ, kural metninde yazilir ki kullanici gorsun. */
+      const giris = [...dortlu.entries()];
+      if (giris.length){
+        const [son, tam] = giris[0];
+        alanlar.kartAdi = { durum:'ok', ham: '···' + son, etiket: tam,
+          kural: 'kart numarasının son dört hanesinden'
+               + (giris.length > 1 ? ' · ekstrede ' + (giris.length - 1)
+                   + ' ek kart daha geçiyor (' + giris.slice(1).map(g => '···' + g[0]).join(', ')
+                   + '), başlıktaki alındı' : '') };
+      }
+    }
+  }
+
   /* ⚠ CD · ESKI 'SIRALI SUTUN SABLONU' (AX_SABLON) BURADAN KALDIRILDI.
      Var olmayan bir yapiya yazilmisti: ham icerik-akisi ayristiricisi
      ozet satirini TEK bitisik parca gostermisti; gercek pdf.js ayni TJ
@@ -4848,12 +4909,44 @@ async function ekstreOku(){
       return;
     }
     mesajTemizle('kartMsg');
-    await ekstreOnayEkrani(axOku(parcalar), f);
+    /* ⚠ CI · IPUCU axOku'DAN ONCE HESAPLANIR. axOku, CD kuralinda
+       parcalarin ham'ini BIRLESTIRIP bazilarini banttan cikariyor —
+       ayni diziyi sonradan tekrar taramak birlesmis ve birlesmemis
+       hali YAN YANA gosterirdi. Okuyucunun ciktisi DEGISMEDI. */
+    const toplamIpucu = axToplamSatirlari(parcalar);
+    await ekstreOnayEkrani(axOku(parcalar), f, toplamIpucu);
   };
   inp.click();
 }
 
-async function ekstreOnayEkrani(a, dosya){
+/* ⚠ CI · EKSTREDE OKUNABILEN TOPLAM SATIRLARI (yalniz IPUCU).
+   Ozet tablosu olmayan ekstrede ekran "birini bul ve gir" diyor ama
+   NEREYE bakilacagini soylemiyordu; sahibi iki sayfa geziyor.
+   Olculdu (Axess): islem listesinin dibinde
+     "Genel Toplam · 151.370,32 · 17.560,00 · 79,02(-)"
+   ⚠ ETIKET LISTESI DAR ve TAM ESLESME. Ayni belgede "Toplam Nakit
+     Avans Limiti" de var; icinde 'toplam' gecen her satiri almak
+     ipucunu gurultuye cevirirdi (olculdu). Yalniz iskeleti tam
+     asagidakilerden biri olan satir alinir.
+   ⚠ HICBIR ALANA YAZMAZ. Hangi sutunun ne oldugunu ekstre soylemiyor;
+     yanlis alana dusen bir toplam SESSIZCE yanlis donem borcu uretir.
+     Karar kullanicinin. */
+const AX_TOPLAM_ISK = ['genel toplam','toplam','ara toplam','dönem toplamı',
+                       'dönem toplam'].map(axIskelet);
+function axToplamSatirlari(parcalar){
+  const bulunan = [];
+  for (const s of axSatirlar(parcalar || [])){
+    const et = s.items.find(it => AX_TOPLAM_ISK.indexOf(it.isk) >= 0);
+    if (!et) continue;
+    const tutarlar = s.items.filter(it => it !== et && axTutarMi(it.ham)
+                                       || (it !== et && /^\d[\d.,]*\d\s*\(?-?\)?$/.test(it.ham.trim())))
+                            .map(it => it.ham.trim());
+    if (tutarlar.length) bulunan.push({ etiket: et.ham.trim(), tutarlar: tutarlar });
+  }
+  return bulunan;
+}
+
+async function ekstreOnayEkrani(a, dosya, toplamIpucu){
   const v = await bantVerisi();
   const c = document.getElementById('icerik');
   c.textContent = '';
@@ -4867,7 +4960,10 @@ async function ekstreOnayEkrani(a, dosya){
   + 'eşleşmiş bir satır varsa kaydetme, elle gir.'));
 
   /* C · HER ALAN YANINDA KAYNAK ETIKETI */
-  const ALAN = [['banka','Banka'],['kartAdi','Kart türü'],['kesim','Hesap kesim tarihi'],
+  /* ⚠ CI · "Kart türü" -> "Kart". Alan artik son dort haneden geliyor
+     ("···7799"); "Kart türü" basligi altinda bir numara gostermek
+     yanlis okunur. KAYNAK ETIKET sutunu nereden geldigini zaten yazar. */
+  const ALAN = [['banka','Banka'],['kartAdi','Kart'],['kesim','Hesap kesim tarihi'],
     ['sonOdeme','Son ödeme tarihi'],['limit','Kart limiti'],['devir','Devir'],
     ['yeni','Yeni harcama'],['odenen','Alacak kayıtları'],['hesapOzeti','Hesap özeti borcu'],
     /* ⚠ BB · Etiketten "(FZ)"/"(VR/FN)" cikarildi: kaynak artik iki turlu
@@ -4958,6 +5054,17 @@ async function ekstreOnayEkrani(a, dosya){
     k.appendChild(el('div','bilgi','Bu ekstrede özet tablosu yok: dönem ödemesi ile yeni '
       + 'harcama ayrı yazmıyor. Birini ekstreden bul ve gir — diğerini denklemden ben çıkarırım. '
       + 'İkisini de boş bırakırsan bu iki alan kaydedilmez.'));
+    /* ⚠ NEREYE BAKACAGINI SOYLE — ama ALANA YAZMA. */
+    const toplamlar = toplamIpucu || [];
+    if (toplamlar.length){
+      const ip = el('div','kucuk');
+      ip.appendChild(el('div', null, 'Ekstrede okunabilen toplam satırı var:'));
+      for (const t of toplamlar)
+        ip.appendChild(el('div', null, '· ' + t.etiket + ' — ' + t.tutarlar.join(' · ')));
+      ip.appendChild(el('div', null, 'Hangi sütunun ne olduğunu ekstre yazmıyor, o yüzden '
+        + 'kendiliğinden bir alana yazmıyorum. İşine yarıyorsa yukarıdaki kutulara sen gir.'));
+      k.appendChild(ip);
+    }
     const alanCF = (etiket, id) => {
       k.appendChild(el('label', null, etiket)).setAttribute('for', id);
       const i = document.createElement('input');
