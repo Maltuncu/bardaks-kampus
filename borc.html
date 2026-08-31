@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-7">
+<meta name="surum" content="borc-2026-08-27-8">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3905,15 +3905,28 @@ const AX_SOZLUK = {
      suzgecten gectigi icin belgenin iskeletini birebir uretir.
      Bastaki/sondaki yildizlari iskelet zaten siler. Enpara'nin
      "bir önceki ekstre borcu"su AYRI metin — ikisi de duruyor. */
+  /* ⚠ CH · AXESS (Akbank) etiketi gercek dosyayla olculdu (29.07.2026):
+     "Önceki Dönem Hesap Özeti Bakiyesi 4.390,00". Iskeleti
+     'ncekidnemhesapzetibakiyesi' — mevcut 'ncekidnemborcu' ve
+     'birncekihesapzetibakiyeniz'in HICBIRI bunu kapsamiyor (olculdu:
+     devir YOK donuyordu). Bastaki "Önceki" niteleyici listesinde ama
+     eslesme satirin BASINDA basliyor, onunde hicbir sey yok — onek
+     denetimi gecirir (Enpara'nin 'bir önceki ekstre borcu'su da boyle). */
   devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç','bir önceki ekstre borcu',
-                                  'bir önceki hesap özeti bakiyeniz','BİR ÖNCEKİ HESAP ÖZETİ BAKİYENİZ'] },
+                                  'bir önceki hesap özeti bakiyeniz','BİR ÖNCEKİ HESAP ÖZETİ BAKİYENİZ',
+                                  'önceki dönem hesap özeti bakiyesi'] },
   yeni:       { tip:'para',  syn:['dönem içi borç kayıtları','borç kayıtları','dönem içi harcamalar','yeni harcamalar'] },
   /* 'ödemeler' KISA ve bilerek EN SONDA: uzun eslesme kisa eslesmeyi
      yener (asagida siralama), 'Ödemeleriniz' tasiyan satirda uzun hali
      kazanir. Enpara ozet tablosunda baslik yalin 'Ödemeler'. */
   odenen:     { tip:'para',  syn:['dönem içi alacak kayıtları','alacak kayıtları','yapılan ödemeler','ödemeler toplamı','ödemeleriniz','ödemeler'] },
   hesapOzeti: { tip:'para',  syn:['hesap özeti borcu','dönem borcu','güncel borç','ekstre borcu'] },
-  asgari:     { tip:'para',  syn:['ödenmesi gereken asgari tutar','asgari ödeme tutarı','asgari tutar','minimum ödeme tutarı'] },
+  /* ⚠ CH · AXESS asgariye "En Az Ödeme Tutarı" diyor (olculdu:
+     37.842,58 TL). 'asgari' sozcugu ekstrenin ON YUZUNDE HIC gecmiyor;
+     yalniz arka sayfadaki aciklamada "en az (asgari) tutardır" var ve
+     o satirda tutar YOK — bu yuzden alan bos kaliyordu. */
+  asgari:     { tip:'para',  syn:['ödenmesi gereken asgari tutar','asgari ödeme tutarı','asgari tutar','minimum ödeme tutarı',
+                                  'en az ödeme tutarı'] },
   /* ⚠ BB · IS BANKASI BANKKART OZET TABLOSU BES SUTUNLU:
        Devreden Bakiye | Harcamalarınız | Faiz Ücretler ve Kesintiler
        | Ödemeleriniz | Dönem Borcu
@@ -4025,6 +4038,155 @@ const axSusKirp = (t) => String(t == null ? '' : t).replace(/^[\s*]+|[\s*]+$/g, 
 const axTutarMi = (t) => AX_TUTAR.test(axSusKirp(t));
 const AX_TARIH = /(\d{2})[./-](\d{2})[./-](\d{4})/;
 
+/* ==================================================================
+   AX-EBCDIC · AKBANK / AXESS KAPISI
+   ⚠ Bu blok YALNIZ kapisi acildiginda calisir; acilmazsa axParcalar
+     ciktisi BAYT BAYT eskisiyle ayni kalir (regresyon boyle korunur).
+
+   OLCULEN DURUM (tmp/axess.pdf, 29.07.2026): pdf.js 3922 parca
+   cikariyor ve okuyucu 16 alanin 16'sini de YOK donduruyordu. Iki
+   sebep var, ikisi de ayri ayri olculdu:
+
+   1) GOMULU FONTTA ToUnicode YOK. Metin EBCDIC (CP037) bayt olarak
+      yaziliyor, pdf.js baytlari oldugu gibi karakter sanip veriyor.
+      KANIT — bilinen dizgelerden geri cozuldu, tahmin degil:
+        c1 92 82 81 95 92                  -> "Akbank"
+        d4 e4 c8 c1 d4 d4 c5 c4            -> "MUHAMMED"
+        c1 d3 e3 e4 d5 c3 e4               -> "ALTUNCU"
+        a6 a6 a6 4b 81 92 82 81 95 92 4b 83 96 94 -> "www.akbank.com"
+        d3 85 a5 85 95 a3                  -> "Levent"
+        f2 f9 4b f0 f6 4b f2 f0 f2 f6      -> "29.06.2026"
+      Yani harfler CP037'nin TAM olarak kendisi; +0x80 gibi tek bir
+      kaydirma DEGIL (brifte denenip tutmadigi yazili — dogru, cunku
+      kaydirma yok, tablo var).
+
+   2) TURKCE HARFLER AYRI BIR FONTTAN geliyor ve o fontta kodlar
+      KEYFI. Olculdu (tmp/ax-font.mjs, font basina kod sayimi):
+        g_d0_f2  : 315 glif, 296'si CP037 tablosunun DISINDA (%94)
+        digerleri: en yuksek tablo disi oran %2.7 (g_d0_f14)
+      Ayni bayt iki fontta iki ayri harf:
+        c1 -> f3/f4/f7/f8'de 'A' ("MUHAMMED", "MAH.", "En Az")
+              f2'de       'İ' ("ÜNİVERSİTE", "MİLLİ", "ORTAHİSAR")
+        a9 -> f6/f7/f8'de 'z' ("Özeti", "Bakiyeniz")
+              f2'de       'İ' ("İşlem Tarihi", "Dönem İçi")
+        a8 -> f7/f8/f14'te 'y' ("Sayfa", "yapılan")
+              f2'de        'ı' ("Detayları")
+      Bu yuzden TEK bir turkce tablosu YAZILAMAZ — ve gerekmiyor:
+      axIskelet ASCII disini SILER, sozluk de ayni suzgecten gecer.
+      "Son Ödeme Tarihi" -> "sondemetarihi" her iki tarafta da ayni.
+      Kural: glif turkce fontundan geliyorsa ASCII DISI bir isaret
+      yazilir; iskelet onu siler, esleme bozulmaz.
+
+   3) HER KARAKTER AYRI PARCA. Ayni bantta x sirasina gore
+      birlestirilmezse hicbir etiket kurulamaz. Birlestirme YALNIZ
+      burada, kapinin ardinda yapilir; axOku/axSatirlar/CD kuralina
+      DOKUNULMADI (Ziraat'in 67.878,40'i bozan negatif-bosluk
+      kaynagi oradaydi, orasi ayni kaldi).
+   ================================================================== */
+const AX_EB_ISARET = '§';          /* ASCII disi — iskelet siler */
+const AX_EB_TABLO = (() => {
+  const T = new Array(256).fill(null);
+  const koy = (bas, dizi) => [...dizi].forEach((c, i) => T[bas + i] = c);
+  T[0x40] = ' ';
+  const tek = { 0x4A:'¢', 0x4B:'.', 0x4C:'<', 0x4D:'(', 0x4E:'+', 0x4F:'|',
+    0x50:'&', 0x5A:'!', 0x5B:'$', 0x5C:'*', 0x5D:')', 0x5E:';', 0x5F:'¬',
+    0x60:'-', 0x61:'/', 0x6A:'¦', 0x6B:',', 0x6C:'%', 0x6D:'_', 0x6E:'>', 0x6F:'?',
+    0x79:'`', 0x7A:':', 0x7B:'#', 0x7C:'@', 0x7D:"'", 0x7E:'=', 0x7F:'"',
+    0xA1:'~', 0xC0:'{', 0xD0:'}', 0xE0:'\\' };
+  for (const k of Object.keys(tek)) T[+k] = tek[k];
+  koy(0x81,'abcdefghi'); koy(0x91,'jklmnopqr'); koy(0xA2,'stuvwxyz');
+  koy(0xC1,'ABCDEFGHI'); koy(0xD1,'JKLMNOPQR'); koy(0xE2,'STUVWXYZ');
+  koy(0xF0,'0123456789');
+  return T;
+})();
+
+/* ⚠ KAPI · SAYIYLA OLCULUR, dosya adiyla ya da banka tahminiyle DEGIL.
+   EBCDIC'te rakamlar 0xF0..0xF9 (ð..ù). Olculdu:
+     axess.pdf              -> EBCDIC rakam 366, ASCII rakam 0
+     Ziraat/Enpara/Maximum  -> EBCDIC rakam 0,  ASCII rakam yuzlerce
+   Esik ikili: en az 20 EBCDIC rakami VE ASCII rakamlarindan en az
+   bes kat fazla. Normal bir Turkce PDF'te 'ð' yok denecek kadar az. */
+function axEbcdicKapisi(parcalar){
+  let eb = 0, ascii = 0;
+  for (const it of parcalar)
+    for (const ch of it.ham){
+      const k = ch.codePointAt(0);
+      if (k >= 0xF0 && k <= 0xF9) eb++;
+      else if (k >= 0x30 && k <= 0x39) ascii++;
+    }
+  return eb >= 20 && eb > ascii * 5;
+}
+
+/* ⚠ INGILIZ SAYI BICIMI -> TURK BICIMI.
+   Belgede ondalik ayirac 0x4B, binlik ayirac 0x6B. 0x4B'nin gercekten
+   NOKTA oldugu ayni belgeden KANITLI: "29.06.2026" tarihi de 0x4B ile
+   yaziliyor (virgul olsa tarih "29,06,2026" cikardi). Yani tutarlar
+   dosyada "151,370.32" bicimindedir. Okuyucunun AX_TUTAR deseni TURK
+   bicimlidir ve DEGISTIRILMEDI (uc bankanin okumasi ona bagli);
+   donusum burada, tek yerde, yalniz bu kapinin ardinda yapilir.
+   ⚠ Yalniz TAM kaliba uyan sayi dizisi cevrilir: "29.06.2026" ve
+     "6/2.taksit" kaliba uymaz, ELLENMEZ. */
+function axEbSayi(t){
+  return String(t).replace(/\d[\d.,]*\d|\d/g, (s) => {
+    if (/^\d{1,3}(?:,\d{3})+\.\d{2}$/.test(s))
+      return s.replace(/,/g,' ').replace('.',',').replace(/ /g,'.');
+    if (/^\d+\.\d{2}$/.test(s))       return s.replace('.', ',');
+    if (/^\d{1,3}(?:,\d{3})+$/.test(s)) return s.replace(/,/g,'.');
+    return s;
+  });
+}
+
+/* Cozer + ayni bantta x sirasina gore birlestirir.
+   ⚠ Bolme esigi VERIDEN: glifler arasi bosluk dagilimi olculdu
+     (tmp/ax-bosluk.mjs, 3801 bosluk) — %98'i <= 7pt, sonraki kume
+     12pt'de basliyor. Esik 10pt; okuyucunun CD kuralindaki esikle
+     ayni sayi olmasi rastlanti degil, ikisi de ayni dosyalardan
+     olculdu. Bosluk kelime icinde 0x40 GLIFI olarak zaten var,
+     uydurulmuyor. */
+function axEbcdicCoz(parcalar, iskeletle){
+  const say = new Map();
+  for (const it of parcalar){
+    let o = say.get(it.fnt); if (!o){ o = { n:0, disi:0 }; say.set(it.fnt, o); }
+    for (const ch of it.ham){ o.n++; if (AX_EB_TABLO[ch.codePointAt(0)] == null) o.disi++; }
+  }
+  const turkceFont = new Set();
+  for (const [f, o] of say) if (o.n >= 8 && o.disi / o.n >= 0.5) turkceFont.add(f);
+
+  const cz = (metin, fnt) => {
+    let s = '';
+    for (const ch of metin){
+      const k = ch.codePointAt(0);
+      if (k === 0x20) continue;                       /* eslenmemis, sifir genislik */
+      if (turkceFont.has(fnt)){ s += AX_EB_ISARET; continue; }
+      const v = AX_EB_TABLO[k];
+      s += (v == null ? AX_EB_ISARET : v);
+    }
+    return s;
+  };
+
+  const bantlar = [];
+  for (const it of parcalar){
+    let b = bantlar.find(x => Math.abs(x.y - it.y) <= 1.5);
+    if (!b){ b = { y: it.y, items: [] }; bantlar.push(b); }
+    b.items.push(it);
+  }
+  const cikti = [];
+  for (const b of bantlar){
+    b.items.sort((a, c) => a.x - c.x);
+    let ob = null;
+    for (const it of b.items){
+      const m = cz(it.ham, it.fnt);
+      if (ob && it.x - (ob.x + ob.g) <= 10){
+        ob.metin += m; ob.g = (it.x + (it.g || 0)) - ob.x;
+      } else { ob = { metin: m, x: it.x, y: b.y, g: it.g || 0 }; cikti.push(ob); }
+    }
+  }
+  return cikti.map(o => {
+    const ham = axEbSayi(o.metin).trim();
+    return { ham, isk: iskeletle(ham), x: o.x, y: o.y, g: o.g };
+  }).filter(o => o.ham !== '');
+}
+
 /* pdf.js YALNIZ burada, YALNIZ istendiginde yuklenir — sayfa acilisi
    etkilenmesin diye modul kokte DEGIL. */
 let AX_PDFJS = null;
@@ -4051,10 +4213,13 @@ async function axParcalar(dosya){
       if (!it.str || !it.str.trim()) continue;
       const t = pdfjs.Util.transform(vp.transform, it.transform);
       hepsi.push({ ham: it.str.trim(), isk: axIskelet(it.str),
-        x: t[4], y: t[5] + (i - 1) * 10000, g: it.width || 0 });
+        x: t[4], y: t[5] + (i - 1) * 10000, g: it.width || 0, fnt: it.fontName });
     }
   }
-  return hepsi;
+  /* ⚠ KAPI KAPALIYSA HICBIR SEY DEGISMEZ — 'fnt' fazladan bir alan,
+     axOku onu okumaz. Diger uc bankanin ciktisi bu yuzden aynidir
+     (olculdu: once/sonra 16 alanin 16'si birebir). */
+  return axEbcdicKapisi(hepsi) ? axEbcdicCoz(hepsi, axIskelet) : hepsi;
 }
 
 /* ⚠ DUZELTME 1 · PARCALARI SATIRA CEVIR. Eslesme SATIR uzerinde calisir.
@@ -4597,6 +4762,36 @@ function axOku(parcalar){
           const m = AX_YUZDE.exec(it.ham);
           if (m){ oranAday.push({ deger: m[1], etiket: 'Aylık satırı ilk sütun',
                                   kural: 'faiz tablosundan' }); break; }
+        }
+      }
+    /* yol 3 · AKBANK / AXESS: ekstrede "Alışveriş Faizi" DIYE BIR SATIR
+       YOK; karsiligi "Akdi Faiz". Hangisinin alisveris faizi oldugu
+       BENZETMEYLE degil, ayni belgedeki tanim cumlesi COZULEREK
+       belirlendi (harfler EBCDIC'ten okundu, s. 2):
+         "Nakit Çekim veya Kullanım İşlemleri HARİÇ Uygulanacak
+          Akdi Faiz Oranı: %4,25"
+         "Nakit Çekim veya Kullanım İşlemlerinde Uygulanacak
+          Akdi Faiz Oranı: %4,25"
+         "... Gecikme Faiz Oranı: %4,55"
+       Yani NAKIT CEKIM HARIC olan akdi faiz = alisveris faizi = %4,25.
+       Dortlu dipnot da bunu dogruluyor: "Akdi Faiz:%4,25 · Nakit Avans
+       Faizi:%4,25 · Gecikme Faizi:%4,55 · Taksitli Avans Faizi:%4,25".
+       ⚠ Yol 1 ve 2 BOS DONDUYSE calisir — diger uc bankanin okumasi
+         onlardan geliyor ve bu yol onlara hic ulasmiyor (olculdu). */
+    if (!oranAday.length)
+      for (const s of satirlar){
+        const i = s.items.findIndex(it => { const d = axDuz(it.ham);
+          return d.indexOf('akdi faiz') >= 0
+              && d.indexOf('yillik') < 0 && d.indexOf('gecikme') < 0
+              && d.indexOf('nakit') < 0; });
+        if (i < 0) continue;
+        for (let j = i; j < s.items.length; j++){
+          const d = axDuz(s.items[j].ham);
+          if (j > i && (d.indexOf('gecikme') >= 0 || d.indexOf('nakit') >= 0
+                     || d.indexOf('yillik') >= 0)) break;
+          const m = AX_YUZDE.exec(s.items[j].ham);
+          if (m){ oranAday.push({ deger: m[1], etiket: 'Akdi Faiz (nakit çekim hariç)',
+                                  kural: 'akdi faiz satırından' }); break; }
         }
       }
     const farkliOran = [...new Set(oranAday.map(o => o.deger))];
