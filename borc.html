@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-9">
+<meta name="surum" content="borc-2026-08-27-10">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4835,15 +4835,29 @@ function axOku(parcalar){
     const cekirdekOk = ['kesim','sonOdeme','limit','devir','hesapOzeti','asgari']
       .filter(k => alanlar[k] && alanlar[k].durum === 'ok').length;
     if (cekirdekOk >= 2){
-      const PAN = /(?:[0-9*#xX•·]{4}[ \-–—])((?:[0-9*#xX•·]{4}[ \-–—]){2})(\d{4})(?![\d*#])/;
+      /* ⚠ IKI MASKELEME BICIMI VAR, IKISI DE OLCULDU:
+           ayirakli   "5269 11** **** 5532" · "6502-####-####-1965"
+           ayiraksiz  "4743********2509"    · "6509********6948"
+         Ilk desen tek basina Is Bankasi basligini KACIRIYORDU: Black
+         Kart ekstresinin ustunde "4743********2509" var (ayiraksiz),
+         ikinci sayfada ise "SANAL KART NO: 4743 **** **** 7785" —
+         yalniz ayirakli desenle SANAL KART okunuyordu (olculdu). */
+      const PAN_G = /[0-9*#xX•·]{4}(?:[ \-–—][0-9*#xX•·]{4}){3}|\d{4}[*#xX•·]{6,12}\d{4}/g;
       const dortlu = new Map();
       for (const s of satirlar)
         for (const it of s.items){
-          const m = PAN.exec(it.ham);
-          if (!m) continue;
-          const tam = m[0];
-          if (!/[*#xX•·]/.test(tam)) continue;          // maskesiz -> kart numarasi degil
-          if (!dortlu.has(m[2])) dortlu.set(m[2], tam.trim());
+          PAN_G.lastIndex = 0;
+          let m;
+          while ((m = PAN_G.exec(it.ham))){
+            const tam = m[0];
+            const onc = it.ham[m.index - 1], srs = it.ham[m.index + tam.length];
+            if (onc && /[0-9*#]/.test(onc)) continue;    // daha uzun bir dizinin ortasi
+            if (srs && /[0-9*#]/.test(srs)) continue;
+            if (!/[*#xX•·]/.test(tam)) continue;         // maskesiz -> kart numarasi degil
+            const son = tam.slice(-4);
+            if (!/^\d{4}$/.test(son)) continue;
+            if (!dortlu.has(son)) dortlu.set(son, tam.trim());
+          }
         }
       /* ⚠ EK KART · BIRDEN COK NUMARA CIKABILIR, BELIRSIZ DEGILDIR.
          Olculdu (Ziraat Ticari): ekstrenin BASLIGINDA
@@ -5054,15 +5068,35 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
     k.appendChild(el('div','bilgi','Bu ekstrede özet tablosu yok: dönem ödemesi ile yeni '
       + 'harcama ayrı yazmıyor. Birini ekstreden bul ve gir — diğerini denklemden ben çıkarırım. '
       + 'İkisini de boş bırakırsan bu iki alan kaydedilmez.'));
-    /* ⚠ NEREYE BAKACAGINI SOYLE — ama ALANA YAZMA. */
+    /* ⚠ NEREYE BAKACAGINI SOYLE — ama ALANA YAZMA.
+       ⚠ ZATEN OKUNAN RAKAM ISARETLENIR. Olculdu, iki dosyada da toplam
+         satirinin sutunlari ARADIGIMIZ SEY DEGIL:
+           Akbank  "Genel Toplam 151.370,32 · 17.560,00 · 79,02(-)"
+           Maximum "TOPLAM 122.748,91 · 334,13 · 4,92"   (MaxiPuan/MaxiMil)
+         ilk sutun iki dosyada da hesap ozeti borcu — yani zaten okundu.
+         Isaretlenmezse kullanici puan sutununu para sanip yazabilir;
+         "eslesen alan" etiketi bunu gorunur kiliyor. */
     const toplamlar = toplamIpucu || [];
     if (toplamlar.length){
+      const OKUNAN = [['devir','devir'],['hesapOzeti','hesap özeti borcu'],
+                      ['asgari','asgari tutar'],['limit','kart limiti']]
+        .filter(p => a[p[0]] && a[p[0]].durum === 'ok')
+        .map(p => [a[p[0]].kurus, p[1]]);
+      const isaretle = (ham) => {
+        const r = paraCoz(ham);
+        if (!r.ok) return ham;
+        const e = OKUNAN.find(o => o[0] === r.kurus);
+        return ham + (e ? ' (= ' + e[1] + ', zaten okundu)' : '');
+      };
       const ip = el('div','kucuk');
       ip.appendChild(el('div', null, 'Ekstrede okunabilen toplam satırı var:'));
       for (const t of toplamlar)
-        ip.appendChild(el('div', null, '· ' + t.etiket + ' — ' + t.tutarlar.join(' · ')));
-      ip.appendChild(el('div', null, 'Hangi sütunun ne olduğunu ekstre yazmıyor, o yüzden '
-        + 'kendiliğinden bir alana yazmıyorum. İşine yarıyorsa yukarıdaki kutulara sen gir.'));
+        ip.appendChild(el('div', null, '· ' + t.etiket + ' — '
+          + t.tutarlar.map(isaretle).join(' · ')));
+      ip.appendChild(el('div', null, 'Hangi sütunun ne olduğunu ekstre yazmıyor — '
+        + 'işaretsiz kalanlar para bile olmayabilir (Maximum ekstresinde o sütunlar '
+        + 'MaxiPuan). O yüzden kendiliğinden bir alana yazmıyorum; işine yarıyorsa '
+        + 'yukarıdaki kutulara sen gir.'));
       k.appendChild(ip);
     }
     const alanCF = (etiket, id) => {
