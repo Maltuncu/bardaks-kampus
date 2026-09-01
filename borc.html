@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-12">
+<meta name="surum" content="borc-2026-08-27-13">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -916,6 +916,61 @@ const tlk = k => (k/100).toLocaleString('tr-TR',{minimumFractionDigits:2,maximum
 /* Birimsiz — ust bandin sikisik satirlari icin. Hepsi TL; birim baslikta. */
 const tk  = k => (k/100).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const tl  = v => tlk(kr(v));
+
+/* ==================================================================
+   ⚠ CO · PARA ALANI BICIMLEME · index.html'den TASINDI
+   Olculdu: borc.html'de paraBagla/paraTemizle/paraBicimle SIFIR
+   taneydi; 30 decimal alanin hicbiri biciminlenmiyordu. index.html'de
+   ayni mekanizma 15 yerde bagli.
+
+   paraTemizle ve paraBagla index.html'den AYNEN alindi (2802-2824):
+     input -> paraTemizle : yazarken YALNIZ gecersiz karakteri atar,
+              ayraclara DOKUNMAZ (yoksa imlec ziplar)
+     blur  -> paraBicimle : alandan cikinca tek bicime getirir
+
+   ⚠ TEK SAPMA, BILEREK VE OLCULEREK: index.html'in paraCoz'u
+     'metin' alanini BINLIK AYIRACSIZ uretiyor
+     (tam = s.replace(/[.,]/g,'') — gruplama yok), yani oradaki
+     paraBicimle "173145,28" yaziyor. Sahibin sikayeti tam da
+     ayraci GORMEMEK. Yeni bir bicimleyici YAZMADIM; bu dosyanin
+     zaten her yerde kullandigi gosterim bicimini (tk) kullaniyorum,
+     boylece giris alani ile ekrandaki rakam AYNI bicimde okunuyor.
+     index.html'in giris alanlari hala ayracsiz — iki dosyayi
+     birebir esitlemek ayri bir is, raporda yazili.
+
+   ⚠ EKSI: paraCoz '-' isaretini suzgecten atiyor. Eksi kabul eden
+     alanlarda (Duzeltme) isaret AYRICA tasiniyor — donemSatiriUret
+     de ayni sekilde paraCoz'DEN ONCE bakiyor (AV notu). */
+function paraTemizle(el, eksiVar){
+  if (!el) return;
+  const t = el.value;
+  const eksi = !!eksiVar && /^[-−]/.test(t);
+  const s = (eksi ? '-' : '') + t.replace(/[^\d.,]/g,'');
+  if (s !== t) el.value = s;
+}
+function paraBicimle(el, eksiVar){
+  if (!el || !el.value.trim()) return;
+  const eksi = !!eksiVar && /^\s*[-−]/.test(el.value);
+  const r = paraCoz(el.value);
+  if (!r.ok) return;                       // gecersizse DOKUNMA, kullanici duzeltsin
+  const m = (eksi && r.kurus !== 0 ? '-' : '') + tk(r.kurus);
+  if (el.value !== m) el.value = m;
+}
+function paraBagla(el, sonra, eksiVar){
+  if (!el) return;
+  el.addEventListener('input', () => { paraTemizle(el, eksiVar); if (sonra) sonra(); });
+  el.addEventListener('blur',  () => { paraBicimle(el, eksiVar); if (sonra) sonra(); });
+}
+/* ⚠ CO · KOK ZORUNLU. Bu dosyanin formlari BAGSIZ (detached) bir kapta
+   kuruluyor ve en sonda ekrana ekleniyor — document.getElementById o an
+   NULL doner ve baglama SESSIZCE hic olmaz (olculdu: donem formunun
+   yedi alani bicimlenmiyordu, hata da vermiyordu). Bu yuzden alanlar
+   kapin ICINDEN aranir. Olmayan id yine sessizce atlanir; formlar
+   duruma gore farkli alan kuruyor. */
+function paraBaglaHepsi(kok, idler, eksiVar){
+  idler.forEach(i => paraBagla(kok ? kok.querySelector('#' + i) : null, null, eksiVar));
+}
+const paraAl = (kok, id) => kok ? kok.querySelector('#' + id) : null;
 
 function paraCoz(ham){
   const t = String(ham == null ? '' : ham);
@@ -2820,6 +2875,7 @@ function odemeFormuAc(kart, t){
   const tar = alan('Ödeme tarihi', 'of_tarih_'+t.id, 'date', bugun());
   const tut = alan('Tutar (varsayılan: kalan)', 'of_tutar_'+t.id, 'text',
                    (kalanKurus/100).toFixed(2).replace('.', ','), 'decimal');
+  paraBagla(tut); paraBicimle(tut);      /* CO · on dolu deger de bicimli gelsin */
 
   /* Kirilim: taksitte ayrim varsa ODENEN ORANINDA on doldurulur.
      Ayrim yoksa alanlar bos kalir ve gider YAZILMAZ — uydurmuyoruz. */
@@ -2846,7 +2902,13 @@ function odemeFormuAc(kart, t){
       fz.value = (fzz/100).toFixed(2).replace('.', ',');
       vm.value = (v/100).toFixed(2).replace('.', ',');
     };
-    tut.oninput = dagit; dagit();
+    /* ⚠ CO · tut.oninput = dagit ATAMASI paraBagla'nin dinleyicisini
+       EZMEZ (addEventListener ayri kanal), ama dagit() alanlara
+       PROGRAMLA yaziyor — 'input' uretmedigi icin bicimlemeyi elle
+       cagirmak gerekiyor (gecen turda focus'ta ayni tuzak olculdu). */
+    tut.oninput = () => { dagit(); paraBicimle(an); paraBicimle(fz); paraBicimle(vm); };
+    dagit(); paraBagla(an); paraBagla(fz); paraBagla(vm);
+    paraBicimle(an); paraBicimle(fz); paraBicimle(vm);
   } else {
     f.appendChild(el('div','uyari-orta',
       'Bu taksitin anapara/faiz kırılımı girilmemiş. Ödeme kaydedilir ama '
@@ -3204,6 +3266,7 @@ function krediFormu(){
   + 'LİMİTED: ayrı tüzel kişilik — burada yalnız takip edilir, gidere yazılmaz.'));
   alan('Anapara','kAnapara','text','0,00','decimal');
   alan('Faiz oranı (%) — bilinmiyorsa boş bırak','kFaiz','text','örn: 2,49','decimal');
+  paraBaglaHepsi(k, ['kAnapara']);        /* CO · kFaiz ORAN, kAdet GUN — baglanmaz */
   alan('Taksit sayısı','kAdet','text','örn: 84','numeric');
   alan('Başlangıç tarihi','kBas','date');
   k.appendChild(el('label', null, 'Açıklama')).setAttribute('for','kAciklama');
@@ -3683,6 +3746,7 @@ function topluFormu(kredi, mevcut){
 
   alan('Taksit başına FAİZ (isteğe bağlı)','tFaiz','text','','decimal');
   alan('Taksit başına VERGİ / MASRAF (isteğe bağlı)','tVergi','text','','decimal');
+  paraBaglaHepsi(k, ['tTutar','tFaiz','tVergi']);   /* CO */
   k.appendChild(el('label', null, 'Vergi/masraf kırılımı — belgedeki gibi yaz')).setAttribute('for','tNot');
   const nt = document.createElement('input'); nt.id = 'tNot'; nt.type = 'text';
   nt.placeholder = 'BSMV ve KKDF gibi kalemleri belgedeki gibi yaz';
@@ -5240,6 +5304,7 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
     };
     const gOdenen = alanCF('Bu dönem yaptığın ödeme','cfOdenen');
     const gYeni   = alanCF('Yeni harcama','cfYeni');
+    paraBaglaHepsi(k, ['cfOdenen','cfYeni']);        /* CO */
     const notCF = el('div','kucuk'); k.appendChild(notCF);
     const guncelle = (esas) => {
       cfNegatif = false;
@@ -5326,7 +5391,14 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
   alanY('Banka', 'axBanka', a.banka.durum === 'ok' ? a.banka.ham : '');
   alanY('Kesim günü', 'axKesim', a.kesim.durum === 'ok' ? a.kesim.gun : '');
   alanY('Son ödeme günü', 'axSonOdeme', a.sonOdeme.durum === 'ok' ? a.sonOdeme.gun : '');
-  alanY('Kart limiti', 'axLimit', a.limit.durum === 'ok' ? a.limit.ham.replace(/\s*T[LRY]+$/i,'') : '');
+  /* ⚠ CO · OKUYUCUNUN DOLDURDUGU ALAN. Programla yazilan deger 'input'
+     uretmez; blur beklenirse kullanici bicimlenmemis rakam gorur.
+     Bu yuzden baglandiktan HEMEN SONRA elle bicimleniyor. Okuyucu
+     "550.000,00 TL" gibi verebiliyor — paraCoz binlik ayracli metni
+     zaten cozuyor (olculdu), TL eki yukarida kirpiliyor. */
+  const axLim = alanY('Kart limiti', 'axLimit',
+    a.limit.durum === 'ok' ? a.limit.ham.replace(/\s*T[LRY]+$/i,'') : '');
+  paraBagla(axLim); paraBicimle(axLim);
   /* ⚠ SAHIP EKSTREDEN GUVENLE OKUNAMAZ. Is Bankasi ekstresinde hem TCKN
      hem "Firma Adı" vardi, ikisi de kullanicinin adiydi — bundan sirket
      turu cikarmak TAHMIN olur. HER ZAMAN SORULUR, VARSAYILAN KOYULMAZ. */
@@ -6151,6 +6223,8 @@ function kartFormu(duz, kartlar){
        bes kartin oraninin betikle yazildigi bir sistemde en pahali kusur. */
   alan('Aylık faiz oranı (%) — bilinmiyorsa boş bırak','ktFaiz','text','decimal','örn: 4,25',
     duz && duz.faiz_orani != null ? String(duz.faiz_orani).replace('.', ',') : null);
+  paraBaglaHepsi(k, ['ktLimit']);       /* CO · ktFaiz ORAN, ktKesim/ktSonOdeme GUN */
+  paraBicimle(paraAl(k, 'ktLimit'));
   k.appendChild(el('div','kucuk',
     'Ekstrede hem aylık hem yıllık yazar. AYLIK olanı gir — örn. %4,25 '
   + '(yıllık %51,00 DEĞİL). Yıllık girilirse devreden borcun maliyeti 12 kat şişer.'));
@@ -6623,6 +6697,12 @@ function donemFormu(kart, liste, duz){
   + 'ORANDIR, buraya yazılmaz. O dönem faiz işlemediyse BOŞ bırak.'));
   alan('Faiz vergisi/masrafı — TUTAR (yoksa boş)', 'kdVergi',
     duz ? fm(duz.vergi_masraf_tutari) : '', 'decimal');
+  /* CO · ekstre alanlari. kdDuzeltme EKSI kabul eder -> eksiVar. */
+  paraBaglaHepsi(k, ['kdDevir','kdYeni','kdOdenen','kdAsgari','kdOdedim','kdFaiz','kdVergi']);
+  paraBagla(paraAl(k, 'kdDuzeltme'), null, true);
+  ['kdDevir','kdYeni','kdOdenen','kdAsgari','kdOdedim','kdFaiz','kdVergi']
+    .forEach(i => paraBicimle(paraAl(k, i)));
+  paraBicimle(paraAl(k, 'kdDuzeltme'), true);
   const zn = el('div','kucuk'); zn.id = 'kdZincir'; k.appendChild(zn);
 
   /* ⚠ AW · C · CANLI AYNA — KAPI DEGIL. Kullanici yazdikca kalani gorur;
@@ -6750,6 +6830,7 @@ function odemeYapAc(kart, d){
     dlg.appendChild(i); return i;
   };
   const gTutar = alan('Ödediğin tutar', 'oyTutar');
+  paraBagla(gTutar, () => denetle());     /* CO · bicimlenince onizleme tazelenir */
   /* ⚠ TAM ODEME KOLAYLIGI: alana dokununca kapanmamisin TAMAMI oneri
      olarak gelir, uzerine yazilabilir. Dolu alan EZILMEZ. */
   gTutar.onfocus = () => { if (!gTutar.value.trim() && kapanmamis > 0){
@@ -7523,6 +7604,7 @@ async function vMaden(){
   ek1('Kime','mKime','text');
   ek1('Alış tarihi','mTarih','date').value = bugun();
   ek1('Alış tutarı (TL) — zorunlu değil','mAlis','text','decimal');
+  paraBaglaHepsi(f1, ['mAlis']);            /* CO · mGram GRAM, uc ondalik — baglanmaz */
   f1.appendChild(el('div','kucuk',
     'Alış tutarı = bu borç için GERÇEKTEN ödenen toplam. Karma alımda (kesme + gram + '
   + 'sikke, ayrı birim fiyatlar) ortalama gram fiyatı gerçek ödemeyi tutmaz; ödenen '
@@ -7546,6 +7628,7 @@ async function vMaden(){
     f2.appendChild(i); return i;
   };
   ek2('Gram fiyatı','fFiyat','text','decimal');
+  paraBaglaHepsi(f2, ['fFiyat']);           /* CO */
   ek2('Tarih','fTarih','date').value = bugun();
   ek2('Kaynak notu','fKaynak','text');
   const b2 = el('button','btn','Fiyatı kaydet'); b2.id = 'fKaydet'; b2.onclick = fiyatKaydet;
@@ -7728,6 +7811,7 @@ async function madenDetayAc(madenId, sessiz){
         };
         const ig = ekle('Kaç gram ödedin? (kalan ' + gramYaz(kalanGram) + ')','moGram','text','decimal');
         const ifi = ekle('Gram başı fiyat (TL)','moFiyat','text','decimal');
+        paraBagla(ifi);                   /* CO · moGram GRAM — baglanmaz */
         /* ⚠ ONERI, KILIT DEGIL: o turun EN SON girilmis gram fiyati
            doldurulur ama alan serbesttir — sahibi FIILEN odedigi fiyati
            yazacak, piyasa fiyatini degil. */
@@ -8206,6 +8290,7 @@ function sahisBorcFormu(f, hesaplar){
   const yeniDurum = () => { const yeni=!hs.value; yeniAd.disabled=!yeni; yeniTur.disabled=!yeni; };
   hs.onchange=yeniDurum; yeniDurum();
   ekle('Tutar','sbTutar','text','decimal');
+  paraBaglaHepsi(f, ['sbTutar']);          /* CO */
   ekle('Tarih','sbTarih','date').value = bugun();
   f.appendChild(el('label', null, 'Açıklama')).setAttribute('for','sbAciklama');
   const ta = document.createElement('textarea'); ta.id = 'sbAciklama'; f.appendChild(ta);
@@ -8376,6 +8461,7 @@ function sahisOdemeAc(hesap, acan){
     return [g, h];
   };
   const [tut, tutH] = alan('Tutar (zorunlu)','input'); tut.inputMode = 'decimal';
+  paraBagla(tut);                         /* CO */
   const [trh, trhH] = alan('Tarih (zorunlu)','input','date'); trh.value = bugun();
   const [acx]       = alan('Açıklama (isteğe bağlı)','textarea'); acx.rows = 2;
 
@@ -8686,6 +8772,7 @@ function cekFormu(v){
     f.appendChild(i); return i;
   };
   alan('Tutar','cTutar','text','decimal');
+  paraBaglaHepsi(f, ['cTutar']);           /* CO */
   alan('Vade tarihi','cVade','date');
   const bankaG = alan('Banka','cBanka');
   bankaG.value = CEK_FORM.banka;
