@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-11">
+<meta name="surum" content="borc-2026-08-27-12">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -6433,6 +6433,17 @@ async function kartDetayAc(kartId, duzenlenenId){
         be.onclick = () => dekontEkle('kart_donem', d.donem_id, 'kart_ekstre','kartMsg',
                                       !!d.foto_path, () => kartDetayAc(kartId));
         ey.appendChild(be);
+        /* ⚠ CN · ODEMESI GIRILMEMIS DONEMDE KISA YOL.
+           Odeme girmek icin donemi DUZENLEMEK gerekiyordu; sahip
+           "ekstreyi yukledikten sonra odeme yap dugmesi olsun" dedi.
+           Dugme YALNIZ donem_odemesi bos satirda cikar — girilmis
+           donemde rakami degistirmek hala Düzenle'nin isi (tek yol,
+           tek denetim). */
+        if (d.donem_odemesi == null){
+          const bo = el('button','btn-mini','Ödeme yap');
+          bo.onclick = () => odemeYapAc(kart, d);
+          ey.appendChild(bo);
+        }
         const bd = el('button','btn-mini','Düzenle');
         bd.onclick = () => kartDetayAc(kartId, d.donem_id);
         ey.appendChild(bd);
@@ -6710,6 +6721,92 @@ function donemSatiriUret(kart){
       giren_id: PROFIL ? PROFIL.id : null } };
 }
 
+/* ⚠ CN · EKSTRE ODEMESI · KISA YOL
+   Iki alan sorar (tutar + gun) ve KAPANMAMISIN nereye inecegini
+   ANINDA yazar. Sahibin sorunu "odeme kaydedilmiyor" degildi —
+   kaydediliyordu; ekran yanlis sutunu gosterdigi icin oyle
+   goruluyordu.
+   ⚠ YENI KAYIT YOLU DEGIL: donem duzenleme yolunun yazdigi ayni iki
+     alani (donem_odemesi, donem_odemesi_tarih) ayni mekanizmayla
+     (kart_donem update) yaziyor. Donem duzenleme yolu aynen duruyor.
+   ⚠ v113: tarih girilecekse tutar da girilmis olmali. Bu yuzden
+     ONCE TUTAR isteniyor; tutar gecerli degilse Kaydet kapali ve
+     sunucuya hicbir sey gitmiyor. */
+function odemeYapAc(kart, d){
+  const kapanmamis = kr(d.kalan) - kr(d.donem_odemesi || 0);
+  const dlg = document.createElement('dialog'); dlg.className = 'pm';
+  dlg.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas sakin', 'Ekstre ödemesi'); bas.id = 'oyBas';
+  dlg.setAttribute('aria-labelledby', bas.id); dlg.appendChild(bas);
+  dlg.appendChild(el('div','pm-ad', kart.ad + (kart.banka ? ' · ' + kart.banka : '') + ' · ' + d.donem));
+  dlg.appendChild(el('div','pm-tutar', 'Kapanmamış ' + tlk(kapanmamis)));
+  dlg.appendChild(el('div','kucuk','KALAN ' + tl(d.kalan)
+    + ' — ekstrenin tutarı, ödeme bunu değiştirmez.'));
+
+  const alan = (etiket, id, tip) => {
+    const l = el('label', null, etiket); l.setAttribute('for', id); dlg.appendChild(l);
+    const i = document.createElement('input'); i.id = id; i.type = tip === 'date' ? 'date' : 'text';
+    if (tip !== 'date') i.setAttribute('inputmode','decimal');
+    dlg.appendChild(i); return i;
+  };
+  const gTutar = alan('Ödediğin tutar', 'oyTutar');
+  /* ⚠ TAM ODEME KOLAYLIGI: alana dokununca kapanmamisin TAMAMI oneri
+     olarak gelir, uzerine yazilabilir. Dolu alan EZILMEZ. */
+  gTutar.onfocus = () => { if (!gTutar.value.trim() && kapanmamis > 0){
+    gTutar.value = (kapanmamis/100).toFixed(2).replace('.', ',');
+    /* ⚠ Olculdu: 'focus' ile deger yazmak 'input' URETMEZ — onizleme
+       "Tutarı yaz" yazili kaliyor ve Kaydet kapali duruyordu. */
+    denetle(); } };
+  const gGun = alan('Ödemenin günü', 'oyGun', 'date');
+  gGun.value = bugun(); gGun.max = bugun();
+  const oniz = el('div','bilgi'); dlg.appendChild(oniz);
+  const hata = el('div','uyari-agir'); hata.hidden = true; dlg.appendChild(hata);
+
+  const ey = el('div','pm-ey');
+  const vaz = el('button','btn2','Vazgeç'), kay = el('button','btn','Kaydet');
+  vaz.type = kay.type = 'button';
+  ey.appendChild(vaz); ey.appendChild(kay); dlg.appendChild(ey);
+
+  const denetle = () => {
+    hata.hidden = true; kay.disabled = true;
+    const h = gTutar.value.trim();
+    if (!h){ oniz.textContent = 'Tutarı yaz — kapanmamışın nereye ineceğini burada göstereceğim.'; return; }
+    if (/^\s*[-−]/.test(h)){ hata.hidden = false;
+      hata.textContent = 'Ödeme eksi olamaz.'; oniz.textContent = ''; return; }
+    const r = paraCoz(h);
+    if (!r.ok){ hata.hidden = false; hata.textContent = r.hata; oniz.textContent = ''; return; }
+    const yeni = kapanmamis - r.kurus;
+    oniz.textContent = 'ödersen kapanmamış: ' + tlk(kapanmamis) + ' → ' + tlk(yeni);
+    if (yeni < 0){ hata.hidden = false;
+      hata.textContent = 'Ödeme ekstre tutarından ' + tlk(-yeni) + ' fazla — yine de kaydedilir.'; }
+    if (!gGun.value){ hata.hidden = false;
+      hata.textContent = 'Ödemenin gününü seç.'; return; }
+    kay.disabled = false;
+  };
+  gTutar.oninput = gGun.onchange = gGun.oninput = denetle;
+  denetle();
+
+  const kapat = () => { dlg.close(); dlg.remove(); };
+  vaz.onclick = kapat;
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); kapat(); });
+  kay.onclick = async () => {
+    const r = paraCoz(gTutar.value.trim());
+    if (!r.ok || !gGun.value) return;                 // kapi: sunucuya GITMEZ
+    kay.disabled = true; kay.textContent = 'Kaydediliyor...';
+    const { error } = await sb.from('kart_donem')
+      .update({ donem_odemesi: (r.kurus/100).toFixed(2), donem_odemesi_tarih: gGun.value })
+      .eq('id', d.donem_id);
+    if (error){ kay.disabled = false; kay.textContent = 'Kaydet';
+      hata.hidden = false; hata.textContent = hataTr(error.message); return; }
+    kapat();
+    await kartDetayAc(kart.id);
+    mesaj('kartMsg','ok', d.donem + ' ödemesi yazıldı: ' + tlk(r.kurus)
+      + ' · kapanmamış ' + tlk(kapanmamis - r.kurus));
+  };
+  document.body.appendChild(dlg); dlg.showModal();
+  return dlg;
+}
+
 async function donemOnizle(kart, liste, kaydet, duz){
   mesajTemizle('kartMsg');
   const r = donemSatiriUret(kart);
@@ -6775,16 +6872,48 @@ async function donemOnizle(kart, liste, kaydet, duz){
       tr.appendChild(td(ad)); tr.appendChild(td(gos(duz[f], pr),'sag')); tr.appendChild(td(gos(r.satir[f], pr),'sag'));
       t.appendChild(tr);
     }
-    /* KALAN turetilmis — ayri satirda, cunku degisen asil sey odur. */
-    const trk = document.createElement('tr');
-    trk.appendChild(td('KALAN')); trk.appendChild(td(tl(duz.kalan),'sag')); trk.appendChild(td(tlk(r.kalan),'sag'));
-    trk.style.fontWeight = '900'; t.appendChild(trk);
+    /* ⚠ CN · ODEME GIRILDIYSE BASLIK KAPANMAMIS OLUR.
+       Sahip odemenin islemedigini saniyordu: onizleme basligi KALAN'i
+       gosteriyor ve "Kalan değişmiyor" diyordu. Dogru — ama yaniltici:
+         KALAN      = devir + yeni + duzeltme − alacak kayitlari
+         KAPANMAMIS = kalan − donem_odemesi
+       Odemenin dusurdugu sutun KAPANMAMIS; KALAN ekstrenin tutari ve
+       odemeyle zaten degismez. Odeme alani doluyken basa KAPANMAMIS
+       cikiyor, KALAN ikincil satirda ne oldugu yazili duruyor ve
+       "Kalan değişmiyor" cumlesi GOSTERILMIYOR. */
+    const satirEkle = (ad, once, sonra, kalin) => {
+      const x = document.createElement('tr');
+      x.appendChild(td(ad)); x.appendChild(td(once,'sag')); x.appendChild(td(sonra,'sag'));
+      if (kalin) x.style.fontWeight = '900';
+      t.appendChild(x); return x;
+    };
+    const odemeVar = r.odemeKurus != null;
+    const kapOnce  = kr(duz.kalan) - kr(duz.donem_odemesi || 0);
+    const kapSonra = r.kalan - (r.odemeKurus || 0);
+    if (odemeVar){
+      satirEkle('KAPANMAMIŞ', tl(kapOnce/100), tlk(kapSonra), true);
+      satirEkle('KALAN', tl(duz.kalan), tlk(r.kalan), false);
+    } else satirEkle('KALAN', tl(duz.kalan), tlk(r.kalan), true);
     const sar2 = el('div','tablo-sar'); sar2.appendChild(t); dk.appendChild(sar2);
     const fark = r.kalan - kr(duz.kalan);
-    dk.appendChild(el('div', fark ? 'uyari-agir' : 'kucuk', fark
-      ? 'KALAN ' + (fark > 0 ? 'ARTIYOR' : 'AZALIYOR') + ': ' + tlk(Math.abs(fark))
-        + '. Sonraki ayın devri bu rakamla karşılaştırılacak.'
-      : 'Kalan değişmiyor.'));
+    if (odemeVar){
+      const kf = kapSonra - kapOnce;
+      dk.appendChild(el('div', kapSonra === 0 ? 'bilgi' : (kf ? 'bilgi' : 'kucuk'),
+        kapSonra === 0
+          ? 'KAPANMAMIŞ 0,00 — bu ekstre tamamen kapanıyor.'
+          : (kf ? 'KAPANMAMIŞ ' + (kf > 0 ? 'ARTIYOR' : 'AZALIYOR') + ': ' + tlk(Math.abs(kf))
+                : 'Kapanmamış değişmiyor.')));
+      dk.appendChild(el('div','kucuk',
+        'KALAN ekstrenin tutarı — ödeme bunu değiştirmez. Ödemenin düşürdüğü sütun KAPANMAMIŞ. '
+      + 'Sonraki ayın devri KALAN ile karşılaştırılır.'));
+      if (kapSonra < 0)
+        dk.appendChild(el('div','uyari-agir', 'Ödeme ekstre tutarından ' + tlk(-kapSonra)
+          + ' fazla. Yanlış rakam girmiş olabilirsin — yine de kaydedilir.'));
+    } else
+      dk.appendChild(el('div', fark ? 'uyari-agir' : 'kucuk', fark
+        ? 'KALAN ' + (fark > 0 ? 'ARTIYOR' : 'AZALIYOR') + ': ' + tlk(Math.abs(fark))
+          + '. Sonraki ayın devri bu rakamla karşılaştırılacak.'
+        : 'Kalan değişmiyor.'));
     const ok = el('button','btn','Onayla ve güncelle');
     ok.onclick = async () => {
       ok.disabled = true; ok.textContent = 'Güncelleniyor...';
