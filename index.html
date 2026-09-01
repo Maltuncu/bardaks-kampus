@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-2">
+<meta name="surum" content="2026-08-27-3">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -212,8 +212,11 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 /* Dokunma hedefi en az 44px — telefonda tek elle, zaman baskısı altında basılıyor */
 .btn2{padding:0 16px;min-height:44px;background:var(--acik);color:var(--ana);font-size:13px}
 .btn-kirmizi{padding:0 16px;min-height:44px;background:#fdeceb;color:var(--hata);font-size:13px}
-.hata-msg{background:#fdeceb;color:var(--hata);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none}
-.ok-msg{background:#eafaf1;color:var(--ok);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none}
+/* ⚠ CM · pre-wrap: cakisma mesaji artik uc satir (ne kayitli · ne
+   yapamazsin · ne yapabilirsin). textContent ile yaziliyor, satir
+   sonlari pre-wrap olmadan tek satira eziliyordu. */
+.hata-msg{background:#fdeceb;color:var(--hata);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none;white-space:pre-wrap;line-height:1.5}
+.ok-msg{background:#eafaf1;color:var(--ok);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none;white-space:pre-wrap;line-height:1.5}
 /* V · sifre penceresi — borc.html'deki .pm deseninin ayni sadelestirilmis hali */
 .pm{border:none;border-radius:16px;padding:16px;width:calc(100% - 32px);max-width:340px;
   max-height:88vh;overflow:auto;background:var(--kart);color:var(--metin)}
@@ -637,6 +640,14 @@ const tarihStr = d => d.getFullYear() + '-'
   + String(d.getMonth()+1).padStart(2,'0') + '-'
   + String(d.getDate()).padStart(2,'0');
 const bugun = () => tarihStr(new Date());
+/* ⚠ CM · GUN SONU BITMIS GUN ICIN GIRILIR. Olculdu (canli, son uc kayit):
+     29.08 -> 31.08 11:35 · 30.08 -> 31.08 11:36 · 31.08 -> 01.09 07:48
+   hicbiri kendi gununde girilmemis. Form BUGUN ile aciliyordu ve 31.08
+   sabahi 30.08'in Z rakamlari 31.08 tarihine yazildi; silinip
+   duzeltilmesi bir gun aldi. YALNIZ gun sonu formu bunu kullanir —
+   tarihSecici'nin kendisi degismedi, gider/alis bugunle acilmaya
+   devam ediyor. Bugun hala SECILEBILIR (max = bugun). */
+const dunTarih = () => { const d = new Date(); d.setDate(d.getDate() - 1); return tarihStr(d); };
 const tl = n => (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -3252,7 +3263,9 @@ async function vGunSonu(zListe){
     <div id="gsDuzenleBar"></div>
     <div id="gsTaslakBar"></div>
     <div class="kart">
-      ${tarihSecici('gsTarih')}
+      ${tarihSecici('gsTarih', dunTarih())}
+      <div class="ipucu" style="margin:4px 0 8px">Tarih <b>dün</b> ile açılır — gün sonu bitmiş gün için girilir.
+        Aynı gece kapatıyorsan bugünü seç.</div>
       <div class="bilgi-not" style="margin:0 0 8px">İki yazarkasa da girilir. Her Z raporu için <b>Z No + Z fotoğrafı zorunludur</b>.
         Bir kasa o gün <b>ikinci bir Z bastıysa</b> (cihaz arızası) panelden ekle — ikisi de ayrı kaydedilir.</div>
       <div class="kasa-sekme" id="kasaSekme">
@@ -3455,8 +3468,44 @@ async function gunSonuKaydet(){
     } else {
       const kalan = await fotoTemizle(yuklenen);
       if (kalan.length) console.warn('YETİM DOSYA (temizlenemedi):', kalan);
+      /* ⚠ CM · CAKISMADA O GUNDE NE KAYITLI OLDUGUNU GOSTER.
+         Eski mesaj yalniz "zaten girilmiş" diyordu; personel kendi
+         hatasi mi (yanlis gune yazmis) yoksa gercekten girilmis mi
+         AYIRT EDEMIYORDU. Tutar + Z no gorunce "bu dunun rakami,
+         yanlis gune yazilmis" diyebiliyor.
+         ⚠ YETKI GENISLEMEDI: burada YALNIZ OKUMA var, uzerine yazma
+           yolu acilmadi. Okunan satir zaten personelin gordugu bir
+           satir — gun sonu listesi ayni tabloyu ayni sutunlarla
+           listeliyor — ve sb.from suzgeci sorguyu AKTIF_SUBE'ye
+           kilitliyor, baska subenin kaydi gelmez.
+         ⚠ Okuma basarisiz olursa MEVCUT MESAJ DURUR; uydurma yok. */
+      if (/GUN_ZATEN_GIRILMIS/.test(window.__sonRpcHataHam || ''))
+        await gsCakismaAnlat(document.getElementById('gsTarih').value);
     }
   }
+}
+async function gsCakismaAnlat(tarih){
+  try{
+    const { data } = await sb.from('gun_sonu')
+      .select('tarih,toplam,gun_sonu_kasa(kasa_no,sira,z_no,is_deleted)')
+      .eq('tarih', tarih).eq('is_deleted', false).maybeSingle();
+    if (!data) return;
+    const zler = (data.gun_sonu_kasa || []).filter(k => !k.is_deleted)
+      .sort((a,b) => (a.kasa_no-b.kasa_no) || ((a.sira||1)-(b.sira||1)))
+      .map(k => k.z_no).filter(Boolean);
+    /* ⚠ "SEN DEGISTIREMEZSIN" DEMIYORUZ — OLCULDU, YANLIS OLURDU:
+       personelin KENDI girdigi son 3 gun asagidaki "Son Girdiğin
+       Günler" kartinda Düzelt/Sil dugmeleriyle duruyor (RLS o
+       pencereyi aciyor). Mesaj neyin YAPILABILIR oldugunu soyluyor,
+       yetkiyi kendisi tarif etmeye kalkmiyor. */
+    mesaj('gsMsg', 'hata',
+      tarih.slice(8,10) + '.' + tarih.slice(5,7) + '.' + tarih.slice(0,4)
+      + ' zaten girilmiş: ' + tl(data.toplam)
+      + (zler.length ? ' · Z ' + zler.join(', ') : ' · Z no girilmemiş')
+      + '.\nYanlış günü seçtiysen tarihi düzelt — formdaki rakamlar duruyor.'
+      + '\nKayıtlı rakam yanlışsa: aşağıdaki gün listesinden düzeltebiliyorsan düzelt, '
+      + 'düzeltemiyorsan yöneticiye bildir.');
+  }catch(e){ /* okunamadi -> rpcCagir'in yazdigi mesaj kalir */ }
 }
 let GS_AY = null;                                    // hangi ay listeleniyor
 function gsAyDegisti(){ GS_AY = document.getElementById('gsListeAy').value; gunSonuListe(); }
