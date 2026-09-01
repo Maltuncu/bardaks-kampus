@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-1">
+<meta name="surum" content="2026-08-27-2">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2028,6 +2028,7 @@ async function odemelerBlogu(hedefId, ctx){
       ${ek.buAy ? `<div id="bfEkk" hidden onclick="event.stopPropagation()"
         style="border-top:1px solid var(--cizgi);margin-top:12px;padding-top:12px">${ek.buAy}</div>` : ''}
     </div>
+    ${ek.ciro ? `<div class="kart" id="bfCiro">${ek.ciro}</div>` : ''}
     <div class="kart" id="bfBorc" style="cursor:pointer" onclick="bfGit('borc.html')">
       ${kbaslik('BORÇ SINIFLARI', 'Üç ayrı sınıf — toplanmaz', '<span class="k">borç ›</span>')}
       <div class="oz"><span class="oz-et">Şahıs · bugün kapatsam</span><span class="oz-dg"><b>${tk2(sKapat)}</b></span></div>
@@ -2540,9 +2541,23 @@ async function vOzet(){
     const bas = ilkBolum ? '' : 'border-top:1px solid var(--cizgi);margin-top:14px;padding-top:14px';
     ilkBolum = false;
     return `<div${id?` id="${id}"`:''}${bas?` style="${bas}"`:''}>${ic}</div>`; };
+  /* ⚠ CL · GUNLUK CIRO GRAFIGI KATLAMANIN ARKASINDAN CIKTI.
+     Sahip grafigi bulamiyordu: "ayın dökümü" dugmesine basilmadan
+     gorunmuyordu (olculdu: #bfEkk hidden, grafik yuksekligi 0px).
+     Artik BU AY kartinin HEMEN ALTINDA kendi kartinda ciziliyor;
+     katlamanin geri kalani (nakit dokumu, kar, kasa koprusu, ay
+     raporu) oldugu gibi kaliyor.
+     ⚠ ayrac(blokCiro) CAGRISI KALDIRILDI, bos birakilmadi: ayrac
+       'ilkBolum' durumunu SIRAYLA tutuyor; blokCiro'yu icerikte bos
+       birakip cagriyi yerinde biraksaydim ilk ayrac yine de tuketilir
+       ve panelin ustunde bosta bir cizgi kalirdi. Cagri gidince
+       blokNakit dogal olarak ilk bolum oluyor (ust cizgisi yok).
+     ⚠ PERSONEL GORUNUMU DEGISMEDI: orada grafik zaten kendi kartinda
+       ve OZ_EK hic kurulmuyor (sahip degilse null). */
   OZ_EK = !sahip ? null : {
     donem: ay,
-    buAy: ayrac(blokCiro) + ayrac(blokNakit, 'ayDokum')
+    ciro: blokCiro,
+    buAy: ayrac(blokNakit, 'ayDokum')
         + ayrac(blokKar) + ayrac(blokKasaKoprusu) + ayrac(blokAyRaporu),
     uyarilar: sirali
   };

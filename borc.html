@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-10">
+<meta name="surum" content="borc-2026-08-27-11">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4804,6 +4804,139 @@ function axOku(parcalar){
   }
 
   /* ==================================================================
+     ⚠ CK · "BIR SONRAKI" KESIM/ODEME GUNU · YALNIZ GUN ONERISI ICIN
+     Ekran her ekstrede "kesim/ödeme gününü güncelle" oneriyordu ve
+     hafta sonu kaymasini KALICI AYAR saniyordu. Olculdu (Axess, kart
+     29/3): 29.08.2026 CUMARTESI, banka kesimi 27'ye cekmis, odemeyi
+     1'e almis; ekran "29/3 -> 27/1" oneriyordu ama dongu hala 29/3.
+     Enpara'da da 10 -> 9.
+     ⚠ HAFTA SONU KURALI TEK BASINA YETMIYOR — OLCULDU:
+         Axess son odeme  03/09/2026 PERSEMBE (is gunu) ama 01/09'a
+                          cekilmis  -> hafta sonuyla ACIKLANAMIYOR
+         Enpara son odeme 10/09/2026 PERSEMBE (is gunu) ama 09/09
+         Ziraat kesim     15/08/2026 CUMARTESI ama HIC kaymamis
+       Yani "hafta sonuysa kaydir" diye bir kural bu dosyalarda YOK;
+       uydurulmus bir esik yanlis oneriyi surdururdu.
+     ⚠ BELGENIN KENDI KANITI KULLANILIYOR: on yuzun onunda
+       "Bir Sonraki Hesap Kesim Tarihi" ve "Bir Sonraki Son Ödeme
+       Tarihi" YAZIYOR (on ekstrenin ONUNDA da var — olculdu).
+       Bu ekstrenin gunu ile BIR SONRAKININ gunu AYNIYSA dongu
+       sabittir, oneri anlamli. FARKLIYSA gun zaten kayiyor demektir;
+       oneri gosterilmez. Satir hic yoksa AYIRT EDILEMEZ -> gene
+       gosterilmez (yanlis oneri, oneri olmamasindan kotudur). */
+  {
+    const gunAl = (iskler) => {
+      for (const s of satirlar){
+        const i = iskler.map(x => s.isk.indexOf(x)).filter(x => x >= 0);
+        if (!i.length) continue;
+        const bas = Math.min.apply(null, i);
+        const it = s.items.find(q => q.iSon > bas && AX_TARIH.test(q.ham))
+                || s.items.find(q => AX_TARIH.test(q.ham));
+        if (it) return Number(it.ham.match(AX_TARIH)[1]);
+      }
+      return null;
+    };
+    /* Enpara tek cumlede: "Bir sonraki ekstrenizin tarihi 30/08/2026,
+       son ödeme tarihi ise 09/09/2026" — iki tarih AYNI parcada olabilir,
+       o yuzden kesim/odeme icin ayri ayri sira numarasi alinir. */
+    const enpara = satirlar.map(s => s.items.find(q =>
+        axIskelet(q.ham).indexOf(axIskelet('bir sonraki ekstrenizin tarihi')) >= 0))
+      .find(Boolean);
+    const enparaT = enpara ? (enpara.ham.match(/\d{2}[./-]\d{2}[./-]\d{4}/g) || []) : [];
+    alanlar.sonrakiKesim = { durum:'yok' }; alanlar.sonrakiOdeme = { durum:'yok' };
+    const sk = enparaT.length ? Number(enparaT[0].slice(0,2))
+      : gunAl([axIskelet('sonraki hesap kesim tarihi')]);
+    const so = enparaT.length > 1 ? Number(enparaT[1].slice(0,2))
+      : gunAl([axIskelet('sonraki son ödeme tarihi')]);
+    if (sk) alanlar.sonrakiKesim = { durum:'ok', gun: sk, ham: 'ayın ' + sk + '.' };
+    if (so) alanlar.sonrakiOdeme = { durum:'ok', gun: so, ham: 'ayın ' + so + '.' };
+  }
+
+  /* ==================================================================
+     ⚠ CJ · OZET TABLOSU YOKSA YENI/ODENEN ISLEM LISTESINDEN TOPLANIR
+     Akbank ve Is Bankasi ekstrelerinde harcama/odeme OZETI YOK; iki
+     rakam her seferinde elle giriliyordu. Ikisi de LISTEDE duruyor.
+
+     SUTUN SECIMI TAHMIN DEGIL, SINAMA: tutar parcalari SAG KENARA gore
+     kumelenir (sagdan hizali sutunlar), her kume icin toplam alinir ve
+     MUTABAKAT KAPISINDAN gecirilir:
+         devir + yeni − ödenen == hesap özeti borcu   (kurusuna kadar)
+     Gecen kume kullanilir; hicbiri gecmezse HICBIR SEY YAZILMAZ ve
+     ekran bugunku gibi kullanicidan ister. Denklemin tek bilinmeyeni
+     var, ama toplamlar denklemden DEGIL listeden geliyor — yanlis
+     sutun ancak tesadufen tutar.
+
+     ⚠ UC TUZAK, ucu de olculdu ve ucu de bu kuralla dusuyor:
+      1) TAKSIT: "DAMAT TWEEN (26.340,00 TL) 6/3.taksit  4.390,00"
+         Parantez icindeki 26.340,00 ACIKLAMA parcasinin ICINDE
+         (x=104), tutar sutununda degil — kume disinda kalir. Yanindaki
+         "4.390,00x3" ise tutar desenine UYMAZ ('x3' eki).
+      2) DEVIR SATIRI: "Önceki Dönem Hesap Özeti Bakiyesi 151.370,32"
+         ve "*** BİR ÖNCEKİ HESAP ÖZETİ BAKİYENİZ *** 74.933,49"
+         satirlarinda TARIH YOK. Islem satiri sayilmaz — devir iki kez
+         sayilmaz.
+      3) GENEL TOPLAM: "Genel Toplam 173.145,28 · 73.170,00 · 0,00"
+         satirinda da TARIH YOK; kaynak olarak HIC kullanilmiyor
+         (o 73.170,00 zaten ileriye donuk taksit toplami, gerceginden
+         24,72 TL fazla — olculdu).
+     ⚠ EKSI: Akbank "(-)" son ekiyle, Is Bankasi bastaki "-" ile
+       yaziyor; ikisi de taniniyor (olculdu, baska bicim cikmadi). */
+  if (alanlar.devir && alanlar.devir.durum === 'ok'
+      && alanlar.hesapOzeti && alanlar.hesapOzeti.durum === 'ok'
+      && !(alanlar.yeni && alanlar.yeni.durum === 'ok')
+      && !(alanlar.odenen && alanlar.odenen.durum === 'ok')){
+    const hedef = alanlar.hesapOzeti.kurus - alanlar.devir.kurus;   // yeni − ödenen
+    const ISL = /^([-−]?)(\d{1,3}(?:\.\d{3})*,\d{2})(?:\s*(?:TL|TRY))?\s*(\(-\)|-|−)?$/i;
+    const aday = [];
+    for (const s of satirlar){
+      if (!s.items.some(it => AX_TARIH.test(it.ham))) continue;   // tarihsiz satir islem degil
+      for (const it of s.items){
+        const m = ISL.exec(String(it.ham).trim());
+        if (!m) continue;
+        const r = paraCoz(m[2]);
+        if (!r.ok || r.kurus === 0) continue;
+        aday.push({ sag: it.x + (it.g || 0), kurus: r.kurus,
+                    eksi: !!(m[1] || m[3]), ham: String(it.ham).trim() });
+      }
+    }
+    /* ⚠ SUTUN = sag kenarlari SIRALAYIP BUYUK BOSLUKTAN BOL. Sabit
+       tolerans OLMAZ: tutarlar sagdan hizali ama "(-)" son eki sag
+       kenari disari itiyor — Axess'te artilar 456, eksiler 463pt'de
+       bitiyor ve 3pt'lik tolerans ODEMEYI AYRI SUTUN sayiyordu
+       (olculdu: kapi hicbir kumede gecmiyordu).
+       Esik VERIDEN: sutun ici sicrama 0–7pt, sutunlar arasi en dar
+       mesafe 54pt (Axess 463 -> 517) ve 125pt (Is Bankasi 376 -> 501).
+       25pt ikisinin ortasinda; 7 ile 54 arasindaki her deger ayni
+       sonucu verir. */
+    aday.sort((p, q) => p.sag - q.sag);
+    const kume = []; let k = null;
+    for (const c of aday){
+      if (!k || c.sag - k.sag > 25){ k = { sag: c.sag, uye: [] }; kume.push(k); }
+      k.sag = c.sag; k.uye.push(c);
+    }
+    const gecen = [];
+    for (const k of kume){
+      const y = k.uye.filter(u => !u.eksi).reduce((t, u) => t + u.kurus, 0);
+      const o = k.uye.filter(u =>  u.eksi).reduce((t, u) => t + u.kurus, 0);
+      if (y - o === hedef) gecen.push({ yeni: y, odenen: o, adet: k.uye.length });
+    }
+    const tek = gecen.length === 1 ? gecen[0]
+      : gecen.length > 1 && gecen.every(g => g.yeni === gecen[0].yeni
+                                          && g.odenen === gecen[0].odenen) ? gecen[0] : null;
+    if (tek){
+      /* ⚠ 'tk' cekirdegin DISINDA — cekirdek kendi kendine yeterli kalir
+         (olculmus ders). Bicim tk ile BIREBIR ayni, onay tablosundaki
+         'PDF'te: ...' ikinci satiri bu yuzden hic cikmaz. */
+      const bicim = (k) => (k/100).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      const kaynak = 'işlem listesinden toplandı, mutabakat tuttu';
+      alanlar.yeni   = { durum:'ok', kurus: tek.yeni,   ham: bicim(tek.yeni),
+        etiket:'işlem listesi (' + tek.adet + ' satır)', kural: kaynak };
+      alanlar.odenen = { durum:'ok', kurus: tek.odenen, ham: bicim(tek.odenen),
+        etiket:'işlem listesi (' + tek.adet + ' satır)', kural: kaynak };
+    }
+  }
+
+  /* ==================================================================
      ⚠ CI · KART TURU 0/7 · SON DORT HANEDEN TURETILIYOR
      OLCULDU (yedi gercek dosya): hicbir banka "kart türü / kart adı /
      ürün adı" diye bir etiket BASMIYOR — sozluk yolu yedi dosyada da
@@ -5230,17 +5363,61 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
         + (kart.faiz_orani == null ? '(boş)' : '%' + String(kart.faiz_orani).replace('.', ','))
         + ' → %' + String(oranYeni).replace('.', ','),
         { faiz_orani: oranYeni }]);
+    /* ⚠ CK · GUN ONERISI ARTIK KOSULLU VE IKIYE AYRI.
+       Eski hali her ekstrede "kesim/ödeme gününü güncelle" diyordu ve
+       hafta sonu kaymasini kalici ayar saniyordu (Axess "29/3 -> 27/1",
+       Enpara "10 -> 9" — ikisi de YANLIS, dongu degismemisti).
+       Kanit ekstrenin kendi icinde: "Bir Sonraki Hesap Kesim/Son Ödeme
+       Tarihi" satiri. Bu ekstrenin gunu ile bir sonrakinin gunu AYNIYSA
+       dongu sabit, oneri anlamli; FARKLIYSA gun zaten kayiyor.
+       ON EKSTREDE OLCULDU (bu ekstre gunu -> bir sonraki):
+         kesim   Enpara 30->30 · Ziraat 15->15 · IsB 4->4, 15->15
+                 Axess 29->27 ve 27->26        (KAYIYOR)
+         ödeme   Ziraat 25->25 · IsB 14->14, 20->20
+                 Enpara 10->9, 9->12 · IsB 20->21 · Axess 3->1 (KAYIYOR)
+       ⚠ ODEME GUNU KESIME BAGLI. Axess 27.08'de odeme 1 ve bir sonraki
+         de 1 — tek basina "sabit" gorunuyor, ama kesim 27->26 kaydigi
+         icin odeme de kayar (Akbank odemeyi kesim+5 gun yaziyor:
+         29/07->03/08, 27/08->01/09). Bu yuzden kesim kararsizsa odeme
+         onerisi de gosterilmez.
+       ⚠ "Bir sonraki" satiri yoksa AYIRT EDILEMEZ -> gosterilmez.
+         Yanlis oneri, oneri olmamasindan kotudur. */
     const kesimYeni = oku(a.kesim, 'gun'), odemeYeni = oku(a.sonOdeme, 'gun');
-    if ((kesimYeni != null && kart.kesim_gunu !== kesimYeni)
-        || (odemeYeni != null && kart.son_odeme_gunu !== odemeYeni)){
-      const y = {};
-      if (kesimYeni != null) y.kesim_gunu = kesimYeni;
-      if (odemeYeni != null) y.son_odeme_gunu = odemeYeni;
-      farklar.push(['axGnGun', 'Kesim/ödeme gününü güncelle: '
-        + (kart.kesim_gunu ?? '—') + '/' + (kart.son_odeme_gunu ?? '—')
-        + ' → ' + (kesimYeni ?? kart.kesim_gunu ?? '—') + '/' + (odemeYeni ?? kart.son_odeme_gunu ?? '—'), y]);
+    const skGun = oku(a.sonrakiKesim, 'gun'), soGun = oku(a.sonrakiOdeme, 'gun');
+    const kesimSabit = kesimYeni != null && skGun != null && skGun === kesimYeni;
+    const odemeSabit = odemeYeni != null && soGun != null && soGun === odemeYeni && kesimSabit;
+    const gunNeden = [];
+    if (kesimYeni != null && kart.kesim_gunu !== kesimYeni){
+      if (kesimSabit)
+        farklar.push(['axGnKesim', 'Kesim gününü güncelle: ' + (kart.kesim_gunu ?? '—')
+          + ' → ' + kesimYeni, { kesim_gunu: kesimYeni }]);
+      else gunNeden.push('Kesim günü ' + (kart.kesim_gunu ?? '—') + ' yazılı, bu ekstre '
+        + kesimYeni + '. gününde kesilmiş' + (skGun != null
+          ? ' ama ekstrenin kendisi bir sonraki kesimi ayın ' + skGun
+            + '. günü diyor — gün oturmuş değil, döngü değişmiş olabileceğini '
+            + 'tek ekstreden anlayamam.'
+          : ' ama ekstrede "bir sonraki kesim" satırı yok — kalıcı mı geçici mi ayırt edemem.')
+        + ' Kartı değiştirmiyorum; gerçekten değiştiyse kart ekranından sen yaz.');
     }
-    if (!farklar.length) return;
+    if (odemeYeni != null && kart.son_odeme_gunu !== odemeYeni){
+      if (odemeSabit)
+        farklar.push(['axGnOdeme', 'Son ödeme gününü güncelle: ' + (kart.son_odeme_gunu ?? '—')
+          + ' → ' + odemeYeni, { son_odeme_gunu: odemeYeni }]);
+      else gunNeden.push('Son ödeme günü ' + (kart.son_odeme_gunu ?? '—') + ' yazılı, bu ekstrede '
+        + odemeYeni + '. gün' + (soGun != null && soGun !== odemeYeni
+          ? ' ama bir sonraki ödeme ayın ' + soGun + '. günü'
+          : (!kesimSabit ? ' ama kesim günü de kaymış (ödeme günü kesime bağlı)' : ''))
+        + ' — hafta sonu/tatil kayması olabilir, kartı değiştirmiyorum.');
+    }
+    /* ⚠ ONERI YOKSA SESSIZ KALMA: gun neden onerilmedigi yazilir.
+       Kutunun EN ALTINA dusuyor — onay kutulari once, aciklama sonra. */
+    const nedenYaz = () => {
+      if (!gunNeden.length) return;
+      const gn = el('div','kucuk');
+      for (const t of gunNeden) gn.appendChild(el('div', null, '· ' + t));
+      teklifKutu.appendChild(gn);
+    };
+    if (!farklar.length){ nedenYaz(); return; }
     teklifKutu.appendChild(el('div','kucuk','Ekstre, seçili karttan farklı bilgiler taşıyor. '
       + 'İşaretlediklerin kayıtta karta yazılır; işaretlemediğin HİÇ değişmez.'));
     for (const [id, metin, yama] of farklar){
@@ -5250,6 +5427,7 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
       sat.appendChild(cb); sat.appendChild(el('span', null, metin));
       teklifKutu.appendChild(sat);
     }
+    nedenYaz();
   };
   /* ⚠ CH · DONEM ZATEN KAYITLIYSA hataya DUSULMEZ, ONCEDEN gorunur.
      ux_kart_donem (kart_id, donem) tekil — ayni ekstre ikinci kez
