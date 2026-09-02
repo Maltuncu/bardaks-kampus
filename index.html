@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-6">
+<meta name="surum" content="2026-08-27-7">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -8075,7 +8075,9 @@ function sgkKomisyonGider(dk){
    "Ödendi" düğmesi KALDIRILDI: bir vade ancak gerçek bir ödeme kaydına bağlanınca
    kapanır. Elle işaretleme, olmayan bir ödemeyi var göstermeye yol açıyordu
    (03.08.2026'da geçici vergi ve kirada tam olarak bu oldu). */
-let VADE_HEPSI = false;
+/* ⚠ CR · VADE_HEPSI KALDIRILDI: liste ay ay gruplandı, 'hepsini göster'
+   düğmesine gerek kalmadı — bütün vadeler kendi ayının altında duruyor
+   ve gecikmişi olan ay açık başlıyor. */
 const VADE_DURUM = {
   odendi:    ['rz-ok',   'Ödendi'],
   tutar_yok: ['rz-gri',  'Tutar çıkmadı'],
@@ -8108,66 +8110,130 @@ async function vergiVadeYukle(){
      gorunmeye devam etsin, yalnizca ongoru satirlari cikmasin. */
   const odemeler = odm.error ? [] : (odm.data || []);
   const hepsi = data||[];
-  const sinir = tarihStr(new Date(Date.now()+60*864e5));
-  const liste = VADE_HEPSI ? hepsi
-    : hepsi.filter(v => v.durum === 'acik' ? v.vade_tarihi <= sinir
-                                           : v.vade_tarihi >= tarihStr(new Date(Date.now()-45*864e5)));
-  const gizli = hepsi.length - liste.length;
+  /* ==================================================================
+     ⚠ CR · VADELER AY AY (görsel desen Vergiler ekranından, aynısı)
+     Liste düz ve uzundu, altında "72 vade daha var — hepsini göster"
+     vardı; "önümüzdeki ay ne ödeyeceğim" görünmüyordu.
 
-  el.innerHTML = (liste.length === 0
-      ? '<div class="bilgi-not">Bu aralıkta vade yok.</div>'
-      : liste.map(v => {
-          const d = VADE_DURUM[v.durum];
-          /* ---- ONGORU / GERCEK ----------------------------------------
-             Kapanmis vade  : gercek = bagli odeme · ongoru = O ODEMEDEN
-                              ONCEKI ayni kok turden odeme (kendisi DEGIL)
-             Acik + tutarsiz: ongoru = ayni kok turden EN SON odeme
-             Ikisi de yoksa : hicbir sey yazilmaz (eski davranis) */
-          const bo = bagliOdeme[v.id];
-          const gercek = v.tutar ? +v.tutar
-                       : odenenTutar[v.id] != null ? odenenTutar[v.id] : null;
-          const on = bo ? vadeOngoru(v.tur, odemeler, bo.odeme_tarihi)
-                   : gercek == null ? vadeOngoru(v.tur, odemeler, null) : null;
-          const sp = bo && on ? vadeSapma(on.ongoru, gercek) : null;
-          const kaynakAy = on && on.kaynak.donem ? ayAdi(on.kaynak.donem)
-                         : on && on.kaynak.odeme_tarihi
-                           ? new Date(on.kaynak.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR') : '';
-          return `<div class="liste-satir">
-            <div class="l-sol"><div class="b">${esc(v.aciklama)} ${
-              v.gecti ? '<span class="rozet rz-hata">GEÇTİ</span>'
-              : v.yakin ? '<span class="rozet rz-uyari">'+(v.kalan_gun===0?'BUGÜN':v.kalan_gun+' GÜN')+'</span>' : ''}</div>
-              <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${
-                /* Once vadenin kendi tutari, yoksa odemeden gelen; hicbiri yoksa
-                   ONGORU denenir. Ongoru de yoksa HIC YAZMA — gelecek vadede
-                   tutarin belli olmamasi normaldir, her satira "tutar belli
-                   degil" yazmak gurultu. */
-                gercek != null
-                  ? (sp ? ' · öngörü '+tl(on.ongoru)+' · gerçek '+tl(gercek)
-                          + ' · <b style="color:'+sp.sinif+'">'+sp.metin+'</b>'
-                        : ' · '+tl(gercek))
-                : on ? ' · öngörü <b>'+tl(on.ongoru)+'</b>'
-                /* ⚠ SIFIR YAZILMAZ. "Bilmiyorum" ile "sifir" ayni sey degil;
-                   sifir yazmak butceyi yaniltir. Eski kod burada HIC bir sey
-                   yazmiyordu ve gerekcesi "her satira yazmak gurultu" idi —
-                   o gerekce ongoru gelince duser: artik yalniz GERCEKTEN
-                   bilinmeyen satirlarda cikiyor, gurultu degil bilgi. */
-                : v.durum === 'acik' ? ' · <b style="color:var(--uyari)">tutar bekleniyor</b>'
-                : ''}${
-                v.durum_notu ? '<br>'+notKisalt(v.durum_notu, 90) : ''}</div>${
-                /* ⚠ Ongorunun NEREDEN geldigi yazilmazsa rakam kesin bilgi
-                   gibi durur. Kaynak her zaman gorunur. */
-                on && gercek == null
-                  ? `<div class="k" style="color:var(--soluk)">geçen sefer bu kadar ödedin${
-                      kaynakAy ? ' ('+esc(kaynakAy)+')' : ''} — kesin tutar değil</div>` : ''}</div>
-            <div class="l-sag">${d
-              ? `<span class="rozet ${d[0]}">${d[1]}</span>`
-              : `<button class="btn2" onclick="vadeKapat('${v.id}','${esc(v.aciklama)}')">Kapat</button>`}</div>
-          </div>`;
-        }).join(''))
-    + (gizli > 0 || VADE_HEPSI
-        ? `<button class="btn2" style="margin-top:8px" onclick="VADE_HEPSI=${!VADE_HEPSI};vergiVadeYukle()">${
-            VADE_HEPSI ? 'Sadece yakın vadeleri göster' : gizli+' vade daha var — hepsini göster'}</button>`
-        : '');
+     ⚠ GRUPLAMA ÖLÇÜTÜ VADE TARİHİ — Vergiler ekranından BİLEREK FARKLI.
+       Orada soru "hangi ayın vergisi" (dönem), burada "hangi ay
+       ödeyeceğim" (vade tarihi). "KDV (2026-08) · vade 28.09" burada
+       EYLÜL'ün altındadır; dönem satırın içinde yazmaya devam eder.
+       Hangi ölçüt olduğu listenin başında yazılı — iki ekran yan yana
+       okunduğunda karışmasın.
+
+     ⚠ GECİKMİŞ VADE: ayrı bir "geçmiş" grubu YAPILMADI, gecikmişi olan
+       AY AÇIK BAŞLIYOR ve başlıkta GECİKMİŞ rozeti duruyor. Gerekçe:
+       ayrı grup, tek sıralama eksenini (vade tarihi) bozar; aynı vade
+       ya iki yerde görünür ya ayından çıkar, "hangi ay ne ödeyeceğim"
+       okunaksızlaşır. Açık başlatmak görünürlüğü aynı şekilde garanti
+       eder, ekseni bozmaz.
+
+     ⚠ TOPLAM YALNIZ KESİN TUTARLARDAN. Tutarı bilinmeyen vade toplama
+       GİRMEZ, başlıkta ayrıca sayılır; öngörüsü varsa "öngörü +X" diye
+       AYRI yazılır. Öngörüyü kesin tutarla toplamak, tahmini bütçe gibi
+       gösterirdi.
+     ⚠ ÖDENMİŞ VADE ayında kalır ama KALAN TOPLAMA GİRMEZ — o toplam
+       "bu ay daha ne çıkacak" demektir.
+     ⚠ ROZET YALNIZ İŞ BİTİNCE: ayın tamamı kapandıysa ÖDENDİ. Gecikmişi
+       varsa ÖDENDİ çıkmaz. "0 gecikmiş" gibi boş rozet yazılmaz. */
+  const kesinTutar = (v) => v.tutar != null ? +v.tutar
+                     : (odenenTutar[v.id] != null ? odenenTutar[v.id] : null);
+  const satirHtml = (v) => {
+    const d = VADE_DURUM[v.durum];
+    const bo = bagliOdeme[v.id];
+    const gercek = kesinTutar(v);
+    const on = bo ? vadeOngoru(v.tur, odemeler, bo.odeme_tarihi)
+             : gercek == null ? vadeOngoru(v.tur, odemeler, null) : null;
+    const sp = bo && on ? vadeSapma(on.ongoru, gercek) : null;
+    const kaynakAy = on && on.kaynak.donem ? ayAdi(on.kaynak.donem)
+                   : on && on.kaynak.odeme_tarihi
+                     ? new Date(on.kaynak.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR') : '';
+    return `<div class="liste-satir" data-vid="${v.id}">
+      <div class="l-sol"><div class="b">${esc(v.aciklama)} ${
+        v.gecti ? '<span class="rozet rz-hata">GEÇTİ</span>'
+        : v.yakin ? '<span class="rozet rz-uyari">'+(v.kalan_gun===0?'BUGÜN':v.kalan_gun+' GÜN')+'</span>' : ''}</div>
+        <div class="k">${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')}${
+          gercek != null
+            ? (sp ? ' · öngörü '+tl(on.ongoru)+' · gerçek '+tl(gercek)
+                    + ' · <b style="color:'+sp.sinif+'">'+sp.metin+'</b>'
+                  : ' · '+tl(gercek))
+          : on ? ' · öngörü <b>'+tl(on.ongoru)+'</b>'
+          : v.durum === 'acik' ? ' · <b style="color:var(--uyari)">tutar bekleniyor</b>'
+          : ''}${
+          v.durum_notu ? '<br>'+notKisalt(v.durum_notu, 90) : ''}</div>${
+          on && gercek == null
+            ? `<div class="k" style="color:var(--soluk)">geçen sefer bu kadar ödedin${
+                kaynakAy ? ' ('+esc(kaynakAy)+')' : ''} — kesin tutar değil</div>` : ''}</div>
+      <div class="l-sag">${d
+        ? `<span class="rozet ${d[0]}">${d[1]}</span>`
+        : `<button class="btn2" onclick="vadeKapat('${v.id}','${esc(v.aciklama)}')">Kapat</button>`}</div>
+    </div>`;
+  };
+
+  const AYG = new Map();
+  for (const v of hepsi){
+    const k = String(v.vade_tarihi).slice(0,7);
+    let g = AYG.get(k); if (!g){ g = { k, v:[] }; AYG.set(k, g); }
+    g.v.push(v);
+  }
+  const buAy = bugun().slice(0,7);
+  const aylar = [...AYG.keys()].sort();          // en yakın/eski önce
+  el.innerHTML = (aylar.length === 0
+    ? '<div class="bilgi-not">Kayıtlı vade yok.</div>'
+    : `<div class="bilgi-not" style="margin:0 0 8px">Aylar <b>vade tarihine</b> göre —
+         "ne zaman ödeyeceğim". (Vergiler listesi <b>döneme</b> göre gruplu — "hangi ayın
+         vergisi".) Hangi döneme ait olduğu satırın içinde yazıyor.</div>`
+      + aylar.map((k, i) => {
+      const g = AYG.get(k);
+      let odendi = 0, kapali = 0, gecikmis = 0, kalanTop = 0, tutarYok = 0, ongoruTop = 0;
+      for (const v of g.v){
+        if (v.durum === 'odendi'){ odendi++; continue; }
+        if (v.durum === 'iptal' || v.durum === 'tutar_yok'){ kapali++; continue; }
+        if (v.gecti) gecikmis++;
+        const t = kesinTutar(v);
+        if (t != null) kalanTop += t;
+        else { tutarYok++; const o = vadeOngoru(v.tur, odemeler, null); if (o) ongoruTop += o.ongoru; }
+      }
+      const acikAdet = g.v.length - odendi - kapali;
+      const bitti = acikAdet === 0 && gecikmis === 0 && odendi > 0;
+      const id = 'vdGrup' + i;
+      const acik = k === buAy || gecikmis > 0;
+      /* Rozet YALNIZ iş bitince ya da gecikme varken. Boş rozet yok. */
+      const rozet = gecikmis > 0
+          ? `<span class="rozet rz-hata" style="margin-left:6px">${gecikmis} GECİKMİŞ</span>`
+        : bitti ? '<span class="rozet rz-ok" style="margin-left:6px">ÖDENDİ</span>' : '';
+      const sag = bitti
+        ? `${g.v.length} vade`
+        : `${g.v.length} vade${odendi ? ' · '+odendi+' ödendi' : ''}<br>`
+          /* ⚠ SIFIR YAZILMAZ: hiçbir vadenin tutarı bilinmiyorsa toplam
+             "0,00" değil, HİÇ yazılmaz — bilinmeyeni sıfır gibi göstermek
+             bütçeyi yanıltır (ölçüldü: Aralık ayı "1 vade · 0,00 TL" diyordu). */
+          + (acikAdet === 0 ? '<span class="gri">kalan yok</span>'
+             : kalanTop === 0 && tutarYok ? '<span class="gri">tutar bilinmiyor</span>'
+             : (odendi ? 'kalan ' : '') + tl(kalanTop))
+          + (tutarYok ? `<br><span style="color:var(--uyari)">${tutarYok} vadenin tutarı yok${
+               ongoruTop ? ' · öngörü +'+tl(ongoruTop) : ''}</span>` : '');
+      return `<button type="button" class="serit-ozet-vg" aria-expanded="${acik}" aria-controls="${id}"
+          onclick="vgGrupAc(this,'${id}')"
+          style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+                 background:var(--kart);border:1.5px solid var(--cizgi);border-radius:12px;
+                 padding:9px 12px;margin:8px 0 0;min-height:44px;cursor:pointer">
+          <span class="vg-ok" style="color:var(--soluk)">${acik ? '▾' : '▸'}</span>
+          <!-- ⚠ AY ADI KIRILMAZ: overflow-wrap:anywhere + min-width:0 birlikte,
+               sagdaki uzun ozet yuzunden "Eylül 2026"yi HARF HARF alt alta
+               diziyordu (olculdu, ekran goruntusunde gorundu). Ay adi tek
+               satirda kalir, sarma hakki SAG sutuna verilir. -->
+          <span style="flex:0 0 auto;font-weight:800;white-space:nowrap">${esc(ayAdi(k))}</span>${rozet}
+          <span style="flex:1;min-width:0"></span>
+          <!-- ⚠ nowrap YOK: özet metni uzun ("4 vade · 88.928,15 TL ·
+               1 vadenin tutarı yok · öngörü +13.953,16 TL") ve nowrap ile
+               375px'te sayfayı 425px yana taşırıyordu (ölçüldü). -->
+          <span class="k" style="text-align:right;flex:0 1 auto;min-width:0">${sag}</span>
+        </button>
+        <div id="${id}" ${acik ? '' : 'hidden'} style="padding:2px 0 6px">${
+          g.v.map(satirHtml).join('')}</div>`;
+    }).join(''));
   /* ---- C · YIL SONU ISABET -------------------------------------------
      ⚠ HEPSI uzerinden hesaplanir, ekrandaki daraltilmis liste uzerinden
        DEGIL: "hepsini goster"e basinca isabet yuzdesinin degismesi,
@@ -8204,14 +8270,21 @@ async function vergiVadeYukle(){
 
   /* BL · Ozet'ten gelindiyse hedef vadeyi gorunur kil. Hedef daraltilmis
      listede yoksa ama var olan bir kayitsa "hepsini goster"e gecilir. */
+  /* ⚠ CR · Özet'ten gelinen vade artık KATLI BİR AYIN İÇİNDE olabilir.
+     Eskiden liste düzdü ve "hepsini göster"e geçmek yetiyordu; artık
+     hedefin ayı AÇILIR, sonra satır işaretlenir. Vade listede yoksa
+     (silinmiş) sessizce geçilir — eski davranış. */
   if (VADE_HEDEF){
-    if (!liste.some(v => v.id === VADE_HEDEF) && !VADE_HEPSI && hepsi.some(v => v.id === VADE_HEDEF)){
-      VADE_HEPSI = true; return vergiVadeYukle();
-    }
-    const i = liste.findIndex(v => v.id === VADE_HEDEF); VADE_HEDEF = null;
-    if (i >= 0 && el.children[i]){
-      el.children[i].classList.add('vade-hedef');
-      el.children[i].scrollIntoView({ block:'center' });
+    const hedef = el.querySelector('[data-vid="' + VADE_HEDEF + '"]');
+    VADE_HEDEF = null;
+    if (hedef){
+      const panel = hedef.closest('[id^="vdGrup"]');
+      if (panel && panel.hidden){
+        const btn = el.querySelector('[aria-controls="' + panel.id + '"]');
+        if (btn) vgGrupAc(btn, panel.id);
+      }
+      hedef.classList.add('vade-hedef');
+      hedef.scrollIntoView({ block:'center' });
     }
   }
 }
@@ -8866,8 +8939,9 @@ async function vergiOdenenYukle(){
                    background:var(--kart);border:1.5px solid var(--cizgi);border-radius:12px;
                    padding:9px 12px;margin:8px 0 0;min-height:44px;cursor:pointer">
             <span class="vg-ok" style="color:var(--soluk)">${acik ? '▾' : '▸'}</span>
-            <span style="flex:1;font-weight:800">${esc(baslik(k))}</span>
-            <span class="k" style="text-align:right;white-space:nowrap">ödenen ${tl(top)}<br>açık ${g.vade.length}</span>
+            <span style="flex:0 1 auto;min-width:0;font-weight:800">${esc(baslik(k))}</span>
+          <span style="flex:1;min-width:0"></span>
+            <span class="k" style="text-align:right;min-width:0">ödenen ${tl(top)}<br>açık ${g.vade.length}</span>
           </button>
           <div id="${id}" ${acik ? '' : 'hidden'} style="padding:2px 0 6px">
             ${g.odeme.length ? g.odeme.map(vgOdemeSatiri).join('')
