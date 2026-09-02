@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-3">
+<meta name="surum" content="2026-08-27-5">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1386,7 +1386,19 @@ async function belgeEkle(tablo, id, klasor, mevcutVar){
 async function rpcCagir(fn, params, btnId, msgId, basariTxt){
   // btnId olmayabilir (satır içi aç/kapa butonlarının sabit id'si yok) — null güvenli
   const btn = btnId ? document.getElementById(btnId) : null;
-  const eski = btn ? btn.textContent : null;
+  /* ⚠ CQ · "Yükleniyor..." SONSUZA KADAR YAZILI KALIYORDU. Ölçüldü:
+     vergiOdemeKaydet düğme metnini kendisi 'Yükleniyor...' yapıyor,
+     sonra buraya geliyordu; burası O ANKİ metni "asıl metin" sanıp
+     iş bitince ona döndürüyordu. Kayıt BAŞARILI oluyor ama düğme
+     "Yükleniyor..." kalıyor, sahip olmadı sanıp tekrar deniyordu.
+     ÇÖZÜM: meşgul metni asıl metin sayılmaz; son GERÇEK etiket
+     düğmenin üstünde saklanır. Diğer 20+ çağrı ETKİLENMEZ — onlar
+     buraya gerçek etiketle geliyor, o etiket hem saklanır hem
+     'eski' olur, davranış birebir aynı kalır. */
+  const MESGUL = /^(yükleniyor|kaydediliyor|güncelleniyor|siliniyor|bağlantı)/i;
+  if (btn && !MESGUL.test((btn.textContent || '').trim()))
+    btn.dataset.asilMetin = btn.textContent;
+  const eski = btn ? (btn.dataset.asilMetin != null ? btn.dataset.asilMetin : btn.textContent) : null;
   if (btn){ btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
   try{
     // Aynı idem anahtarıyla otomatik 2 deneme: bağlantı koparsa (commit olmuş olabilir)
@@ -2807,11 +2819,72 @@ function paraTemizle(el, eksiVar){
   const s = (eksi ? '-' : '') + t.replace(/[^\d.,]/g,'');
   if (s !== t) el.value = s;
 }
+/* ==================================================================
+   ⚠ CP · YAZARKEN BİNLİK AYIRAÇ (iki dosyada AYNI kod: borc.html'de de var)
+   Sahip "sıfırları adam gibi saymıyor, içimden sayarak giriyorum" dedi.
+   Ölçüldü: paraBicimle ayıraç KOYMUYORDU (paraCoz'un ürettiği 'metin'
+   gruplamasız) — yani hiçbir alanda ne yazarken ne çıkarken gruplama vardı.
+
+   KURALLAR (hepsi ölçüldü):
+   · ONDALIK KISIM GRUPLANMAZ — 1234,5678 -> 1.234,5678
+   · YARIM GİRİŞ BOZULMAZ — "36569," virgülü kalır, "0," sıfırı kalır,
+     eksi alanlarda tek başına "-" yazılabilir
+   · NOKTA = ONDALIK. Gruplama ayıracını uygulama koyar, kullanıcı yazmaz;
+     bu yüzden kullanıcının yazdığı '.' ondalık ayracı sayılır ve ','a
+     çevrilir ("36569.93" -> "36.569,93"). Virgül varsa noktalar bizim
+     ayracımızdır, atılır.
+   · MİKTAR/GRAM (bas === 3) GRUPLANMAZ — 412,950 üç ondalıkla kalır.
+   ⚠ İMLEÇ: değeri her tuşta yeniden yazmak imleci sona atar ve ortadan
+     düzeltmeyi imkânsız kılar — bu, gruplamamaktan kötüdür. İmleç,
+     ÖNÜNDEKİ ayıraç-dışı karakter sayısı korunarak yeniden konur. */
+function paraCanli(ham, eksiVar){
+  const eksi = !!eksiVar && /^[-−]/.test(String(ham));
+  /* ⚠ NOKTA HER ZAMAN GRUPLAMADIR — bizim koyduğumuz ayıraç. Kullanıcının
+     ondalık olarak yazdığı nokta, YAZILDIĞI ANDA (paraCanliUygula) virgüle
+     çevrilir; buraya gelen nokta artık yalnız ayıraçtır.
+     ⚠ ÖLÇÜLDÜ: burada "virgül yoksa ilk nokta ondalıktır" denenmişti —
+     "3.656" yazılınca sonraki tuşta kendi ayıracımızı ondalık sanıp
+     "3,6569" üretiyordu. */
+  let s = String(ham).replace(/[^\d.,]/g, '').replace(/\./g, '');
+  const iv = s.indexOf(',');
+  if (iv >= 0) s = s.slice(0, iv + 1) + s.slice(iv + 1).replace(/,/g, '');   // tek virgül
+  const v = s.indexOf(',');
+  let tam = v < 0 ? s : s.slice(0, v);
+  const ond = v < 0 ? '' : s.slice(v);              // ',' DAHİL — hiç gruplanmaz
+  tam = tam.replace(/^0+(?=\d)/, '');
+  return (eksi ? '-' : '') + tam.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ond;
+}
+function paraCanliUygula(el, e, eksiVar){
+  const geri = !!(e && /^delete/i.test(e.inputType || ''));
+  let t = el.value;
+  let p = el.selectionStart == null ? t.length : el.selectionStart;
+  /* ⚠ Kullanıcı ondalık ayracı olarak NOKTA yazdıysa (masaüstü klavyesi)
+     o noktayı ANINDA virgüle çevir — gruplama noktalarıyla karışmasın.
+     Yalnız BU tuşta yazılan noktaya bakılır (e.data), alandaki ötekilere değil. */
+  if (e && e.data === '.' && p > 0 && t[p-1] === '.') t = t.slice(0, p-1) + ',' + t.slice(p);
+  /* ⚠ Backspace AYIRACIN üstündeyse: ayıraç geri gelir ve hiçbir şey
+     silinmiş olmaz — kullanıcı tuşa basar, ekran değişmez. O durumda
+     ayıracın önündeki RAKAM silinir; silme tuşu iş görür. */
+  if (geri && p > 0 && paraCanli(t, eksiVar) === (el.__paraEski || '')){
+    t = t.slice(0, p - 1) + t.slice(p); p -= 1;
+  }
+  const yeni = paraCanli(t, eksiVar);
+  const n = t.slice(0, p).replace(/\./g, '').length;   // imleç önündeki gerçek karakter
+  el.value = yeni; el.__paraEski = yeni;
+  let k = 0, i = 0;
+  for (; i < yeni.length && k < n; i++) if (yeni[i] !== '.') k++;
+  while (i < yeni.length && yeni[i] === '.') i++;      // ayıracın sağına geç
+  try { el.setSelectionRange(i, i); } catch(err){}
+}
 function paraBicimle(el, bas, eksiVar){
   // Alandan çıkınca tek biçime getir: kullanıcı ne kaydettiğini görsün
   if(!el || !el.value.trim()) return;
   const r = paraCoz(el.value, bas, eksiVar);
-  if (r.ok && el.value !== r.metin) el.value = r.metin;
+  if (!r.ok) return;
+  /* ⚠ CP · bas===3 (gram/miktar) GRUPLANMAZ; para alanı yazarkenki
+     biçimin AYNISINA oturur, blur gruplamayı geri almaz. */
+  const m = bas === 3 ? r.metin : paraCanli(r.metin, eksiVar);
+  if (el.value !== m){ el.value = m; el.__paraEski = m; }
 }
 function paraOku(el, bas, eksiVar){
   if(!el) return { ok:true, deger:0 };
@@ -2819,7 +2892,14 @@ function paraOku(el, bas, eksiVar){
 }
 function paraBagla(el, sonra, bas, eksiVar){
   if(!el) return;
-  el.addEventListener('input', () => { paraTemizle(el, eksiVar); if(sonra) sonra(); });
+  el.__paraEski = el.value;
+  /* ⚠ CP · bas===3 MİKTAR/GRAM: eski davranış (yalnız temizle, gruplama yok).
+     Para alanında paraCanliUygula paraTemizle'nin işini de yapıyor
+     (geçersiz karakteri o da atıyor), üstüne imleci koruyor. */
+  el.addEventListener('input', (e) => {
+    if (bas === 3) paraTemizle(el, eksiVar); else paraCanliUygula(el, e, eksiVar);
+    if(sonra) sonra();
+  });
   el.addEventListener('blur',  () => { paraBicimle(el, bas, eksiVar); if(sonra) sonra(); });
 }
 /* type="number" alanına "1,5" yazılınca tarayıcı value'yu BOŞ döndürüyor; "+value||0"
@@ -4337,7 +4417,7 @@ async function giderListe(){
             ? belgeBtn(g.foto_path, 'Belge', (g.gider_kategori?.ad||'')+' '+g.tarih)
               + `<button type="button" class="btn2" title="Yanlış belge eklediysen değiştir"
                    style="padding:4px 8px;font-size:12px;margin-left:4px"
-                   onclick="belgeEkle('gider','${g.id}','gider',true)">Değiştir</button>`
+                   onclick="belgeEkle('gider','${g.id}','gider',true)">Belge değiştir</button>`
             : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
                  onclick="belgeEkle('gider','${g.id}','gider',false)">+ Belge</button>`)
             + (PROFIL.rol === 'owner'
@@ -8353,15 +8433,20 @@ async function vergiOdemeKaydet(){
   const tutar = pv.deger;
   if (tutar===0){ mesaj('voMsg','hata','Tutar boş olamaz.'); return; }
   const btn = document.getElementById('voKaydet');
+  /* ⚠ CQ · ASIL METİN BAŞTA SAKLANIR. Aşağıda fotoğraf yüklenirken
+     düğme 'Yükleniyor...' oluyor; rpcCagir'a girmeden ÖNCE gerçek
+     etiket geri konur, yoksa rpcCagir meşgul metni asıl sanır. */
+  const asilMetin = btn.textContent;
   btn.disabled=true; btn.textContent='Yükleniyor...';
   let foto=null;
   try{ foto = await fotoYukle('voFoto','vergi'); }
-  catch(e){ mesaj('voMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Ödemeyi Kaydet'; return; }
+  catch(e){ mesaj('voMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent=asilMetin; return; }
   /* ⚠ AYNI DEKONTUN IKINCI KALEMI · elle secilen dosya YOKSA ve bu form
      "Bunu doldur" ile ayni dekonttan doldurulduysa, ilk kaydin YOLU
      yeniden kullanilir. Yeniden yuklenmez: tek belge, iki kayit.
      Iki kosul da SART — gerekcesi VO_DEKONT_YOL tanimindaki notta. */
   if (foto == null && VO_AYNI_DEKONT && VO_DEKONT_YOL) foto = VO_DEKONT_YOL;
+  btn.textContent = asilMetin;          /* CQ · rpcCagir gercek etiketi gorsun */
   const data = await rpcCagir('rpc_vergi_odeme_kaydet',{
     p_donem: document.getElementById('voDonem').value, p_tur: document.getElementById('voTur').value,
     p_tutar: tutar, p_odeme_tarihi: document.getElementById('voTarih').value,
@@ -8650,30 +8735,51 @@ async function bankaMutabakatKaydet(){
     alert('Banka kesintisi gidere kaydedildi ✓');
   }
 }
-async function vergiOdenenYukle(){
-  const el = document.getElementById('voListe'); if(!el) return;
-  const yil = bugun().slice(0,4);
-  const { data } = await sb.from('vergi_odeme').select('*').eq('is_deleted',false)
-    .gte('odeme_tarihi', yil+'-01-01').lte('odeme_tarihi', yil+'-12-31')
-    .order('odeme_tarihi',{ascending:false}).limit(40);
-  const toplam = (data||[]).reduce((a,x)=>a+ +x.tutar,0);
-  el.innerHTML = (data||[]).length===0 ? '<div class="bilgi-not">Bu yıl vergi ödemesi kaydı yok.</div>' :
-    (data||[]).map(v=>`<div class="liste-satir">
+/* ==================================================================
+   ⚠ CQ · ÖDENEN VERGİLER ARTIK DÖNEME GÖRE GRUPLU (DESEN ŞABLONU)
+   Bu yapı sonra giderlere ve tedarikçi ödemelerine taşınacak.
+
+   ⚠ GRUPLAMA ÖLÇÜTÜ ÖDEME TARİHİ DEĞİL, DÖNEM. Temmuzun KDV'si
+     26.08'de ödenmiş olsa da "Temmuz 2026" altında durur; ödeme
+     tarihi satırın içinde yazar. Ölçülen kusur buydu: haziran
+     dönemi primi temmuza yazılmış ve düz listede fark edilmemişti.
+
+   ⚠ VADENİN DÖNEMİ ÖLÇÜLDÜ, VARSAYILMADI: vade tablosunda
+     "donem text" sütunu VAR (taban şeması) ve v_vade_liste onu
+     dışarı veriyor. NULL olabilir — o vadeler bir aya SIKIŞTIRILMAZ,
+     "Dönemi belirsiz" başlığı altında ayrı durur.
+
+   ⚠ DÖNEMİ AY OLMAYAN KAYIT: gelir vergisinin dönemi "2025"
+     (yıllık). Bir aya sıkıştırılmaz, "2025 · yıllık" başlığıyla
+     kendi grubunda durur.
+
+   ⚠ YIL SÜZGECİ: ödemeler ÖDEME TARİHİNE göre süzülür (süzgecin
+     anlamı "bu yıl ödediklerin"), sonra DÖNEME göre gruplanır.
+     Böylece 2026'da ödenen 2025 gelir vergisi ekranda kalır.
+     ⚠ ESKİ KUSUR: bu fonksiyon yılı bugun()'dan alıyordu, VG_YIL'i
+       hiç okumuyordu — süzgeç değiştirilince liste değişmiyordu. */
+function vgGrupAc(btn, id){
+  const k = document.getElementById(id); if (!k) return;
+  const acildi = k.hidden; k.hidden = !acildi;
+  btn.setAttribute('aria-expanded', String(acildi));
+  const ok = btn.querySelector('.vg-ok'); if (ok) ok.textContent = acildi ? '▾' : '▸';
+}
+function vgOdemeSatiri(v){
+  return `<div class="liste-satir">
       <div class="l-sol"><div class="b">${esc(vergiAd(v.tur))}</div>
-        <div class="k">${esc(v.donem)}${v.odeme_tarihi?' · '+new Date(v.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}${
+        <div class="k">${v.odeme_tarihi?'ödendi '+new Date(v.odeme_tarihi+'T00:00').toLocaleDateString('tr-TR'):'ödeme tarihi yok'}${
           v.notlar?' · '+notKisalt(v.notlar, 90):''}</div></div>
       <div class="l-sag">${tl(v.tutar)}
         <div style="margin-top:4px">${v.foto_path
           ? belgeBtn(v.foto_path, 'Belge', vergiAd(v.tur)+' '+v.donem)
+            /* ⚠ CQ · "Değiştir" KAYDI DEĞİL BELGEYİ değiştiriyor (v65 · H-18).
+               Yanında "Sil" dururken insan kaydı düzenleyeceğini sanıyordu —
+               sahip de ben de yanıldık. Ad artık ne yaptığını söylüyor. */
             + `<button type="button" class="btn2" title="Yanlış belge eklediysen değiştir"
                  style="padding:4px 8px;font-size:12px;margin-left:4px"
-                 onclick="belgeEkle('vergi_odeme','${v.id}','vergi',true)">Değiştir</button>`
+                 onclick="belgeEkle('vergi_odeme','${v.id}','vergi',true)">Belge değiştir</button>`
           : `<button type="button" class="btn2" style="padding:4px 10px;font-size:12px"
                onclick="belgeEkle('vergi_odeme','${v.id}','vergi',false)">+ Belge</button>`}${
-        /* v117 · SIL. Kalip giderSil ile AYNI (index.html'in kendi
-           deseni): kirmizi kucuk dugme, id ile cift tiklama kilidi,
-           yalniz owner. borc.html'deki digerMenu/pasifeAlAc deseni
-           BU DOSYADA YOK — olculdu, 0 gecis. */
         PROFIL.rol === 'owner'
           ? `<button type="button" class="btn2" id="vosil_${v.id}"
                title="Bu vergi ödemesini sil (gerekçe zorunlu, kayda geçer)"
@@ -8681,7 +8787,85 @@ async function vergiOdenenYukle(){
                onclick="vergiOdemeSil('${v.id}','${esc(vergiAd(v.tur))}','${esc(v.donem)}','${esc(tl(v.tutar))}','${v.odeme_tarihi||''}')">Sil</button>`
           : ''}</div>
       </div>
-    </div>`).join('') + `<div class="liste-satir"><div style="font-weight:800">${yil} YILI TOPLAM</div><div class="l-sag" style="color:var(--ana)">${tl(toplam)}</div></div>`;
+    </div>`;
+}
+function vgVadeSatiri(v){
+  const rz = v.gecti ? '<span class="rozet rz-hata">GEÇTİ</span>'
+           : v.yakin ? '<span class="rozet rz-uyari">'+(v.kalan_gun===0?'BUGÜN':v.kalan_gun+' GÜN')+'</span>' : '';
+  return `<div class="liste-satir">
+      <div class="l-sol"><div class="b">${esc(v.aciklama)} ${rz}</div>
+        <div class="k">vade ${new Date(v.vade_tarihi+'T00:00').toLocaleDateString('tr-TR')} · ödenmedi</div></div>
+      <div class="l-sag">${v.tutar != null ? tl(v.tutar)
+        : '<span class="gri">tutar belli değil</span>'}</div>
+    </div>`;
+}
+async function vergiOdenenYukle(){
+  const el = document.getElementById('voListe'); if(!el) return;
+  const yil = VG_YIL || bugun().slice(0,4);
+  const [od, vd] = await Promise.all([
+    sb.from('vergi_odeme').select('*').eq('is_deleted',false)
+      .gte('odeme_tarihi', yil+'-01-01').lte('odeme_tarihi', yil+'-12-31')
+      .order('odeme_tarihi',{ascending:false}).limit(300),
+    sb.from('v_vade_liste')
+      .select('id,tur,donem,aciklama,vade_tarihi,tutar,durum,gecti,yakin,kalan_gun')
+      .neq('durum','odendi').neq('durum','iptal').order('vade_tarihi').limit(300)
+  ]);
+  if (od.error){ el.innerHTML = `<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(od.error.message))}</div>`; return; }
+  const odemeler = od.data || [];
+  /* ⚠ vd.error EKRANI DÜŞÜRMEZ: ödemeler görünmeye devam etsin,
+     yalnız açık vade satırları çıkmasın — ve bu SÖYLENSİN. */
+  const vadeler = vd.error ? [] : (vd.data || []);
+
+  const AY = /^\d{4}-\d{2}$/, YILD = /^\d{4}$/;
+  const anahtar = (d) => { const s = String(d == null ? '' : d).trim();
+    return AY.test(s) || YILD.test(s) ? s : '__yok'; };
+  const G = new Map();
+  const grup = (k) => { let g = G.get(k);
+    if (!g){ g = { k, odeme:[], vade:[] }; G.set(k, g); } return g; };
+  odemeler.forEach(v => grup(anahtar(v.donem)).odeme.push(v));
+  vadeler.forEach(v => {
+    const k = anahtar(v.donem);
+    /* Dönemi olan vade YIL SÜZGECİNE dönemiyle girer; dönemi olmayan
+       vade kaybolmasın diye vade tarihinin yılına bakılır ve
+       "Dönemi belirsiz" grubuna düşer. */
+    if (k === '__yok'){ if (String(v.vade_tarihi).slice(0,4) === yil) grup('__yok').vade.push(v); }
+    else if (k.slice(0,4) === yil) grup(k).vade.push(v);
+  });
+
+  const buDonem = bugun().slice(0,7);
+  const siraliK = [...G.keys()].sort((a,b) =>
+    a === '__yok' ? 1 : b === '__yok' ? -1 : (a < b ? 1 : a > b ? -1 : 0));
+  const baslik = (k) => k === '__yok' ? 'Dönemi belirsiz'
+                : YILD.test(k) ? k + ' · yıllık' : ayAdi(k);
+  const yilToplam = odemeler.reduce((a,x) => a + +x.tutar, 0);
+
+  el.innerHTML = (siraliK.length === 0
+    ? '<div class="bilgi-not">' + esc(yil) + ' yılında vergi ödemesi kaydı ve açık vade yok.</div>'
+    : siraliK.map((k, i) => {
+        const g = G.get(k);
+        const top = g.odeme.reduce((a,x) => a + +x.tutar, 0);
+        const id = 'vgGrup' + i;
+        const acik = k === buDonem;
+        return `<button type="button" class="serit-ozet-vg" aria-expanded="${acik}" aria-controls="${id}"
+            onclick="vgGrupAc(this,'${id}')"
+            style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+                   background:var(--kart);border:1.5px solid var(--cizgi);border-radius:12px;
+                   padding:9px 12px;margin:8px 0 0;min-height:44px;cursor:pointer">
+            <span class="vg-ok" style="color:var(--soluk)">${acik ? '▾' : '▸'}</span>
+            <span style="flex:1;font-weight:800">${esc(baslik(k))}</span>
+            <span class="k" style="text-align:right;white-space:nowrap">ödenen ${tl(top)}<br>açık ${g.vade.length}</span>
+          </button>
+          <div id="${id}" ${acik ? '' : 'hidden'} style="padding:2px 0 6px">
+            ${g.odeme.length ? g.odeme.map(vgOdemeSatiri).join('')
+              : '<div class="bilgi-not">Bu dönem için ödeme kaydı yok.</div>'}
+            ${g.vade.length ? '<div class="bilgi-not" style="margin:8px 0 2px"><b>Ödenmemiş vadeler</b></div>'
+              + g.vade.map(vgVadeSatiri).join('') : ''}
+          </div>`;
+      }).join(''))
+    + `<div class="liste-satir" style="margin-top:8px"><div style="font-weight:800">${esc(yil)} YILI TOPLAM</div>
+        <div class="l-sag" style="color:var(--ana)">${tl(yilToplam)}</div></div>`
+    + (vd.error ? `<div class="uyari-orta">Açık vadeler yüklenemedi: ${esc(hataTr(vd.error.message))}
+        — ödemeler eksiksiz, yalnız "açık" sayıları görünmüyor.</div>` : '');
 }
 
 /* v117 · VERGI ODEMESI SILME

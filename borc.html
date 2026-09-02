@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-13">
+<meta name="surum" content="borc-2026-08-27-14">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -948,17 +948,61 @@ function paraTemizle(el, eksiVar){
   const s = (eksi ? '-' : '') + t.replace(/[^\d.,]/g,'');
   if (s !== t) el.value = s;
 }
+/* ==================================================================
+   ⚠ CP · YAZARKEN BINLIK AYIRAC — index.html ile AYNI KOD.
+   Onceki tur yalniz blur'da grupluyordu; sahip "sifirlari adam gibi
+   saymiyor, icimden sayarak giriyorum" dedi. Kurallar ve gerekceler
+   index.html'deki ayni blogun basinda yazili (CP).
+   ⚠ GRAM/ORAN/GUN alanlari bu dosyada zaten paraBagla'ya BAGLI DEGIL
+     (onceki tur, 26 alanin listesi kodda) — ayri bir kapi gerekmiyor. */
+function paraCanli(ham, eksiVar){
+  const eksi = !!eksiVar && /^[-−]/.test(String(ham));
+  /* ⚠ NOKTA HER ZAMAN GRUPLAMADIR — bizim koydugumuz ayrac. Kullanicinin
+     ondalik olarak yazdigi nokta, YAZILDIGI ANDA (paraCanliUygula) virgule
+     cevrilir; buraya gelen nokta artik yalniz ayractir.
+     ⚠ OLCULDU: burada "virgul yoksa ilk nokta ondaliktir" denenmisti —
+     "3.656" yazilinca sonraki tusta kendi ayracimizi ondalik sanip
+     "3,6569" uretiyordu. */
+  let s = String(ham).replace(/[^\d.,]/g, '').replace(/\./g, '');
+  const iv = s.indexOf(',');
+  if (iv >= 0) s = s.slice(0, iv + 1) + s.slice(iv + 1).replace(/,/g, '');   // tek virgul
+  const v = s.indexOf(',');
+  let tam = v < 0 ? s : s.slice(0, v);
+  const ond = v < 0 ? '' : s.slice(v);              // ',' DAHIL — hic gruplanmaz
+  tam = tam.replace(/^0+(?=\d)/, '');
+  return (eksi ? '-' : '') + tam.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ond;
+}
+function paraCanliUygula(el, e, eksiVar){
+  const geri = !!(e && /^delete/i.test(e.inputType || ''));
+  let t = el.value;
+  let p = el.selectionStart == null ? t.length : el.selectionStart;
+  /* ⚠ Kullanici ondalik ayraci olarak NOKTA yazdiysa (masaustu klavyesi)
+     o noktayi ANINDA virgule cevir — gruplama noktalariyla karismasin.
+     Yalniz BU tusta yazilan noktaya bakilir (e.data), alandaki otekilere degil. */
+  if (e && e.data === '.' && p > 0 && t[p-1] === '.') t = t.slice(0, p-1) + ',' + t.slice(p);
+  if (geri && p > 0 && paraCanli(t, eksiVar) === (el.__paraEski || '')){
+    t = t.slice(0, p - 1) + t.slice(p); p -= 1;      // ayrac silindi -> rakami sil
+  }
+  const yeni = paraCanli(t, eksiVar);
+  const n = t.slice(0, p).replace(/\./g, '').length;
+  el.value = yeni; el.__paraEski = yeni;
+  let k = 0, i = 0;
+  for (; i < yeni.length && k < n; i++) if (yeni[i] !== '.') k++;
+  while (i < yeni.length && yeni[i] === '.') i++;
+  try { el.setSelectionRange(i, i); } catch(err){}
+}
 function paraBicimle(el, eksiVar){
   if (!el || !el.value.trim()) return;
   const eksi = !!eksiVar && /^\s*[-−]/.test(el.value);
   const r = paraCoz(el.value);
   if (!r.ok) return;                       // gecersizse DOKUNMA, kullanici duzeltsin
   const m = (eksi && r.kurus !== 0 ? '-' : '') + tk(r.kurus);
-  if (el.value !== m) el.value = m;
+  if (el.value !== m){ el.value = m; el.__paraEski = m; }
 }
 function paraBagla(el, sonra, eksiVar){
   if (!el) return;
-  el.addEventListener('input', () => { paraTemizle(el, eksiVar); if (sonra) sonra(); });
+  el.__paraEski = el.value;
+  el.addEventListener('input', (e) => { paraCanliUygula(el, e, eksiVar); if (sonra) sonra(); });
   el.addEventListener('blur',  () => { paraBicimle(el, eksiVar); if (sonra) sonra(); });
 }
 /* ⚠ CO · KOK ZORUNLU. Bu dosyanin formlari BAGSIZ (detached) bir kapta
