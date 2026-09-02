@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-5">
+<meta name="surum" content="2026-08-27-6">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1383,6 +1383,21 @@ async function belgeEkle(tablo, id, klasor, mevcutVar){
   };
   inp.click();
 }
+/* ⚠ CQ · DÜĞMENİN GERÇEK ETİKETİ, KENDİ HANDLER'I ÇALIŞMADAN ÖNCE
+   YAKALANIR. Bazı çağıranlar (vergiOdemeKaydet gibi) rpcCagir'a girmeden
+   metni 'Yükleniyor...' yapıyor; o an rpcCagir gerçek etiketi göremez.
+   Yakalama phase'inde dinlemek, düğmeye basıldığı ANDAKİ — yani hâlâ
+   doğru olan — etiketi saklar. Hiçbir davranışı değiştirmez, yalnız not alır. */
+/* ⚠ BAŞA BAĞLI DEĞİL — ÖLÇÜLDÜ: gider kaydında etiket
+   "Fotoğraf yükleniyor..." oluyor; başa bağlı desen bunu meşgul
+   saymıyordu ve rpcCagir onu "asıl etiket" diye saklayıp düğmeyi
+   ona döndürüyordu. Aynı kalıp üç yerde daha var (gider, alış,
+   araç gideri) — desen genişleyince üçü birden düzeldi. */
+const RPC_MESGUL = /(yükleniyor|kaydediliyor|güncelleniyor|siliniyor|bağlantı kopt|tekrar deneniyor)/i;
+document.addEventListener('pointerdown', (e) => {
+  const b = e.target && e.target.closest && e.target.closest('button');
+  if (b && !RPC_MESGUL.test((b.textContent || '').trim())) b.dataset.asilMetin = b.textContent;
+}, true);
 async function rpcCagir(fn, params, btnId, msgId, basariTxt){
   // btnId olmayabilir (satır içi aç/kapa butonlarının sabit id'si yok) — null güvenli
   const btn = btnId ? document.getElementById(btnId) : null;
@@ -1395,8 +1410,7 @@ async function rpcCagir(fn, params, btnId, msgId, basariTxt){
      düğmenin üstünde saklanır. Diğer 20+ çağrı ETKİLENMEZ — onlar
      buraya gerçek etiketle geliyor, o etiket hem saklanır hem
      'eski' olur, davranış birebir aynı kalır. */
-  const MESGUL = /^(yükleniyor|kaydediliyor|güncelleniyor|siliniyor|bağlantı)/i;
-  if (btn && !MESGUL.test((btn.textContent || '').trim()))
+  if (btn && !RPC_MESGUL.test((btn.textContent || '').trim()))
     btn.dataset.asilMetin = btn.textContent;
   const eski = btn ? (btn.dataset.asilMetin != null ? btn.dataset.asilMetin : btn.textContent) : null;
   if (btn){ btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
