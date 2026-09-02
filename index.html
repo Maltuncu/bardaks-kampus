@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-7">
+<meta name="surum" content="2026-08-27-8">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4061,7 +4061,8 @@ function gdMutabakat(){
       <div class="oku-durum" id="mtDurum"></div>
       <div class="hata-msg" id="mtMsg"></div>
     </div>
-    <div id="mtSonuc"></div>`;
+    <div id="mtSonuc"></div>
+    <div id="mtToplu"></div>`;
 }
 async function mutabakatDosyalari(){
   const inp = document.getElementById('mtDosya');
@@ -4084,6 +4085,290 @@ async function mutabakatDosyalari(){
   if (!pdfler.length) throw new Error('Seçilenlerin içinde PDF bulunamadı.');
   return pdfler;
 }
+/* ==================================================================
+   ⚠ CS · E-FATURA ALAN OKUYUCU (yerel, sunucu çağrısı YOK)
+   ÖLÇÜLDÜ — 25 gerçek e-fatura, dört ayrı ihraççı:
+     belge no 25/25 · firma 25/25 · VKN 25/25 · tutar 25/25
+     tarih 24/25 · KDV 21/25 · matrah 24/25
+     TAM okunan (no+tarih+tutar): 24/25 · eksik 1 (Turkcell, tarih yok)
+   Toplam/KDV etiketi ihraççıdan ihraççıya değişiyor:
+     BİM      "Fatura Tutarı: 1.407,00 TL" · "Hesaplanan KDV (1393.07) %1: 13,93 TL"
+     Şenpiliç "Yekün: 1.322,50" · "K.D.V.(%1): 13,09" · "Ara Toplam: 1.309,41"
+     AKSA     "Ödenecek Tutar" · "Vergiler Dahil Toplam Tutar" · "Mal Hizmet Toplam Tutarı"
+   ⚠ PARANTEZ TUZAĞI: "Hesaplanan KDV (1393.07) %1: 13,93" — parantez
+     içindeki sayı KDV DEĞİL, matrahtır. Desen tutarı İKİ NOKTADAN
+     SONRA arar. (İlk denemede 3.07 okunuyordu — sessizce yanlış rakam.)
+   ⚠ FİRMA ve VKN DOSYA ADINDAN: portal "BELGENO_VKN_FİRMA.pdf" veriyor,
+     25/25 doğru. Metnin ilk satırı başlık çöpü.
+   ⚠ Bu fonksiyon gdFatura yolundaki sunucu okuyucusunu (Edge Function)
+     ÇAĞIRMAZ: 25 fatura = 25 sunucu çağrısı olurdu. Yerelde okunamayan
+     satır zaten kaydedilmiyor, kullanıcı onu tek tek forma alıyor —
+     orada sunucu okuyucusu devrede. */
+const FA_P = '([0-9][0-9.]*,[0-9]{2}|[0-9]+\\.[0-9]{2}|[0-9][0-9.,]*)';
+const faIlk = (t, kaliplar) => {
+  for (const k of kaliplar){ const m = t.match(new RegExp(k, 'i')); if (m && m[1]) return m[1]; }
+  return null;
+};
+function faturaAlanlari(ad, metin){
+  const t = String(metin || '').replace(/\s+/g, ' ');
+  const p = String(ad || '').replace(/\.pdf$/i, '').split('_');
+  const th = faIlk(t, ['Fatura\\s*Tarihi\\s*:?\\s*(\\d{2}\\s?[-./]\\s?\\d{2}\\s?[-./]\\s?\\d{4})',
+                       'Tarihi?\\s*:?\\s*(\\d{2}\\s?[-./]\\s?\\d{2}\\s?[-./]\\s?\\d{4})']);
+  return {
+    belge_no: /^[A-Z0-9]{10,20}$/i.test(p[0] || '') ? p[0].toUpperCase() : null,
+    vkn:      /^\d{10,11}$/.test(p[1] || '') ? p[1] : null,
+    firma:    p.length >= 3 ? p.slice(2).join('_').trim() : null,
+    tarih:    th ? th.replace(/\s/g, '') : null,
+    tutar:    faIlk(t, ['Ödenecek\\s*Tutar\\s*:?\\s*' + FA_P,
+                        'Vergiler\\s*Dahil\\s*Toplam\\s*Tutar\\s*:?\\s*' + FA_P,
+                        'Fatura\\s*Tutar[ıi]\\s*:?\\s*' + FA_P,
+                        'Yek[üu]n\\s*:?\\s*' + FA_P,
+                        'GENEL\\s*TOPLAM\\s*:?\\s*' + FA_P]),
+    kdv:      faIlk(t, ['Hesaplanan\\s*KDV[^:]{0,30}:\\s*' + FA_P,
+                        'K\\.?\\s?D\\.?\\s?V\\.?\\s*\\(\\s*%[0-9.,]+\\s*\\)\\s*:?\\s*' + FA_P,
+                        'Toplam\\s*KDV\\s*:?\\s*' + FA_P,
+                        'KDV\\s*Tutar[ıi]\\s*:?\\s*' + FA_P]),
+    matrah:   faIlk(t, ['Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]\\s*:?\\s*' + FA_P,
+                        'Ara\\s*Toplam\\s*:?\\s*' + FA_P,
+                        'Toplam\\s*Tutar\\s*:?\\s*' + FA_P])
+  };
+}
+/* "07-08-2026" / "11.08.2026" -> "2026-08-11"; okunamazsa null */
+function faTarihISO(s){
+  const m = String(s || '').match(/^(\d{2})[-./](\d{2})[-./](\d{4})$/);
+  return m ? m[3] + '-' + m[2] + '-' + m[1] : null;
+}
+
+/* ==================================================================
+   ⚠ CS · TOPLU FATURA GİRİŞİ
+   Sahip elinde 93 e-fatura ile tek tek forma taşıyordu. Tablo,
+   okunan faturaları satır satır gösterir; kullanıcı türü ve
+   kategoriyi seçer, tek düğmeyle sıra sıra kaydedilir.
+
+   ⚠ ALIŞ/GİDER AYRIMINI SİSTEM SEÇMEZ. Alış SMM'ye (mal maliyeti),
+     gider işletme masrafına gider; kâra farklı yerden vururlar.
+     Tür seçilmemiş satır İŞARETLENEMEZ. Aynı firmadan daha önce
+     girilmiş kayıt varsa yalnız ÖNERİ yazılır, işaret KONMAZ.
+   ⚠ EKSİK OKUNAN SATIR KAYDEDİLMEZ: tarihi ya da tutarı okunamayan
+     satırın kutusu kapalı, sebebi yazılı; kullanıcı "Tek tek gir"
+     ile forma alır (orada sunucu okuyucusu var).
+   ⚠ KAYDETME TEK TEK: bir satır patlarsa öteki satırlar devam eder.
+     Sonda özet yazılır — yarısı girmiş bir zip, hiç girmemişten
+     kötüdür; kullanıcı neyin girdiğini bilmeli.
+   ⚠ MÜKERRER: zaten sistemde olan belgeler bu tabloya HİÇ girmez
+     (mutabakat onları "TAM"/"BELGESİ EKSİK" kutularına ayırıyor).
+     Aynı zip ikinci kez yüklenirse tablo boş gelir — üstteki satır
+     bunu söyler.
+   ⚠ ALIŞ İÇİN TEDARİKÇİ ŞART (rpc_alis_kaydet p_tedarikci). VKN ile
+     eşleşen tedarikçi yoksa o satırda Alış seçeneği KAPALI; sebebi
+     yazılı. Gider yolu açık kalır. */
+let TOPLU = [];
+const tpBul = (i) => TOPLU[i];
+function tpTedarikciEsle(x){
+  const vkn = (x.vkn || '').trim();
+  const ad = (x.firma || '').toLocaleLowerCase('tr-TR').trim();
+  return KATALOG.tedarikciler.find(t => vkn && String(t.vergi_no || '').trim() === vkn)
+      || (ad ? KATALOG.tedarikciler.find(t =>
+           String(t.ad || '').toLocaleLowerCase('tr-TR').startsWith(ad.slice(0, 8))) : null)
+      || null;
+}
+function tpKur(eksikler){
+  TOPLU = eksikler.map((x, i) => {
+    const ted = tpTedarikciEsle(x);
+    const isoT = faTarihISO(x.tarih);
+    const p = x.tutar ? paraCoz(x.tutar) : { ok:false };
+    const eksik = [];
+    if (!isoT) eksik.push('tarih okunamadı');
+    if (!p.ok || !p.deger) eksik.push('tutar okunamadı');
+    if (!x.belge_no) eksik.push('belge no okunamadı');
+    return { i, kaynak:x, belge_no:x.belge_no, firma:x.firma || x.ad,
+      tarih:isoT || '', tutar:p.ok ? p.deger : null,
+      kdv: x.kdv ? (paraCoz(x.kdv).deger || null) : null,
+      ted, tur:'', kategori:'', haric:false, sec:false, eksik,
+      oneri: TP_GECMIS[(x.vkn || '') + '|' + (x.firma || '')] || null, sonuc:null };
+  });
+}
+let TP_GECMIS = {};
+async function tpGecmisYukle(){
+  /* Aynı firmadan daha önce ne girilmiş — ÖNERİ için, işaret için değil. */
+  TP_GECMIS = {};
+  const vknler = [...new Set(TOPLU.map(r => r.kaynak.vkn).filter(Boolean))];
+  const tedIds = [...new Set(TOPLU.map(r => r.ted && r.ted.id).filter(Boolean))];
+  if (tedIds.length){
+    const { data } = await sb.from('alis').select('tedarikci_id').eq('is_deleted', false)
+      .in('tedarikci_id', tedIds).limit(200);
+    (data || []).forEach(a => {
+      TOPLU.filter(r => r.ted && r.ted.id === a.tedarikci_id).forEach(r => {
+        TP_GECMIS[(r.kaynak.vkn||'') + '|' + (r.kaynak.firma||'')] = 'alis'; });
+    });
+  }
+  TOPLU.forEach(r => { r.oneri = TP_GECMIS[(r.kaynak.vkn||'') + '|' + (r.kaynak.firma||'')] || r.oneri; });
+  void vknler;
+}
+function tpDegis(i, alan, deger){
+  const r = tpBul(i); if (!r) return;
+  if (alan === 'sec') r.sec = !!deger;
+  else if (alan === 'haric'){ r.haric = !!deger; if (r.haric) r.sec = false; }
+  else if (alan === 'tur'){ r.tur = deger; if (deger !== 'gider') r.kategori = ''; if (!deger) r.sec = false; }
+  else r[alan] = deger;
+  tpCiz();
+}
+function tpHepsi(alan, deger){
+  TOPLU.forEach(r => { if (r.haric || r.eksik.length) return;
+    if (alan === 'tur' && deger === 'alis' && !r.ted) return;     // tedarikçisiz alış olmaz
+    if (alan === 'sec') r.sec = deger && !!r.tur;
+    else { r[alan] = deger; if (alan === 'tur' && deger !== 'gider') r.kategori = ''; }
+  });
+  tpCiz();
+}
+function tpKaydedilebilir(r){
+  return !r.haric && !r.eksik.length && !!r.tur && !r.sonuc
+      && (r.tur !== 'gider' || !!r.kategori) && (r.tur !== 'alis' || !!r.ted);
+}
+function tpCiz(){
+  const el = document.getElementById('mtToplu'); if (!el) return;
+  if (!TOPLU.length){ el.innerHTML = ''; return; }
+  const secili = TOPLU.filter(r => r.sec && tpKaydedilebilir(r)).length;
+  const kat = KATALOG.kategoriler.map(k =>
+    `<option value="${k.id}">${esc(k.ad)}</option>`).join('');
+  el.innerHTML = `<div class="kart" style="border-color:var(--ana)">
+    <div class="kbaslik">Toplu giriş — ${TOPLU.length} fatura</div>
+    <div class="bilgi-not" style="margin:0 0 8px">Türü <b>sen seç</b>: <b>Alış</b> mal maliyetine
+      (SMM), <b>Gider</b> işletme masrafına girer — kâra farklı yerden etki ederler.
+      Sistem tahmin etmiyor; seçilmemiş satır kaydedilmez.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+      <button type="button" class="btn2" onclick="tpHepsi('tur','alis')">Hepsi ALIŞ</button>
+      <button type="button" class="btn2" onclick="tpHepsi('tur','gider')">Hepsi GİDER</button>
+      <button type="button" class="btn2" onclick="tpHepsi('sec',true)">Hepsini işaretle</button>
+      <button type="button" class="btn2" onclick="tpHepsi('sec',false)">İşareti kaldır</button>
+    </div>
+    <label>Seçili giderlere kategori ver</label>
+    <select onchange="tpHepsi('kategori',this.value);this.value=''">
+      <option value="">— kategori seç —</option>${kat}</select>
+    ${TOPLU.map(r => {
+      const kapali = r.haric || r.eksik.length || !r.tur
+                  || (r.tur === 'gider' && !r.kategori) || (r.tur === 'alis' && !r.ted);
+      const sonucRz = r.sonuc === 'ok' ? '<span class="rozet rz-ok">kaydedildi</span>'
+        : r.sonuc ? `<span class="rozet rz-hata">${esc(String(r.sonuc).slice(0,40))}</span>` : '';
+      return `<div class="liste-satir" style="flex-direction:column;align-items:stretch;gap:6px">
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <input type="checkbox" style="width:22px;height:22px;flex:0 0 auto;margin-top:2px"
+            ${r.sec ? 'checked' : ''} ${kapali || r.sonuc ? 'disabled' : ''}
+            aria-label="${esc(r.firma||'')} kaydedilsin"
+            onchange="tpDegis(${r.i},'sec',this.checked)">
+          <div style="flex:1;min-width:0">
+            <div class="b" style="overflow-wrap:anywhere">${esc(r.firma || '—')} ${sonucRz}</div>
+            <div class="k" style="overflow-wrap:anywhere">${esc(r.belge_no || 'belge no yok')}${
+              r.tarih ? ' · ' + new Date(r.tarih+'T00:00').toLocaleDateString('tr-TR') : ''}</div>
+            ${r.eksik.length
+              ? `<div class="k" style="color:var(--hata)">${esc(r.eksik.join(' · '))} — bu satır
+                   toplu kaydedilemez, <b>Tek tek gir</b> ile forma al</div>` : ''}
+            ${r.oneri && !r.tur
+              ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'alış' : 'gider'}</b>
+                   olarak girilmişti — yine de sen seç</div>` : ''}
+            ${!r.ted ? '<div class="k" style="color:var(--soluk)">bu firma tedarikçi listesinde yok — Alış için önce tedarikçi ekle</div>' : ''}
+          </div>
+          <div style="text-align:right;flex:0 0 auto">
+            <div style="font-weight:800">${r.tutar != null ? tl(r.tutar) : '<span class="gri">tutar yok</span>'}</div>
+            ${r.kdv != null ? `<div class="k">KDV ${tl(r.kdv)}</div>` : '<div class="k gri">KDV yok</div>'}
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <select style="flex:1;min-width:120px" ${r.sonuc ? 'disabled' : ''}
+            onchange="tpDegis(${r.i},'tur',this.value)">
+            <option value=""${r.tur ? '' : ' selected'}>— tür seç —</option>
+            <option value="alis"${r.tur === 'alis' ? ' selected' : ''}${r.ted ? '' : ' disabled'}>Alış (SMM)</option>
+            <option value="gider"${r.tur === 'gider' ? ' selected' : ''}>Gider</option>
+          </select>
+          ${r.tur === 'gider' ? `<select style="flex:1;min-width:120px" ${r.sonuc ? 'disabled' : ''}
+            onchange="tpDegis(${r.i},'kategori',this.value)">
+            <option value="">— kategori —</option>${KATALOG.kategoriler.map(k =>
+              `<option value="${k.id}"${r.kategori === k.id ? ' selected' : ''}>${esc(k.ad)}</option>`).join('')}
+          </select>` : ''}
+          <label style="display:flex;gap:6px;align-items:center;min-height:44px;font-size:13px">
+            <input type="checkbox" style="width:20px;height:20px" ${r.haric ? 'checked' : ''}
+              ${r.sonuc ? 'disabled' : ''} onchange="tpDegis(${r.i},'haric',this.checked)">
+            işletme dışı</label>
+          <button type="button" class="btn2" style="min-height:44px" ${r.sonuc ? 'disabled' : ''}
+            onclick="mutabakatGir('${esc(r.belge_no || '')}')">Tek tek gir</button>
+        </div>
+      </div>`;
+    }).join('')}
+    <div class="bilgi-not" style="margin-top:10px">Kaydetme <b>tek tek</b> yapılır: bir satır hata
+      verirse ötekiler devam eder, sonunda neyin girdiği yazılır.</div>
+    <button class="btn" id="tpKaydet" ${secili ? '' : 'disabled'}
+      onclick="tpKaydet()">${secili ? secili + ' faturayı kaydet' : 'Kaydedilecek satır seç'}</button>
+    <div class="hata-msg" id="tpMsg"></div>
+  </div>`;
+}
+async function tpKaydet(){
+  const btn = document.getElementById('tpKaydet');
+  const secilenler = TOPLU.filter(r => r.sec && tpKaydedilebilir(r));
+  if (!secilenler.length) return;
+  /* ⚠ İŞLETME DIŞI KALICI OLMALI: yalnız ekranda işaretlemek yetmez,
+     bir sonraki mutabakatta yine "gözden kaçmış" diye çıkardı.
+     belge_haric'e yazılır — tek tek akıştaki mekanizmanın aynısı
+     (rpc_belge_haric_ekle), tek fark gerekçe BİR KEZ soruluyor. */
+  const haricler = TOPLU.filter(r => r.haric && !r.sonuc && r.belge_no);
+  let haricNeden = null;
+  if (haricler.length){
+    haricNeden = await nedenSor(haricler.length + ' belge işletme dışı işaretlendi',
+      'Neden sisteme girilmiyor? (örn: şahsi harcama, ev interneti) — hepsi için tek gerekçe', 1);
+    if (haricNeden === null) return;                       // vazgeçildi: hiçbir şey yapılmaz
+    if (!haricNeden.trim()){ bildir('Gerekçe zorunlu.', 'hata'); return; }
+  }
+  btn.disabled = true;
+  let ok = 0, haricOk = 0; const hatalar = [];
+  for (const r of haricler){
+    try{
+      const { error } = await sb.rpc('rpc_belge_haric_ekle',
+        { p_belge_no: r.belge_no, p_neden: haricNeden.trim() });
+      if (error) throw new Error(error.message);
+      r.sonuc = 'işletme dışı'; haricOk++;
+    }catch(e){ hatalar.push((r.belge_no||'') + ' (işletme dışı): ' + hataTr(e.message)); }
+  }
+  for (let n = 0; n < secilenler.length; n++){
+    const r = secilenler[n];
+    btn.textContent = `Kaydediliyor ${n+1}/${secilenler.length}...`;
+    try{
+      /* ⚠ TEK TEK ve DOĞRUDAN sb.rpc: rpcCagir tek düğme/tek mesaj
+         varsayıyor, döngüde her satırda düğmeyi geri boyardı. Hata
+         yutulmuyor — satıra yazılıyor ve döngü devam ediyor. */
+      const p = r.tur === 'alis'
+        ? ['rpc_alis_kaydet', {
+            p_idem: await idemKararli('alis', [AKTIF_SUBE, r.belge_no || '', r.tutar]),
+            p_sube: AKTIF_SUBE, p_tedarikci: r.ted.id, p_tarih: r.tarih, p_tur: 'fatura',
+            p_belge_no: r.belge_no, p_fis_no: null, p_toplam: r.tutar,
+            p_kdv_orani: null, p_kdv_tutar: r.kdv, p_kdv_kirilim: [], p_kdv_dahil: true,
+            p_ocr_ham: null, p_ocr_model: null, p_foto: null,
+            p_not: 'toplu giriş', p_kalemler: [],
+            p_odendi: false, p_odeme_yontem: null, p_vade: null,
+            p_cek_no: null, p_cek_vade: null }]
+        : ['rpc_gider_kaydet', {
+            p_idem: await idemKararli('gider', [AKTIF_SUBE, r.tarih, r.kategori, r.tutar, false]),
+            p_sube: AKTIF_SUBE, p_tarih: r.tarih, p_kategori: r.kategori,
+            p_aciklama: (r.firma || '') + ' · ' + (r.belge_no || ''),
+            p_tutar: r.tutar, p_kdv_orani: null, p_kdv_tutar: r.kdv, p_foto: null,
+            p_kasadan: false, p_tedarikci: r.ted ? r.ted.id : null, p_vade: null }];
+      const { data, error } = await sb.rpc(p[0], p[1]);
+      if (error) throw new Error(error.message);
+      if (!data || !data.ok) throw new Error('sunucu onay vermedi');
+      r.sonuc = 'ok'; r.sec = false; ok++;
+    }catch(e){
+      const m = hataTr(e.message);
+      r.sonuc = m; hatalar.push((r.belge_no || r.firma) + ': ' + m);
+    }
+  }
+  const atlanan = haricOk;
+  const eksikli = TOPLU.filter(x => x.eksik.length).length;
+  tpCiz();
+  mesaj('tpMsg', hatalar.length ? 'hata' : 'ok',
+    ok + ' kaydedildi'
+    + (hatalar.length ? ' · ' + hatalar.length + ' hata: ' + hatalar.slice(0,3).join(' | ') : '')
+    + (atlanan ? ' · ' + atlanan + ' işletme dışı işaretlendi (bir daha sorulmaz)' : '')
+    + (eksikli ? ' · ' + eksikli + ' eksik okundu (tek tek gir)' : ''));
+}
+
 async function mutabakatCalistir(){
   const btn = document.getElementById('mtBtn');
   const drm = document.getElementById('mtDurum');
@@ -4121,14 +4406,23 @@ async function mutabakatCalistir(){
         const metinNo = (t.match(/Fatura\s*No\s*:?\s*([A-Z0-9]{10,20})/i)||[])[1]
                      || (t.match(/FATURA\s*ID\s*:?\s*([A-Z0-9]{10,20})/i)||[])[1];
         kayit.belge_no = (adNo || metinNo || '').toUpperCase() || null;
+        /* ⚠ CS · TUTAR/KDV/FIRMA/VKN DE OKUNUYOR (toplu giriş için).
+           Ölçüldü, 25 gerçek e-fatura: belge no 25/25 · firma 25/25 ·
+           VKN 25/25 · tutar 25/25 · tarih 24/25 · KDV 21/25.
+           Aşağıdaki iki satır bu okumanın ÜSTÜNE yazar; eski
+           firma/tarih çıkarımı yedek olarak altta duruyor. */
+        Object.assign(kayit, faturaAlanlari(f.name, t));
         /* Alıcı kontrolü ARTIK OTOMATİK DEĞİL. Eskiden belgenin metninde
            işletme sahibinin TCKN'si aranıyordu; o sabit kaldırıldı.
            Eşleşmeyen fatura sessizce "başka alıcı" kutusuna düşüyordu ve
            kimse bakmıyordu — şimdi normal sınıflandırmaya giriyor, yani
            "SİSTEME GİRİLMEMİŞ" listesinde görünüp karar bekliyor.
            Bize ait olmayan bir belge çıkarsa "İşletme dışı" ile dışlanır. */
-        kayit.firma = t.split('\n')[0].slice(0,40);
-        kayit.tarih = (t.match(/(?:Fatura\s*)?Tarihi?\s*:?\s*(\d{2}\s?[-.\/]\s?\d{2}\s?[-.\/]\s?\d{4})/i)||[])[1] || null;
+        /* ⚠ ESKI FIRMA CIKARIMI YEDEĞE DÜŞTÜ: metnin ilk satırı çoğu
+           faturada başlık çöpü ("FATURA ID Fatura Tarihi ...") — ölçüldü.
+           Dosya adından gelen firma 25/25 doğru; o yoksa buraya düşülür. */
+        if (!kayit.firma) kayit.firma = t.split('\n')[0].slice(0,40);
+        if (!kayit.tarih) kayit.tarih = (t.match(/(?:Fatura\s*)?Tarihi?\s*:?\s*(\d{2}\s?[-.\/]\s?\d{2}\s?[-.\/]\s?\d{4})/i)||[])[1] || null;
       }catch(e){ kayit.hata = e.message; }
       MUTABAKAT.push(kayit);
     }
@@ -4160,6 +4454,12 @@ async function mutabakatCalistir(){
     });
     yaz(`${MUTABAKAT.length} belge okundu.`, 'ok');
     mutabakatCiz();
+    /* CS · Toplu tablo YALNIZ sisteme girilmemiş belgelerle kurulur;
+       zaten kayıtlı olanlar yukarıdaki kutularda duruyor — aynı zip
+       ikinci kez yüklenirse bu tablo boş gelir. */
+    tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
+    await tpGecmisYukle();
+    tpCiz();
   }catch(e){
     yaz('Hata: ' + hataTr(e.message), 'uyari');
   }finally{ btn.disabled = false; }
@@ -4184,9 +4484,14 @@ function mutabakatCiz(){
     </div>
     ${eksik.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--hata)">
         ⚠ SİSTEME GİRİLMEMİŞ (${eksik.length}) — gözden kaçmış</div>
-      ${eksik.map(x=>satir(x,
-        `<button class="btn2" onclick="mutabakatGir('${esc(x.belge_no||'')}')">Şimdi gir</button>
-         <button class="btn2" style="margin-top:4px" onclick="mutabakatHaric('${esc(x.belge_no||'')}')">İşletme dışı</button>`)).join('')}`:''}
+      <!-- ⚠ CS · SATIRLAR BURADA TEKRARLANMIYOR. Aşağıdaki toplu giriş
+           tablosu aynı ${eksik.length} belgeyi tür/kategori/işletme dışı
+           seçenekleriyle zaten gösteriyor; ikisini birden çizmek aynı
+           listeyi ekranda iki kez uzatıyordu (ölçüldü: 25 satır × 2).
+           Tek tek girme yolu tabloda satır başına duruyor. -->
+      <div class="bilgi-not" style="margin:0 0 6px">${eksik.length} belge sisteme girilmemiş.
+        Aşağıdaki <b>toplu giriş</b> tablosundan tür seçip hepsini birden kaydedebilir,
+        ya da bir satırı <b>Tek tek gir</b> ile forma alabilirsin.</div>`:''}
     ${grup('haric').length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--soluk)">
         İŞLETME DIŞI (${grup('haric').length}) — bilerek girilmiyor</div>
       ${grup('haric').map(x=>satir(x, `<span class="k">${esc((x.neden||'').slice(0,28))}</span>`)).join('')}`:''}
