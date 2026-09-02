@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-8">
+<meta name="surum" content="2026-08-27-9">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4133,6 +4133,84 @@ function faturaAlanlari(ad, metin){
                         'Toplam\\s*Tutar\\s*:?\\s*' + FA_P])
   };
 }
+/* ==================================================================
+   ⚠ CT · FATURA METNİNDEN TAM UNVAN
+   ÖLÇÜLDÜ (25 gerçek fatura · 11 ayrı firma): dosya adındaki firma
+   KIRPIK ve bozuk ("BİM BİRLEŞİK MA", "ŞERİF BAŞARAN K") — tedarikçi
+   adı olarak kullanılamaz. Metinde tam unvan 19/25 belgede, 8/11
+   firmada okunabiliyor. Okunamayan üç firmanın (Turkcell, DELTA,
+   Sütaş) satıcı adı sayfa metninde HİÇ yok (başlık görsel) — orada
+   tedarikçi oluşturulmaz, adı kullanıcı yazar.
+   ⚠ DOSYA ADI ÇIPA, AD DEĞİL: metindeki hangi adayın satıcı olduğunu
+     söyleyen en güvenilir işaret o. Çıpasız denendi ve Sütaş
+     faturasında ödeme bloğundaki "YAPI VE KREDİ BANKASI A.Ş."
+     satıcı diye seçiliyordu — sessizce YANLIŞ firma.
+   ⚠ Aday penceresi 10 kelime: 6 kelimeyle uzun ticari unvanlar
+     baştan kırpılıyordu ("...SANAYİ GIDA VE TEMİZLİK ... ŞİRKETİ"). */
+const FU_EK = '(?:A\\.?\\s?Ş\\.?|LTD\\.?\\s?ŞTİ\\.?|LİMİTED\\s+ŞİRKETİ|ANONİM\\s+ŞİRKETİ)';
+const FU_KELIME = '[A-ZÇĞİÖŞÜa-zçğıöşü0-9][A-ZÇĞİÖŞÜa-zçğıöşü0-9.&/-]*';
+const FU_DESEN = new RegExp('((?:' + FU_KELIME + '\\s+){1,10}' + FU_EK + ')', 'g');
+const FU_ELE = /BANKA|IBAN|ŞUBES[İI]\b/i;
+const FU_SADE = { 'Ç':'C','Ğ':'G','İ':'I','I':'I','Ö':'O','Ş':'S','Ü':'U',
+                  'ç':'C','ğ':'G','ı':'I','i':'I','ö':'O','ş':'S','ü':'U' };
+/* ⚠ toLocaleUpperCase TEK BAŞINA YETMEZ: "İ" ile "I" ayrı kalır ve
+   "İLKADIM" ile "ILKADIM" eşleşmez. Karşılaştırma hep bu anahtarla. */
+function fuAnahtar(s){
+  return String(s || '').replace(/[ÇĞİIÖŞÜçğıiöşü]/g, c => FU_SADE[c])
+    .toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+function faturaUnvan(metin, kirpik){
+  const t = String(metin || '').replace(/\s+/g, ' ');
+  const cipa = fuAnahtar(kirpik).slice(0, 8);
+  if (cipa.length < 5) return null;
+  const adaylar = []; let m; FU_DESEN.lastIndex = 0;
+  while ((m = FU_DESEN.exec(t))){
+    const ad = m[1].trim();
+    if (FU_ELE.test(ad) || ad.length < 8) continue;
+    const i = fuAnahtar(ad).indexOf(cipa);
+    if (i < 0) continue;
+    let sayac = 0, bas = 0;
+    for (let j = 0; j < ad.length; j++){
+      if (sayac === i){ bas = j; break; }
+      if (fuAnahtar(ad[j]).length) sayac++;
+    }
+    const kes = ad.slice(bas).replace(/^[^A-ZÇĞİÖŞÜa-zçğıöşü0-9]+/, '').trim();
+    if (kes.length >= 8) adaylar.push(kes);
+  }
+  if (!adaylar.length) return null;
+  /* Birden çok aday varsa EN UZUN: kırpılmamış tam unvan odur. */
+  return adaylar.sort((a, b) => b.length - a.length)[0].replace(/\s{2,}/g, ' ');
+}
+/* ⚠ CT · TEDARİKÇİ EŞLEŞTİRME · ÖNCE VKN
+   Dönen durum, ekranın ne yapacağını belirler:
+     'vkn'      VKN tutuyor       -> mevcuda bağlan, YENİ AÇMA
+     'vknsiz'   ad tutuyor, kayıtlı tedarikçinin VKN'si BOŞ
+                -> kopya açma, mevcuda VKN yazmayı öner
+     'catisma'  ad tutuyor ama VKN FARKLI -> OLUŞTURMA, kullanıcıya sor
+                (iki ayrı firma olabilir)
+     'yok'      hiçbiri -> oluşturulabilir */
+function tedEslestir(vkn, ad){
+  const v = String(vkn || '').trim();
+  const a = fuAnahtar(ad);
+  if (v){
+    const t = KATALOG.tedarikciler.find(x => String(x.vergi_no || '').trim() === v);
+    if (t) return { ted: t, durum: 'vkn' };
+  }
+  if (a.length >= 6){
+    const adli = KATALOG.tedarikciler.find(x => {
+      const k = fuAnahtar(x.ad);
+      return k && (k.startsWith(a.slice(0, 8)) || a.startsWith(k.slice(0, 8)));
+    });
+    if (adli){
+      const tv = String(adli.vergi_no || '').trim();
+      if (!tv)          return { ted: adli, durum: 'vknsiz' };
+      if (v && tv !== v) return { ted: adli, durum: 'catisma' };
+      return { ted: adli, durum: 'vkn' };
+    }
+  }
+  return { ted: null, durum: 'yok' };
+}
+
 /* "07-08-2026" / "11.08.2026" -> "2026-08-11"; okunamazsa null */
 function faTarihISO(s){
   const m = String(s || '').match(/^(\d{2})[-./](\d{2})[-./](\d{4})$/);
@@ -4164,17 +4242,12 @@ function faTarihISO(s){
      yazılı. Gider yolu açık kalır. */
 let TOPLU = [];
 const tpBul = (i) => TOPLU[i];
-function tpTedarikciEsle(x){
-  const vkn = (x.vkn || '').trim();
-  const ad = (x.firma || '').toLocaleLowerCase('tr-TR').trim();
-  return KATALOG.tedarikciler.find(t => vkn && String(t.vergi_no || '').trim() === vkn)
-      || (ad ? KATALOG.tedarikciler.find(t =>
-           String(t.ad || '').toLocaleLowerCase('tr-TR').startsWith(ad.slice(0, 8))) : null)
-      || null;
-}
 function tpKur(eksikler){
   TOPLU = eksikler.map((x, i) => {
-    const ted = tpTedarikciEsle(x);
+    /* ⚠ CT · Unvan METİNDEN, çıpası dosya adı. Eşleştirme ÖNCE VKN. */
+    const unvan = faturaUnvan(x.metin, x.firma);
+    const e = tedEslestir(x.vkn, unvan || x.firma);
+    const ted = e.durum === 'catisma' ? null : e.ted;
     const isoT = faTarihISO(x.tarih);
     const p = x.tutar ? paraCoz(x.tutar) : { ok:false };
     const eksik = [];
@@ -4182,7 +4255,7 @@ function tpKur(eksikler){
     if (!p.ok || !p.deger) eksik.push('tutar okunamadı');
     if (!x.belge_no) eksik.push('belge no okunamadı');
     return { i, kaynak:x, belge_no:x.belge_no, firma:x.firma || x.ad,
-      tarih:isoT || '', tutar:p.ok ? p.deger : null,
+      unvan, esles:e.durum, tarih:isoT || '', tutar:p.ok ? p.deger : null,
       kdv: x.kdv ? (paraCoz(x.kdv).deger || null) : null,
       ted, tur:'', kategori:'', haric:false, sec:false, eksik,
       oneri: TP_GECMIS[(x.vkn || '') + '|' + (x.firma || '')] || null, sonuc:null };
@@ -4221,6 +4294,80 @@ function tpHepsi(alan, deger){
   });
   tpCiz();
 }
+/* ⚠ CT · EKSİK TEDARİKÇİYİ FATURADAN OLUŞTUR
+   Sahip 25 faturanın 17'sinde "önce tedarikçi ekle" duvarına çarpıyordu;
+   oysa fatura hem unvanı hem VKN'yi taşıyor.
+   ⚠ ÖNCE GÖSTER, SONRA OLUŞTUR: ne açılacağı tek tek listelenir ve onay
+     alınır. Sessizce yedi kayıt açmak, sonradan temizlenmesi gereken
+     bir defter bırakır.
+   ⚠ UNVANI OKUNAMAYAN SATIRDA OLUŞTURULMAZ: yarım bir unvanla açılan
+     tedarikçi, düzeltilmesi gereken bir kayıttır.
+   ⚠ BAŞARISIZ OLURSA SATIR AÇILMAZ: yarısı açılmış bir tablo, hiç
+     açılmamıştan kötü. ted YALNIZ sunucu onay verirse bağlanır. */
+function tpAcilacaklar(){
+  const gorulen = new Set();
+  return TOPLU.filter(r => {
+    if (r.ted || r.sonuc || r.haric) return false;
+    if (r.esles === 'catisma') return false;          // karar kullanıcının
+    if (!r.unvan) return false;                       // unvan okunamadı
+    const k = r.kaynak.vkn || fuAnahtar(r.unvan);
+    if (gorulen.has(k)) return false;                 // aynı firma bir kez
+    gorulen.add(k); return true;
+  });
+}
+async function tpTedarikciAc(hangi){
+  const liste = hangi === 'hepsi' ? tpAcilacaklar()
+              : tpAcilacaklar().filter(r => r.i === hangi);
+  if (!liste.length) return;
+  const metin = liste.map(r => '· ' + r.unvan
+    + (r.kaynak.vkn ? ' (VKN ' + r.kaynak.vkn + ')' : ' (VKN okunamadı)')).join('\n');
+  if (!confirm('Şu tedarikçiler oluşturulacak:\n\n' + metin
+      + '\n\nUnvan faturanın METNİNDEN okundu. Devam edilsin mi?')) return;
+  const btn = document.getElementById('tpTedBtn');
+  if (btn){ btn.disabled = true; btn.textContent = 'Oluşturuluyor...'; }
+  let ok = 0; const hatalar = [];
+  for (const r of liste){
+    try{
+      const { error } = await sb.rpc('rpc_tedarikci_kaydet', {
+        p_id: null, p_ad: r.unvan, p_unvan: r.unvan,
+        p_vergi_no: r.kaynak.vkn || null, p_vergi_dairesi: null,
+        p_yetkili: null, p_tel: null, p_tel2: null, p_email: null, p_adres: null });
+      if (error) throw new Error(error.message);
+      ok++;
+    }catch(e){ hatalar.push(r.unvan + ': ' + hataTr(e.message)); }
+  }
+  await katalogYukle();
+  /* ⚠ BAĞLAMA KATALOGDAN YENİDEN YAPILIR: sunucu neyi kabul ettiyse o
+     bağlanır. Hata alan firma listede kalır, satırı Alış'a AÇILMAZ. */
+  TOPLU.forEach(r => {
+    if (r.ted || r.sonuc) return;
+    const e = tedEslestir(r.kaynak.vkn, r.unvan || r.firma);
+    if (e.durum === 'vkn') r.ted = e.ted;
+    r.esles = e.durum;
+  });
+  tpCiz();
+  mesaj('tpMsg', hatalar.length ? 'hata' : 'ok',
+    ok + ' tedarikçi oluşturuldu'
+    + (hatalar.length ? ' · ' + hatalar.length + ' hata: ' + hatalar.slice(0,2).join(' | ')
+       + ' — bu satırlar Alış için açılmadı' : ''));
+}
+async function tpVknYaz(i){
+  const r = tpBul(i); if (!r || !r.ted || !r.kaynak.vkn) return;
+  if (!confirm('"' + r.ted.ad + '" kayıtlı ama VKN\'si boş.\n\nFaturadaki VKN '
+      + r.kaynak.vkn + ' bu kayda yazılsın mı?\n\n(Yeni tedarikçi AÇILMAZ — kopya olmaz.)')) return;
+  const { error } = await sb.rpc('rpc_tedarikci_kaydet', {
+    p_id: r.ted.id, p_ad: r.ted.ad, p_unvan: r.ted.unvan || null,
+    p_vergi_no: r.kaynak.vkn, p_vergi_dairesi: r.ted.vergi_dairesi || null,
+    p_yetkili: r.ted.yetkili_ad || null, p_tel: r.ted.telefon || null,
+    p_tel2: r.ted.telefon2 || null, p_email: r.ted.email || null, p_adres: r.ted.adres || null });
+  if (error){ mesaj('tpMsg','hata', hataTr(error.message)); return; }
+  await katalogYukle();
+  TOPLU.forEach(x => { if (x.sonuc) return;
+    const e = tedEslestir(x.kaynak.vkn, x.unvan || x.firma);
+    if (e.durum === 'vkn') x.ted = e.ted; x.esles = e.durum; });
+  tpCiz();
+  mesaj('tpMsg','ok', r.ted.ad + ' kaydına VKN yazıldı — yeni tedarikçi açılmadı.');
+}
 function tpKaydedilebilir(r){
   return !r.haric && !r.eksik.length && !!r.tur && !r.sonuc
       && (r.tur !== 'gider' || !!r.kategori) && (r.tur !== 'alis' || !!r.ted);
@@ -4229,6 +4376,7 @@ function tpCiz(){
   const el = document.getElementById('mtToplu'); if (!el) return;
   if (!TOPLU.length){ el.innerHTML = ''; return; }
   const secili = TOPLU.filter(r => r.sec && tpKaydedilebilir(r)).length;
+  const acilacak = tpAcilacaklar();
   const kat = KATALOG.kategoriler.map(k =>
     `<option value="${k.id}">${esc(k.ad)}</option>`).join('');
   el.innerHTML = `<div class="kart" style="border-color:var(--ana)">
@@ -4242,6 +4390,9 @@ function tpCiz(){
       <button type="button" class="btn2" onclick="tpHepsi('sec',true)">Hepsini işaretle</button>
       <button type="button" class="btn2" onclick="tpHepsi('sec',false)">İşareti kaldır</button>
     </div>
+    ${acilacak.length ? `<button type="button" class="btn2" id="tpTedBtn"
+        style="width:100%;margin-bottom:8px" onclick="tpTedarikciAc('hepsi')">
+        Eksik tedarikçilerin hepsini oluştur (${acilacak.length})</button>` : ''}
     <label>Seçili giderlere kategori ver</label>
     <select onchange="tpHepsi('kategori',this.value);this.value=''">
       <option value="">— kategori seç —</option>${kat}</select>
@@ -4266,7 +4417,20 @@ function tpCiz(){
             ${r.oneri && !r.tur
               ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'alış' : 'gider'}</b>
                    olarak girilmişti — yine de sen seç</div>` : ''}
-            ${!r.ted ? '<div class="k" style="color:var(--soluk)">bu firma tedarikçi listesinde yok — Alış için önce tedarikçi ekle</div>' : ''}
+            ${!r.ted && r.esles === 'catisma'
+              ? `<div class="k" style="color:var(--uyari)">Adı "${esc(r.ted && r.ted.ad || r.unvan || '')}" ile
+                   tutan kayıtlı bir tedarikçi var ama <b>VKN'si farklı</b> — iki ayrı firma olabilir.
+                   Otomatik açmıyorum; Tedarikçiler ekranından sen karar ver.</div>` : ''}
+            ${!r.ted && r.esles !== 'catisma'
+              ? (r.unvan
+                 ? `<div class="k" style="color:var(--soluk)">tedarikçi listesinde yok —
+                      faturadaki unvan: <b>${esc(r.unvan)}</b></div>`
+                 : '<div class="k" style="color:var(--soluk)">tedarikçi listesinde yok ve unvan faturadan okunamadı — Alış için tedarikçiyi elle ekle</div>')
+              : ''}
+            ${r.ted && r.esles === 'vknsiz' && r.kaynak.vkn
+              ? `<div class="k" style="color:var(--uyari)">${esc(r.ted.ad)} kayıtlı ama VKN'si boş
+                   <button type="button" class="btn2" style="min-height:44px;margin-left:6px"
+                     onclick="tpVknYaz(${r.i})">VKN'yi yaz</button></div>` : ''}
           </div>
           <div style="text-align:right;flex:0 0 auto">
             <div style="font-weight:800">${r.tutar != null ? tl(r.tutar) : '<span class="gri">tutar yok</span>'}</div>
@@ -4289,6 +4453,9 @@ function tpCiz(){
             <input type="checkbox" style="width:20px;height:20px" ${r.haric ? 'checked' : ''}
               ${r.sonuc ? 'disabled' : ''} onchange="tpDegis(${r.i},'haric',this.checked)">
             işletme dışı</label>
+          ${!r.ted && r.unvan && r.esles !== 'catisma' && !r.sonuc
+            ? `<button type="button" class="btn2" style="min-height:44px"
+                 onclick="tpTedarikciAc(${r.i})">Tedarikçi olarak ekle</button>` : ''}
           <button type="button" class="btn2" style="min-height:44px" ${r.sonuc ? 'disabled' : ''}
             onclick="mutabakatGir('${esc(r.belge_no || '')}')">Tek tek gir</button>
         </div>
