@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-11">
+<meta name="surum" content="2026-08-27-13">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4612,9 +4612,41 @@ async function tpKaydet(){
      "Kaydediliyor 25/25..." yazısıyla disabled kalır, mesaj hiç
      yazılmazdı — kayıtlar DB'ye GİRMİŞ olduğu hâlde kullanıcı
      girmediğini sanardı. Artık ekran her hâlükârda geri geliyor. */
-  let tazeHata = null;
+  let tazeHata = null, belgeOk = 0; const belgeHata = [];
   try{
-    await tpSiniflandir([...secilenler, ...haricler].map(r => r.belge_no).filter(Boolean));
+    const dokunulan = [...secilenler, ...haricler].map(r => r.belge_no).filter(Boolean);
+    await tpSiniflandir(dokunulan);
+    /* ⚠ CX · PDF DE BURADA BAGLANIR. Kullanicinin sikayeti buydu:
+       "faturaları yüklüyorum PDF'leri kaydetmiyor". Kayit aciliyordu,
+       belge ayri bir dugmede kaliyordu; kullanici o adimi bilmiyor ya
+       da unutuyordu, sayfayi yenileyince PDF'ler bellekten gidiyor ve
+       zip'i bastan yuklemek gerekiyordu. 25 faturalik bir turda bu 25
+       belgesiz kayit demekti.
+       ⚠ SIRA KORUNUYOR: kayit ONCE acildi (yukaridaki dongu), belge
+         SONRA baglaniyor. Tersi olsaydi rpc patladiginda depoda
+         sahipsiz dosya kalirdi.
+       ⚠ KAYIT ID'SI DB'DEN: tpSiniflandir kaydi sunucudan okuyup
+         x.kayit'a yazdi. rpc'nin donus govdesinde id VARSAYMIYORUZ —
+         "kaydettim, demek ki su id" demek yerine DB soyluyor.
+       ⚠ Yalniz bu turda dokunulan ve dosyasi HALA ELDE olan satirlar.
+         Sayfa yenilendiyse x.dosya yok; o satir "belgesi eksik"
+         kutusunda kalir ve dugmeyle baglanir. */
+    /* ⚠ SAYIM ONCE: dugme "7/25" diyebilmek icin toplami bilmeli, ve o
+       toplam SECILEN satir sayisi degil GERCEKTEN YUKLENECEK satir
+       sayisidir (zaten belgeli olan ya da dosyasi elde olmayan sayilmaz). */
+    const baglanacak = MUTABAKAT.filter(x => x.durum === 'belge_eklenecek'
+      && x.belge_no && dokunulan.includes(x.belge_no) && x.dosya && x.kayit);
+    /* ⚠ 25 fatura ~5 MB; telefonda bu 30 saniyeyi gecebiliyor. Ilerleme
+       yazilmazsa dugme "Kaydediliyor 25/25..." de donmus gorunur,
+       kullanici asili kaldi sanip sayfayi kapatir ve belgeler
+       BAGLANMADAN gider — duzeltmeye calistigimiz sikayetin ta kendisi.
+       Desen kayit dongusunun AYNISI. */
+    for (let n = 0; n < baglanacak.length; n++){
+      const x = baglanacak[n];
+      btn.textContent = `Belgeler bağlanıyor ${n+1}/${baglanacak.length}...`;
+      try{ await belgeBagla(x); belgeOk++; }
+      catch(e){ belgeHata.push(x.belge_no + ': ' + hataTr(e.message)); }
+    }
     mutabakatCiz();
     /* ⚠ HATA ALAN SATIRIN SEÇİMLERİ KAYBOLMAZ: tpKur tabloyu sıfırdan
        kuruyor; kullanıcının girdiği tür/kategori ve hata metni belge
@@ -4633,8 +4665,13 @@ async function tpKaydet(){
     });
   }catch(e){ tazeHata = hataTr(e.message); }
   tpCiz();
-  mesaj('tpMsg', hatalar.length ? 'hata' : (tazeHata ? 'uyari' : 'ok'),
+  mesaj('tpMsg', hatalar.length ? 'hata' : ((tazeHata || belgeHata.length) ? 'uyari' : 'ok'),
     ok + ' kaydedildi'
+    /* ⚠ IKI SAYI AYRI: kayit girdi ama belge girmediyse kullanici BUNU
+       BILMELI. Tek sayida birlestirmek "hepsi tamam" izlenimi verirdi. */
+    + (belgeOk ? ' · ' + belgeOk + ' belge bağlandı' : '')
+    + (belgeHata.length ? ' · ' + belgeHata.length + ' belge bağlanamadı (kayıtlar duruyor, '
+        + '"Belgeyi Kayıtlara Ekle" ile tekrar dene): ' + belgeHata[0] : '')
     + (hatalar.length ? ' · ' + hatalar.length + ' hata: ' + hatalar.slice(0,3).join(' | ') : '')
     + (atlanan ? ' · ' + atlanan + ' işletme dışı işaretlendi (bir daha sorulmaz)' : '')
     + (eksikli ? ' · ' + eksikli + ' eksik okundu (tek tek gir)' : '')
@@ -4786,6 +4823,27 @@ function mutabakatCiz(){
         <div class="k">${esc(hataTr(x.hata))}</div></div><div class="l-sag"></div></div>`).join('')}`:''}
   </div>`;
 }
+/* ⚠ CX · TEK YUKLEME YOLU. Bu is iki yerden yapiliyor: toplu girisin
+   kendi icinden (kayit acilir acilmaz) ve "n Belgeyi Kayitlara Ekle"
+   dugmesinden. Ayni isi ikinci kez baska turlu yazmak, iki yolun
+   zamanla ayrismasi demekti — desen buraya cikarildi, iki yer de
+   burayi cagiriyor.
+   ⚠ SIRA: kayit ONCE acilmis olmali. Once yukleyip sonra kayit
+     acsaydik, kayit patladiginda depoda SAHIPSIZ dosya kalirdi.
+     Bu sirada yukleme patlarsa satir "belgesi eksik" kalir —
+     kurtarilabilir hal budur, dugme yerinde duruyor.
+   Basarisizlikta ATAR; cagiran yakalar ve sayar. */
+async function belgeBagla(x){
+  const yol = `fatura/${bugun()}_${crypto.randomUUID()}.pdf`;
+  const { error: ue } = await sb.storage.from('belgeler')
+    .upload(yol, x.dosya, { upsert:false, contentType:'application/pdf' });
+  if (ue) throw new Error(ue.message);
+  const tablo = x.tur === 'alis' ? 'alis' : 'gider';
+  const { error: ge } = await sb.from(tablo).update({ foto_path: yol }).eq('id', x.kayit.id);
+  if (ge) throw new Error(ge.message);
+  x.durum = 'belgeli'; x.kayit.foto_path = yol;
+  return yol;
+}
 async function mutabakatBelgeEkle(){
   const liste = MUTABAKAT.filter(x=>x.durum==='belge_eklenecek');
   if (!liste.length) return;
@@ -4793,16 +4851,8 @@ async function mutabakatBelgeEkle(){
   const btn = document.getElementById('mtEkleBtn'); if(btn) btn.disabled = true;
   let ok = 0; const hatalar = [];
   for (const x of liste){
-    try{
-      const yol = `fatura/${bugun()}_${crypto.randomUUID()}.pdf`;
-      const { error: ue } = await sb.storage.from('belgeler')
-        .upload(yol, x.dosya, { upsert:false, contentType:'application/pdf' });
-      if (ue) throw new Error(ue.message);
-      const tablo = x.tur === 'alis' ? 'alis' : 'gider';
-      const { error: ge } = await sb.from(tablo).update({ foto_path: yol }).eq('id', x.kayit.id);
-      if (ge) throw new Error(ge.message);
-      x.durum = 'belgeli'; x.kayit.foto_path = yol; ok++;
-    }catch(e){ hatalar.push(`${x.belge_no}: ${hataTr(e.message)}`); }
+    try{ await belgeBagla(x); ok++; }
+    catch(e){ hatalar.push(`${x.belge_no}: ${hataTr(e.message)}`); }
   }
   if(btn) btn.disabled = false;
   mutabakatCiz();
