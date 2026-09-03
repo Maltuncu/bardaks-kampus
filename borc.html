@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-15">
+<meta name="surum" content="borc-2026-08-27-16">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3053,6 +3053,19 @@ function odemeFormuAc(kart, t){
     + 'faiz GİDERE YAZILAMAZ — hangi kısmın faiz olduğu bilinmiyor.'));
   }
 
+  /* ⚠ CW · LTD KREDISINDE GIDER SECENEGI YOK — SEBEBI YAZILI.
+     Kod zaten kesimUyar'da kredi_tur !== 'ticari' diye cikiyor, yani
+     p_gider_yaz Ltd'de hicbir zaman true olamiyordu; ama ekranda bunun
+     SEBEBI yazmiyordu. Sahibin sozu: "limited adina, buradan sadece
+     takip edecegiz, gider gosteremeyiz". Sessiz dogru davranis,
+     kullaniciya "acaba unuttum mu" dedirtiyordu. */
+  if (t.kredi_tur === 'ltd')
+    f.appendChild(el('div','bilgi',
+      'Bu kredi LİMİTED adına. Faizi bu ekrandan GİDERE YAZILMAZ — '
+    + 'şahıs işletmesinin giderine limitedin faizi girmez. Buradan '
+    + 'yalnızca takip edilir. Kullandırım, KGF komisyonu ve sigorta gibi '
+    + 'masraflar da gider değildir; kredinin açıklamasına not olarak yazılır.'));
+
   /* ⚠ MUKERRER KORUMA: 2026-07 faizleri ELLE gider olarak girildi. */
   let israr = null;
   const kesimUyar = () => {
@@ -3848,6 +3861,9 @@ async function taksitEkraniAc(krediId){
     /* ⚠ TOPLU FORM EN ALTA ALINDI: taksitler bir kez uretilir, odeme her
        ay yapilir. Sik yapilan isin onunde durmasi icin sebep yok. */
     c.appendChild(topluFormu(kredi, taksitler));
+    /* CW · Esit olmayan taksit uretici, eskisinin YANINA gelir.
+       Esit taksitli krediler icin ustteki form dogru calisiyor. */
+    c.appendChild(planFormu(kredi, taksitler));
   }catch(e){
     c.textContent = '';
     c.appendChild(el('div','uyari-agir','Taksitler açılamadı: ' + hataTr(e && e.message)));
@@ -3953,6 +3969,331 @@ function topluSatirlariUret(kredi, sonSira){
     });
   }
   return { ok:true, satirlar, toplamKurus: tut.kurus * adet };
+}
+
+/* ==================================================================
+   CW · BANKA PLANINDAN URET — ESIT OLMAYAN TAKSIT
+   ==================================================================
+   topluSatirlariUret (yukarida) N adet AYNI satir uretir; esit taksitli
+   krediler icin dogrudur ve YERINDE DURUYOR. Ama banka planlarinda
+   taksit sabit, KIRILIM degiskendir: eldeki planda taksit hep
+   167.322,78 iken anapara 63.897,78'den 160.463,11'e cikiyor, faiz
+   98.500,00'den 6.532,99'a iniyor. Esit kirilimla girilirse toplam
+   dogru, kalan anapara 23 satirda YANLIS olur — yani "bugun kapatsam
+   ne oderim" rakami bozulur.
+
+   OLCULEN FORMUL (Is Bankasi plani):
+     gun_i     = tarih_i − tarih_(i-1)   (ilki: plan tarihi -> ilk taksit)
+     faiz_i    = round(kalan_(i-1) × aylik_oran × gun_i / 30, 2)
+     vergi_i   = round(faiz_i × vergi_orani, 2)
+     anapara_i = taksit − faiz_i − vergi_i
+     kalan_i   = kalan_(i-1) − anapara_i
+     SON SATIR: anapara = kalan_(n-1); taksit = anapara + faiz + vergi
+
+   ⚠ TAKSIT TUTARI KULLANICIDAN ALINIR, HESAPLANMAZ. Annuite formulunu
+     kendimiz kurup taksiti turetmek, bankanin yuvarlama ve gun sayma
+     yontemini BILDIGIMIZI varsaymak olurdu. Belgede yazan rakam
+     gercektir; hesaplanan rakam varsayimdir.
+   ⚠ URETIM BIR VARSAYIMDIR, KANIT DIP TOPLAMLARIDIR. Mutabakat kapisi
+     tutmazsa KAYDEDILMEZ ve TOLERANS YOKTUR — "yakin" diye gecirmek,
+     sessizce yanlis plan yazmaktir. */
+function planUretCekirdek({ anaparaKurus, aylikOran, vergiOran,
+                            taksitKurus, planTarihi, tarihler }){
+  const gunFark = (a, b) => Math.round(
+    (Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+  const n = tarihler.length;
+  const satirlar = [];
+  let kalan = anaparaKurus, onceki = planTarihi;
+  for (let i = 0; i < n; i++){
+    const g = gunFark(onceki, tarihler[i]);
+    const faiz  = Math.round(kalan * (aylikOran / 100) * g / 30);
+    const vergi = Math.round(faiz * (vergiOran / 100));
+    let anapara, taksit;
+    if (i === n - 1){
+      /* Son satir artigi kapatir — bankanin plani da boyle: son taksit
+         167.322,75, otekilerden 3 kurus farkli. Esitlemek kalan
+         anaparayi sifirdan farkli birakirdi. */
+      anapara = kalan; taksit = anapara + faiz + vergi;
+    } else {
+      anapara = taksitKurus - faiz - vergi; taksit = taksitKurus;
+    }
+    kalan -= anapara;
+    satirlar.push({ sira:i+1, tarih:tarihler[i], gun:g, taksit, anapara, faiz, vergi, kalan });
+    onceki = tarihler[i];
+  }
+  const toplam = satirlar.reduce((a,s) => ({ faiz:a.faiz+s.faiz, vergi:a.vergi+s.vergi,
+    anapara:a.anapara+s.anapara, genel:a.genel+s.taksit }), { faiz:0, vergi:0, anapara:0, genel:0 });
+  return { satirlar, toplam, sonKalan:kalan };
+}
+
+let PLAN = null;                       // { kredi, sonSira, girdi, tarihler, sonuc }
+
+function planFormu(kredi, mevcut){
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Banka planından üret — eşit olmayan taksit'));
+  const sonSira = mevcut.reduce((a,x) => Math.max(a, x.sira), 0);
+  k.appendChild(el('div','bilgi',
+    'Taksit tutarı aynı ama anapara/faiz kırılımı her satırda değişiyorsa burayı kullan. '
+  + 'Taksit tutarı SANA AİT — hesaplanmaz, belgede yazanı yaz.\n'
+  + 'Üretilen plan bir varsayımdır: belgenin dip toplamlarıyla kuruşu kuruşuna '
+  + 'tutmazsa KAYDEDİLMEZ.'));
+  if (sonSira > 0)
+    k.appendChild(el('div','bilgi','Bu kredide zaten ' + sonSira
+      + ' sıra var. Yeni satırlar ' + (sonSira+1) + '. sıradan devam eder.'));
+
+  const alan = (etiket, id, tip, deger, ipucu) => {
+    k.appendChild(el('label', null, etiket)).setAttribute('for', id);
+    const i = document.createElement('input');
+    i.id = id; i.type = tip || 'text';
+    if (deger) i.value = deger;
+    if (tip !== 'date') i.setAttribute('inputmode','decimal');
+    if (ipucu) i.placeholder = ipucu;
+    k.appendChild(i); return i;
+  };
+  alan('Anapara (kredi tutarı)','pAnapara','text','','2.500.000,00');
+  alan('Aylık faiz oranı (%)','pOran','text','','3,940');
+  alan('Vergi oranı (%) — BSMV/KKDF','pVergi','text','','5');
+  alan('Taksit sayısı','pAdet','text','','24');
+  alan('Plan hazırlama tarihi','pPlanT','date', kredi.baslangic_tarihi || '');
+  alan('İlk taksit tarihi','pIlkT','date','');
+  alan('Taksit tutarı (belgede yazan)','pTaksit','text','','167.322,78');
+  alan('Ödeme günü (ayın kaçı)','pGun','text','','2');
+  k.appendChild(el('div','kucuk',
+    'Vade günü tatile denk gelirse banka ileri kaydırır. Üretilen tarihleri '
+  + 'aşağıdaki tabloda tek tek düzeltebilirsin; düzeltince o satırdan sonrasının '
+  + 'faizi yeniden hesaplanır (gün sayısı değişti).'));
+
+  k.appendChild(el('div','kbaslik','Mutabakat — belgenin dip toplamları'));
+  k.appendChild(el('div','bilgi',
+    'Bu dörtlü belgeden AYNEN yazılır. Üretilen plan bunlarla birebir '
+  + 'tutmazsa kaydetme düğmesi açılmaz. Tolerans yoktur.'));
+  alan('Toplam Faiz','pTFaiz','text','','1.443.568,29');
+  alan('Toplam Vergi','pTVergi','text','','72.178,40');
+  alan('Toplam Fon','pTFon','text','','0,00');
+  alan('Genel Toplam','pTGenel','text','','4.015.746,69');
+  paraBaglaHepsi(k, ['pAnapara','pTaksit','pTFaiz','pTVergi','pTFon','pTGenel']);
+
+  const on = el('button','btn2','Planı üret (kaydetme)');
+  on.onclick = () => planUret(kredi, sonSira);
+  k.appendChild(on);
+  const kay = el('button','btn','Planı kaydet'); kay.id = 'pKaydet';
+  kay.disabled = true;
+  kay.onclick = () => planKaydet(kredi);
+  k.appendChild(kay);
+  k.appendChild(el('div','msg')).id = 'planMsg';
+  const ov = el('div'); ov.id = 'pOnizleme'; k.appendChild(ov);
+  return k;
+}
+
+/* Ayin kaci -> ISO tarih; ay o gunu tasimiyorsa ayin son gunu. */
+function planTarihUret(ilk, adet, gunNo){
+  const d0 = new Date(ilk + 'T00:00:00Z');
+  const y0 = d0.getUTCFullYear(), m0 = d0.getUTCMonth();
+  const gn = gunNo || d0.getUTCDate();
+  const out = [ilk];
+  for (let i = 1; i < adet; i++){
+    const sonGun = new Date(Date.UTC(y0, m0 + i + 1, 0)).getUTCDate();
+    out.push(new Date(Date.UTC(y0, m0 + i, Math.min(gn, sonGun))).toISOString().slice(0,10));
+  }
+  return out;
+}
+
+function planUret(kredi, sonSira){
+  mesajTemizle('planMsg');
+  const oku = (id) => document.getElementById(id).value.trim();
+  const para = (id, ad) => { const r = paraCoz(oku(id));
+    return r.ok ? { ok:true, kurus:r.kurus } : { ok:false, hata: ad + ': ' + r.hata }; };
+  /* ⚠ ORAN PARA DEGIL: paraCoz'a sokmak "3,940" degerini bozardi
+     (uc ondalik). Oran ayri okunur — gram ve faiz orani alanlarina
+     para bicimleyicisi baglanmiyor, ayni gerekce. */
+  const oran = (id, ad) => { const s = oku(id).replace(',', '.');
+    const n = Number(s);
+    return (s && Number.isFinite(n) && n >= 0) ? { ok:true, deger:n }
+         : { ok:false, hata: ad + ' geçersiz.' };
+  };
+  const ana = para('pAnapara','Anapara');
+  const tak = para('pTaksit','Taksit tutarı');
+  const ao  = oran('pOran','Aylık faiz oranı');
+  const vo  = oran('pVergi','Vergi oranı');
+  const adet = parseInt(oku('pAdet'), 10);
+  const planT = oku('pPlanT'), ilkT = oku('pIlkT');
+  const gunNo = oku('pGun') ? parseInt(oku('pGun'), 10) : null;
+  for (const r of [ana, tak, ao, vo]) if (!r.ok) return mesaj('planMsg','hata', r.hata);
+  if (!Number.isFinite(adet) || adet < 2 || adet > 600)
+    return mesaj('planMsg','hata','Taksit sayısı 2 ile 600 arasında olmalı.');
+  if (!planT) return mesaj('planMsg','hata','Plan hazırlama tarihi zorunlu.');
+  if (!ilkT)  return mesaj('planMsg','hata','İlk taksit tarihi zorunlu.');
+  if (ilkT <= planT) return mesaj('planMsg','hata','İlk taksit, plan tarihinden sonra olmalı.');
+  if (gunNo !== null && (!Number.isFinite(gunNo) || gunNo < 1 || gunNo > 31))
+    return mesaj('planMsg','hata','Ödeme günü 1 ile 31 arasında olmalı.');
+  if (ana.kurus <= 0 || tak.kurus <= 0)
+    return mesaj('planMsg','hata','Anapara ve taksit tutarı sıfırdan büyük olmalı.');
+
+  PLAN = { kredi, sonSira,
+    girdi: { anaparaKurus:ana.kurus, aylikOran:ao.deger, vergiOran:vo.deger,
+             taksitKurus:tak.kurus, planTarihi:planT },
+    tarihler: planTarihUret(ilkT, adet, gunNo) };
+  planHesapla();
+}
+
+/* Tarih duzeltilince de buraya donulur: tablo ve kapi bastan kurulur. */
+function planHesapla(){
+  const ov = document.getElementById('pOnizleme');
+  ov.textContent = '';
+  document.getElementById('pKaydet').disabled = true;
+  if (!PLAN) return;
+  /* ⚠ TARIH SIRASI BOZULURSA NEGATIF GUN CIKAR ve faiz eksiye doner.
+     Sessizce hesaplamak yerine soyleyip duruyoruz. */
+  let onceki = PLAN.girdi.planTarihi;
+  for (const t of PLAN.tarihler){
+    if (t <= onceki){
+      mesaj('planMsg','hata','Tarihler artan sırada olmalı: ' + trGun(t)
+        + ' bir öncekinden (' + trGun(onceki) + ') sonra değil.');
+      return;
+    }
+    onceki = t;
+  }
+  const r = planUretCekirdek({ ...PLAN.girdi, tarihler: PLAN.tarihler });
+  PLAN.sonuc = r;
+
+  /* --- ic tutarlilik: anapara toplami girilen anaparaya esit mi --- */
+  const icTutarli = r.toplam.anapara === PLAN.girdi.anaparaKurus && r.sonKalan === 0;
+  const icGenel   = r.toplam.anapara + r.toplam.faiz + r.toplam.vergi === r.toplam.genel;
+
+  /* --- MUTABAKAT KAPISI --- */
+  const bel = (id) => { const v = document.getElementById(id).value.trim();
+    if (!v) return null; const p = paraCoz(v); return p.ok ? p.kurus : NaN; };
+  const bFaiz = bel('pTFaiz'), bVergi = bel('pTVergi'),
+        bFon = bel('pTFon'),  bGenel = bel('pTGenel');
+  const eksik = [bFaiz, bVergi, bFon, bGenel].some(x => x === null);
+  const bozuk = [bFaiz, bVergi, bFon, bGenel].some(x => Number.isNaN(x));
+
+  const sar = el('div','tablo-sar');
+  const t = document.createElement('table');
+  const hr = document.createElement('tr');
+  ['#','VADE','GÜN','TAKSİT','ANAPARA','FAİZ','VERGİ','KALAN'].forEach((h,i) =>
+    hr.appendChild(el('th', i>=2 ? 'sag' : null, h)));
+  t.appendChild(hr);
+  r.satirlar.forEach((s,i) => {
+    const tr = document.createElement('tr');
+    tr.appendChild(td(s.sira));
+    /* ⚠ TARIH DUZENLENEBILIR: banka tatilde ileri kaydiriyor ve bunu
+       tahmin etmeye calismak (resmi tatil takvimi uydurmak) yanlis
+       olurdu. Kullanici belgedekini yazar, gun sayisi degisir ve
+       O SATIRDAN SONRASININ faizi yeniden hesaplanir. */
+    const tdT = document.createElement('td');
+    const inp = document.createElement('input');
+    inp.type = 'date'; inp.value = s.tarih;
+    inp.style.cssText = 'min-height:36px;padding:4px 6px;font-size:12px;margin:0';
+    inp.setAttribute('aria-label', s.sira + '. taksit vade tarihi');
+    inp.onchange = () => { PLAN.tarihler[i] = inp.value; planHesapla(); };
+    tdT.appendChild(inp); tr.appendChild(tdT);
+    tr.appendChild(td(String(s.gun),'sag'));
+    tr.appendChild(td(tlk(s.taksit),'sag'));
+    tr.appendChild(td(tlk(s.anapara),'sag'));
+    tr.appendChild(td(tlk(s.faiz),'sag'));
+    tr.appendChild(td(tlk(s.vergi),'sag'));
+    tr.appendChild(td(tlk(s.kalan),'sag'));
+    t.appendChild(tr);
+  });
+  sar.appendChild(t); ov.appendChild(sar);
+
+  const oz = el('div','bilgi',
+    'ÜRETİLEN\n'
+  + '→ Toplam faiz  ' + tlk(r.toplam.faiz) + '\n'
+  + '→ Toplam vergi ' + tlk(r.toplam.vergi) + '\n'
+  + '→ Toplam fon   ' + tlk(0) + '  (bu üretici fon üretmiyor)\n'
+  + '→ Genel toplam ' + tlk(r.toplam.genel) + '\n'
+  + '→ Anapara      ' + tlk(r.toplam.anapara)
+  + (icTutarli ? ' · girilen anaparaya eşit, kalan sıfır'
+               : ' · ⚠ girilen anapara ' + tlk(PLAN.girdi.anaparaKurus)
+                 + ', son kalan ' + tlk(r.sonKalan)));
+  ov.appendChild(oz);
+  if (!icTutarli || !icGenel){
+    ov.appendChild(el('div','uyari-agir',
+      'Plan kendi içinde tutarsız: anapara toplamı girilen anaparayı vermiyor. '
+    + 'Girdilerden biri yanlış — kaydedilemez.'));
+    return;
+  }
+  if (eksik || bozuk){
+    ov.appendChild(el('div','uyari-orta',
+      'Mutabakat için belgenin dört dip toplamı da yazılmalı: Toplam Faiz, '
+    + 'Toplam Vergi, Toplam Fon, Genel Toplam. Biri eksikken kaydedilmez — '
+    + 'üretilen plan bir varsayımdır, kanıt belgedir.'));
+    return;
+  }
+
+  const fark = [
+    ['Toplam faiz',  r.toplam.faiz,  bFaiz],
+    ['Toplam vergi', r.toplam.vergi, bVergi],
+    ['Toplam fon',   0,              bFon],
+    ['Genel toplam', r.toplam.genel, bGenel]];
+  const sapan = fark.filter(([,u,b]) => u !== b);
+  if (!sapan.length){
+    ov.appendChild(el('div','bilgi',
+      'MUTABAKAT TUTTU — dört dip toplam da kuruşu kuruşuna aynı. '
+    + r.satirlar.length + ' satır kaydedilebilir.'));
+    document.getElementById('pKaydet').disabled = false;
+    return;
+  }
+  /* ⚠ FARKI KALEM KALEM SOYLE, "yakin" DEME. Kumulatif faiz belgedeki
+     toplami hangi satirda astiysa sapmanin orada basladigini soyler —
+     kullanici duzeltmeyi nereden arayacagini bilir. */
+  let sapmaSatiri = null;
+  if (bFaiz !== null && !Number.isNaN(bFaiz)){
+    let kum = 0;
+    for (const s of r.satirlar){ kum += s.faiz;
+      if ((r.toplam.faiz > bFaiz && kum > bFaiz) || (r.toplam.faiz < bFaiz && kum > bFaiz)){
+        sapmaSatiri = s.sira; break; }
+    }
+  }
+  /* ⚠ SATIRLAR AYRI <div>: .uyari-agir'da white-space:pre-wrap YOK,
+     "\n" ile yazilinca dort kalem tek paragrafa cokuyordu (olculdu —
+     ekran goruntusunde farklar birbirine giriyor). Kaliba dokunmadan,
+     her kalemi kendi satirina koyuyoruz. */
+  const u = el('div','uyari-agir');
+  u.appendChild(el('div', null, 'MUTABAKAT TUTMADI — KAYDEDİLMEZ.'));
+  for (const [ad, uret, belg] of sapan)
+    u.appendChild(el('div', null, '→ ' + ad + ': üretilen ' + tlk(uret)
+      + ' · belgede ' + tlk(belg) + ' · fark '
+      + (uret > belg ? tlk(uret - belg) + ' FAZLA' : tlk(belg - uret) + ' EKSİK')));
+  if (sapmaSatiri)
+    u.appendChild(el('div', null, 'Üretilen kümülatif faiz ' + sapmaSatiri
+      + '. satırda belgedeki toplamı geçiyor — sapma orada ya da öncesinde başlıyor.'));
+  u.appendChild(el('div', null, 'Oran, vergi oranı ya da vade tarihleri belgedekinden '
+    + 'farklı. Tutmuyorsa bu bankanın gün sayma yöntemi başkadır; üretim kullanılmaz, '
+    + '"yakın" diye kaydedilmez.'));
+  ov.appendChild(u);
+}
+
+async function planKaydet(kredi){
+  if (!PLAN || !PLAN.sonuc) return;
+  const btn = document.getElementById('pKaydet');
+  if (btn.disabled) return;                      // kapi acilmadan kaydedilmez
+  const r = PLAN.sonuc;
+  if (!(await onaySor({ baslik:'Plan kaydedilecek',
+    metin: r.satirlar.length + ' taksit kaydedilecek. Genel toplam '
+         + tlk(r.toplam.genel) + ', dip toplamlar belgeyle birebir tuttu.',
+    onayMetni:'Kaydet', tehlikeli:false }))) return;
+  const satirlar = r.satirlar.map(s => ({
+    kredi_id: kredi.id, sira: PLAN.sonSira + s.sira, vade_tarihi: s.tarih,
+    toplam_tutar: (s.taksit/100).toFixed(2),
+    anapara_tutar: (s.anapara/100).toFixed(2),
+    faiz_tutar: (s.faiz/100).toFixed(2),
+    vergi_masraf_tutar: (s.vergi/100).toFixed(2),
+    vergi_masraf_notu: 'banka planı · vergi oranı %' + PLAN.girdi.vergiOran,
+    odendi: false }));
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('kredi_taksit').insert(satirlar);
+  btn.textContent = 'Planı kaydet';
+  if (error){ btn.disabled = false;
+    hataYaz('planMsg','Plan kaydedilemedi. HİÇBİRİ yazılmadı.', error); return; }
+  PLAN = null;
+  /* ⚠ MESAJ EKRAN YENILENDIKTEN SONRA — odemeKaydet'te olculen tuzagin
+     aynisi: taksitEkraniAc #icerik'i bastan kuruyor ve onceden yazilan
+     planMsg'i SILIYOR; kullanici hicbir onay gormuyordu (olculdu). */
+  await taksitEkraniAc(kredi.id);
+  mesaj('planMsg','ok', satirlar.length + ' taksit kaydedildi.');
 }
 
 async function topluOnizle(kredi, sonSira, kaydet){
