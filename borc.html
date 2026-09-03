@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-14">
+<meta name="surum" content="borc-2026-08-27-15">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -544,6 +544,8 @@ td.sag,th.sag{text-align:right}
   padding:9px 12px;margin-bottom:10px;min-height:46px;cursor:pointer;
   overflow-x:auto;scrollbar-width:none}
 .serit-ozet::-webkit-scrollbar{display:none}
+/* Acilmayan serit (ay toplami): ayni kalip, ama tiklanacak bir sey yok */
+.serit-ozet.duz{cursor:default;margin-top:10px}
 .serit-ozet:focus-visible{outline:3px dashed var(--ana);outline-offset:2px}
 .so-p{display:flex;align-items:baseline;gap:5px;white-space:nowrap;flex:none}
 .so-et{font-size:10px;font-weight:800;letter-spacing:.5px;color:var(--soluk);text-transform:uppercase}
@@ -1839,6 +1841,44 @@ async function bantVerisi(){
     }
   }
 
+  /* ⚠ CV · SONRAKI ODEME GUNU YANSITILIR — TAKVIMDEKI 800 BIN'LIK BOSLUK.
+     OLCULDU (03.09.2026, canli): uc kartin son donemi 2026-08 ve odeme
+     gunu GECMIS (Ziraat Ticari 25.08 · KTU 20.08 · Black 14.08). Eylul
+     donemi henuz YOK (Ziraat kesimi 15.09). Sonuc: 801.607,09 TL
+     kapanmamis borc takvimde HICBIR YERDE gorunmuyordu — takvim "eylulde
+     is yok" diyordu, oysa uc kartin devir odemesi eylulde cikacak.
+     Yansitma bu boslugu kapatir: son donemin kapanmamis'i, BIR SONRAKI
+     odeme gununde gosterilir.
+     ⚠ TAHMIN OLDUGU GIZLENMIYOR — ALT SINIRDIR: eylul ekstresine yeni
+       harcama, faiz ve vergi de binecek. Satirda ve ay toplaminda
+       "en az" olarak yazar (devredenler seridindeki "en cok faiz" ust
+       sinir kalibinin aynasi).
+     ⚠ CIFT SAYMA KAPALI: o kart icin yansitilacak donemin GERCEK satiri
+       varsa yansitma uretilmez; donem girilir girilmez tahmin kaybolur,
+       yerini gercek rakam alir.
+     ⚠ YALNIZ BIR ADIM: aylarca ileri projeksiyon YOK. */
+  const bugunISO = bugun();
+  for (const k of kart.kartlar){
+    if (!k.aktif || k.kesim_gunu == null || k.son_odeme_gunu == null) continue;
+    /* Son donem: kapanmamis suzgeci OLMADAN. Suzsek, kapanmamis'i 0 olan
+       bir son donem gorulmez ve ondan onceki acik donem "son" sanilip
+       kapanmis borc yansitilirdi. */
+    let sonD = null;
+    for (const d of kart.donemler)
+      if (d.kart_id === k.id && (!sonD || d.donem > sonD.donem)) sonD = d;
+    if (!sonD) continue;
+    if (kr(sonD.kapanmamis) <= 0 || sonD.odeme_turu === 'tam') continue;
+    const oAyS = k.son_odeme_gunu > k.kesim_gunu ? sonD.donem : sonrakiAy(sonD.donem);
+    const tarihS = oAyS + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(oAyS))).padStart(2,'0');
+    if (tarihS >= bugunISO) continue;      // gunu daha gelmedi: zaten takvimde duruyor
+    const yDonem = sonrakiAy(sonD.donem);
+    if (kart.donemler.some(d => d.kart_id === k.id && d.donem === yDonem)) continue;
+    const yAy = k.son_odeme_gunu > k.kesim_gunu ? yDonem : sonrakiAy(yDonem);
+    const yTarih = yAy + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(yAy))).padStart(2,'0');
+    kartOdemeleri.push({ tarih: yTarih, kart: k, donem: { donem: yDonem },
+      kalanKurus: kr(sonD.kapanmamis), yansitma: true, kaynakDonem: sonD.donem });
+  }
+
   const ko = krediOzet(taksitler);
   const buAy = bugun().slice(0,7);
 
@@ -2730,6 +2770,54 @@ function takvimYenile(ctx){
     duzen.appendChild(p);
   }
 
+  /* ===== CV · AY TOPLAMI · SAHIS ile LTD KARISMAZ =====
+     ⚠ Tek sayida toplamak, bant kodunda (S/L bloklari) bilerek
+       duzeltilen hatanin ta kendisi olurdu: Ltd'nin borcu sahsin
+       borcuyla ayni cebe yazilamaz.
+       Kaynak sutunlari OKUNDU, varsayilmadi: kredi tarafinda
+       taksit.kredi_tur, kart tarafinda kart.sahip, cek tarafinda
+       cek.sahip — ucu de 'ltd' degeriyle ayrilir.
+     ⚠ ODENMIS TAKSIT TOPLAMA GIRMEZ: durum='kapali' olan bir taksit
+       "yapilacak odeme" degil, olmus bitmis istir. Ayri kalemde,
+       nominaliyle gosterilir.
+     ⚠ ICINDE YANSITMA VARSA TOPLAM DA ALT SINIRDIR: "en az" ibaresi
+       ve kac kalemin tahmin oldugu yazar. */
+  const ayT2 = [...gunMap.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
+  const ayE2 = [...gunEk.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
+  const TP = { sahis:0, ltd:0, sahisAdet:0, ltdAdet:0, sahisTahmin:0, ltdTahmin:0,
+               odenmis:0, odenmisAdet:0 };
+  for (const t of ayT2){
+    if (t.durum === 'kapali'){ TP.odenmis += kr(t.toplam_tutar); TP.odenmisAdet++; continue; }
+    if (t.kredi_tur === 'ltd'){ TP.ltd += kr(t.kalan); TP.ltdAdet++; }
+    else { TP.sahis += kr(t.kalan); TP.sahisAdet++; }
+  }
+  for (const e of ayE2){
+    const ltdMi = e.tur === 'kart' ? e.kart.sahip === 'ltd' : e.cek.sahip === 'ltd';
+    if (ltdMi){ TP.ltd += e.kalanKurus; TP.ltdAdet++; if (e.yansitma) TP.ltdTahmin++; }
+    else { TP.sahis += e.kalanKurus; TP.sahisAdet++; if (e.yansitma) TP.sahisTahmin++; }
+  }
+  if (TP.sahisAdet || TP.ltdAdet || TP.odenmisAdet){
+    const ozS = el('div','serit-ozet duz');
+    const gr = (et, dg) => { const p = el('span','so-p');
+      p.appendChild(el('span','so-et', et)); p.appendChild(el('span','so-dg', dg)); ozS.appendChild(p); };
+    if (TP.sahisAdet) gr('şahıs · ' + TP.sahisAdet + ' ödeme',
+      (TP.sahisTahmin ? 'en az ' : '') + tlk(TP.sahis));
+    if (TP.ltdAdet)   gr('ltd · ' + TP.ltdAdet + ' ödeme',
+      (TP.ltdTahmin ? 'en az ' : '') + tlk(TP.ltd));
+    if (TP.odenmisAdet) gr('ödenmiş · ' + TP.odenmisAdet, tlk(TP.odenmis));
+    ozS.setAttribute('aria-label', ayAdi(ay) + ' toplamı. '
+      + (TP.sahisAdet ? 'Şahıs ' + (TP.sahisTahmin ? 'en az ' : '') + tlk(TP.sahis) + '. ' : '')
+      + (TP.ltdAdet ? 'Ltd ' + (TP.ltdTahmin ? 'en az ' : '') + tlk(TP.ltd) + '. ' : '')
+      + (TP.odenmisAdet ? 'Ödenmiş ' + tlk(TP.odenmis) + '.' : ''));
+    kap.appendChild(ozS);
+    const tahminN = TP.sahisTahmin + TP.ltdTahmin;
+    if (tahminN)
+      kap.appendChild(el('div','bilgi', tahminN + ' kalem TAHMİN: o kartların ekstresi '
+        + 'henüz kesilmedi, önceki dönemden devreden tutar yazıldı. Gerçek tutar '
+        + 'daha yüksek çıkar — yeni harcama, faiz ve vergi de eklenecek. '
+        + 'Ay toplamı bu yüzden ALT SINIRDIR.'));
+  }
+
   /* --- LISTE KAYBOLMASIN: ay gorunumu "ne kadar borcum kaldi"yi yanitlamaz --- */
   const alt = el('div','tkv-alt');
   const bt = el('button', null, TAKVIM_LISTE ? 'ay görünümüne dön' : 'tüm taksitler');
@@ -2752,13 +2840,19 @@ function takvimEkKarti(e, b){
   if (e.tur === 'kart'){
     kutu.onclick = () => kartDetayAc(e.kart.id);
     kutuErisim(kutu, 'Kart ödemesi, ' + e.kart.ad + (e.kart.banka ? ' ' + e.kart.banka : '')
-      + ', kalan ' + tlk(e.kalanKurus) + (gecikti ? ', son ödeme günü geçti' : '') + ', detayı aç');
+      + ', ' + (e.yansitma ? 'ekstresi henüz kesilmedi, devreden en az ' : 'kalan ')
+      + tlk(e.kalanKurus) + (gecikti ? ', son ödeme günü geçti' : '') + ', detayı aç');
     ust.appendChild(el('div','tk-ad', 'Kart · ' + e.kart.ad + (e.kart.banka ? ' · ' + e.kart.banka : '')));
-    ust.appendChild(el('div','tk-tutar', tlk(e.kalanKurus)));
+    ust.appendChild(el('div','tk-tutar', (e.yansitma ? 'en az ' : '') + tlk(e.kalanKurus)));
     kutu.appendChild(ust);
     kutu.appendChild(el('div','tk-orta', 'ekstre ' + e.donem.donem
       + (e.kart.sahip === 'ltd' ? ' · Ltd' : ' · Şahıs')
       + (gecikti ? '' : ' · son ödeme günü')));
+    /* ⚠ TAHMIN OLDUGU SATIRDA YAZAR. Rakami kesinmis gibi gostermek,
+       eylul ekstresine binecek yeni harcama/faiz/vergiyi gizlerdi. */
+    if (e.yansitma)
+      kutu.appendChild(el('div','tk-orta', 'ekstre henüz kesilmedi — '
+        + ayAdi(e.kaynakDonem) + ' devredeni, en az bu kadar'));
   } else {
     kutu.onclick = () => cekDetayAc(e.cek.id);
     kutuErisim(kutu, 'Çek, ' + e.cek.banka + ', ' + e.cek.kime + ', ' + tlk(e.kalanKurus)
