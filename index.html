@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-9">
+<meta name="surum" content="2026-08-27-11">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -217,6 +217,10 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
    sonlari pre-wrap olmadan tek satira eziliyordu. */
 .hata-msg{background:#fdeceb;color:var(--hata);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none;white-space:pre-wrap;line-height:1.5}
 .ok-msg{background:#eafaf1;color:var(--ok);padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none;white-space:pre-wrap;line-height:1.5}
+/* İş oldu ama bir yan adım tutmadı: kırmızı "başarısız" demek yanlış,
+   yeşil "her şey yolunda" demek de yanlış — sarı ara ton. Kendiliğinden
+   kaybolmaz (ok-msg 5sn'de kayboluyor); kullanıcı okumalı. */
+.uyari-msg{background:#FBF3E4;color:#8A6316;padding:10px 12px;border-radius:8px;margin-top:10px;font-size:13.5px;display:none;white-space:pre-wrap;line-height:1.5}
 /* V · sifre penceresi — borc.html'deki .pm deseninin ayni sadelestirilmis hali */
 .pm{border:none;border-radius:16px;padding:16px;width:calc(100% - 32px);max-width:340px;
   max-height:88vh;overflow:auto;background:var(--kart);color:var(--metin)}
@@ -1294,7 +1298,7 @@ function ekranHatasi(id, e){
 /* ================== YARDIMCILAR ================== */
 function mesaj(elId, tip, txt){
   const el = document.getElementById(elId); if(!el) return;
-  el.className = tip==='ok' ? 'ok-msg' : 'hata-msg';
+  el.className = tip==='ok' ? 'ok-msg' : tip==='uyari' ? 'uyari-msg' : 'hata-msg';
   el.textContent = txt; el.style.display='block';
   if (tip==='ok') setTimeout(()=>{ el.style.display='none'; }, 5000);
 }
@@ -4280,6 +4284,12 @@ async function tpGecmisYukle(){
 }
 function tpDegis(i, alan, deger){
   const r = tpBul(i); if (!r) return;
+  /* ⚠ CU · HATA MESAJI SATIRI KİLİTLEMESİN. tpKaydedilebilir "!r.sonuc"
+     istiyor; hata metni satırda kalınca kullanıcı düzeltse bile satırı
+     bir daha SEÇEMİYORDU (ölçüldü: 21 satırdan 20'si kaydedildi, hata
+     alan biri hep dışarıda kaldı). Satıra dokunmak "düzelttim" demektir:
+     hata metni o an düşer, satır yeniden seçilebilir olur. */
+  if (r.sonuc && !tpKilitli(r)) r.sonuc = null;
   if (alan === 'sec') r.sec = !!deger;
   else if (alan === 'haric'){ r.haric = !!deger; if (r.haric) r.sec = false; }
   else if (alan === 'tur'){ r.tur = deger; if (deger !== 'gider') r.kategori = ''; if (!deger) r.sec = false; }
@@ -4289,6 +4299,8 @@ function tpDegis(i, alan, deger){
 function tpHepsi(alan, deger){
   TOPLU.forEach(r => { if (r.haric || r.eksik.length) return;
     if (alan === 'tur' && deger === 'alis' && !r.ted) return;     // tedarikçisiz alış olmaz
+    /* ⚠ CU · toplu dokunuş da hata kilidini açar (tpDegis ile aynı gerekçe) */
+    if (r.sonuc && !tpKilitli(r)) r.sonuc = null;
     if (alan === 'sec') r.sec = deger && !!r.tur;
     else { r[alan] = deger; if (alan === 'tur' && deger !== 'gider') r.kategori = ''; }
   });
@@ -4304,10 +4316,13 @@ function tpHepsi(alan, deger){
      tedarikçi, düzeltilmesi gereken bir kayıttır.
    ⚠ BAŞARISIZ OLURSA SATIR AÇILMAZ: yarısı açılmış bir tablo, hiç
      açılmamıştan kötü. ted YALNIZ sunucu onay verirse bağlanır. */
+/* Kaydedilmiş / işletme dışı satır kilitlidir; hata alan satır DEĞİL —
+   kullanıcı onu düzeltip tekrar deneyecek. */
+function tpKilitli(r){ return r.sonuc === 'ok' || r.sonuc === 'işletme dışı'; }
 function tpAcilacaklar(){
   const gorulen = new Set();
   return TOPLU.filter(r => {
-    if (r.ted || r.sonuc || r.haric) return false;
+    if (r.ted || tpKilitli(r) || r.haric) return false;
     if (r.esles === 'catisma') return false;          // karar kullanıcının
     if (!r.unvan) return false;                       // unvan okunamadı
     const k = r.kaynak.vkn || fuAnahtar(r.unvan);
@@ -4340,7 +4355,7 @@ async function tpTedarikciAc(hangi){
   /* ⚠ BAĞLAMA KATALOGDAN YENİDEN YAPILIR: sunucu neyi kabul ettiyse o
      bağlanır. Hata alan firma listede kalır, satırı Alış'a AÇILMAZ. */
   TOPLU.forEach(r => {
-    if (r.ted || r.sonuc) return;
+    if (r.ted || tpKilitli(r)) return;
     const e = tedEslestir(r.kaynak.vkn, r.unvan || r.firma);
     if (e.durum === 'vkn') r.ted = e.ted;
     r.esles = e.durum;
@@ -4399,12 +4414,19 @@ function tpCiz(){
     ${TOPLU.map(r => {
       const kapali = r.haric || r.eksik.length || !r.tur
                   || (r.tur === 'gider' && !r.kategori) || (r.tur === 'alis' && !r.ted);
+      /* ⚠ SATIRI YALNIZ BAŞARI KİLİTLER. Önce "r.sonuc varsa disabled"
+         deniyordu; hata metni de bir sonuç olduğu için HATA ALAN SATIR
+         da kilitleniyordu — kullanıcı düzeltip tekrar deneyemiyordu
+         (ölçüldü: kilitli satır 21 satırlık turda dışarıda kaldı).
+         Kaydedilmiş ya da işletme dışı işaretlenmiş satır kilitli
+         kalır; hatalı satır açık kalır, dokunulunca hata metni düşer. */
+      const kilit = tpKilitli(r);
       const sonucRz = r.sonuc === 'ok' ? '<span class="rozet rz-ok">kaydedildi</span>'
         : r.sonuc ? `<span class="rozet rz-hata">${esc(String(r.sonuc).slice(0,40))}</span>` : '';
       return `<div class="liste-satir" style="flex-direction:column;align-items:stretch;gap:6px">
         <div style="display:flex;gap:8px;align-items:flex-start">
           <input type="checkbox" style="width:22px;height:22px;flex:0 0 auto;margin-top:2px"
-            ${r.sec ? 'checked' : ''} ${kapali || r.sonuc ? 'disabled' : ''}
+            ${r.sec ? 'checked' : ''} ${kapali || kilit ? 'disabled' : ''}
             aria-label="${esc(r.firma||'')} kaydedilsin"
             onchange="tpDegis(${r.i},'sec',this.checked)">
           <div style="flex:1;min-width:0">
@@ -4438,25 +4460,25 @@ function tpCiz(){
           </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-          <select style="flex:1;min-width:120px" ${r.sonuc ? 'disabled' : ''}
+          <select style="flex:1;min-width:120px" ${kilit ? 'disabled' : ''}
             onchange="tpDegis(${r.i},'tur',this.value)">
             <option value=""${r.tur ? '' : ' selected'}>— tür seç —</option>
             <option value="alis"${r.tur === 'alis' ? ' selected' : ''}${r.ted ? '' : ' disabled'}>Alış (SMM)</option>
             <option value="gider"${r.tur === 'gider' ? ' selected' : ''}>Gider</option>
           </select>
-          ${r.tur === 'gider' ? `<select style="flex:1;min-width:120px" ${r.sonuc ? 'disabled' : ''}
+          ${r.tur === 'gider' ? `<select style="flex:1;min-width:120px" ${kilit ? 'disabled' : ''}
             onchange="tpDegis(${r.i},'kategori',this.value)">
             <option value="">— kategori —</option>${KATALOG.kategoriler.map(k =>
               `<option value="${k.id}"${r.kategori === k.id ? ' selected' : ''}>${esc(k.ad)}</option>`).join('')}
           </select>` : ''}
           <label style="display:flex;gap:6px;align-items:center;min-height:44px;font-size:13px">
             <input type="checkbox" style="width:20px;height:20px" ${r.haric ? 'checked' : ''}
-              ${r.sonuc ? 'disabled' : ''} onchange="tpDegis(${r.i},'haric',this.checked)">
+              ${kilit ? 'disabled' : ''} onchange="tpDegis(${r.i},'haric',this.checked)">
             işletme dışı</label>
-          ${!r.ted && r.unvan && r.esles !== 'catisma' && !r.sonuc
+          ${!r.ted && r.unvan && r.esles !== 'catisma' && !kilit
             ? `<button type="button" class="btn2" style="min-height:44px"
                  onclick="tpTedarikciAc(${r.i})">Tedarikçi olarak ekle</button>` : ''}
-          <button type="button" class="btn2" style="min-height:44px" ${r.sonuc ? 'disabled' : ''}
+          <button type="button" class="btn2" style="min-height:44px" ${kilit ? 'disabled' : ''}
             onclick="mutabakatGir('${esc(r.belge_no || '')}')">Tek tek gir</button>
         </div>
       </div>`;
@@ -4467,6 +4489,51 @@ function tpCiz(){
       onclick="tpKaydet()">${secili ? secili + ' faturayı kaydet' : 'Kaydedilecek satır seç'}</button>
     <div class="hata-msg" id="tpMsg"></div>
   </div>`;
+}
+/* ⚠ CU · KAYITTAN SONRA YENİDEN SINIFLANDIRMA.
+   mutabakatCalistir'ın DB sorgusunun ve sınıflandırmasının AYNISI,
+   yalnız verilen belge no'lar için. Amaç: "kaydettim" demek değil,
+   "DB'de var mı, foto_path dolu mu" diye SORMAK. PDF metni yeniden
+   okunmaz — MUTABAKAT nesneleri zaten elimizde, değişen tek şey
+   durum/tur/kayit alanları. */
+async function tpSiniflandir(nolar){
+  const kume = [...new Set((nolar || []).filter(Boolean))];
+  if (!kume.length) return;
+  const hedef = MUTABAKAT.filter(x => x.belge_no && kume.includes(x.belge_no));
+  if (!hedef.length) return;
+  const [av, gv, hv] = await Promise.all([
+    sb.from('alis').select('id,belge_no,tarih,toplam,foto_path,tedarikci(ad)')
+      .eq('is_deleted', false).in('belge_no', kume),
+    sb.from('gider').select('id,aciklama,tarih,tutar,foto_path').eq('is_deleted', false),
+    sb.from('belge_haric').select('belge_no,neden').eq('is_deleted', false)
+  ]);
+  /* ⚠ YARIM SINIFLANDIRMA YAPILMAZ. Supabase hata dönerse data null
+     gelir; sessizce devam edilse alisMap boş kalır ve HER satır
+     "eksik" sınıflanırdı — yani bu turda düzelttiğimiz "Girilmemiş 25"
+     ekranının birebir aynısı, üstelik sebebi görünmeden. Bir sorgu bile
+     hatalıysa HİÇBİR durum değiştirilmeden atılır; çağıran yakalar. */
+  const kotu = [av, gv, hv].find(r => r && r.error);
+  if (kotu) throw new Error(kotu.error.message || 'sınıflandırma sorgusu başarısız');
+  const haricMap = {}; ((hv && hv.data) || []).forEach(h =>
+    { haricMap[(h.belge_no || '').toUpperCase()] = h.neden; });
+  const alisMap = {}; ((av && av.data) || []).forEach(a =>
+    { alisMap[(a.belge_no || '').toUpperCase()] = a; });
+  const giderler = (gv && gv.data) || [];
+  hedef.forEach(x => {
+    if (haricMap[x.belge_no]){ x.durum = 'haric'; x.neden = haricMap[x.belge_no];
+      x.kayit = null; x.tur = ''; return; }
+    const a = alisMap[x.belge_no];
+    const g = giderler.find(z => (z.aciklama || '').toUpperCase().includes(x.belge_no));
+    const k = a || g;
+    /* ⚠ Kayıt YOKSA 'eksik'e DOKUNULMAZ: sunucu hata verdiyse belge
+       hâlâ girilmemiştir, panelde de öyle görünmeli. */
+    if (!k){ x.durum = 'eksik'; x.kayit = null; x.tur = ''; return; }
+    x.kayit = k; x.tur = a ? 'alis' : 'gider';
+    /* Toplu giriş p_foto:null ile kaydediyor -> beklenen normal sonuç
+       'belge_eklenecek'; belgeler "BELGESİ EKSİK" kutusuna düşer ve
+       "n Belgeyi Kayıtlara Ekle" düğmesi çıkar. */
+    x.durum = k.foto_path ? 'belgeli' : 'belge_eklenecek';
+  });
 }
 async function tpKaydet(){
   const btn = document.getElementById('tpKaydet');
@@ -4528,12 +4595,53 @@ async function tpKaydet(){
   }
   const atlanan = haricOk;
   const eksikli = TOPLU.filter(x => x.eksik.length).length;
+  /* ⚠ CU · ÜST PANEL DE TAZELENİR.
+     Ölçüldü: dört fatura kaydedildi, satırlarda yeşil "kaydedildi"
+     rozeti çıktı ama üstteki "Karşılaştırma Sonucu" hâlâ
+     "Portaldan gelen 4 · Sistemde var 0 · Girilmemiş 4" ve kırmızı
+     "SİSTEME GİRİLMEMİŞ (4)" diyordu — kullanıcı kaydın girmediğini
+     sandı. Sebep: mutabakatCiz() MUTABAKAT dizisinden okuyor, o dizi
+     kaydetmeden sonra hiç güncellenmiyordu.
+     ⚠ YEREL İYİMSER YAMA YOK: "kaydettim, demek ki var" denmiyor.
+       Kayıt gerçekten var mı, foto_path dolu mu — DB söylüyor.
+       PDF'ler TEKRAR OKUNMUYOR (yavaş, üstelik dosya girdisi ekranda
+       durmayabilir); yalnız sınıflandırma sorgusu, YALNIZ bu turda
+       dokunulan belge no'lar için tekrarlanıyor. */
+  /* ⚠ TAZELEME ÇÖKERSE KAYIT YİNE DURUYOR. Bu blok korumasızken bir ağ
+     hatası fonksiyonu burada öldürüyordu: tpCiz() çalışmaz, düğme
+     "Kaydediliyor 25/25..." yazısıyla disabled kalır, mesaj hiç
+     yazılmazdı — kayıtlar DB'ye GİRMİŞ olduğu hâlde kullanıcı
+     girmediğini sanardı. Artık ekran her hâlükârda geri geliyor. */
+  let tazeHata = null;
+  try{
+    await tpSiniflandir([...secilenler, ...haricler].map(r => r.belge_no).filter(Boolean));
+    mutabakatCiz();
+    /* ⚠ HATA ALAN SATIRIN SEÇİMLERİ KAYBOLMAZ: tpKur tabloyu sıfırdan
+       kuruyor; kullanıcının girdiği tür/kategori ve hata metni belge
+       no üzerinden geri yazılır — yoksa düzeltip tekrar denemek için
+       her şeyi baştan seçmesi gerekirdi. */
+    const onceki = {};
+    TOPLU.forEach(r => { if (r.belge_no) onceki[r.belge_no] =
+      { tur:r.tur, kategori:r.kategori, sonuc:r.sonuc, haric:r.haric, sec:r.sec }; });
+    tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
+    TOPLU.forEach(r => { const o = r.belge_no && onceki[r.belge_no]; if (!o) return;
+      r.tur = o.tur; r.kategori = o.kategori; r.haric = o.haric;
+      /* 'ok' geri yazılmaz: o satır zaten tablodan düştü. Kalan satırda
+         duran şey HATA metnidir, kullanıcı onu görmeli. */
+      if (o.sonuc && o.sonuc !== 'ok' && o.sonuc !== 'işletme dışı') r.sonuc = o.sonuc;
+      r.sec = o.sec && tpKaydedilebilir(r);
+    });
+  }catch(e){ tazeHata = hataTr(e.message); }
   tpCiz();
-  mesaj('tpMsg', hatalar.length ? 'hata' : 'ok',
+  mesaj('tpMsg', hatalar.length ? 'hata' : (tazeHata ? 'uyari' : 'ok'),
     ok + ' kaydedildi'
     + (hatalar.length ? ' · ' + hatalar.length + ' hata: ' + hatalar.slice(0,3).join(' | ') : '')
     + (atlanan ? ' · ' + atlanan + ' işletme dışı işaretlendi (bir daha sorulmaz)' : '')
-    + (eksikli ? ' · ' + eksikli + ' eksik okundu (tek tek gir)' : ''));
+    + (eksikli ? ' · ' + eksikli + ' eksik okundu (tek tek gir)' : '')
+    /* ⚠ "kaydedilemedi" DENMEZ — kayıt olmuştur. Yalan uyarı kullanıcıyı
+       ikinci kez girmeye zorlar; söylenen tek şey panelin bayat olduğu. */
+    + (tazeHata ? ' · üst panel tazelenemedi (bağlantı) — "Belgeleri Oku ve Karşılaştır"'
+                + ' düğmesine tekrar basınca doğrusunu görürsün' : ''));
 }
 
 async function mutabakatCalistir(){
