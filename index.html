@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-15">
+<meta name="surum" content="2026-08-27-16">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4157,10 +4157,18 @@ function faturaAlanlari(ad, metin){
    ⚠ CT · FATURA METNİNDEN TAM UNVAN
    ÖLÇÜLDÜ (25 gerçek fatura · 11 ayrı firma): dosya adındaki firma
    KIRPIK ve bozuk ("BİM BİRLEŞİK MA", "ŞERİF BAŞARAN K") — tedarikçi
-   adı olarak kullanılamaz. Metinde tam unvan 19/25 belgede, 8/11
-   firmada okunabiliyor. Okunamayan üç firmanın (Turkcell, DELTA,
-   Sütaş) satıcı adı sayfa metninde HİÇ yok (başlık görsel) — orada
-   tedarikçi oluşturulmaz, adı kullanıcı yazar.
+   adı olarak kullanılamaz. Tam unvan metinden okunuyor.
+   ⚠ BU YORUM BİR KEZ YANLIŞ BİLGİ TAŞIDI, DÜZELTİLDİ: eskiden
+     "Turkcell, DELTA ve Sütaş'ın satıcı adı sayfa metninde HİÇ yok"
+     yazıyordu. DELTA için bu DOĞRU DEĞİL — ham metinde duruyor:
+     "Son Ödeme Tarihi 14-08-2026 DELTA DAY.TÜK.MALL.TİC.LTD.ŞTİ. GÜL…"
+     Göremeyen desendi: eki aramadan önce BOŞLUK şart koşuyordu
+     (\s+), DELTA'da ise ek noktayla yapışık ("...MALL.TİC.LTD.ŞTİ.").
+     FU_KELIME nokta içerdiği için tüm dizgiyi yutuyor, geri izlese de
+     ayırıcı olarak \s bulamıyordu. Ayırıcı [\s.]+ oldu.
+     Turkcell için doğru: 113 metin parçasında unvan yok, logoda.
+     Sütaş için de doğru ama sorun değil — zaten kayıtlı, yalnız VKN'si
+     boş ve "VKN'yi yaz" düğmesi onu çözüyor.
    ⚠ DOSYA ADI ÇIPA, AD DEĞİL: metindeki hangi adayın satıcı olduğunu
      söyleyen en güvenilir işaret o. Çıpasız denendi ve Sütaş
      faturasında ödeme bloğundaki "YAPI VE KREDİ BANKASI A.Ş."
@@ -4169,7 +4177,9 @@ function faturaAlanlari(ad, metin){
      baştan kırpılıyordu ("...SANAYİ GIDA VE TEMİZLİK ... ŞİRKETİ"). */
 const FU_EK = '(?:A\\.?\\s?Ş\\.?|LTD\\.?\\s?ŞTİ\\.?|LİMİTED\\s+ŞİRKETİ|ANONİM\\s+ŞİRKETİ)';
 const FU_KELIME = '[A-ZÇĞİÖŞÜa-zçğıöşü0-9][A-ZÇĞİÖŞÜa-zçğıöşü0-9.&/-]*';
-const FU_DESEN = new RegExp('((?:' + FU_KELIME + '\\s+){1,10}' + FU_EK + ')', 'g');
+/* ⚠ AYIRICI [\s.]+ — sadece \s DEĞİL: unvan eki noktayla yapışık
+   gelebiliyor ("...MALL.TİC.LTD.ŞTİ."), o zaman desen eki hiç görmüyordu. */
+const FU_DESEN = new RegExp('((?:' + FU_KELIME + '[\\s.]+){1,10}' + FU_EK + ')', 'g');
 const FU_ELE = /BANKA|IBAN|ŞUBES[İI]\b/i;
 const FU_SADE = { 'Ç':'C','Ğ':'G','İ':'I','I':'I','Ö':'O','Ş':'S','Ü':'U',
                   'ç':'C','ğ':'G','ı':'I','i':'I','ö':'O','ş':'S','ü':'U' };
