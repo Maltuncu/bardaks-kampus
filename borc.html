@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-17">
+<meta name="surum" content="borc-2026-08-27-18">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1822,17 +1822,31 @@ async function bantVerisi(){
        gun = min(son_odeme_gunu, ayin son gunu)
      Kapsam buAyKart ile AYNI suzgec: aktif kart · gun bilgisi olan ·
      kalan > 0 · odeme_turu 'tam' olmayan donemler.
-     ⚠ Ayni kartin ardisik donemleri DEVRI tasir; iki donem takvimde iki
-       AYRI aya duser, ayni ayin toplaminda tek donem bulunur — ay basligi
-       devri cift saymaz. Aylar arasi toplam takvimde HIC kurulmuyor. */
+     ⚠ DD · YALNIZ HER KARTIN SON DONEMI CIZILIR. Once butun donemler
+       geziliyordu ve bu YAPISAL OLARAK YANLISTI:
+         kalan = devir + yeni_harcama + duzeltme − alacak kayitlari
+       `devir` onceki donemin ODENMEMIS kismidir; yani her ekstre bir
+       oncekinin kalanini ZATEN ICERIR. Donemleri toplamak ayni borcu
+       iki kez sayar:
+         Enpara 2026-07 kapanmamis 200.000,00
+         Enpara 2026-08 ekstre     467.567,96  <- 200.000 BUNUN ICINDE
+       Takvim ikisini de ciziyordu.
+       ⚠ NE KAYBOLUYOR: gecmis aylarda eski ekstre satirlari artik
+         gorunmuyor. Bu BILINCLI — eski bir ekstrenin odenmemis kismi
+         ayri bir borc degil, sonrakinin icinde. Ekranda da soyleniyor
+         (takvimde ay dibinde not), kullanici "kayboldu mu" demesin.
+       ⚠ Yansitma blogu (asagida) zaten son donemi kullaniyordu; artik
+         iki yol AYNI donemi okuyor. */
   const sonrakiAy = (ay) => { const [y,m] = ay.split('-').map(Number);
     const d = new Date(Date.UTC(y, m, 1));
     return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0'); };
   const kartOdemeleri = [];
   for (const k of kart.kartlar){
     if (!k.aktif || k.kesim_gunu == null || k.son_odeme_gunu == null) continue;
-    for (const d of kart.donemler){
-      if (d.kart_id !== k.id) continue;
+    let sonDonem = null;
+    for (const x of kart.donemler)
+      if (x.kart_id === k.id && (!sonDonem || x.donem > sonDonem.donem)) sonDonem = x;
+    for (const d of (sonDonem ? [sonDonem] : [])){
       /* ⚠ CJ · DORDUNCU YER — brifte sayilmamisti, OLCUMLE cikti.
          Takvim 25.08 gununde "5 odeme · 1.563.029,90" diyordu, ayni bes
          kart icin Kartlar ekrani 1.101.607,09; ayni uygulamada IKI
@@ -2822,6 +2836,20 @@ function takvimYenile(ctx){
         + 'daha yüksek çıkar — yeni harcama, faiz ve vergi de eklenecek. '
         + 'Ay toplamı bu yüzden ALT SINIRDIR.'));
   }
+
+  /* ⚠ DD · KAYBOLAN SATIRIN SEBEBI YAZILI. Kart tarafinda yalniz SON
+     donem ciziliyor; gecmis ayda kart satiri gormeyen kullanici
+     "kayboldu mu" diye dusunmesin.
+     ⚠ SERIDIN ICINDE DEGIL, DISINDA: ay TAMAMEN bossa serit hic
+       cizilmiyor ve not da gorunmuyordu — oysa "kayboldu mu" sorusu
+       tam da o ayda soruluyor (olculdu: mukerrer veri duzeltilince
+       agustos komple bosaldi ve hicbir aciklama yoktu). */
+  if (ay < buAy)
+    kap.appendChild(el('div','kucuk',
+      'Geçmiş aylarda kart ekstresi satırı görünmez: bir ekstrenin ödenmemiş '
+    + 'kısmı ayrı bir borç değil, bir sonraki ekstrenin DEVİR satırının '
+    + 'içindedir. İki kere göstermek aynı borcu iki kez saymak olurdu. '
+    + 'Kartın güncel durumu Kartlar ekranında.'));
 
   /* --- LISTE KAYBOLMASIN: ay gorunumu "ne kadar borcum kaldi"yi yanitlamaz --- */
   const alt = el('div','tkv-alt');
@@ -7068,6 +7096,42 @@ async function kartDetayAc(kartId, duzenlenenId){
   }
 }
 
+/* ==================================================================
+   DD · DONEM ETIKETI BUGUNUN AYI DEGIL, EKSTRENIN AYI
+   ==================================================================
+   Eski hal: dn.value = bugun().slice(0,7). Agustos ekstresini 4 Eylul'de
+   girince 2026-09 yaziyordu. MUKERRER DONEMLERIN DOGRUDAN SEBEBI BU:
+   canli veride dort kartta AYNI ekstre iki kez, kurusuna kadar ayni
+   kalanla duruyor (Black 122.748,91 · Enpara 467.567,96 ·
+   KTU 347.386,08 · Ziraat Ticari 580.551,85). Odemeler ikiye bolunmus;
+   toplaninca dordu de TAM kapaniyor, gercek kart borcu 0 — ama bant
+   249.079,75, takvim 1.818.254,80 diyordu.
+   Kaynak sirasi:
+     a) Okuyucudan gelen HESAP KESIM ayi (ekstreKaydet yolu zaten bunu
+        kullaniyor: "DONEM = KESIM AYI, son odeme ayindan DEGIL")
+     b) Kartin kesim_gunu biliniyorsa: bugunun gunu >= kesim_gunu ise
+        bu ay, degilse gecen ay. (4 Eylul, kesim 15 -> son kesim 15.08
+        -> 2026-08 ✓)
+     c) Hicbiri yoksa bugunun ayi (eski hal) */
+function oncekiAy(ay){
+  const [y,m] = ay.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0');
+}
+function donemVarsayilan(kart, okunanKesimAy){
+  const b = bugun(), buAy = b.slice(0,7);
+  if (okunanKesimAy && /^\d{4}-\d{2}$/.test(okunanKesimAy))
+    return { ay: okunanKesimAy, kaynak: 'Dönem ekstrenin hesap kesim tarihinden geldi.' };
+  if (kart && kart.kesim_gunu != null){
+    const gun = Number(b.slice(8,10));
+    const ay = gun >= Number(kart.kesim_gunu) ? buAy : oncekiAy(buAy);
+    return { ay, kaynak: 'Dönem kartın kesim gününden (ayın ' + kart.kesim_gunu
+      + '.) türetildi: bugün ' + Number(b.slice(8,10)) + '. gün, son kesim '
+      + ayAdi(ay) + '. Yanlışsa değiştir.' };
+  }
+  return { ay: buAy, kaynak: 'Kartın kesim günü girilmemiş; bugünün ayı yazıldı. '
+    + 'Ekstrenin hesap kesim ayını kontrol et.' };
+}
 function donemFormu(kart, liste, duz){
   const k = el('div','kart');
   k.appendChild(el('div','kbaslik', duz ? duz.donem + ' düzeltiliyor' : 'Yeni ay ekle'));
@@ -7086,8 +7150,13 @@ function donemFormu(kart, liste, duz){
 
   k.appendChild(el('label', null, 'Dönem (YYYY-AA)')).setAttribute('for','kdDonem');
   const dn = document.createElement('input');
-  dn.id = 'kdDonem'; dn.type = 'month'; dn.value = duz ? duz.donem : bugun().slice(0,7);
+  dn.id = 'kdDonem'; dn.type = 'month';
+  const vd = duz ? { ay: duz.donem, kaynak: null } : donemVarsayilan(kart);
+  dn.value = vd.ay;
   k.appendChild(dn);
+  /* ⚠ DD · DEGERIN NEREDEN GELDIGI YAZILI. Alan KILITLI DEGIL — yalniz
+     dogru deger onde duruyor; kullanici neye baktigini bilmeli. */
+  if (vd.kaynak) k.appendChild(el('div','kucuk', vd.kaynak));
   /* ⚠ Kurus -> form metni. tl() nokta/binlik ekliyor, paraCoz onu geri
      okuyabiliyor ama gidip gelen bicimlendirme bir gun yuvarlar; ham
      "1234,56" yaziliyor. NULL alan BOS kaliyor — 0,00 YAZILMIYOR, cunku
@@ -7573,6 +7642,44 @@ async function donemOnizle(kart, liste, kaydet, duz){
     dk.appendChild(ok);
     ov.appendChild(dk);
     return;
+  }
+
+  /* ==================================================================
+     ⚠ DD · KAYDETMEDEN ONCE IKI NOBETCI — ENGELLEMEZ, SORAR
+     ==================================================================
+     Kayit dogrudan insert ile gidiyordu, hicbir sey sormuyordu. Canli
+     veride dort kartta ayni ekstre iki kez girilmis.
+     ⚠ OLCULDU — KISIT VAR: taban.sql:6339
+         CREATE UNIQUE INDEX ux_kart_donem ON kart_donem (kart_id, donem)
+         WHERE (NOT is_deleted)
+       Yani ayni donem ikinci kez GIRILEMIYOR; sistem bu yuzden 2026-09'a
+       kaymis. Kisit YENIDEN YAZILMIYOR — buradaki nobetci onun
+       yakalayamadigini yakaliyor: AYNI TUTAR, BASKA DONEM.
+     ⚠ ENGELLEME, SOR: gercekten iki ay ust uste ayni tutar cikabilir.
+       Karar kullanicinin; sistemin isi gormezden gelmemek.
+     ⚠ YENI KURAL ICAT EDILMEDI: devir denetimi v_kart_donem'in
+       devir_farki/devir_tutarsiz hesabinin AYNISI (devir − onceki
+       kalan), yalnizca giris aninda yapiliyor. Kaydettikten sonra
+       fark etmek gec. */
+  const ayniTutar = liste.filter(x => x.donem !== r.donem && kr(x.kalan) === r.kalan);
+  if (ayniTutar.length){
+    if (!(await onaySor({
+      baslik:'Aynı ekstre ikinci kez mi giriliyor?',
+      metin:'Bu tutar (' + tlk(r.kalan) + ') '
+        + ayniTutar.map(x => x.donem).join(', ') + ' döneminde zaten var. '
+        + 'Aynı ekstreyi ikinci kez giriyor olabilirsin.\n\n'
+        + 'Gerçekten iki ay üst üste aynı tutar çıkmışsa devam et.',
+      onayMetni:'Yine de kaydet', tehlikeli:false }))) return;
+  }
+  if (onceki && kr(r.satir.devir) !== kr(onceki.kalan)){
+    const fark = kr(r.satir.devir) - kr(onceki.kalan);
+    if (!(await onaySor({
+      baslik:'Devir önceki ayla tutmuyor',
+      metin:'Devir ' + tlk(kr(r.satir.devir)) + ' ama önceki dönemin ('
+        + onceki.donem + ') kalanı ' + tl(onceki.kalan) + ' — arada '
+        + tlk(Math.abs(fark)) + ' fark var.\n\n'
+        + 'Kısmi ödenen kartta bu fark faiz olabilir. Ekstreye bakıp karar ver.',
+      onayMetni:'Yine de kaydet', tehlikeli:false }))) return;
   }
 
   const btn = document.getElementById('kdKaydet');
