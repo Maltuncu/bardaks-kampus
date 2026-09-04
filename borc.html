@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-16">
+<meta name="surum" content="borc-2026-08-27-17">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -475,6 +475,11 @@ main{padding:14px;max-width:640px;margin:0 auto}
   padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-weight:700;font-size:13px;line-height:1.5}
 .bilgi{background:var(--acik);border-left:3px solid var(--ana);color:var(--ana-koyu);
   padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-size:13px;line-height:1.55;white-space:pre-line}
+/* Ekstre odemesi onizlemesi: etiket solda, rakam sagda. Bosluklarla
+   hizalanamiyor (.bilgi white-space:pre-line ardisik boslugu cokurtur). */
+.oy-satir{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.oy-et{flex:1 1 auto;min-width:0}
+.oy-dg{flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums}
 .bos{text-align:center;color:var(--soluk);padding:26px 12px;font-size:15px;line-height:1.6}
 .kucuk{font-size:13px;color:var(--soluk);line-height:1.55;margin-top:7px;overflow-wrap:anywhere}
 /* Kullanici "dekont ekle yok burda" dedi. Satir VARDI ama .kucuk ile gri,
@@ -6992,11 +6997,16 @@ async function kartDetayAc(kartId, duzenlenenId){
            Dugme YALNIZ donem_odemesi bos satirda cikar — girilmis
            donemde rakami degistirmek hala Düzenle'nin isi (tek yol,
            tek denetim). */
-        if (d.donem_odemesi == null){
-          const bo = el('button','btn-mini','Ödeme yap');
-          bo.onclick = () => odemeYapAc(kart, d);
-          ey.appendChild(bo);
-        }
+        /* ⚠ DC · DUGME HER DONEMDE. Once yalniz donem_odemesi BOS satirda
+           cikiyordu; ikinci odemede kullanici Duzenle'ye dusuyor ve
+           KUMULATIF toplami yazmak zorunda kaliyordu. Bir ekstreye
+           birden cok odeme yapilmasi NORMAL hal — istisna degil.
+           Girilen tutar mevcudun UZERINE EKLENIR.
+           ⚠ Rakami DEGISTIRMEK hala Duzenle'nin isi (tek denetim yolu);
+             eklemek ayri, duzeltmek ayri. */
+        const bo = el('button','btn-mini','Ödeme yap');
+        bo.onclick = () => odemeYapAc(kart, d);
+        ey.appendChild(bo);
         const bd = el('button','btn-mini','Düzenle');
         bd.onclick = () => kartDetayAc(kartId, d.donem_id);
         ey.appendChild(bd);
@@ -7291,8 +7301,30 @@ function donemSatiriUret(kart){
    ⚠ v113: tarih girilecekse tutar da girilmis olmali. Bu yuzden
      ONCE TUTAR isteniyor; tutar gecerli degilse Kaydet kapali ve
      sunucuya hicbir sey gitmiyor. */
+/* ==================================================================
+   DC · EKSTRE ODEMESI — BANKANIN CUMLESIYLE SORULUR
+   ==================================================================
+   OLCULDU (Ziraat ekrani + dekont, 04.09.2026):
+     Banka  : "Son Ekstreden Kalan Borç 0,00"
+     Sistem : 2026-08 · kalan 580.551,85 · donem_odemesi 80.551,85
+              · kapanmamis 500.000,00
+     Dekont : 04.09.2026 · 500.000,00
+   Kullanici 500.000 yazdi ve 80.551,85 hayalet borc kaldi. Hatasi
+   DEGIL: alan KUMULATIF toplam istiyordu (580.551,85), oysa onceki
+   odemeyi kimse ezbere bilmiyor. Kullanicinin sozu: "borcu tam
+   cikartamiyoruz".
+   ⚠ ASIL COZUM HESAP DEGIL, KOPYALAMA: ikinci bir giris yolu var —
+     "Bankada yazan: Son Ekstreden Kalan Borç". Kullanici zaten o
+     ekrana bakiyor; ayni kelimeler, ayni sira. Ezber gerekmiyor.
+     donem_odemesi = kalan − yazilan.
+   ⚠ IKI ALAN AYNI SATIRIN IKI YUZU: biri yazilinca oteki CANLI
+     guncellenir. Programla yazilan deger 'input' URETMEZ (olculdu),
+     bu yuzden bicimleme elle cagriliyor.
+   ⚠ TUTAR EKLENIR, EZILMEZ: bir ekstreye birden cok odeme yapilir. */
 function odemeYapAc(kart, d){
-  const kapanmamis = kr(d.kalan) - kr(d.donem_odemesi || 0);
+  const kalan   = kr(d.kalan);
+  const onceki  = kr(d.donem_odemesi || 0);
+  const kapanmamis = kalan - onceki;
   const dlg = document.createElement('dialog'); dlg.className = 'pm';
   dlg.setAttribute('aria-modal','true');
   const bas = el('div','pm-bas sakin', 'Ekstre ödemesi'); bas.id = 'oyBas';
@@ -7300,7 +7332,9 @@ function odemeYapAc(kart, d){
   dlg.appendChild(el('div','pm-ad', kart.ad + (kart.banka ? ' · ' + kart.banka : '') + ' · ' + d.donem));
   dlg.appendChild(el('div','pm-tutar', 'Kapanmamış ' + tlk(kapanmamis)));
   dlg.appendChild(el('div','kucuk','KALAN ' + tl(d.kalan)
-    + ' — ekstrenin tutarı, ödeme bunu değiştirmez.'));
+    + ' — ekstrenin tutarı, ödeme bunu değiştirmez.'
+    + (onceki > 0 ? '\nBu ekstreye daha önce ' + tlk(onceki)
+                    + ' ödenmiş; yazdığın tutar bunun ÜZERİNE eklenir.' : '')));
 
   const alan = (etiket, id, tip) => {
     const l = el('label', null, etiket); l.setAttribute('for', id); dlg.appendChild(l);
@@ -7308,15 +7342,11 @@ function odemeYapAc(kart, d){
     if (tip !== 'date') i.setAttribute('inputmode','decimal');
     dlg.appendChild(i); return i;
   };
-  const gTutar = alan('Ödediğin tutar', 'oyTutar');
-  paraBagla(gTutar, () => denetle());     /* CO · bicimlenince onizleme tazelenir */
-  /* ⚠ TAM ODEME KOLAYLIGI: alana dokununca kapanmamisin TAMAMI oneri
-     olarak gelir, uzerine yazilabilir. Dolu alan EZILMEZ. */
-  gTutar.onfocus = () => { if (!gTutar.value.trim() && kapanmamis > 0){
-    gTutar.value = (kapanmamis/100).toFixed(2).replace('.', ',');
-    /* ⚠ Olculdu: 'focus' ile deger yazmak 'input' URETMEZ — onizleme
-       "Tutarı yaz" yazili kaliyor ve Kaydet kapali duruyordu. */
-    denetle(); } };
+  const gTutar = alan('Şimdi ödediğin tutar', 'oyTutar');
+  const gBanka = alan('ya da — bankada yazan: Son Ekstreden Kalan Borç', 'oyBanka');
+  dlg.appendChild(el('div','kucuk',
+    'İkisinden BİRİNİ yaz, öteki kendiliğinden dolar. Bankadaki rakamı '
+  + 'kopyalamak daha kolaydır: hesaplama yapmadan, ekranda ne yazıyorsa o.'));
   const gGun = alan('Ödemenin günü', 'oyGun', 'date');
   gGun.value = bugun(); gGun.max = bugun();
   const oniz = el('div','bilgi'); dlg.appendChild(oniz);
@@ -7327,41 +7357,97 @@ function odemeYapAc(kart, d){
   vaz.type = kay.type = 'button';
   ey.appendChild(vaz); ey.appendChild(kay); dlg.appendChild(ey);
 
-  const denetle = () => {
+  /* Iki alan birbirini guncellerken sonsuz donguye girmesin */
+  let esitleniyor = false;
+  const yazVe = (inp, kurus) => { esitleniyor = true;
+    inp.value = (kurus/100).toFixed(2).replace('.', ',');
+    paraBicimle(inp); esitleniyor = false; };
+
+  /* Bu odeme (X) tek gercek girdi; banka alani X = kalan − onceki − B
+     denkleminden okunur. denetle() hangisinin yazildigina gore otekini
+     doldurur ve onizlemeyi kurar. */
+  const denetle = (kaynak) => {
     hata.hidden = true; kay.disabled = true;
-    const h = gTutar.value.trim();
-    if (!h){ oniz.textContent = 'Tutarı yaz — kapanmamışın nereye ineceğini burada göstereceğim.'; return; }
-    if (/^\s*[-−]/.test(h)){ hata.hidden = false;
-      hata.textContent = 'Ödeme eksi olamaz.'; oniz.textContent = ''; return; }
-    const r = paraCoz(h);
-    if (!r.ok){ hata.hidden = false; hata.textContent = r.hata; oniz.textContent = ''; return; }
-    const yeni = kapanmamis - r.kurus;
-    oniz.textContent = 'ödersen kapanmamış: ' + tlk(kapanmamis) + ' → ' + tlk(yeni);
+    oniz.textContent = '';
+    const hT = gTutar.value.trim(), hB = gBanka.value.trim();
+    let x = null;
+    if (kaynak === 'banka' || (!hT && hB)){
+      if (!hB){ oniz.textContent = 'Tutarı ya da bankadaki kalan borcu yaz.'; return; }
+      if (/^\s*[-−]/.test(hB)){ hata.hidden = false;
+        hata.textContent = 'Bankadaki kalan borç eksi olamaz.'; return; }
+      const rb = paraCoz(hB);
+      if (!rb.ok){ hata.hidden = false; hata.textContent = rb.hata; return; }
+      x = kapanmamis - rb.kurus;
+      if (x < 0){ hata.hidden = false;
+        hata.textContent = 'Bankadaki kalan borç (' + tlk(rb.kurus)
+          + ') kapanmamıştan (' + tlk(kapanmamis) + ') büyük — bu ekstreye '
+          + 'ödeme değil, yeni harcama eklenmiş olabilir. Dönemi Düzenle ile gözden geçir.';
+        return; }
+      if (!esitleniyor) yazVe(gTutar, x);
+    } else {
+      if (!hT){ oniz.textContent = 'Tutarı ya da bankadaki kalan borcu yaz.'; return; }
+      if (/^\s*[-−]/.test(hT)){ hata.hidden = false;
+        hata.textContent = 'Ödeme eksi olamaz.'; return; }
+      const r = paraCoz(hT);
+      if (!r.ok){ hata.hidden = false; hata.textContent = r.hata; return; }
+      x = r.kurus;
+      if (!esitleniyor) yazVe(gBanka, Math.max(0, kapanmamis - x));
+    }
+    const toplam = onceki + x, yeni = kalan - toplam;
+    /* ⚠ UC SATIR: kullanicinin kafasindaki hesabin AYNISI ekranda.
+       "Toplamı sen bul" demek, hayalet borcu ureten seyin ta kendisiydi.
+       ⚠ BOSLUKLA HIZALAMA YOK: .bilgi white-space:pre-line — satir sonu
+         korunuyor ama ARDISIK BOSLUK cokuyor (olculdu). Hizalama DOM'la. */
+    oniz.textContent = '';
+    const st = (et, dg, kalin) => { const s = el('div','oy-satir');
+      s.appendChild(el('span','oy-et', et));
+      const v = el('span','oy-dg', dg); if (kalin) v.style.fontWeight = '800';
+      s.appendChild(v); oniz.appendChild(s); };
+    st('Önceki ödeme', tlk(onceki));
+    st('Bu ödeme', tlk(x));
+    st('Toplam', tlk(toplam), true);
+    st('KAPANMAMIŞ', tlk(yeni), true);
     if (yeni < 0){ hata.hidden = false;
-      hata.textContent = 'Ödeme ekstre tutarından ' + tlk(-yeni) + ' fazla — yine de kaydedilir.'; }
+      hata.textContent = 'Toplam ödeme ekstre tutarından ' + tlk(-yeni)
+        + ' fazla — yine de kaydedilir.'; }
     if (!gGun.value){ hata.hidden = false;
       hata.textContent = 'Ödemenin gününü seç.'; return; }
     kay.disabled = false;
+    return toplam;
   };
-  gTutar.oninput = gGun.onchange = gGun.oninput = denetle;
+  /* CO · bicimlenince onizleme tazelenir */
+  paraBagla(gTutar, () => { if (!esitleniyor) denetle('tutar'); });
+  paraBagla(gBanka, () => { if (!esitleniyor) denetle('banka'); });
+  gTutar.oninput = () => { if (!esitleniyor) denetle('tutar'); };
+  gBanka.oninput = () => { if (!esitleniyor) denetle('banka'); };
+  gGun.onchange = gGun.oninput = () => denetle();
+  /* ⚠ TAM ODEME KOLAYLIGI: alana dokununca kapanmamisin TAMAMI oneri
+     olarak gelir, uzerine yazilabilir. Dolu alan EZILMEZ.
+     ⚠ Olculdu: 'focus' ile deger yazmak 'input' URETMEZ — onizleme
+       "Tutarı yaz" yazili kalir ve Kaydet kapali durur; denetle() elle. */
+  gTutar.onfocus = () => { if (!gTutar.value.trim() && !gBanka.value.trim() && kapanmamis > 0){
+    yazVe(gTutar, kapanmamis); denetle('tutar'); } };
   denetle();
 
   const kapat = () => { dlg.close(); dlg.remove(); };
   vaz.onclick = kapat;
   dlg.addEventListener('cancel', (e) => { e.preventDefault(); kapat(); });
   kay.onclick = async () => {
-    const r = paraCoz(gTutar.value.trim());
-    if (!r.ok || !gGun.value) return;                 // kapi: sunucuya GITMEZ
+    const toplam = denetle();
+    if (toplam == null || !gGun.value) return;        // kapi: sunucuya GITMEZ
     kay.disabled = true; kay.textContent = 'Kaydediliyor...';
+    /* ⚠ EKLENEREK yazilir: donem_odemesi kumulatif alandir, ustune
+       tek odeme yazmak onceki odemeyi silerdi. */
     const { error } = await sb.from('kart_donem')
-      .update({ donem_odemesi: (r.kurus/100).toFixed(2), donem_odemesi_tarih: gGun.value })
+      .update({ donem_odemesi: (toplam/100).toFixed(2), donem_odemesi_tarih: gGun.value })
       .eq('id', d.donem_id);
     if (error){ kay.disabled = false; kay.textContent = 'Kaydet';
       hata.hidden = false; hata.textContent = hataTr(error.message); return; }
     kapat();
     await kartDetayAc(kart.id);
-    mesaj('kartMsg','ok', d.donem + ' ödemesi yazıldı: ' + tlk(r.kurus)
-      + ' · kapanmamış ' + tlk(kapanmamis - r.kurus));
+    mesaj('kartMsg','ok', d.donem + ' ödemesi yazıldı: bu ödeme '
+      + tlk(toplam - onceki) + ' · toplam ' + tlk(toplam)
+      + ' · kapanmamış ' + tlk(kalan - toplam));
   };
   document.body.appendChild(dlg); dlg.showModal();
   return dlg;
