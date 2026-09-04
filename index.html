@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-18">
+<meta name="surum" content="2026-08-27-19">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4725,8 +4725,11 @@ async function tpKaydet(){
   if (!secilenler.length) return;
   /* ⚠ İŞLETME DIŞI KALICI OLMALI: yalnız ekranda işaretlemek yetmez,
      bir sonraki mutabakatta yine "gözden kaçmış" diye çıkardı.
-     belge_haric'e yazılır — tek tek akıştaki mekanizmanın aynısı
-     (rpc_belge_haric_ekle), tek fark gerekçe BİR KEZ soruluyor. */
+     belge_haric'e yazılır — tek tek akışla AYNI fonksiyon üzerinden
+     (belgeHaricEkle), tek fark gerekçe BİR KEZ soruluyor.
+     ⚠ Burada eskiden AYRI bir çağrı vardı ve p_sube/p_firma'yı
+       göndermiyordu; yorumda "aynısı" yazdığı hâlde değildi. İki kopya
+       zamanla ayrıştı, kullanıcı ekranda "İşlem tamamlanamadı" gördü. */
   const haricler = TOPLU.filter(r => r.haric && !r.sonuc && r.belge_no);
   let haricNeden = null;
   if (haricler.length){
@@ -4739,9 +4742,7 @@ async function tpKaydet(){
   let ok = 0, haricOk = 0; const hatalar = [];
   for (const r of haricler){
     try{
-      const { error } = await sb.rpc('rpc_belge_haric_ekle',
-        { p_belge_no: r.belge_no, p_neden: haricNeden.trim() });
-      if (error) throw new Error(error.message);
+      await belgeHaricEkle(r.belge_no, r.firma, haricNeden.trim());
       r.sonuc = 'işletme dışı'; haricOk++;
     }catch(e){ hatalar.push((r.belge_no||'') + ' (işletme dışı): ' + hataTr(e.message)); }
   }
@@ -5047,25 +5048,40 @@ async function mutabakatBelgeEkle(){
   mesaj('mtMsg', hatalar.length ? 'hata' : 'ok',
     `${ok} belge eklendi ✓` + (hatalar.length ? ` · ${hatalar.length} hata: ${hatalar[0]}` : ''));
 }
+/* ⚠ DB · TEK ÇAĞRI YOLU — BU HATA TAM DA İKİ KOPYADAN DOĞDU.
+   Toplu giriş `rpc_belge_haric_ekle`'yi İKİ parametreyle çağırıyordu
+   (p_belge_no, p_neden); sunucu fonksiyonu DÖRT alıyor
+   (p_sube, p_belge_no, p_firma, p_neden · belge_haric.sube_id NOT NULL).
+   PostgREST eşleşen fonksiyonu bulamayınca kullanıcı 25 faturalık turda
+   "1 hata: … İşlem tamamlanamadı" görüyordu. Üstündeki yorum "tek tek
+   akıştaki mekanizmanın AYNISI" diyordu — DEĞİLDİ; kopyalandığı sanılan
+   ama kopyalanmamış bir çağrıydı. Artık gerçekten aynı: tek fonksiyon,
+   iki çağıran (belgeBagla'da aynı karar verilmişti ve tuttu).
+   ⚠ HAM HATA KONSOLA DA YAZILIR: hataTr ekranda genel metne çeviriyor
+     ("İşlem tamamlanamadı") ve kullanıcı ne olduğunu anlayamadı.
+     hataTr'ye dokunmuyoruz (geniş etki), ama sonraki teşhis kaynak
+     okumakla değil ekrandan yapılabilsin.
+   Sunucu tarafı notu (v84 · H-51): giren_id artık auth.uid(); denetim
+   izinin "kim" alanı istemcinin söylediği şey olamaz.
+   ux_belge_haric mükerrer koruması değişmedi; ihlal aynı kısıt adıyla
+   yukarı çıkıyor ve hataTr onu çeviriyor. */
+async function belgeHaricEkle(belgeNo, firma, neden){
+  const { error } = await sb.rpc('rpc_belge_haric_ekle', {
+    p_sube: AKTIF_SUBE, p_belge_no: belgeNo,
+    p_firma: (firma || '').slice(0, 80), p_neden: neden });
+  if (error){
+    console.error('rpc_belge_haric_ekle · ' + belgeNo + ' · ham hata:', error);
+    throw new Error(error.message);
+  }
+}
 /* Bilerek girilmeyecek belgeyi işaretle — bir daha "eksik" diye uyarmasın */
 async function mutabakatHaric(no){
   const x = MUTABAKAT.find(z=>z.belge_no===no); if(!x) return;
   const neden = await nedenSor(`${no} — ${x.firma||''}`, 'Neden sisteme girilmiyor? (örn: ev interneti, şahsi harcama)', 1);
   if (neden === null) return;
   if (!neden.trim()){ bildir('Neden yazmak zorunlu — sonradan niye atlandığını bilmen gerekir.', 'hata'); return; }
-  /* v84 · H-51 · RPC'ye taşındı.
-     Kaydın ÇERÇEVESİ ölçüldü ve H-51'in ilk hâli iki noktada fazla
-     genişti: `trg_audit_belge_haric` ZATEN vardı (denetim izi düşüyordu)
-     ve politikalar personele yalnız SELECT veriyordu (RLS kapıyı tutuyordu).
-     Kalan gerçek kazanç DAR ama gerçek: `giren_id` istemciden geliyordu
-     (`PROFIL.id`). Denetim izinin "kim" alanı, istemcinin söylediği şey
-     olamaz — artık sunucuda `auth.uid()`.
-     `ux_belge_haric` mükerrer koruması DEĞİŞMEDİ; ihlal aynı kısıt adıyla
-     yukarı çıkıyor ve `hataTr` onu çeviriyor. */
-  const { error } = await sb.rpc('rpc_belge_haric_ekle', {
-    p_sube: AKTIF_SUBE, p_belge_no: no,
-    p_firma: (x.firma||'').slice(0,80), p_neden: neden.trim() });
-  if (error){ bildir('Kaydedilemedi: ' + hataTr(error.message), 'hata'); return; }
+  try{ await belgeHaricEkle(no, x.firma, neden.trim()); }
+  catch(e){ bildir('Kaydedilemedi: ' + hataTr(e.message), 'hata'); return; }
   x.durum = 'haric'; x.neden = neden.trim();
   mutabakatCiz();
   mesaj('mtMsg','ok', `${no} işletme dışı olarak işaretlendi — bir daha uyarmayacak.`);
