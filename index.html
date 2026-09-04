@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-16">
+<meta name="surum" content="2026-08-27-17">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4284,24 +4284,26 @@ const tpBul = (i) => TOPLU[i];
    tabloya yazilip dogru gorunmesi ve kaydedilmesi: oradan alis_kdv ->
    KDV indirimi -> BEYAN'a gidiyor. 2.980 liralik faturada 2.950 TL
    KDV indirimi gercek bir vergi riskidir.
-   KDV DAHIL tutarda gecerli oranlarin verdigi kdv/tutar:
-     %1 -> 1/101  ≈ 0,00990
-     %10 -> 10/110 ≈ 0,09091
-     %20 -> 20/120 ≈ 0,16667
-   ⚠ IKI SEVIYE AYRI: imkansiz olan DUSURULUR, yalnizca supheli olan
-     UYARILIR. Karisik oranli faturada oran hicbirine uymayabilir —
-     onu silmek dogru rakami atmak olurdu. */
-const KDV_ORANLAR = [{ o:1, p:1/101 }, { o:10, p:10/110 }, { o:20, p:20/120 }];
+   ⚠ TEK KURAL: IMKANSIZ OLANI DUSUR. "Oran yasal oranlardan birine
+     yakin degilse supheli say" diye ikinci bir kural denendi ve
+     KALDIRILDI — dogru veriye ates ediyordu:
+       Bizim Toptan OAF...122 · 2.217,24 · KDV 124,76 (%5,6)
+       %10 matrah 714,16 -> 71,42 · %1 matrah 1.170,10 -> 11,70
+       %20 matrah 208,22 -> 41,64 · toplam 124,76 ✓
+     Karisik oranli faturada ortalama oran %0 ile %16,67 ARASINDA
+     HERHANGI BIR DEGER olabilir (muaf kalem varsa %0,99'un da
+     altina iner). Yani o araliktaki hicbir deger supheli degil —
+     kural dogruyu yanlistan AYIRAMIYORDU. Yakalamasi beklenen
+     hatayi da yakalamiyordu: tek oranin kdv'si (11,70) alinsaydi
+     oran %0,53 cikardi, yine aralikta, yine uyari yok.
+     Bir kural neyi ayirdigini soyleyemiyorsa gurultudur. */
 function kdvDenetle(tutar, kdv){
   if (kdv == null || tutar == null || !(tutar > 0)) return { durum:'yok' };
   const p = kdv / tutar;
-  /* KDV DAHIL tutarda hicbir oran 1/6'yi (%20) gecemez; ustune bir
-     miktar pay birakiyoruz ki yuvarlama farki alarma donmesin. */
+  /* KDV DAHIL tutarda hicbir oran 1/6'yi (%20) gecemez. */
   if (kdv < 0 || kdv >= tutar || p > 0.20)
     return { durum:'imkansiz', yuzde: p * 100 };
-  const yakin = KDV_ORANLAR.some(x => Math.abs(p - x.p) <= 0.01);
-  return yakin ? { durum:'temiz', yuzde: p * 100 }
-               : { durum:'supheli', yuzde: p * 100 };
+  return { durum:'temiz', yuzde: p * 100 };
 }
 const yuzdeYaz = (y) => (Math.round(y * 10) / 10).toString().replace('.', ',');
 /* Satirin kdv/kdvDurum/kdvNot alanlarini bastan kurar. Hem tpKur hem
@@ -4314,10 +4316,6 @@ function kdvUygula(r, kdvDeger){
     r.kdvNot = 'KDV okunamadı (faturada %' + yuzdeYaz(d.yuzde)
       + ' gibi göründü, imkânsız) — kaydedilirse KDV BOŞ gider, sonra düzeltirsin';
     r.kdvHam = kdvDeger;
-  } else if (d.durum === 'supheli'){
-    r.kdv = kdvDeger; r.kdvDurum = 'supheli';
-    r.kdvNot = 'KDV oranı hiçbir yasal orana uymuyor (%' + yuzdeYaz(d.yuzde)
-      + ') — faturayla karşılaştır';
   } else {
     r.kdv = kdvDeger == null ? null : kdvDeger;
     r.kdvDurum = d.durum === 'temiz' ? 'temiz' : 'yok';
@@ -4568,8 +4566,6 @@ function tpCiz(){
         </div>
         ${r.kdvDurum === 'dusuruldu'
           ? `<div class="k" style="color:var(--hata)">${esc(r.kdvNot)}</div>` : ''}
-        ${r.kdvDurum === 'supheli'
-          ? `<div class="k" style="color:var(--uyari)">${esc(r.kdvNot)}</div>` : ''}
         ${r.kdvDurum === 'gecersiz'
           ? `<div class="k" style="color:var(--hata)">${esc(r.kdvNot)}</div>` : ''}
         <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
