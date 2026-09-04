@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-14">
+<meta name="surum" content="2026-08-27-15">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4128,7 +4128,23 @@ function faturaAlanlari(ad, metin){
                         'Fatura\\s*Tutar[ıi]\\s*:?\\s*' + FA_P,
                         'Yek[üu]n\\s*:?\\s*' + FA_P,
                         'GENEL\\s*TOPLAM\\s*:?\\s*' + FA_P]),
-    kdv:      faIlk(t, ['Hesaplanan\\s*KDV[^:]{0,30}:\\s*' + FA_P,
+    /* ⚠ CZ · IKI HATA BIRDEN DUZELDI (olculdu, Bizim Toptan metni):
+         Mal Hizmet Toplam Tutarı       : 2.092,48
+         Hesaplanan KDV Matrahı(%10,00) :   714,16
+         Hesaplanan KDV(%10,00)         :    71,42
+         Hesaplanan KDV Matrahı(%1,00)  : 1.170,10
+         Hesaplanan KDV(%1,00)          :    11,70
+         Hesaplanan KDV Matrahı(%20,00) :   208,22
+         Hesaplanan KDV(%20,00)         :    41,64
+         Toplam KDV Tutarı              :   124,76
+       1) Eski desen 'Hesaplanan\s*KDV[^:]{0,30}:' MATRAH satirina da
+          uyuyor ve 714,16'yi KDV saniyordu.
+       2) Cok oranli faturada tek oranin kdv'sini almak da yanlis
+          olurdu (11,70 gibi) — dogrusu TOPLAM: 71,42+11,70+41,64.
+       Bu yuzden "Toplam KDV Tutarı" ONCE aranir, "Hesaplanan KDV"
+       desenine de Matrah'i disarida birakan bakis eklendi. */
+    kdv:      faIlk(t, ['Toplam\\s*KDV\\s*Tutar[ıi]\\s*:?\\s*' + FA_P,
+                        'Hesaplanan\\s*KDV(?![^:]{0,30}Matrah)[^:]{0,30}:\\s*' + FA_P,
                         'K\\.?\\s?D\\.?\\s?V\\.?\\s*\\(\\s*%[0-9.,]+\\s*\\)\\s*:?\\s*' + FA_P,
                         'Toplam\\s*KDV\\s*:?\\s*' + FA_P,
                         'KDV\\s*Tutar[ıi]\\s*:?\\s*' + FA_P]),
