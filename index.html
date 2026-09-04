@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-17">
+<meta name="surum" content="2026-08-27-18">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4113,6 +4113,46 @@ const faIlk = (t, kaliplar) => {
   for (const k of kaliplar){ const m = t.match(new RegExp(k, 'i')); if (m && m[1]) return m[1]; }
   return null;
 };
+/* Fatura metnindeki sayı KURUŞA. İki biçim de geliyor: "1.234,56" (TR)
+   ve "1234.56" (EN). Virgül varsa TR (noktalar ayıraç), yoksa iki
+   haneli nokta ondalıktır. Okunamazsa null. */
+function faKurus(s){
+  const x = String(s || '').trim();
+  if (!x) return null;
+  const n = x.includes(',') ? Number(x.replace(/\./g,'').replace(',','.'))
+          : /^\d+\.\d{2}$/.test(x) ? Number(x)
+          : Number(x.replace(/\./g,''));
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+/* ⚠ AYIRAÇLI YAZ: sade "3250,00" da paraCoz'dan geçiyor ama alan
+   metinleri faturadaki biçimden sapıyordu ve eski/yeni karşılaştırması
+   değer değişmediği hâlde "değişti" diyordu (ölçüldü: DELTA
+   "3.250,00" -> "3250,00"). Biçim korunur. */
+const faYaz = (k) => (k/100).toLocaleString('tr-TR',
+  { minimumFractionDigits:2, maximumFractionDigits:2 });
+/* ⚠ DA · ÇOK ORANLI FATURADA KDV TOPLANIR.
+   ÖLÇÜLDÜ — bazı faturalarda "Toplam KDV Tutarı" etiketi YOK, yalnız
+   oran oran satırlar var ve okuyucu İLKİNİ alıp duruyordu:
+     Kardeşler  KDV(%20.00) 860,83 + KDV(%10.00)  29,55 = 890,38
+                (4.599,62 + 890,38 = 5.490,00 ✓) — alınan 860,83
+     TM İçecek  KDV(%1)      37,03 + KDV(%10)    231,82 = 268,85
+                (6.021,16 + 268,85 = 6.290,01 ✓) — alınan  37,03
+   TM'de tek faturada 231,82 TL KDV indirimi EKSİK giriyordu.
+   ⚠ AYIRICI ":" OLMAYABİLİR — bu ikisinde yok.
+   ⚠ "Hesaplanan KDV Matrahı(%x)" TOPLAMA GİRMEZ: desen "KDV" ile "("
+     arasına söz koydurtmuyor, Matrah satırı bu yüzden eşleşmiyor. */
+const FA_KDV_SATIR = new RegExp(
+  'Hesaplanan\\s*KDV\\s*\\(\\s*%?\\s*[0-9.,]+\\s*\\)\\s*:?\\s*' + FA_P, 'gi');
+function faKdvTopla(t){
+  FA_KDV_SATIR.lastIndex = 0;
+  let m, top = 0, adet = 0;
+  while ((m = FA_KDV_SATIR.exec(t))){
+    const k = faKurus(m[1]);
+    if (k == null) return null;               // biri okunamadıysa toplam da güvenilmez
+    top += k; adet++;
+  }
+  return adet ? faYaz(top) : null;
+}
 function faturaAlanlari(ad, metin){
   const t = String(metin || '').replace(/\s+/g, ' ');
   const p = String(ad || '').replace(/\.pdf$/i, '').split('_');
@@ -4143,14 +4183,26 @@ function faturaAlanlari(ad, metin){
           olurdu (11,70 gibi) — dogrusu TOPLAM: 71,42+11,70+41,64.
        Bu yuzden "Toplam KDV Tutarı" ONCE aranir, "Hesaplanan KDV"
        desenine de Matrah'i disarida birakan bakis eklendi. */
-    kdv:      faIlk(t, ['Toplam\\s*KDV\\s*Tutar[ıi]\\s*:?\\s*' + FA_P,
-                        'Hesaplanan\\s*KDV(?![^:]{0,30}Matrah)[^:]{0,30}:\\s*' + FA_P,
-                        'K\\.?\\s?D\\.?\\s?V\\.?\\s*\\(\\s*%[0-9.,]+\\s*\\)\\s*:?\\s*' + FA_P,
-                        'Toplam\\s*KDV\\s*:?\\s*' + FA_P,
-                        'KDV\\s*Tutar[ıi]\\s*:?\\s*' + FA_P]),
+    /* SIRA: (a) tek doğru toplam varsa o · (b) yoksa oran oran TOPLA
+       · (c) yoksa eski desen listesi (değiştirilmedi). */
+    kdv:      faIlk(t, ['Toplam\\s*KDV\\s*Tutar[ıi]\\s*:?\\s*' + FA_P])
+              || faKdvTopla(t)
+              || faIlk(t, ['Hesaplanan\\s*KDV(?![^:]{0,30}Matrah)[^:]{0,30}:\\s*' + FA_P,
+                           'K\\.?\\s?D\\.?\\s?V\\.?\\s*\\(\\s*%[0-9.,]+\\s*\\)\\s*:?\\s*' + FA_P,
+                           'Toplam\\s*KDV\\s*:?\\s*' + FA_P,
+                           'KDV\\s*Tutar[ıi]\\s*:?\\s*' + FA_P]),
     matrah:   faIlk(t, ['Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]\\s*:?\\s*' + FA_P,
                         'Ara\\s*Toplam\\s*:?\\s*' + FA_P,
-                        'Toplam\\s*Tutar\\s*:?\\s*' + FA_P])
+                        'Toplam\\s*Tutar\\s*:?\\s*' + FA_P]),
+    /* ⚠ ARİTMETİK KONTROL İÇİN AYRI, YEDEKSİZ İKİ ALAN. Yukarıdaki
+       `matrah` ve `tutar` yedekli okunuyor ve o yedekler kontrolü
+       bozar: BİM'de "Toplam Tutar" KDV DAHİL toplamı veriyor
+       (1.407,00), matrah sanılırsa denklem hep sapardı. AKSA'da da
+       "Ödenecek Tutar" ile "Vergiler Dahil Toplam Tutar" arasında
+       0,04 "Yuvarlama Tutarı" var. Kontrol YALNIZ bu iki net
+       etiketten okunur; biri yoksa kontrol YAPILMAZ. */
+    matrahNet: faIlk(t, ['Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]\\s*:?\\s*' + FA_P]),
+    tutarNet:  faIlk(t, ['Vergiler\\s*Dahil\\s*Toplam\\s*Tutar\\s*:?\\s*' + FA_P])
   };
 }
 /* ==================================================================
@@ -4321,6 +4373,25 @@ function kdvUygula(r, kdvDeger){
     r.kdvDurum = d.durum === 'temiz' ? 'temiz' : 'yok';
     r.kdvNot = null;
   }
+  kdvAritmetik(r);
+}
+/* ⚠ DA · ARİTMETİK KONTROL — DAR AMA GERÇEK.
+   matrah + KDV = fatura toplamı. ÜÇÜ DE net etiketten okunabiliyorsa
+   yapılır; biri okunamıyorsa HİÇ UYARILMAZ. Ölçülemeyen şeyi ölçüyormuş
+   gibi yapmak, kaldırdığımız sarı "şüpheli" uyarısının sebebiydi.
+   ⚠ KDV SİLİNMEZ, yalnız söylenir: kullanıcı tabloda düzeltebilir ve
+     tutmayan satır YİNE DE kaydedilebilir — engel değil, uyarı. */
+function kdvAritmetik(r){
+  if (r.kdvDurum === 'dusuruldu' || r.kdvDurum === 'gecersiz') return;
+  const m = faKurus(r.kaynak && r.kaynak.matrahNet);
+  const g = faKurus(r.kaynak && r.kaynak.tutarNet);
+  if (m == null || g == null || r.kdv == null){ r.kdvKontrol = 'yapilamadi'; return; }
+  const k = Math.round(r.kdv * 100);
+  const fark = Math.abs(m + k - g);
+  if (fark <= 1){ r.kdvKontrol = 'tam'; return; }   // 1 kuruş pay
+  r.kdvKontrol = 'sapti';
+  r.kdvNot = 'KDV faturayla tutmuyor (matrah + KDV = ' + tl((m + k)/100)
+    + ', faturada ' + tl(g/100) + ') — kontrol et';
 }
 /* Tabloda elle yazilan KDV. ⚠ FORMA GITMEDEN duzeltilsin: 25 satirlik
    tabloda tek satir icin forma gidip donmek kullaniciyi cileden
@@ -4351,7 +4422,7 @@ function tpKur(eksikler){
     if (!x.belge_no) eksik.push('belge no okunamadı');
     const satir = { i, kaynak:x, belge_no:x.belge_no, firma:x.firma || x.ad,
       unvan, esles:e.durum, tarih:isoT || '', tutar:p.ok ? p.deger : null,
-      kdv:null, kdvDurum:'yok', kdvNot:null, kdvHam:null,
+      kdv:null, kdvDurum:'yok', kdvNot:null, kdvHam:null, kdvKontrol:'yapilamadi',
       ted, tur:'', kategori:'', haric:false, sec:false, eksik,
       oneri: TP_GECMIS[(x.vkn || '') + '|' + (x.firma || '')] || null, sonuc:null };
     /* ⚠ CY · OKUNAN KDV DOGRUDAN YAZILMAZ, KAPIDAN GECER. */
@@ -4564,7 +4635,7 @@ function tpCiz(){
               onchange="tpKdvYaz(${r.i}, this.value)">
           </div>
         </div>
-        ${r.kdvDurum === 'dusuruldu'
+        ${r.kdvDurum === 'dusuruldu' || r.kdvKontrol === 'sapti'
           ? `<div class="k" style="color:var(--hata)">${esc(r.kdvNot)}</div>` : ''}
         ${r.kdvDurum === 'gecersiz'
           ? `<div class="k" style="color:var(--hata)">${esc(r.kdvNot)}</div>` : ''}
@@ -4770,11 +4841,11 @@ async function tpKaydet(){
       { tur:r.tur, kategori:r.kategori, sonuc:r.sonuc, haric:r.haric, sec:r.sec,
         /* ⚠ CY · ELLE YAZILAN KDV DE KORUNUR: tpKur satiri sifirdan
            kuruyor ve okunan (yanlis) rakama geri donerdi. */
-        kdv:r.kdv, kdvDurum:r.kdvDurum, kdvNot:r.kdvNot }; });
+        kdv:r.kdv, kdvDurum:r.kdvDurum, kdvNot:r.kdvNot, kdvKontrol:r.kdvKontrol }; });
     tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
     TOPLU.forEach(r => { const o = r.belge_no && onceki[r.belge_no]; if (!o) return;
       r.tur = o.tur; r.kategori = o.kategori; r.haric = o.haric;
-      r.kdv = o.kdv; r.kdvDurum = o.kdvDurum; r.kdvNot = o.kdvNot;
+      r.kdv = o.kdv; r.kdvDurum = o.kdvDurum; r.kdvNot = o.kdvNot; r.kdvKontrol = o.kdvKontrol;
       /* 'ok' geri yazılmaz: o satır zaten tablodan düştü. Kalan satırda
          duran şey HATA metnidir, kullanıcı onu görmeli. */
       if (o.sonuc && o.sonuc !== 'ok' && o.sonuc !== 'işletme dışı') r.sonuc = o.sonuc;
