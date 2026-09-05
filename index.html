@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-19">
+<meta name="surum" content="2026-08-27-20">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2402,7 +2402,7 @@ async function vOzet(){
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
   const ay = OZ_AY || bugun().slice(0,7);
   OZ_AY = ay;
-  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner] = await Promise.all([
+  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayGider] = await Promise.all([
     sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
@@ -2416,7 +2416,21 @@ async function vOzet(){
     sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
     // v62 · Sahibin kasaya koyduğu/çektiği nakit SATIŞ DEĞİL. SQL bunu
     // z_disi_nakit'ten düşüyordu, grafik düşmüyordu — tanım ayrışıyordu.
-    sb.from('owner_hareket').select('tarih,yon,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
+    sb.from('owner_hareket').select('tarih,yon,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    /* ⚠ DL · FINANSMAN MALIYETI AYRI OKUNUR. Kullanicinin sozu:
+       "krediler borclar benim tercihim sonucta; o ay odedigin personel,
+       sgk, yemek, alinan malzemenin faturasi o ayin gideridir".
+       OLCULDU: temmuz giderinin %83'u, agustos giderinin %69'u KREDI
+       FAIZI. Ekranda "ay kari" diye gorunen rakam isletmenin
+       kazancini degil, kazanctan FINANSMAN MALIYETI dusulmus halini
+       gosteriyordu; sahibi kafenin para kazanip kazanmadigina bakarken
+       bu rakama bakip yanlis karar verebilirdi.
+       ⚠ VERI ZATEN AYRI: "Kredi Faizi" kendi gider_kategori satiri.
+         Yeni alan/tablo/migration YOK — yalniz ayirma.
+       ⚠ FORMUL DEGISMIYOR: v_aylik_ozet'e dokunulmuyor, ay_kari ayni
+         kaliyor. Ustune iki satir ekleniyor. */
+    sb.from('gider').select('tutar,kategori_id,gider_kategori(ad)')
+      .eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
   ]);
   /* KRİTİK DİLİMLER — biri düşerse Özet HİÇ çizilmez.
      gs/ayGunler = gün sonu · ozet = v_aylik_ozet · kdv = v_kdv_ay ·
@@ -2530,6 +2544,34 @@ async function vOzet(){
       ${+o.odenmeyen_alis > 0 ? `<div class="uyari-orta" style="margin-top:10px">Bu ayın alışlarından
         <b>${tl(o.odenmeyen_alis)}</b> henüz ödenmedi — sonraki aylarda çıkacak.</div>` : ''}`;
 
+  /* ==================================================================
+     ⚠ DL · FINANSMAN KUMESI TEK YERDE TANIMLI
+     ==================================================================
+     ⚠ KATEGORI SECIMI VARSAYIMLA GENISLETILMEDI. Bugun YALNIZ adinda
+       'faiz' gecen kategoriler finansman sayiliyor — kredi faizi kesin
+       finansman, o kadari tartismasiz.
+     ⚠ SINIRDAKILER BILEREK DISARIDA: POS/banka komisyonu ISLETME
+       GIDERIDIR (satisin maliyeti), finansman degil. BSMV/KKDF ise
+       faiz VERGISI -- finansman sayilabilir ama bu bir SAHIP KARARI,
+       kod kendi kafasina gore secmez. Kategori listesi ve tutarlari
+       migrations/bekleyen/20260905180000_FINANSMAN_OLCUM.sql ile
+       olculuyor; karar verilince desen ASAGIDAKI TEK SATIRDA genisler.
+     ⚠ FORMULE DOKUNULMUYOR: ay_kari v_aylik_ozet'ten geldigi gibi
+       kaliyor, isletme kari ONDAN TURETILIYOR (ay_kari + finansman).
+       Boylece uc satir tanim geregi birbirini tutar. */
+  const FIN_DESEN = /faiz/i;
+  const FIN = (() => {
+    const d = (ayGider && ayGider.data) || [];
+    const m = new Map();
+    for (const x of d){
+      const ad = x.gider_kategori && x.gider_kategori.ad;
+      if (!ad || !FIN_DESEN.test(ad)) continue;
+      m.set(ad, (m.get(ad) || 0) + (Number(x.tutar) || 0));
+    }
+    const kalemler = [...m.entries()].map(([ad, tutar]) => ({ ad, tutar }))
+      .sort((a,b) => b.tutar - a.tutar);
+    return { tutar: kalemler.reduce((a,k) => a + k.tutar, 0), kalemler };
+  })();
   const blokKar = !o ? '' : `
       ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
       <div class="ipucu">${o.stok_bazli
@@ -2545,6 +2587,14 @@ async function vOzet(){
         : ozSatir('Mal alışları (KDV hariç)', '−'+tl(o.alis_net))}
       ${ozSatir('Giderler (KDV hariç)', '−'+tl(o.gider_net))}
       ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
+      ${FIN.tutar > 0 ? `
+        ${ozSatir('İŞLETME KÂRI (finansman hariç)', tl(+o.ay_kari + FIN.tutar), true)}
+        ${ozSatir('Finansman maliyeti', '−'+tl(FIN.tutar))}
+        <div class="ipucu" style="margin-top:4px">Kredi faizi <b>işletmenin kazancı</b>
+          değil, <b>finansman tercihinin</b> maliyeti. Kafenin para kazanıp
+          kazanmadığına bakarken üstteki satıra bak; bu ay giderin
+          <b>%${Math.round(FIN.tutar / Math.max(1, +o.gider_net) * 100)}</b>'ı finansman.
+          ${FIN.kalemler.map(k => esc(k.ad) + ' ' + tl(k.tutar)).join(' · ')}</div>` : ''}
       ${ozSatir('Beyana giden kâr', tl(o.ay_kari))}
       ${+o.z_disi_nakit>0 ? ozSatir('Z dışı kasa nakdi', '+'+tl(o.z_disi_nakit)) : ''}
       ${ozSatir('GERÇEK AY KÂRI', tl(o.gercek_ay_kari), true)}
