@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-23">
+<meta name="surum" content="borc-2026-08-27-24">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -5535,23 +5535,54 @@ function axOku(parcalar){
          (o 73.170,00 zaten ileriye donuk taksit toplami, gerceginden
          24,72 TL fazla — olculdu).
      ⚠ EKSI: Akbank "(-)" son ekiyle, Is Bankasi bastaki "-" ile
-       yaziyor; ikisi de taniniyor (olculdu, baska bicim cikmadi). */
+       yaziyor; ikisi de taniniyor (olculdu, baska bicim cikmadi).
+
+     ⚠ DI · ISARET YONU BANKAYA GORE TERSINE DONEBILIYOR — OLCULDU.
+       Is Bankasi'nin YENI duzeninde (D-isbank-black-2609) tutar
+       SONUNDA '-' ya da '+' var ve anlami TERS:
+         "1.980,00-"   -> HARCAMA (yeni)
+         "74.080,67+"  -> TAHSILAT (odenen)
+       Eski duzende ise isaretli olan ODEMEYDI. Iki belge, iki
+       sozlesme; hangisinin dogru oldugunu METIN SOYLEMIYOR.
+       ⚠ IKINCI BIR MEKANIZMA YAZILMADI. Ilk denemede ayri bir
+         "islem satirlarini topla" blogu yazmistim; bu, duzeltmeye
+         calistigimiz "ayni is iki yerde" hatasinin ta kendisiydi.
+         Yerine bu blok GENISLETILDI: '+' de taniniyor ve kume
+         DENKLEME IKI YONDEN sorulyor.
+       ⚠ SIRA ONEMLI, BIRLESTIRILMEDI: once BUGUNKU yorum (isaretli =
+         odeme) denenir; hicbir kume gecmezse TERS yorum denenir.
+         Birlestirilseydi ayni kume iki yonden de gecebilir, `tek`
+         null olur ve BUGUN CALISAN uc ekstre (Akbank x2, Is Bankasi
+         black) toplamlarini KAYBEDERDI — olculdu, o yuzden ardisik. */
   if (alanlar.devir && alanlar.devir.durum === 'ok'
       && alanlar.hesapOzeti && alanlar.hesapOzeti.durum === 'ok'
       && !(alanlar.yeni && alanlar.yeni.durum === 'ok')
       && !(alanlar.odenen && alanlar.odenen.durum === 'ok')){
     const hedef = alanlar.hesapOzeti.kurus - alanlar.devir.kurus;   // yeni − ödenen
-    const ISL = /^([-−]?)(\d{1,3}(?:\.\d{3})*,\d{2})(?:\s*(?:TL|TRY))?\s*(\(-\)|-|−)?$/i;
+    const ISL = /^([-−]?)(\d{1,3}(?:\.\d{3})*,\d{2})(?:\s*(?:TL|TRY))?\s*(\(-\)|-|−|\+)?$/i;
+    /* ⚠ DI · ISLEM SATIRI TARIHI TEK HANELI OLABILIR — OLCULDU.
+       AX_TARIH iki haneli gun/ay istiyor (\d{2}) ve alan okumada dogru:
+       "Hesap Kesim Tarihi: 04/09/2026". Ama islem listesinde banka
+       basta sifir YAZMIYOR: "7.08.2026", "1.09.2026", "4.09.2026".
+       Bu satirlar islem sayilmayinca toplam YARIM kaliyor ve kapi
+       dogru olarak reddediyordu (olculdu: D-isbank-black-2609'da
+       29 satirin 24'u eleniyordu).
+       ⚠ AX_TARIH DEGISTIRILMEDI: o desen alan okumasinda kullaniliyor
+         ve gevsetilmesi baska yerleri etkilerdi. Burada YALNIZ "bu bir
+         islem satiri mi" sorusu soruluyor; tarihin kendisi
+         okunmuyor. */
+    const ISL_TARIH = /(?:^|\s)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:$|\s)/;
     const aday = [];
     for (const s of satirlar){
-      if (!s.items.some(it => AX_TARIH.test(it.ham))) continue;   // tarihsiz satir islem degil
+      if (!s.items.some(it => ISL_TARIH.test(it.ham))) continue;  // tarihsiz satir islem degil
       for (const it of s.items){
         const m = ISL.exec(String(it.ham).trim());
         if (!m) continue;
         const r = paraCoz(m[2]);
         if (!r.ok || r.kurus === 0) continue;
         aday.push({ sag: it.x + (it.g || 0), kurus: r.kurus,
-                    eksi: !!(m[1] || m[3]), ham: String(it.ham).trim() });
+                    eksi: !!(m[1] || (m[3] && m[3] !== '+')),
+                    arti: m[3] === '+', ham: String(it.ham).trim() });
       }
     }
     /* ⚠ SUTUN = sag kenarlari SIRALAYIP BUYUK BOSLUKTAN BOL. Sabit
@@ -5569,25 +5600,42 @@ function axOku(parcalar){
       if (!k || c.sag - k.sag > 25){ k = { sag: c.sag, uye: [] }; kume.push(k); }
       k.sag = c.sag; k.uye.push(c);
     }
-    const gecen = [];
-    for (const k of kume){
-      const y = k.uye.filter(u => !u.eksi).reduce((t, u) => t + u.kurus, 0);
-      const o = k.uye.filter(u =>  u.eksi).reduce((t, u) => t + u.kurus, 0);
-      if (y - o === hedef) gecen.push({ yeni: y, odenen: o, adet: k.uye.length });
-    }
-    const tek = gecen.length === 1 ? gecen[0]
-      : gecen.length > 1 && gecen.every(g => g.yeni === gecen[0].yeni
-                                          && g.odenen === gecen[0].odenen) ? gecen[0] : null;
+    /* İki YORUM, ARDISIK denenir (birlestirilmez — gerekce yukarida):
+         A) isaretli olan ODEME      · bugunku davranis
+         B) '-' HARCAMA, '+' TAHSILAT · Is Bankasi yeni duzeni */
+    const dene = (yon) => {
+      const cikan = [];
+      for (const k of kume){
+        const y = yon === 'A' ? k.uye.filter(u => !u.eksi).reduce((t,u) => t+u.kurus, 0)
+                              : k.uye.filter(u =>  u.eksi).reduce((t,u) => t+u.kurus, 0);
+        const o = yon === 'A' ? k.uye.filter(u =>  u.eksi).reduce((t,u) => t+u.kurus, 0)
+                              : k.uye.filter(u =>  u.arti).reduce((t,u) => t+u.kurus, 0);
+        if (y - o === hedef)
+          cikan.push({ yeni:y, odenen:o, adet:k.uye.length, yon,
+            yeniAdet: yon === 'A' ? k.uye.filter(u => !u.eksi).length
+                                  : k.uye.filter(u =>  u.eksi).length,
+            odenenAdet: yon === 'A' ? k.uye.filter(u => u.eksi).length
+                                    : k.uye.filter(u => u.arti).length });
+      }
+      return cikan.length === 1 ? cikan[0]
+        : cikan.length > 1 && cikan.every(g => g.yeni === cikan[0].yeni
+                                            && g.odenen === cikan[0].odenen) ? cikan[0] : null;
+    };
+    const tek = dene('A') || dene('B');
     if (tek){
       /* ⚠ 'tk' cekirdegin DISINDA — cekirdek kendi kendine yeterli kalir
          (olculmus ders). Bicim tk ile BIREBIR ayni, onay tablosundaki
          'PDF'te: ...' ikinci satiri bu yuzden hic cikmaz. */
       const bicim = (k) => (k/100).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
-      const kaynak = 'işlem listesinden toplandı, mutabakat tuttu';
+      /* ⚠ DI · KAC HARCAMA + KAC TAHSILAT YAZAR. "46 satır" nereden
+         geldigini soylemiyordu; okunan / toplanan / elle girilen UC
+         AYRI sey ve ucu de ayirt edilebilmeli. */
+      const kaynak = 'işlem satırlarından toplandı (' + tek.yeniAdet
+        + ' harcama + ' + tek.odenenAdet + ' tahsilat), mutabakat tuttu';
       alanlar.yeni   = { durum:'ok', kurus: tek.yeni,   ham: bicim(tek.yeni),
-        etiket:'işlem listesi (' + tek.adet + ' satır)', kural: kaynak };
+        etiket:'işlem listesi (' + tek.adet + ' satır)', kural: kaynak, toplandi:true };
       alanlar.odenen = { durum:'ok', kurus: tek.odenen, ham: bicim(tek.odenen),
-        etiket:'işlem listesi (' + tek.adet + ' satır)', kural: kaynak };
+        etiket:'işlem listesi (' + tek.adet + ' satır)', kural: kaynak, toplandi:true };
     }
   }
 
@@ -5764,17 +5812,20 @@ const AX_AD = { limit:'kart limiti', devir:'devir', yeni:'yeni harcama',
   faiz:'faiz', vergi:'faiz vergisi' };
 /* Elle girilen deger a'ya AYNI SEKILDE yazilir ama ETIKETI farklidir —
    kayit yolu ve denklem onu okur, ekran onu ayirt eder. */
-function elleDegis(a, alan, kutu, rozet, nasilHucre, tazele){
+function elleDegis(a, alan, kutu, rozet, nasilHucre, tazele, ilkDeger){
   const ham = kutu.value.trim();
   if (!ham){
-    delete a[alan];                        // okunamadi haline geri don
+    /* ⚠ DI · BOSALTINCA ILK DEGERE DONULUR: toplanan bir alan
+       bosaltilinca SILINMEZ — kullanici vazgecmis olabilir, toplama
+       hala gecerli (mutabakat kapisindan gecmisti). */
+    if (ilkDeger) a[alan] = ilkDeger; else delete a[alan];
     rozet.textContent = ''; rozet.className = 'kucuk';
-    nasilHucre.firstChild.nodeValue = 'bulunamadı';
+    nasilHucre.firstChild.nodeValue = ilkDeger ? (ilkDeger.kural || '') : 'bulunamadı';
     tazele(); return;
   }
   const r = paraCoz(ham);
   if (!r.ok || r.kurus < 0){
-    delete a[alan];
+    if (ilkDeger) a[alan] = ilkDeger; else delete a[alan];
     rozet.className = 'uyari-agir';
     rozet.textContent = 'Tutar okunamadı: ' + (r.hata || ham);
     nasilHucre.firstChild.nodeValue = 'bulunamadı';
@@ -5791,6 +5842,10 @@ function elleDegis(a, alan, kutu, rozet, nasilHucre, tazele){
 function axElleListesi(a){
   return AX_ELLE.filter(x => a[x] && a[x].elle);
 }
+/* ⚠ DI · TOPLANAN alanlar da kayda gecer: OKUNAN / TOPLANAN / ELLE
+   GIRILEN uc ayri sey. Alti ay sonra hangisinin nereden geldigi
+   sorulursa cevap donemin aciklamasinda dursun. */
+function axToplananListesi(a){ return AX_ELLE.filter(x => a[x] && a[x].toplandi); }
 async function ekstreOnayEkrani(a, dosya, toplamIpucu){
   const v = await bantVerisi();
   const c = document.getElementById('icerik');
@@ -5890,16 +5945,21 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
       c4.appendChild(bn);
     }
     c4.dataset.et = 'NASIL BULUNDU'; tr.appendChild(c4);
-    if (o.durum !== 'ok' && AX_ELLE.includes(ik[0])){
+    /* ⚠ DI · TOPLANAN DEGER DE ELLE DUZELTILEBILIR: toplama bir
+       ONERIDIR, karar degil. Kutu dolu gelir; bosaltilirsa toplama
+       geri doner. */
+    if ((o.durum !== 'ok' || o.toplandi) && AX_ELLE.includes(ik[0])){
       const kutu = document.createElement('input');
       kutu.type = 'text'; kutu.setAttribute('inputmode','decimal');
       kutu.className = 'ax-elle-kutu';
       kutu.id = 'axElle_' + ik[0];
-      kutu.placeholder = 'elle yaz';
+      kutu.placeholder = o.toplandi ? 'değiştir' : 'elle yaz';
+      if (o.toplandi) kutu.value = tk(o.kurus);
       kutu.setAttribute('aria-label', ik[1] + ' — okunamadı, elle yaz');
       dh.appendChild(kutu);
       const rz = el('div','kucuk'); dh.appendChild(rz);
-      const degis = () => elleDegis(a, ik[0], kutu, rz, c4, tazele);
+      const ilk = o.toplandi ? o : null;
+      const degis = () => elleDegis(a, ik[0], kutu, rz, c4, tazele, ilk);
       paraBagla(kutu, degis);
       kutu.addEventListener('input', degis);
     }
@@ -6279,7 +6339,8 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
         onayMetni:'Yine de kaydet', tehlikeli:false }))) return;
     }
     /* CH · cakisma karari TIKLAMA ANINDA hesaplanir (secim degismis olabilir) */
-    ekstreKaydet(a, dosya, donem, kaydet, donemVarMi(), axElleListesi(a), zorlandi);
+    ekstreKaydet(a, dosya, donem, kaydet, donemVarMi(), axElleListesi(a), zorlandi,
+                 axToplananListesi(a), a.yeni && a.yeni.kural);
   };
   k.appendChild(kaydet);
   tazele();
@@ -6289,7 +6350,7 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
   c.appendChild(k);
 }
 
-async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar, elleAlanlar, zorlandi){
+async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar, elleAlanlar, zorlandi, toplananlar, toplamaKurali){
   mesajTemizle('kartMsg');
   if (!donem){ mesaj('kartMsg','hata','Dönem belirlenemedi.'); return; }
   const sec = document.getElementById('axKart').value;
@@ -6371,6 +6432,9 @@ async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar, elleAlanlar, zo
       (elleAlanlar && elleAlanlar.length)
         ? 'Elle girilen alanlar: ' + elleAlanlar.map(x => AX_AD[x] || x).join(', ')
           + ' (ekstrede okunamadı, kullanıcı yazdı)' : null,
+      (toplananlar && toplananlar.length)
+        ? 'Toplanan alanlar: ' + toplananlar.map(x => AX_AD[x] || x).join(', ')
+          + ' — ' + (toplamaKurali || 'işlem satırlarından toplandı') : null,
       zorlandi ? 'DENETİM UYARISI: ' + zorlandi + ' — kullanıcı onaylayıp kaydetti.' : null
     ].filter(Boolean).join(' · ') || null,
     foto_path: yol, giren_id: PROFIL ? PROFIL.id : null };
