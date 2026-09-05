@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-18">
+<meta name="surum" content="borc-2026-08-27-19">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -528,6 +528,27 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .msg.uyari{display:block;background:#FBF1E3;color:var(--uyari)}
 
 .tablo-sar{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:10px -3px}
+/* ===== DE · KART GECMISI · AY x KART =====
+   ⚠ 375px'te dokuz sutun (ay + yedi kart + toplam) sigmaz; tablo KENDI
+     kutusunda yatay kayar (.tablo-sar), sayfa TASMAZ. Ay sutunu yapisik
+     kalir, yoksa saga kayinca hangi ayda oldugun kayboluyor. */
+.kg-ust{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0 2px}
+.kg-sec{display:flex;gap:6px;flex-wrap:wrap}
+.kg-sec .btn-mini.secili{background:var(--ana);color:#fff;border-color:var(--ana)}
+.kg-t th,.kg-t td{white-space:nowrap}
+.kg-t th:first-child,.kg-t td:first-child{position:sticky;left:0;z-index:1;
+  background:var(--kart);box-shadow:1px 0 0 var(--cizgi)}
+.kg-t tr.kg-alt{font-weight:800;border-top:2px solid var(--cizgi)}
+.kg-t tr.kg-alt td:first-child{background:var(--kart)}
+.kg-t .kg-top{font-weight:800}
+.kg-h{background:none;border:0;padding:2px 0;margin:0;min-height:32px;
+  font:inherit;color:var(--ana-koyu);text-decoration:underline;cursor:pointer}
+.kg-h:focus-visible{outline:3px dashed var(--ana);outline-offset:2px}
+/* Ekstresi yuklenmemis donem: soluk nokta. Rengi TEK basina anlam
+   tasimiyor — dipnotta ne oldugu yaziyor. */
+.kg-nok{display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--soluk);opacity:.55;margin-left:5px;vertical-align:middle}
+.kg-tarihsiz{margin-left:4px;color:var(--uyari);font-weight:800}
 table{border-collapse:collapse;width:100%;min-width:520px;font-size:15px}
 th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--cizgi);white-space:nowrap}
 th{font-size:11px;color:var(--soluk);letter-spacing:.4px}
@@ -4795,7 +4816,54 @@ async function axParcalar(dosya){
   /* ⚠ KAPI KAPALIYSA HICBIR SEY DEGISMEZ — 'fnt' fazladan bir alan,
      axOku onu okumaz. Diger uc bankanin ciktisi bu yuzden aynidir
      (olculdu: once/sonra 16 alanin 16'si birebir). */
-  return axEbcdicKapisi(hepsi) ? axEbcdicCoz(hepsi, axIskelet) : hepsi;
+  const cikti = axEbcdicKapisi(hepsi) ? axEbcdicCoz(hepsi, axIskelet) : hepsi;
+  return axIngKapisi(cikti) ? axIngCoz(cikti) : cikti;
+}
+
+/* ==================================================================
+   DF · INGILIZ SAYI BICIMI KAPISI
+   ==================================================================
+   OLCULDU (Is Bankasi Maximiles Black, kesim 04.09): alti alanin
+   ALTISI "bulunamadi" cikti. Etiketler BULUNUYORDU ("Hesap Özeti
+   Borcu:" gorunuyor), yanindaki RAKAM alinamiyordu:
+     Hesap Özeti Borcu: 29,976.97 TL
+     Ödenmesi Gereken Asgari Tutar: 11,990.79 TL
+     Devir Bakiyesi: -122,748.91
+     Dönem Faizi: 955.89        <- binlik ayiraci YOK, o yuzden okundu
+   AX_TUTAR TURK bicimli; "29,976.97" desene uymadigi icin aday bile
+   toplanmiyordu.
+   ⚠ DONUSTURUCU YENIDEN YAZILMADI: axEbSayi tam bu isi yapiyordu ama
+     yalniz EBCDIC kapisinin ardinda calisiyordu (Akbank icin
+     yazilmisti). Var olan donusturucu daha genis bir kapiya baglandi.
+   ⚠ AX_TUTAR'A DOKUNULMADI. Uc bankanin okumasi ona bagli; EBCDIC
+     turunde de ayni karar verilmisti ve dogruydu.
+   ⚠ BANKA ADINA GORE KARAR VERILMEZ — OLCULDU, AYNI BANKA IKI BICIM
+     KULLANIYOR. Bes gercek Is Bankasi ekstresi:
+       isbank-black  TR 23 · EN  0 -> TURK
+       isbank-b      TR 15 · EN  0 -> TURK
+       isbank-c      TR 30 · EN  0 -> TURK  (ayni kartin ONCEKI ekstresi)
+       isbank-d      TR  0 · EN 14 -> INGILIZ (yeni ekstre)
+     Karar METNIN KENDISINDEN veriliyor.
+   ⚠ ORAN SART, "EN varsa cevir" DEGIL: bir belgede 31 TR token
+     arasinda 1 EN token var (serbest metinde). "EN varsa cevir"
+     deseydik o belge BOZULURDU. */
+const AX_TR_SAYI = /\d{1,3}(?:\.\d{3})+,\d{2}/g;
+const AX_EN_SAYI = /\d{1,3}(?:,\d{3})+\.\d{2}/g;
+function axIngKapisi(parcalar){
+  const metin = parcalar.map(p => p.ham).join(' ');
+  const tr = (metin.match(AX_TR_SAYI) || []).length;
+  const en = (metin.match(AX_EN_SAYI) || []).length;
+  return en >= 3 && en > tr * 3;
+}
+function axIngCoz(parcalar){
+  const cikti = parcalar.map(p => {
+    const ham = axEbSayi(p.ham);
+    return ham === p.ham ? p : Object.assign({}, p, { ham, isk: axIskelet(ham) });
+  });
+  /* ⚠ ONAY EKRANINDA GORUNSUN: kullanici neye baktigini bilmeli.
+     Dizinin uzerinde tasiniyor — axOku'nun donusune aktariliyor. */
+  cikti.bicimCevrildi = true;
+  return cikti;
 }
 
 /* ⚠ DUZELTME 1 · PARCALARI SATIRA CEVIR. Eslesme SATIR uzerinde calisir.
@@ -5595,6 +5663,9 @@ function axOku(parcalar){
      tetiklenmiyordu; onunla gelen 'coklu tutar tasiyan parcayi bol'
      kurali da kaldirildi — pdf.js zaten boluyor. Kaldirma sonrasi
      Ziraat/Maximum ciktilarinin degismedigi olculdu. */
+  /* ⚠ DF · BICIM CEVRILDIYSE ONAY EKRANINDA YAZSIN. Bayrak parcalar
+     dizisinden tasiniyor; alanlarin hicbirine dokunmuyor. */
+  if (parcalar && parcalar.bicimCevrildi) alanlar.bicimCevrildi = true;
   return alanlar;
 }
 /* AZ-CEKIRDEK-SONU */
@@ -5741,6 +5812,14 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
     c3.dataset.et = 'KAYNAK ETİKET'; tr.appendChild(c3);
     const c4 = td((o.kural || '').replace(EK_EKSI, '')
       || (o.durum === 'belirsiz' ? 'birden çok etiket eşleşti' : 'bulunamadı'));
+    /* ⚠ DF · BICIM CEVRILDIYSE HER OKUNAN ALANDA YAZAR. Kullanici
+       rakami degil ESLESMEYI dogruluyor; rakamin bir donusumden
+       gectigini bilmeli. Yalniz cevrilen belgede cikar. */
+    if (a.bicimCevrildi && o.durum === 'ok'){
+      const bn = el('div','kucuk','sayı biçimi çevrildi: 1,234.56 → 1.234,56');
+      bn.style.marginTop = '2px';
+      c4.appendChild(bn);
+    }
     c4.dataset.et = 'NASIL BULUNDU'; tr.appendChild(c4);
     t.appendChild(tr);
   }
@@ -6658,6 +6737,8 @@ async function vKartlar(duzKartId){
   }
   k.appendChild(izgara);
   c.appendChild(k);
+  /* DE · gecmis gorunumu — kart kutularinin ALTINDA, katlanir */
+  c.appendChild(kartGecmisiSeridi(v));
   const duzKart = duzKartId ? v.kart.kartlar.find(x => x.id === duzKartId) : null;
   const kf = kartFormu(duzKart, v.kart.kartlar);
   /* ⚠ FORM KATLANIR · OLCULDU: "Yeni kart" formu 626px, ekranin 2023
@@ -6915,6 +6996,228 @@ async function kartSil(kart, liste, acan){
 /* ⚠ AW · DUZENLEME MODU acikca PARAMETREYLE tasiniyor, modul degiskeniyle
    DEGIL: kartDetayAc kaydetme/belge ekleme sonrasi da cagriliyor ve modul
    degiskeni orada temizlenmezse ekran duzenleme modunda ASILI kalirdi. */
+/* ==================================================================
+   DE · KART GECMISI · AY x KART TABLOSU
+   ==================================================================
+   Kullanicinin sorusu: "ödedikten sonra ne oluyor ben görmüyorum ki,
+   hangi ay ne kadar ödeme yapılmış, yüklediğim ekstreler ne olmuş".
+   Hakliydi — boyle bir ekran YOKTU. Kartlar sekmesi yalniz her kartin
+   BUGUNKU halini gosteriyordu; gecmis icin kart kart acip donem
+   tablosuna bakmak gerekiyordu (yedi kart × oniki ay).
+   ⚠ VERI ZATEN VAR, YENI HESAP YOK: rakamlar kart_donem'den OLDUGU
+     GIBI okunuyor (donem_odemesi · yeni_harcama · faiz_tutari +
+     vergi_masraf_tutari). Yeni toplam tanimi icat edilmedi.
+   ⚠ BOS HUCRE ile SIFIR AYRI: o ay o kartta donem YOKSA hucre BOS
+     kalir, "0,00" YAZILMAZ. Bu ayrimi mukerrer donem olayinda
+     pahaliya ogrendik — "0" ile "girilmemis" ayni sey degil.
+   ⚠ ODEME TARIHI DURUSTLUGU: donem_odemesi_tarih donem BASINA tek
+     tarih. Agustos ekstresine eylulde yapilan odeme AGUSTOS satirinda
+     durur; sebebi tablonun altinda yazili, yoksa kullanici "eylulde
+     odedim, neden agustosta yaziyor" der.
+   ⚠ KATLANIR: ekran birikmesi kurali. Serit kapaliyken de yilin
+     odeme toplamini gosteriyor — bir dokunus uzakta. */
+let KG_GORUNUM = 'odeme', KG_YIL = null;
+const KG_BASLIK = { odeme:'ÖDEME', harcama:'HARCAMA', maliyet:'MALİYET' };
+function kgDeger(d, gorunum){
+  if (!d) return null;                       // donem YOK -> bos hucre
+  if (gorunum === 'odeme')
+    return d.donem_odemesi == null ? null : kr(d.donem_odemesi);
+  if (gorunum === 'harcama')
+    return d.yeni_harcama == null ? null : kr(d.yeni_harcama);
+  /* MALIYET = faiz + vergi/masraf. IKISI DE girilmemisse bos —
+     "faiz islememis" ile "faiz girilmemis" ayni sey degil. */
+  if (d.faiz_tutari == null && d.vergi_masraf_tutari == null) return null;
+  return kr(d.faiz_tutari || 0) + kr(d.vergi_masraf_tutari || 0);
+}
+function kartGecmisiSeridi(v){
+  const kartlar = v.kart.kartlar, donemler = v.kart.donemler;
+  const yillar = [...new Set(donemler.map(d => d.donem.slice(0,4)))].sort().reverse();
+  const kap = document.createElement('div');
+  if (!yillar.length){
+    return kap;                              // hic donem yok: serit de yok
+  }
+  if (!KG_YIL || !yillar.includes(KG_YIL))
+    KG_YIL = yillar.includes(bugun().slice(0,4)) ? bugun().slice(0,4) : yillar[0];
+
+  const ac = el('button','serit-ozet'); ac.type = 'button';
+  ac.setAttribute('aria-expanded','false');
+  const yilOdeme = donemler.filter(d => d.donem.slice(0,4) === KG_YIL
+      && d.donem_odemesi != null).reduce((s,d) => s + kr(d.donem_odemesi), 0);
+  const p1 = el('span','so-p');
+  p1.appendChild(el('span','so-et','geçmiş · ' + KG_YIL));
+  p1.appendChild(el('span','so-dg', tlk(yilOdeme) + ' ödendi'));
+  ac.appendChild(p1);
+  const okI = el('span','so-ok','▾'); ac.appendChild(okI);
+  ac.setAttribute('aria-label', KG_YIL + ' yılında kartlara ödenen ' + tlk(yilOdeme)
+    + '. Ay ay dökümü aç.');
+  kap.appendChild(ac);
+  const kutu = el('div'); kutu.hidden = true; kap.appendChild(kutu);
+  const ciz = () => { kutu.textContent = ''; kutu.appendChild(kartGecmisi(v, yillar)); };
+  ac.onclick = () => {
+    if (kutu.hidden){ ciz(); kutu.hidden = false; okI.textContent = '▴';
+      ac.setAttribute('aria-expanded','true'); }
+    else { kutu.hidden = true; okI.textContent = '▾';
+      ac.setAttribute('aria-expanded','false'); }
+  };
+  return kap;
+}
+function kartGecmisi(v, yillar){
+  const kartlar = v.kart.kartlar, donemler = v.kart.donemler;
+  const k = el('div','kart');
+  k.appendChild(el('div','kbaslik','Kart geçmişi — ay ay'));
+
+  /* --- gorunum secici + yil secici --- */
+  const ust = el('div','kg-ust');
+  const grup = el('div','kg-sec');
+  grup.setAttribute('role','group');
+  grup.setAttribute('aria-label','Hangi rakam gösterilsin');
+  for (const g of ['odeme','harcama','maliyet']){
+    const b = el('button','btn-mini' + (KG_GORUNUM === g ? ' secili' : ''), KG_BASLIK[g]);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(KG_GORUNUM === g));
+    b.onclick = () => { KG_GORUNUM = g; ciz(); };
+    grup.appendChild(b);
+  }
+  ust.appendChild(grup);
+  if (yillar.length > 1){
+    const ys = document.createElement('select');
+    ys.setAttribute('aria-label','Yıl');
+    yillar.forEach(y => { const o = document.createElement('option');
+      o.value = y; o.textContent = y; if (y === KG_YIL) o.selected = true; ys.appendChild(o); });
+    ys.onchange = () => { KG_YIL = ys.value; ciz(); };
+    ust.appendChild(ys);
+  }
+  k.appendChild(ust);
+  const govde = el('div'); k.appendChild(govde);
+
+  const ciz = () => {
+    govde.textContent = '';
+    /* ⚠ AYLAR VERIDEN KURULUR, oniki satir ZORLANMAZ. */
+    const aylar = [...new Set(donemler.filter(d => d.donem.slice(0,4) === KG_YIL)
+      .map(d => d.donem))].sort().reverse();
+    if (!aylar.length){
+      govde.appendChild(el('div','bos', KG_YIL + ' yılında kayıtlı dönem yok.'));
+      return;
+    }
+    const bul = (kid, ay) => donemler.find(d => d.kart_id === kid && d.donem === ay);
+    const sar = el('div','tablo-sar');
+    const t = document.createElement('table'); t.className = 'kg-t';
+    const hr = document.createElement('tr');
+    hr.appendChild(el('th', null, 'AY'));
+    kartlar.forEach(c2 => hr.appendChild(el('th','sag', c2.ad)));
+    hr.appendChild(el('th','sag','TOPLAM'));
+    t.appendChild(hr);
+
+    const kartTop = kartlar.map(() => 0), kartVar = kartlar.map(() => false);
+    let genel = 0, tarihsiz = 0, ekstresiz = 0;
+    for (const ay of aylar){
+      const tr = document.createElement('tr');
+      tr.appendChild(td(ayAdi(ay)));
+      let satirTop = 0, satirVar = false;
+      kartlar.forEach((c2, i) => {
+        const d = bul(c2.id, ay);
+        const deg = kgDeger(d, KG_GORUNUM);
+        const h = document.createElement('td'); h.className = 'sag';
+        if (!d){ h.appendChild(el('span','gri','')); tr.appendChild(h); return; }
+        /* Donem VAR ama bu gorunumun alani girilmemis: gri tire.
+           BOS hucre (donem yok) ile ayri gorunur. */
+        if (deg == null) h.appendChild(el('span','gri','—'));
+        else {
+          const b = el('button','kg-h', tlk(deg));
+          b.type = 'button';
+          b.onclick = () => kgDonemAc(v, c2, d);
+          kutuErisim(b, c2.ad + ' · ' + ayAdi(ay) + ' · ' + KG_BASLIK[KG_GORUNUM]
+            + ' ' + tlk(deg) + (d.foto_path ? ', ekstresi var' : ', ekstresi yok')
+            + ', dönemi aç');
+          h.appendChild(b);
+          satirTop += deg; satirVar = true;
+          kartTop[i] += deg; kartVar[i] = true; genel += deg;
+        }
+        /* ⚠ EKSTRESI OLMAYAN DONEM ISARETLI: kullanici hangi ayin
+           belgesinin eksik oldugunu gormeli. */
+        if (!d.foto_path){ h.appendChild(el('span','kg-nok','')); ekstresiz++; }
+        if (KG_GORUNUM === 'odeme' && d.donem_odemesi != null
+            && d.donem_odemesi_tarih == null){
+          h.appendChild(el('span','kg-tarihsiz','?')); tarihsiz++;
+        }
+        tr.appendChild(h);
+      });
+      const ht = document.createElement('td'); ht.className = 'sag kg-top';
+      ht.textContent = satirVar ? tlk(satirTop) : '';
+      tr.appendChild(ht);
+      t.appendChild(tr);
+    }
+    /* --- sutun toplamlari --- */
+    const tf = document.createElement('tr'); tf.className = 'kg-alt';
+    tf.appendChild(td('KART TOPLAMI'));
+    kartTop.forEach((x, i) => {
+      const h = document.createElement('td'); h.className = 'sag';
+      h.textContent = kartVar[i] ? tlk(x) : '';
+      tf.appendChild(h);
+    });
+    const hg = document.createElement('td'); hg.className = 'sag kg-top';
+    hg.textContent = tlk(genel); tf.appendChild(hg);
+    t.appendChild(tf);
+    sar.appendChild(t); govde.appendChild(sar);
+
+    govde.appendChild(el('div','kucuk',
+      'Boş hücre: o ay o kartta dönem YOK. "—": dönem var ama bu alan girilmemiş '
+    + '(0,00 ile aynı şey değil). Soluk nokta: o dönemin ekstresi yüklenmemiş'
+    + (ekstresiz ? ' (' + ekstresiz + ' dönem)' : '') + '. '
+    + 'Bir rakama dokununca o dönem açılır, ekstresi varsa oradan görürsün.'));
+    if (KG_GORUNUM === 'odeme')
+      govde.appendChild(el('div','kucuk',
+        'ÖDEME satırı EKSTRENİN ayıdır, paranın çıktığı ay değil: ağustos '
+      + 'ekstresine eylülde yapılan ödeme AĞUSTOS satırında durur, çünkü o '
+      + 'ekstreye karşılık yapılmıştır. Her dönem için tek ödeme tarihi '
+      + 'tutuluyor.' + (tarihsiz ? ' "?" işaretli ' + tarihsiz
+      + ' ödemenin tarihi girilmemiş.' : '')));
+  };
+  ciz();
+  return k;
+}
+/* Hucreden donem detayina — ve ekstreye. */
+function kgDonemAc(v, kart, d){
+  const dlg = document.createElement('dialog'); dlg.className = 'pm';
+  dlg.setAttribute('aria-modal','true');
+  const bas = el('div','pm-bas sakin', ayAdi(d.donem)); bas.id = 'kgBas';
+  dlg.setAttribute('aria-labelledby', bas.id); dlg.appendChild(bas);
+  dlg.appendChild(el('div','pm-ad', kart.ad + (kart.banka ? ' · ' + kart.banka : '')));
+  const sat = (et, dg) => { const s = el('div','oy-satir');
+    s.appendChild(el('span','oy-et', et));
+    s.appendChild(el('span','oy-dg', dg)); dlg.appendChild(s); };
+  const g = (x) => x == null ? 'girilmedi' : tl(x);
+  sat('Devir', g(d.devir));
+  sat('Yeni harcama', g(d.yeni_harcama));
+  sat('Düzeltme', g(d.duzeltme));
+  sat('Alacak kayıtları', g(d.odenen));
+  sat('KALAN', g(d.kalan));
+  sat('Asgari', g(d.asgari_tutar));
+  sat('Bu ekstreye ödediğim', g(d.donem_odemesi));
+  sat('Ödemenin günü', d.donem_odemesi_tarih ? trGun(d.donem_odemesi_tarih)
+    : (d.donem_odemesi == null ? '—' : 'girilmedi'));
+  sat('KAPANMAMIŞ', g(d.kapanmamis));
+  sat('Faiz', g(d.faiz_tutari));
+  sat('Faiz vergisi/masrafı', g(d.vergi_masraf_tutari));
+  const ey = el('div','pm-ey');
+  if (d.foto_path){
+    const be = el('button','btn2','Ekstreyi aç');
+    be.type = 'button';
+    be.onclick = () => belgeAc(d.foto_path, 'kartMsg');
+    ey.appendChild(be);
+  } else dlg.appendChild(el('div','kucuk','Bu dönemin ekstresi yüklenmemiş. '
+    + 'Kartın kendi ekranındaki "+ Ekstre" düğmesiyle ekleyebilirsin.'));
+  const bd = el('button','btn2','Dönemi aç'); bd.type = 'button';
+  bd.onclick = () => { dlg.close(); dlg.remove(); kartDetayAc(kart.id, d.donem_id); };
+  ey.appendChild(bd);
+  const kapat = el('button','btn','Kapat'); kapat.type = 'button';
+  kapat.onclick = () => { dlg.close(); dlg.remove(); };
+  ey.appendChild(kapat);
+  dlg.appendChild(ey);
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); dlg.close(); dlg.remove(); });
+  document.body.appendChild(dlg); dlg.showModal();
+  return dlg;
+}
 async function kartDetayAc(kartId, duzenlenenId){
   seritiHizala();          // AL1 · ekranAc'tan gecmiyor, serit kaymis kalirdi
   const c = document.getElementById('icerik');
