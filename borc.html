@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-24">
+<meta name="surum" content="borc-2026-08-27-26">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -478,6 +478,12 @@ main{padding:14px;max-width:640px;margin:0 auto}
 /* Ekstre odemesi onizlemesi: etiket solda, rakam sagda. Bosluklarla
    hizalanamiyor (.bilgi white-space:pre-line ardisik boslugu cokurtur). */
 .oy-satir{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+/* DJ · Kredi kutusunda uc rakam: etiket solda, tutar sagda. */
+.kr-uclu{margin-top:6px}
+.kr-satir{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+  font-size:13px;line-height:1.7}
+.kr-et{color:var(--soluk);flex:1 1 auto;min-width:0}
+.kr-dg{flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--metin)}
 .oy-et{flex:1 1 auto;min-width:0}
 .oy-dg{flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums}
 .bos{text-align:center;color:var(--soluk);padding:26px 12px;font-size:15px;line-height:1.6}
@@ -1713,9 +1719,45 @@ async function ekranAc(ad){
 }
 
 /* ================== UST OZET BANDI (her ekranda) ================== */
+/* ==================================================================
+   DK · TEK BORC TANIMI SUNUCUDAN OKUNUR
+   ==================================================================
+   v118/v120 · v_toplam_borc: (kaynak, sahip, tutar, adet). Bugune kadar
+   ayni miktar UC yerde UC kuralla hesaplaniyordu ve KARSILASTIRAN BIR
+   YER YOKTU — bant "son donem", takvim "butun donemler", olcum betigi
+   ucuncu bir kural.
+   ⚠ ISTEMCI HESABI BIR ANDA SILINMEDI. Bant bes kaynagin AYRINTISINI da
+     tasiyor (bu ay odenecek, sapma nobetcileri, kart kirilimi...);
+     gorunum yalniz TOPLAMLARI veriyor. Bu turda toplamlar SUNUCUDAN
+     okunuyor ve istemcinin kendi hesabiyla KARSILASTIRILIYOR. Fark
+     cikarsa ekran BAGIRIYOR — "karsilastiran bir yer yok" sorununun
+     cozumu tam olarak bu; iki kaynagi sessizce yan yana birakmak
+     bugunku hatanin aynisini uretirdi.
+   ⚠ GORUNUM OKUNAMAZSA EKRAN DUSMEZ: tb null kalir, bant bugunku gibi
+     kendi hesabini gosterir ve bunu SOYLER. */
+async function toplamBorcGetir(){
+  const { data, error } = await sb.from('v_toplam_borc')
+    .select('kaynak,sahip,tutar,adet');
+  if (error) return { hata: error.message };
+  const t = { satirlar: data || [] };
+  const al = (k, s) => (data || []).filter(x => x.kaynak === k && (!s || x.sahip === s))
+    .reduce((a, x) => a + kr(x.tutar), 0);
+  t.kart          = { sahis: al('kart','sahis'),  ltd: al('kart','ltd') };
+  t.kredi         = { sahis: al('kredi','sahis'), ltd: al('kredi','ltd') };
+  t.krediNominal  = { sahis: al('kredi_nominal','sahis'), ltd: al('kredi_nominal','ltd') };
+  t.kirilimsiz    = { sahis: al('kredi_kirilimsiz','sahis'), ltd: al('kredi_kirilimsiz','ltd') };
+  t.maden = al('maden'); t.sahis = al('sahis'); t.cek = { sahis: al('cek','sahis'), ltd: al('cek','ltd') };
+  /* ⚠ GENEL TOPLAM ANAPARA AILESIDIR: kredi_nominal GIRMEZ (gorunumun
+     kendi COMMENT'inde de yazili kural). Nominali eklemek ayni borcu
+     iki kez saymaktir. */
+  t.genel = (data || []).filter(x => x.kaynak !== 'kredi_nominal')
+    .reduce((a, x) => a + kr(x.tutar), 0);
+  return t;
+}
 async function bantVerisi(){
-  const [krediler, taksitler, sahis, maden, kart, cek] = await Promise.all([
-    krediGetir(), taksitGetir(null), sahisGetir(), madenGetir(), kartGetir(), cekGetir()]);
+  const [krediler, taksitler, sahis, maden, kart, cek, tb] = await Promise.all([
+    krediGetir(), taksitGetir(null), sahisGetir(), madenGetir(), kartGetir(), cekGetir(),
+    toplamBorcGetir()]);
 
   /* ⚠ CEK · NOMINAL. Iskonto/ciro hesabi YOK — cekin uzerindeki tutar ne
      ise borc odur. Acik cekler (durum='bekliyor') toplama girer; odenmis
@@ -2034,7 +2076,8 @@ async function bantVerisi(){
            cek, cekToplam, cekSahis, cekLtd, kartOdemeleri,
            kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz, buAyKart,
            kartDonemleri: [...kartDonemleri].sort(),
-           S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma };
+           S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma,
+           tb };
 }
 
 /* ===== BORC DAGILIMI SERIDI (D1) =====
@@ -2205,19 +2248,67 @@ function bantCiz(v){
      ise o olmali." Toplam = kredi NOMINALI (faiz DAHIL, sahis+Ltd) +
      kart + sahis cari + maden rayic. NOMINAL bilerek: taksitler vadesinde
      odenecek, faiz DOGACAK. Hesaplarin hepsi zaten bantVerisi'nde. */
-  const kartToplam = v.kartSahis + v.kartLtd;
-  const krediNominal = v.krediParcaToplam;              // banttaki "Taksit nominali" ile AYNI
+  /* ⚠ DK · TOPLAMLAR ARTIK SUNUCUDAN. Istemci hesabi duruyor ama ARTIK
+     KARSILASTIRILIYOR (asagida ciz0 sonrasi nobetci). Gorunum yoksa
+     ya da okunamadiysa eski hesap kullanilir ve bu SOYLENIR. */
+  const tb = v.tb && !v.tb.hata ? v.tb : null;
+  const kartToplam = tb ? (tb.kart.sahis + tb.kart.ltd) : (v.kartSahis + v.kartLtd);
+  /* Kredi nominali: gorunumde kredi_nominal (kirilimli) + kredi_kirilimsiz
+     (zaten nominal). Ikisinin toplami istemcideki krediParcaToplam ile
+     ayni sey — nobetci bunu her acilista sinar. */
+  const krediNominal = tb
+    ? (tb.krediNominal.sahis + tb.krediNominal.ltd + tb.kirilimsiz.sahis + tb.kirilimsiz.ltd)
+    : v.krediParcaToplam;
   /* ⚠ CEK NOMINAL girer (v112): cekin uzerindeki tutar ne ise borc odur.
      Iskonto/ciro/kesif hesabi YOK — bu yuzden toplamOde ve kapatsam AYNI
      rakami alir; cekte "dogmamis faiz" diye bir sey yoktur, erken kapatma
      tasarrufu URETMEZ. Tasarruf nobetcisi bu yuzden bozulmaz. */
-  const toplamOde = krediNominal + kartToplam + v.sahisKalan + v.madenBugun + v.cekToplam;
+  const sahisCari = tb ? tb.sahis : v.sahisKalan;
+  const madenRayic = tb ? tb.maden : v.madenBugun;
+  const cekAcik   = tb ? (tb.cek.sahis + tb.cek.ltd) : v.cekToplam;
+  const toplamOde = krediNominal + kartToplam + sahisCari + madenRayic + cekAcik;
   /* Bugun kapatsam: anapara + kirilimsiz (faiz ayrimi bilinmeyen nominali
      ile) + cari + kart + maden. Tasarruf = toplam − kapatsam; tanim geregi
      gelecek faiz+masraf toplamina ESIT olmali — degilse asagida bagirir. */
-  const kapatsam = v.sAnapara + v.S.kirilimsiz + v.madenBugun
-                 + v.L.anapara + v.L.kirilimsiz + v.kartLtd + v.cekToplam;
+  /* ⚠ "Bugun kapatsam" = gorunumun GENEL TOPLAMI: anapara ailesi
+     (kart + kredi + kredi_kirilimsiz + maden + sahis + cek). Gorunum
+     bunu zaten tek satirda veriyor; istemcide yeniden toplamak ayni
+     kurali iki yerde tutmak olurdu. */
+  const kapatsam = tb ? tb.genel
+    : (v.sAnapara + v.S.kirilimsiz + v.madenBugun
+       + v.L.anapara + v.L.kirilimsiz + v.kartLtd + v.cekToplam);
   const tasarruf = toplamOde - kapatsam;
+
+  /* ⚠ DK · CELISKI NOBETCISI — "karsilastiran bir yer yok" burada bitiyor.
+     Istemcinin kendi hesabi ile sunucunun tanimi YAN YANA konuyor.
+     Sessiz kalinsaydi bugunku hatanin aynisi uretilirdi: iki kaynak,
+     hicbir karsilastirma. Fark cikarsa hangi kalemde ve kac kurus
+     oldugu YAZILIR — "yaklasik ayni" diye gecistirilmez. */
+  if (tb){
+    const kiyas = [
+      ['kart',    tb.kart.sahis + tb.kart.ltd,                       v.kartSahis + v.kartLtd],
+      ['maden',   tb.maden,                                          v.madenBugun],
+      ['şahıs',   tb.sahis,                                          v.sahisKalan],
+      ['çek',     tb.cek.sahis + tb.cek.ltd,                         v.cekToplam],
+      ['kredi nominali',
+        tb.krediNominal.sahis + tb.krediNominal.ltd
+        + tb.kirilimsiz.sahis + tb.kirilimsiz.ltd,                   v.krediParcaToplam],
+      ['kredi anaparası',
+        tb.kredi.sahis + tb.kredi.ltd,                               v.S.anapara + v.L.anapara]
+    ].filter(([, sunucu, istemci]) => sunucu !== istemci);
+    if (kiyas.length)
+      b.appendChild(el('div','uyari-agir',
+        'SUNUCU ve EKRAN AYNI RAKAMI VERMİYOR — ' + kiyas.length + ' kalemde fark var: '
+      + kiyas.map(([ad, su, is]) => ad + ' (sunucu ' + tlk(su) + ' · ekran ' + tlk(is)
+          + ' · fark ' + tlk(Math.abs(su - is)) + ')').join(' · ')
+      + '. Rakamlardan biri yanlış; hangisinin doğru olduğunu ekrandan '
+      + 'anlayamazsın, kaynağa bakılmalı.'));
+  } else {
+    b.appendChild(el('div','uyari-orta',
+      'Toplamlar SUNUCUDAN okunamadı' + (v.tb && v.tb.hata ? ' (' + hataTr(v.tb.hata) + ')' : '')
+    + '; aşağıdaki rakamlar ekranın kendi hesabı. Tek tanım (v_toplam_borc) '
+    + 'devrede değil — iki ekran farklı rakam gösterebilir.'));
+  }
   b.appendChild(el('div','blok-et','TOPLAM BORÇ · şahıs + Ltd'));
   const k0 = katman(null, null);
   const bas0 = el('div','bas');
@@ -3416,10 +3507,35 @@ async function vKrediler(){
     k.appendChild(kart);
     kart.appendChild(ust);
 
-    kart.appendChild(el('div','tk-orta',
-      o.kalanAdet === 0 ? 'tüm taksitler ödendi'
-      : anaparaVar ? 'kalan anapara · nominal ' + tlk(o.kalanKurus)
-      : 'kalan (kırılım girilmemiş, anapara hesaplanamıyor)'));
+    /* ==================================================================
+       ⚠ DJ · UC RAKAM, UCU DE ETIKETLI
+       ==================================================================
+       Kullanicinin sozu: "sen faizleri umursamiyorsun ama sistemde odeme
+       yapiliyor sonucta". Hakliydi — ekranda buyuk rakam anapara,
+       altinda kucuk gri "nominal X" yaziyordu ve FAIZ hic gorunmuyordu;
+       ustelik hangisinin ne oldugu da anlasilmiyordu ("kalan anapara ·
+       nominal 3.247.342,95" iki rakam, sifir aciklama).
+       OLCULDU (sekiz kredi): anapara 7.001.358,04 · nominal
+       10.316.537,96 · aradaki faiz 3.315.179,92.
+       ⚠ KIRILIMSIZ KREDIDE ANAPARA ve FAIZ YAZILMAZ. Sifir yazmak
+         "faiz yok" demektir; oysa faiz VAR, biz AYIRAMIYORUZ. */
+    if (o.kalanAdet === 0){
+      kart.appendChild(el('div','tk-orta','tüm taksitler ödendi'));
+    } else if (anaparaVar){
+      const kutu = el('div','kr-uclu');
+      const sat = (et, dg, kalin) => { const s = el('div','kr-satir');
+        s.appendChild(el('span','kr-et', et));
+        const d = el('span','kr-dg', dg); if (kalin) d.style.fontWeight = '800';
+        s.appendChild(d); kutu.appendChild(s); };
+      sat('bugün kapatsan', tlk(o.anaparaKurus), true);
+      sat('vadesine kadar', tlk(o.kalanKurus));
+      sat('faiz', tlk(o.kalanKurus - o.anaparaKurus));
+      kart.appendChild(kutu);
+    } else {
+      kart.appendChild(el('div','tk-orta',
+        'vadesine kadar ' + tlk(o.kalanKurus)
+      + ' · kırılım girilmemiş, anapara ve faiz hesaplanamıyor'));
+    }
 
     /* ⚠ SIRADAKI TAKSIT · listenin en cok arananinin cevabi. Eskiden
        yalniz "sonraki vade 05.07.2026" yaziyordu; TUTARI ve KAC GUN
@@ -6531,7 +6647,16 @@ function ozetCiz(v, ekran, ek){
 
   const parca = [];
   if (ekran === 'krediler'){
+    /* ⚠ DJ · TOPLAM FAIZ SERITTE. Kullanici faizi hicbir yerde
+       goremiyordu. Nominal − anapara; kirilimi girilmemis taksitler
+       ikisine de girmedigi icin bu rakam EKSIKTIR ve panelde soyleniyor.
+       ⚠ TOPLAM BORCUN ICINE KATILMIYOR: ayri parca, ayri etiket. Faizi
+         anaparaya eklemek ayni borcu iki kez saymaktir. */
+    const faizToplam = (v.S.nominal + v.L.nominal)
+                     - (v.S.anapara + v.L.anapara)
+                     - (v.S.kirilimsiz + v.L.kirilimsiz);
     parca.push(['Kredi', tk(v.S.anapara)], ['Ltd', tk(v.lNominal)],
+               ['faiz', tk(faizToplam)],
                ['bu ay', tk(o.sBuAy + o.lBuAy)]);
   } else if (ekran === 'kartlar'){
     /* ⚠ CI · 'kalan alan' SERITTEN KALDIRILDI: ayni bilgi artik ust
