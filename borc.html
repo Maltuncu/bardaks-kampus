@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-20">
+<meta name="surum" content="borc-2026-08-27-23">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -528,6 +528,12 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .msg.uyari{display:block;background:#FBF1E3;color:var(--uyari)}
 
 .tablo-sar{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:10px -3px}
+/* ⚠ DG · ELLE GIRILEN, OKUNMUS GIBI GORUNMEZ. Onay ekraninin tek isi
+   ESLESMEYI dogrulatmak; hangi rakamin nereden geldigi karismamali.
+   Kutu okunan rakamdan farkli zeminde ve kesikli cerceveli. */
+.ax-elle-kutu{margin:4px 0 0;min-height:38px;padding:5px 8px;text-align:right;
+  border:2px dashed var(--uyari);background:#FBF3E4;font-size:14px;width:100%}
+.ax-elle-kutu:focus-visible{outline:3px dashed var(--ana);outline-offset:2px}
 /* ===== DE · KART GECMISI · AY x KART =====
    ⚠ 375px'te dokuz sutun (ay + yedi kart + toplam) sigmaz; tablo KENDI
      kutusunda yatay kayar (.tablo-sar), sayfa TASMAZ. Ay sutunu yapisik
@@ -4509,9 +4515,14 @@ const AX_SOZLUK = {
      devir YOK donuyordu). Bastaki "Önceki" niteleyici listesinde ama
      eslesme satirin BASINDA basliyor, onunde hicbir sey yok — onek
      denetimi gecirir (Enpara'nin 'bir önceki ekstre borcu'su da boyle). */
+  /* ⚠ DG · "Devir Bakiyesi:" — Is Bankasi'nin YENI ekstre duzeni
+     (D-isbank-black-2609). Iskeleti 'devirbakiyesi'; mevcut
+     'devreden bakiye' -> 'devredenbakiye' bunu KAPSAMIYOR (olculdu:
+     devir YOK donuyordu, rakam hazir olsa bile). Iki esanlamli ayri
+     dizgeler, birbirini elemiyor. */
   devir:      { tip:'para',  syn:['önceki dönem borcu','devreden bakiye','devreden borç','bir önceki ekstre borcu',
                                   'bir önceki hesap özeti bakiyeniz','BİR ÖNCEKİ HESAP ÖZETİ BAKİYENİZ',
-                                  'önceki dönem hesap özeti bakiyesi'] },
+                                  'önceki dönem hesap özeti bakiyesi','devir bakiyesi'] },
   yeni:       { tip:'para',  syn:['dönem içi borç kayıtları','borç kayıtları','dönem içi harcamalar','yeni harcamalar'] },
   /* 'ödemeler' KISA ve bilerek EN SONDA: uzun eslesme kisa eslesmeyi
      yener (asagida siralama), 'Ödemeleriniz' tasiyan satirda uzun hali
@@ -5740,6 +5751,46 @@ function axToplamSatirlari(parcalar){
   return bulunan;
 }
 
+/* ⚠ DG · ELLE YAZILABILEN PARA ALANLARI.
+   Denkleme GIREN dortlu (devir · yeni · odenen · hesapOzeti) ve
+   denkleme GIRMEYEN ama isine yarayan ucu (limit · asgari · faiz ·
+   vergi). faizOrani PARA DEGIL (oran) — bu listede yok, para
+   bicimleyicisiyle baglanmasi rakamini bozardi (gram alanindaki
+   karar). Tarih/metin alanlari da yok: onlarin elle girisi kart
+   formunda zaten var. */
+const AX_ELLE = ['limit','devir','yeni','odenen','hesapOzeti','asgari','faiz','vergi'];
+const AX_AD = { limit:'kart limiti', devir:'devir', yeni:'yeni harcama',
+  odenen:'alacak kayıtları', hesapOzeti:'hesap özeti borcu', asgari:'asgari tutar',
+  faiz:'faiz', vergi:'faiz vergisi' };
+/* Elle girilen deger a'ya AYNI SEKILDE yazilir ama ETIKETI farklidir —
+   kayit yolu ve denklem onu okur, ekran onu ayirt eder. */
+function elleDegis(a, alan, kutu, rozet, nasilHucre, tazele){
+  const ham = kutu.value.trim();
+  if (!ham){
+    delete a[alan];                        // okunamadi haline geri don
+    rozet.textContent = ''; rozet.className = 'kucuk';
+    nasilHucre.firstChild.nodeValue = 'bulunamadı';
+    tazele(); return;
+  }
+  const r = paraCoz(ham);
+  if (!r.ok || r.kurus < 0){
+    delete a[alan];
+    rozet.className = 'uyari-agir';
+    rozet.textContent = 'Tutar okunamadı: ' + (r.hata || ham);
+    nasilHucre.firstChild.nodeValue = 'bulunamadı';
+    tazele(); return;
+  }
+  a[alan] = { durum:'ok', kurus:r.kurus, ham:tk(r.kurus),
+              etiket:'elle girildi', kural:'elle girildi', elle:true };
+  rozet.className = 'kucuk';
+  rozet.textContent = tk(r.kurus) + ' — elle girildi';
+  nasilHucre.firstChild.nodeValue = 'elle girildi';
+  tazele();
+}
+/* Elle girilen alanlarin listesi — kayit aciklamasina yazilir. */
+function axElleListesi(a){
+  return AX_ELLE.filter(x => a[x] && a[x].elle);
+}
 async function ekstreOnayEkrani(a, dosya, toplamIpucu){
   const v = await bantVerisi();
   const c = document.getElementById('icerik');
@@ -5806,7 +5857,22 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
       } else dh.textContent = o.ham;     // tarih ve metin alanlari: eskisi gibi
     }
     else if (o.durum === 'belirsiz') dh.appendChild(el('span','rozet rz-eksik','? BELİRSİZ'));
-    else dh.appendChild(el('span','gri','—'));
+    /* ⚠ Elle giris kutusu cizilecekse gri '—' YAZILMAZ: kutunun yaninda
+       duran tire, doldurulmus alanda bile 'bos' izlenimi veriyordu. */
+    else if (!AX_ELLE.includes(ik[0])) dh.appendChild(el('span','gri','—'));
+    /* ==================================================================
+       ⚠ DG · OKUNAMAYAN PARA ALANI ELLE YAZILABILIR
+       ==================================================================
+       Kullanicinin sorusu: "her ay bununla mı uğraşacağız". Okuyucuyu
+       kovalamak cozum degil — bazi ekstrelerde alan KAGITTA YOK
+       (Is Bankasi'nin yeni duzeninde ozet tablosu basilmiyor; yeni
+       harcama ve alacak kayitlari hicbir etikette yazmiyor). Kac
+       esanlamli eklenirse eklensin bulunamaz.
+       ⚠ ELLE GIRILEN OKUNMUS GIBI GORUNMEZ: kutu ayri bicimde, yaninda
+         ELLE rozeti, "NASIL BULUNDU" sutununda "elle girildi".
+       ⚠ DENKLEM GEVSETILMEZ: girilen deger de axKapi'dan gecer. Amac
+         kaydettirmek degil, DOGRU kaydettirmek.
+       ⚠ YENI PARA GIRISI YOLU ACILMADI: paraBagla deseni. */
     tr.appendChild(dh);
     const c3 = td(o.etiket ? '"' + o.etiket + '"' : '—');
     c3.dataset.et = 'KAYNAK ETİKET'; tr.appendChild(c3);
@@ -5815,30 +5881,69 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
     /* ⚠ DF · BICIM CEVRILDIYSE HER OKUNAN ALANDA YAZAR. Kullanici
        rakami degil ESLESMEYI dogruluyor; rakamin bir donusumden
        gectigini bilmeli. Yalniz cevrilen belgede cikar. */
-    if (a.bicimCevrildi && o.durum === 'ok'){
+    /* ⚠ YALNIZ PARA ALANLARINDA: banka adi ve tarih bir sayi bicimi
+       donusumunden gecmedi; hepsinin altina yazmak gurultu ve yanlis
+       beyan olurdu (olculdu: 13 satirin 13'unde cikiyordu). */
+    if (a.bicimCevrildi && o.durum === 'ok' && o.kurus != null){
       const bn = el('div','kucuk','sayı biçimi çevrildi: 1,234.56 → 1.234,56');
-      bn.style.marginTop = '2px';
+      bn.style.marginTop = '2px'; bn.style.overflowWrap = 'anywhere';
       c4.appendChild(bn);
     }
     c4.dataset.et = 'NASIL BULUNDU'; tr.appendChild(c4);
+    if (o.durum !== 'ok' && AX_ELLE.includes(ik[0])){
+      const kutu = document.createElement('input');
+      kutu.type = 'text'; kutu.setAttribute('inputmode','decimal');
+      kutu.className = 'ax-elle-kutu';
+      kutu.id = 'axElle_' + ik[0];
+      kutu.placeholder = 'elle yaz';
+      kutu.setAttribute('aria-label', ik[1] + ' — okunamadı, elle yaz');
+      dh.appendChild(kutu);
+      const rz = el('div','kucuk'); dh.appendChild(rz);
+      const degis = () => elleDegis(a, ik[0], kutu, rz, c4, tazele);
+      paraBagla(kutu, degis);
+      kutu.addEventListener('input', degis);
+    }
     t.appendChild(tr);
   }
   sar.appendChild(t); k.appendChild(sar);
 
-  /* D · ARITMETIK KAPISININ SONUCU GORUNUR */
-  const kp = axKapi(a);
-  if (kp.durum === 'tutuyor')
-    k.appendChild(el('div','bilgi','✓ Ekstre kendi içinde tutarlı: '
-      + tlk(a.devir.kurus) + ' + ' + tlk(a.yeni.kurus) + ' − ' + tlk(a.odenen.kurus)
-      + ' = ' + tlk(a.hesapOzeti.kurus)));
-  else if (kp.durum === 'tutmuyor')
-    k.appendChild(el('div','uyari-agir','✗ Ekstre kendi içinde TUTMUYOR. '
-      + 'devir + yeni − alacak kayıtları = ' + tlk(kp.sol) + ', ama hesap özeti borcu '
-      + tlk(a.hesapOzeti.kurus) + '. Fark ' + tlk(Math.abs(kp.fark))
-      + '. Dört rakamdan en az biri yanlış okundu — kaydetmeden önce ekstreden bak.'));
-  else
-    k.appendChild(el('div','uyari-agir','Denetim YAPILAMADI: ' + kp.eksik.join(', ')
-      + ' okunamadı. Eksik alan sıfır SAYILMADI; denklem kurulmadı.'));
+  /* D · ARITMETIK KAPISININ SONUCU GORUNUR
+     ⚠ DG · CANLI: elle bir alan yazilinca denklem YENIDEN kurulur ve
+       kaydet dugmesi ona gore acilir/kapanir. Kutu yerinde yeniden
+       ciziliyor; ekran bastan kurulsaydi yazilan alanin odagi giderdi. */
+  let kayitDugmesi = null;
+  const kapiKutu = el('div'); k.appendChild(kapiKutu);
+  const elleNot = el('div','kucuk'); k.appendChild(elleNot);
+  const tazele = () => {
+    const kp = axKapi(a);
+    kapiKutu.textContent = ''; kapiKutu.className = '';
+    if (kp.durum === 'tutuyor'){
+      kapiKutu.className = 'bilgi';
+      kapiKutu.textContent = '✓ Ekstre kendi içinde tutarlı: '
+        + tlk(a.devir.kurus) + ' + ' + tlk(a.yeni.kurus) + ' − ' + tlk(a.odenen.kurus)
+        + ' = ' + tlk(a.hesapOzeti.kurus);
+    } else if (kp.durum === 'tutmuyor'){
+      kapiKutu.className = 'uyari-agir';
+      kapiKutu.textContent = '✗ Ekstre kendi içinde TUTMUYOR. '
+        + 'devir + yeni − alacak kayıtları = ' + tlk(kp.sol) + ', ama hesap özeti borcu '
+        + tlk(a.hesapOzeti.kurus) + '. Fark ' + tlk(Math.abs(kp.fark))
+        + '. Dört rakamdan en az biri yanlış — kaydetmeden önce ekstreden bak.';
+    } else {
+      kapiKutu.className = 'uyari-agir';
+      kapiKutu.textContent = 'Denetim YAPILAMADI: ' + kp.eksik.join(', ')
+        + ' okunamadı. Eksik alan sıfır SAYILMADI; denklem kurulmadı. '
+        + 'Okunamayan alanı yukarıdaki kutuya ekstreden yazabilirsin.';
+    }
+    const elle = axElleListesi(a);
+    elleNot.textContent = elle.length
+      ? elle.length + ' alan elle girildi (' + elle.map(x => AX_AD[x] || x).join(', ')
+        + '). Bu, dönemin açıklamasına da yazılacak — altı ay sonra "bu rakam '
+        + 'nereden geldi" sorusunun cevabı dursun.'
+      : '';
+    /* ⚠ DH · DUGME ARTIK KAPANMIYOR — denklem tutmazsa tiklamada
+       onay soruluyor (yukaridaki kaydet.onclick). Kutu ve fark rakami
+       yerinde duruyor; degisen tek sey engelin kalkmasi. */
+  };
 
   /* ⚠ CF · OKUNAMAYAN IKILI ICIN GIRIS. Olculdu (gercek Maximiles):
      bu formatta OZET TABLOSU HIC BASILMIYOR — yeni ve odenen kagitta
@@ -5912,7 +6017,7 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
       /* devir + yeni − odenen = hesapOzeti */
       const dv = a.devir.kurus, ho = a.hesapOzeti.kurus;
       const girilen = { durum:'ok', kurus: r.kurus, ham: tk(r.kurus),
-                        etiket:'elle girildi', kural:'elle girildi' };
+                        etiket:'elle girildi', kural:'elle girildi', elle:true };
       const hesap = esas === 'odenen' ? ho - dv + r.kurus : dv + r.kurus - ho;
       if (hesap < 0){
         cfNegatif = true; a.yeni = eskiYeni; a.odenen = eskiOdenen;
@@ -5922,7 +6027,7 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
         return;
       }
       const cikan = { durum:'ok', kurus: hesap, ham: tk(hesap),
-                      etiket:'denklemden çıkarıldı', kural:'denklemden çıkarıldı' };
+                      etiket:'denklemden çıkarıldı', kural:'denklemden çıkarıldı', turetildi:true };
       if (esas === 'odenen'){ a.odenen = girilen; a.yeni = cikan;
         gYeni.value = tk(hesap); }
       else { a.yeni = girilen; a.odenen = cikan;
@@ -5931,8 +6036,9 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
       notCF.textContent = (esas === 'odenen' ? 'Yeni harcama ' : 'Ödeme ') + tk(hesap)
         + ' — denklemden çıkarıldı: devir ' + tk(dv) + ' + yeni − ödeme = borç ' + tk(ho) + '.';
     };
-    gOdenen.addEventListener('input', () => guncelle('odenen'));
-    gYeni.addEventListener('input', () => guncelle('yeni'));
+    /* ⚠ DG · CF de kapiyi CANLI tazeler: denklem burada da degisiyor. */
+    gOdenen.addEventListener('input', () => { guncelle('odenen'); tazele(); });
+    gYeni.addEventListener('input', () => { guncelle('yeni'); tazele(); });
   }
 
   /* A · BU EKSTRE HANGI KARTA AIT? ONERILIR, SECILMEZ. */
@@ -6136,22 +6242,54 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
     : 'Hesap kesim tarihi okunamadı; dönem belirlenemiyor. Bu ekstre kaydedilemez, elle gir.'));
 
   const kaydet = el('button','btn','Kartı ve dönemi kaydet'); kaydet.id = 'axKaydet';
-  /* CF · denklemden NEGATIF cikan ikiliyle kayit ENGELLENIR. */
-  kaydet.onclick = () => {
+  kayitDugmesi = kaydet;
+  /* CF · denklemden NEGATIF cikan ikiliyle kayit ENGELLENIR.
+     ⚠ DH · DENKLEM ENGELLEMEZ, SORAR. Bir onceki turda kaydet
+       kapatilmisti; GEVSETILDI. Sebep: denklemin tutmamasi "ekstre
+       yanlis" demek DEGIL, "biz yanlis okuduk" demek. Bes sutunlu Is
+       Bankasi ozet tablosu (yukarida, AZ blogunda yazili) dort terimli
+       formulumuze uymuyor — boyle bir ekstrede kullanici GERCEK bir
+       borcu HIC giremezdi. Gorunmeyen borc, bugun onlari yakan seyin
+       ta kendisi.
+       ⚠ UYARI AYNEN DURUYOR: kirmizi metin, fark rakami, hangi alanin
+         okunamadigi. Degisen tek sey dugmenin kapali olmamasi.
+       ⚠ Desen ICAT EDILMEDI: mukerrer donem ve devir nobetcilerindeki
+         onaySor + "Yine de kaydet" kalibinin aynisi. */
+  kaydet.onclick = async () => {
     if (cfNegatif){ mesaj('kartMsg','hata',
       'Ödeme/yeni harcama girişi denklemle çelişiyor (negatif). Düzelt ya da ikisini de boş bırak.');
       return; }
+    const kp2 = axKapi(a);
+    let zorlandi = null;
+    if (kp2.durum !== 'tutuyor'){
+      zorlandi = kp2.durum === 'yapilamadi'
+        ? 'denklem kurulamadı (' + kp2.eksik.map(x => AX_AD[x] || x).join(', ') + ' eksik)'
+        : 'denklem tutmadı, fark ' + tlk(Math.abs(kp2.fark));
+      if (!(await onaySor({
+        baslik: kp2.durum === 'yapilamadi' ? 'Denklem kurulamıyor' : 'Ekstre kendi içinde tutmuyor',
+        metin: (kp2.durum === 'yapilamadi'
+          ? kp2.eksik.map(x => AX_AD[x] || x).join(', ') + ' okunamadı ve elle de girilmedi. '
+            + 'Bu alanlar 0,00 olarak kaydedilir.'
+          : 'devir + yeni − alacak kayıtları = ' + tlk(kp2.sol) + ', ama hesap özeti borcu '
+            + tlk(a.hesapOzeti.kurus) + '. Fark ' + tlk(Math.abs(kp2.fark)) + '.')
+          + '\n\nBazı ekstreler bizim formülümüze uymuyor (İş Bankası\'nın beş sütunlu '
+          + 'özet tablosu gibi). Rakamlar ekstredekiyle aynıysa devam et — '
+          + 'kaydetmemek, gerçek borcu görünmez bırakır.\n\n'
+          + 'Zorladığın bu kayda not düşülecek.',
+        onayMetni:'Yine de kaydet', tehlikeli:false }))) return;
+    }
     /* CH · cakisma karari TIKLAMA ANINDA hesaplanir (secim degismis olabilir) */
-    ekstreKaydet(a, dosya, donem, kaydet, donemVarMi());
+    ekstreKaydet(a, dosya, donem, kaydet, donemVarMi(), axElleListesi(a), zorlandi);
   };
   k.appendChild(kaydet);
+  tazele();
   const vaz = el('button','btn2','Vazgeç');
   vaz.onclick = () => ekranAc('kartlar');
   k.appendChild(vaz);
   c.appendChild(k);
 }
 
-async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar){
+async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar, elleAlanlar, zorlandi){
   mesajTemizle('kartMsg');
   if (!donem){ mesaj('kartMsg','hata','Dönem belirlenemedi.'); return; }
   const sec = document.getElementById('axKart').value;
@@ -6224,6 +6362,17 @@ async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar){
     asgari_tutar: P(a.asgari), faiz_tutari: P(a.faiz), vergi_masraf_tutari: P(a.vergi),
     /* ⚠ donem_odemesi OKUNMAZ: o, ekstreye KARSILIK yapilan odeme ve
        ekstre basildiginda henuz yapilmamistir (v107'deki ayrim). */
+    /* ⚠ DG · ELLE GIRILEN ALANLAR KAYDA GECER. Alti ay sonra "bu rakam
+       nereden geldi" sorusunun cevabi burada durur; okuyucudan gelen
+       ile elle yazilan ayni satirda birbirine karismasin. */
+    /* ⚠ DH · ZORLANAN KAYDA NOT DUSULUR: alti ay sonra o donem
+       supheliyse sebebi ayni yerde dursun. */
+    aciklama: [
+      (elleAlanlar && elleAlanlar.length)
+        ? 'Elle girilen alanlar: ' + elleAlanlar.map(x => AX_AD[x] || x).join(', ')
+          + ' (ekstrede okunamadı, kullanıcı yazdı)' : null,
+      zorlandi ? 'DENETİM UYARISI: ' + zorlandi + ' — kullanıcı onaylayıp kaydetti.' : null
+    ].filter(Boolean).join(' · ') || null,
     foto_path: yol, giren_id: PROFIL ? PROFIL.id : null };
   const r2 = await sb.from('kart_donem').insert(satir);
   if (r2.error){
