@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-23">
+<meta name="surum" content="2026-08-27-25">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2433,7 +2433,7 @@ async function vOzet(){
          Yeni alan/tablo/migration YOK — yalniz ayirma.
        ⚠ FORMUL DEGISMIYOR: v_aylik_ozet'e dokunulmuyor, ay_kari ayni
          kaliyor. Ustune iki satir ekleniyor. */
-    sb.from('gider').select('tutar,kategori_id,gider_kategori(ad)')
+    sb.from('gider').select('tutar,kdv_tutar,kdv_indirilebilir_kayit,kategori_id,gider_kategori(ad)')
       .eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
   ]);
   /* KRİTİK DİLİMLER — biri düşerse Özet HİÇ çizilmez.
@@ -2564,18 +2564,55 @@ async function vOzet(){
        kaliyor, isletme kari ONDAN TURETILIYOR (ay_kari + finansman).
        Boylece uc satir tanim geregi birbirini tutar. */
   const FIN_DESEN = /faiz/i;
-  const FIN = (() => {
+  /* ⚠ BIR KERELIK YATIRIM · ayni mekanizma, ikinci desen.
+     "demirba" koku hem "demirbaş" hem "demirbas" yazimini yakalar —
+     bilerek boyle. Sistemde demirbas girecek ekran yok; kullanici bu
+     alimlari gider olarak yaziyor ve tek seferlik bir cikis o ayin
+     isletme sonucunu bozuyor. */
+  const YATIRIM_DESEN = /demirba|ekipman|makine|mobilya|yatirim/i;
+  /* ⚠ GERI EKLENEN RAKAM **NET** OLMAK ZORUNDA — BU TURUN ASIL ISI.
+     ay_kari gider_net'ten turuyor; gider_net'in TANIMI (taban ·
+     v_kdv_indirilebilir_ay): gider_toplam − Σ kdv_tutar (yalniz
+     kdv_indirilebilir_kayit olanlar). Asagidaki satir o tanimin
+     AYNISI — ikinci bir tanim yazilmadi.
+     Ham tutar geri eklenseydi isletme kari KDV kadar fazla cikardi:
+     1.234,56'lik bir alimin 234,56'si KDV ise geri eklenecek olan
+     1.000,00'dir. Kredi faizinde KDV olmadigi icin bu satir orada
+     hicbir seyi degistirmez — sifir cikarir. */
+  const giderNet = (x) => (Number(x.tutar) || 0)
+    - (x.kdv_indirilebilir_kayit ? (Number(x.kdv_tutar) || 0) : 0);
+  /* ⚠ TURKCE HARF: JS'te 'ı' ile 'i', 'İ' ile 'i' AYRI karakterdir ve
+     regex'in /i bayragi bunlari eslestirmez — olculdu:
+       /yatirim/i.test('Yatırım')  -> false
+       /faiz/i.test('FAİZ')        -> false
+     Kategori adi kullanicinin yazdigi serbest metin. "Yatırım" ya da
+     buyuk harfle "FAİZ" acilirsa o kalem ayrimin DISINDA kalir; ekranda
+     hata cikmaz, yalniz isletme kari yanlis olur. Desen sinanmadan
+     ONCE ad normallestirilir.
+     ⚠ Once [ıİ] -> i, SONRA toLowerCase: 'İ'.toLowerCase() birlesik
+       nokta birakir ('i' + U+0307) ve desen yine tutmaz.
+     ⚠ TEK YER: iki desen de bu yoldan gecer, ikinci bir tanim yok.
+       Map anahtari HAM ad kalir — ekranda kullanicinin yazdigi gorunur. */
+  const desenAd = (s) => String(s || '').replace(/[ıİ]/g, 'i').toLowerCase();
+  const kategoriTopla = (sec) => {
     const d = (ayGider && ayGider.data) || [];
     const m = new Map();
     for (const x of d){
       const ad = x.gider_kategori && x.gider_kategori.ad;
-      if (!ad || !FIN_DESEN.test(ad)) continue;
-      m.set(ad, (m.get(ad) || 0) + (Number(x.tutar) || 0));
+      if (!ad || !sec(desenAd(ad))) continue;
+      m.set(ad, (m.get(ad) || 0) + giderNet(x));
     }
     const kalemler = [...m.entries()].map(([ad, tutar]) => ({ ad, tutar }))
       .sort((a,b) => b.tutar - a.tutar);
     return { tutar: kalemler.reduce((a,k) => a + k.tutar, 0), kalemler };
-  })();
+  };
+  const FIN = kategoriTopla(ad => FIN_DESEN.test(ad));
+  /* ⚠ IKI DESENE BIRDEN UYAN KATEGORI CIFT DUSULMESIN: finansman
+     onceliklidir, yatirim tarafi onu disarida birakir. */
+  const YATIRIM = kategoriTopla(ad => YATIRIM_DESEN.test(ad) && !FIN_DESEN.test(ad));
+  const ayrimBaslik = 'İŞLETME KÂRI ('
+    + (FIN.tutar > 0 && YATIRIM.tutar > 0 ? 'finansman ve yatırım hariç'
+      : YATIRIM.tutar > 0 ? 'yatırım hariç' : 'finansman hariç') + ')';
   const blokKar = !o ? '' : `
       ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
       <div class="ipucu">${o.stok_bazli
@@ -2591,14 +2628,20 @@ async function vOzet(){
         : ozSatir('Mal alışları (KDV hariç)', '−'+tl(o.alis_net))}
       ${ozSatir('Giderler (KDV hariç)', '−'+tl(o.gider_net))}
       ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
-      ${FIN.tutar > 0 ? `
-        ${ozSatir('İŞLETME KÂRI (finansman hariç)', tl(+o.ay_kari + FIN.tutar), true)}
-        ${ozSatir('Finansman maliyeti', '−'+tl(FIN.tutar))}
-        <div class="ipucu" style="margin-top:4px">Kredi faizi <b>işletmenin kazancı</b>
+      ${(FIN.tutar > 0 || YATIRIM.tutar > 0) ? `
+        ${ozSatir(ayrimBaslik, tl(+o.ay_kari + FIN.tutar + YATIRIM.tutar), true)}
+        ${FIN.tutar > 0 ? ozSatir('Finansman maliyeti', '−'+tl(FIN.tutar)) : ''}
+        ${YATIRIM.tutar > 0 ? ozSatir('Bir kerelik yatırım', '−'+tl(YATIRIM.tutar)) : ''}
+        ${FIN.tutar > 0 ? `<div class="ipucu" style="margin-top:4px">Kredi faizi <b>işletmenin kazancı</b>
           değil, <b>finansman tercihinin</b> maliyeti. Kafenin para kazanıp
           kazanmadığına bakarken üstteki satıra bak; bu ay giderin
           <b>%${Math.round(FIN.tutar / Math.max(1, +o.gider_net) * 100)}</b>'ı finansman.
           ${FIN.kalemler.map(k => esc(k.ad) + ' ' + tl(k.tutar)).join(' · ')}</div>` : ''}
+        ${YATIRIM.tutar > 0 ? `<div class="ipucu" style="margin-top:4px">Bir kerelik ekipman
+          alımı işletmenin <b>kazanma gücünü</b> ölçmez — bu ay bir kez çıktı, her ay
+          çıkmıyor. Kafenin durumuna bakarken <b>üstteki satıra</b> bak.
+          ${YATIRIM.kalemler.map(k => esc(k.ad) + ' ' + tl(k.tutar)).join(' · ')}
+          <b>(KDV hariç)</b></div>` : ''}` : ''}
       ${ozSatir('Beyana giden kâr', tl(o.ay_kari))}
       ${+o.z_disi_nakit>0 ? ozSatir('Z dışı kasa nakdi', '+'+tl(o.z_disi_nakit)) : ''}
       ${ozSatir('GERÇEK AY KÂRI', tl(o.gercek_ay_kari), true)}
