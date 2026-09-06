@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-21">
+<meta name="surum" content="2026-08-27-23">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -7465,22 +7465,71 @@ let PG_DONEM = null;
    Anayasa md.4: mevzuata bağlı kurallar teyitsiz sabitlenemez, varsayım olarak
    işaretlenir. O yüzden ekranda "yasal" değil TAHMİN yazıyor. */
 function sgkHesapla(net){ return net>0 ? +((net/0.85)*0.375).toFixed(2) : 0; }
+/* ⚠ SGK SÜTUNU VERİ DEĞİL, MAAŞIN KOPYASI — ÖLÇÜLDÜ 2026-09-06
+   personel_gider'de yalnız 2026-07 ve 2026-08 var; altı satırın ALTISI da
+   sgkHesapla()'nın ürettiği rakam. Ölçüt: |sgk − sgkHesapla(maas)| ≤ 0,01.
+   Yani bordrodan tek bir gerçek rakam girilmemiş; sütun maaşın 0,4412
+   katsayılı kopyası ve bu rakam personel_toplam üzerinden aylık kâra
+   giriyor. Gerçek rakam vergi_odeme'de duruyor (tur='sgk'); oradaki donem
+   TAHAKKUK dönemidir, ödeme bir sonraki ay yapılır.
+   ⚠ BU FONKSİYON YALNIZ GÖSTERİR. personel_gider'e hiçbir yazma yok;
+     kapalı dönemi düzeltmek ayrı bir karar. */
+/* ⚠ sgk > 0 KOŞULU ŞART: sgkHesapla(0)=0 olduğu için maaşı 0 ve SGK'sı 0
+   olan satır ölçüte "uyuyor" ve rozet alıyordu — orada doğrulanacak bir
+   şey yok, sayıyı da şişiriyordu. Maaş > 0 iken SGK 0 girilmiş satır
+   zaten rozet ALMIYOR (formül 0'dan başka bir şey üretir); o korunuyor. */
+function pgSgkTahminMi(p){
+  const s = +p.sgk || 0;
+  return s > 0 && Math.abs(s - sgkHesapla(+p.maas || 0)) <= 0.01;
+}
 async function vPersonel(){
   const el = document.getElementById('icerik');
   if (PROFIL.rol !== 'owner'){ el.innerHTML = '<div class="bilgi-not">Bu ekran yöneticiye özeldir.</div>'; return; }
   const donem = PG_DONEM || bugun().slice(0,7);
   PG_DONEM = donem;
-  const { data } = await sb.from('personel_gider').select('*').eq('donem', donem)
-    .eq('is_deleted', false).order('personel_adi');
+  /* ⚠ ŞUBE SÜZGECİ UYDURULMADI: personel_gider okumasında şube süzgeci
+     YOK, vergi_odeme okuması da AYNI kalıyor. İkisi farklı süzgeçle
+     okunursa karşılaştırma sessizce yanlış olur. */
+  const [pgSonuc, voSonuc] = await Promise.all([
+    sb.from('personel_gider').select('*').eq('donem', donem)
+      .eq('is_deleted', false).order('personel_adi'),
+    sb.from('vergi_odeme').select('tutar,odeme_tarihi,donem').eq('tur', 'sgk')
+      .eq('donem', donem).eq('is_deleted', false)
+  ]);
+  const { data } = pgSonuc;
+  /* ⚠ RLS'e takılırsa kutu SESSİZCE gizlenir, hata basılmaz:
+     null = "bilmiyoruz" · [] = "okundu, ödeme kaydı yok". Aynı şey değil. */
+  const odemeler = voSonuc.error ? null : (voSonuc.data || []);
   const kayitlar = data||[];
   const T = {maas:0,sgk:0,prim:0,yemek:0,maliyet:0};
   kayitlar.forEach(p=>{ const mal=(+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek);
     T.maas+=+p.maas; T.sgk+=+p.sgk; T.prim+=+p.prim; T.yemek+=+p.yemek; T.maliyet+=mal; });
-  const satir = (ad, maas, sgk, prim, yemek, maliyet, silId, kalin) =>
+  const tahminAdet = kayitlar.filter(pgSgkTahminMi).length;
+  const odenen = odemeler ? odemeler.reduce((t,v)=>t+(+v.tutar||0), 0) : 0;
+  const odemeVar = !!(odemeler && odemeler.length);
+  const fark = +(T.sgk - odenen).toFixed(2);
+  /* (C) TAHMİN vs GERÇEK — yalnız gösterir, düzeltme düğmesi YOK. */
+  const sgkKutu = (!odemeler || kayitlar.length === 0) ? '' : (odemeVar
+    ? `<div class="uyari-orta" style="margin:0 0 10px">
+        <b>Ödenen SGK ${tl(odenen)}</b> · sistemdeki SGK toplamı ${tl(T.sgk)}${
+          tahminAdet ? ` (${tahminAdet} satırı tahmin)` : ''}${
+          odemeler.length > 1 ? ` · ${odemeler.length} ödeme kaydı toplandı` : ''}
+        <div style="margin-top:5px">${
+          Math.abs(fark) < 0.01 ? 'Fark yok — sistemdeki rakam ödenenle aynı.'
+          : fark > 0 ? `Tahmin <b>${tl(fark)}</b> FAZLA — bu ayın kârı <b>${tl(fark)}</b> kadar DÜŞÜK görünüyor.`
+                     : `Tahmin <b>${tl(-fark)}</b> EKSİK — bu ayın kârı <b>${tl(-fark)}</b> kadar YÜKSEK görünüyor.`}</div>
+        <div style="margin-top:5px">Ödenen tutardır; gecikme zammı ya da idari para cezası içeriyor olabilir. Tahakkuk fişiyle karşılaştır.</div>
+      </div>`
+    : `<div class="bilgi-not" style="margin:0 0 10px">Bu ayın SGK'si henüz ödenmedi — ekrandaki rakam tahmin. Ödeme dekontunu girince gerçeği burada göreceksin.</div>`);
+  /* (D) SGK ödenmiş ama o ayın personel gideri hiç girilmemiş. */
+  const eksikAy = (kayitlar.length === 0 && odemeVar)
+    ? `<div class="uyari-agir" style="margin:0 0 10px">Bu ay SGK ödenmiş (<b>${tl(odenen)}</b>) ama personel gideri girilmemiş — bu ayın kârı olduğundan yüksek görünüyor.</div>`
+    : '';
+  const satir = (ad, maas, sgk, prim, yemek, maliyet, silId, kalin, tahmin) =>
     `<tr style="${kalin?'font-weight:800;background:var(--acik)':''}">
       <td style="padding:8px 6px;text-align:left">${ad}</td>
       <td style="padding:8px 6px;text-align:right">${tl(maas)}</td>
-      <td style="padding:8px 6px;text-align:right;color:var(--soluk)">${tl(sgk)}</td>
+      <td style="padding:8px 6px;text-align:right">${tl(sgk)}${tahmin?' <span class="rozet rz-uyari">tahmin</span>':''}</td>
       <td style="padding:8px 6px;text-align:right">${tl(prim)}</td>
       <td style="padding:8px 6px;text-align:right">${tl(yemek)}</td>
       <td style="padding:8px 6px;text-align:right;color:var(--ana);font-weight:800">${tl(maliyet)}</td>
@@ -7494,6 +7543,7 @@ async function vPersonel(){
       <div class="ozet-kut"><div class="e">KİŞİ BAŞI</div><div class="d">${tl(T.maliyet/kayitlar.length)}</div>
         <div class="aciklama">SGK ${tl(T.sgk)} dahil</div></div>
     </div>` : ''}
+    ${eksikAy}${sgkKutu}
     <div class="kart">
       ${kbaslik('', ayAdi(donem), '')}
       <label>Dönem</label>
@@ -7513,11 +7563,12 @@ async function vPersonel(){
           </tr></thead>
           <tbody>
             ${kayitlar.map(p=>satir(esc(p.personel_adi), p.maas, p.sgk, p.prim, p.yemek,
-              (+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek), p.id)).join('')}
+              (+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek), p.id, false, pgSgkTahminMi(p))).join('')}
             ${satir('AY TOPLAMI', T.maas, T.sgk, T.prim, T.yemek, T.maliyet, null, true)}
           </tbody>
         </table>
-      </div>`}
+      </div>
+      ${tahminAdet ? `<div class="uyari-orta" style="margin:8px 0 0">SGK: ${kayitlar.length} satırdan ${tahminAdet} tanesi tahmin — bordrodan doğrulanmadı.</div>` : ''}`}
     </div>
     <div class="kart">
       <div class="kbaslik">Personel Satırı Ekle (${donem})</div>
@@ -7538,8 +7589,35 @@ async function vPersonel(){
       <div class="hata-msg" id="pgMsg"></div>
     </div>`;
   paraBaglaHepsi(['pgMaas','pgSgk','pgPrim','pgYemek']);
+  /* (A) ⚠ ÜZERİNE YAZMA DURDU.
+     Eskiden pgMaas'a HER TUŞ VURUŞUNDA pgSgk koşulsuz eziliyordu: bordrodan
+     gerçek rakamı yazıp sonra maaşta bir rakamı düzeltirsen gerçek değer
+     sessizce gidiyordu.
+     ⚠ ÖLÇÜT DEĞER DEĞİL NİYET: kullanıcının KENDİ olayı (e.isTrusted) alana
+       dokunduysa bayrak kalkar. Programatik doldurma — doğrudan .value
+       ataması ya da dispatchEvent ile tetiklenen input — ELLE SAYILMAZ.
+     Alan boşaltılırsa bayrak DÜŞER, otomatik doldurma geri gelir. */
+  const sgkAlan = document.getElementById('pgSgk');
+  sgkAlan.addEventListener('input', e=>{
+    if (!e.isTrusted) return;
+    if (sgkAlan.value.trim() === '') delete sgkAlan.dataset.elle;
+    else sgkAlan.dataset.elle = '1';
+  });
+  /* ⚠ EVİN KENDİ DESENİ (sgkDekontDoldur/yazAlan): değeri TÜRKÇE biçimde
+     yaz, sonra input olayını tetikle — gruplamayı ve __paraEski'yi
+     paraCanliUygula'nın kendisi yapsın. İki farklı zemin bırakılmaz.
+     ⚠ NEDEN: sgkHesapla bir SAYI döndürür; doğrudan yazılınca alanda
+       "13235.29" duruyordu. Kullanıcı o alana TEK TUŞ dokunduğunda
+       paraCanli bütün noktaları gruplama sanıp siliyor ve değer 100
+       katına çıkıyordu (Backspace -> 132.352).
+     ⚠ Tetiklenen olay isTrusted=false; yukarıdaki 'elle' bayrağı
+       KALKMAZ — programatik doldurma elle sayılmaz. */
+  const kurusTr = (n) => n.toFixed(2).replace('.', ',');
   document.getElementById('pgMaas').addEventListener('input', e=>{
-    document.getElementById('pgSgk').value = sgkHesapla(paraDeger('pgMaas')) || '';
+    if (sgkAlan.dataset.elle === '1') return;
+    const t = sgkHesapla(paraDeger('pgMaas'));
+    sgkAlan.value = t > 0 ? kurusTr(t) : '';
+    sgkAlan.dispatchEvent(new Event('input', { bubbles:true }));
   });
 }
 async function pgEkle(){
