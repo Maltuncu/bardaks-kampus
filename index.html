@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-20">
+<meta name="surum" content="2026-08-27-21">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -427,6 +427,10 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
   color:var(--ana);font-size:22px;font-weight:900;line-height:1}
 .ay-gez button:disabled{background:transparent;color:var(--cizgi);cursor:default}
 .foto-onizle{max-width:80px;max-height:80px;border-radius:8px;border:1px solid var(--cizgi);margin-top:6px}
+
+/* DM · yapistirmada secilen yorum GORUNUR yazilir */
+.para-not{font-size:12px;color:var(--uyari);margin:3px 0 6px;line-height:1.45;
+  overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -2922,7 +2926,67 @@ function paraCanli(ham, eksiVar){
   tam = tam.replace(/^0+(?=\d)/, '');
   return (eksi ? '-' : '') + tam.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ond;
 }
+/* ==================================================================
+   ⚠ DM · YAPISTIRMA YOLU YAZMA YOLUNDAN AYRI
+   ==================================================================
+   OLCULDU (06.09, gercek tarayici yapistirmasi):
+     yapistirilan   ekranda cikan
+     1234.56    ->  123.456,00      100 KAT
+     580551.85  ->  58.055.185,00   100 KAT
+     29,976.97  ->  29,97           binde bir
+   SEBEP: paraCanli ilk satirda butun noktalari kosulsuz siliyor ve
+   bu YAZMA icin DOGRU — kullanicinin ondalik olarak yazdigi nokta
+   paraCanliUygula'da o anda virgule cevriliyor (e.data === '.'),
+   yani paraCanli'ya gelen nokta artik yalniz gruplama ayracidir.
+   ⚠ AMA e.data TEK TUSTUR. Yapistirmada inputType 'insertFromPaste'
+     olur ve e.data BOSTUR — cevirim hic calismaz, sonra nokta
+     gruplama sanilip silinir. Yazma yolunun dogru varsayimi,
+     yapistirmada yanlis.
+   ⚠ paraCoz'a DOKUNULMADI: o iki bicimi de dogru cozuyor. Sorun,
+     degerin paraCoz'a ULASMADAN paraCanli tarafindan bozulmasiydi.
+   COZUM: yapistirmada alanin TAMAMI paraCoz'dan gecirilir, cikan
+   degerden TR bicimiyle yeniden yazilir. Yazma yolu AYNEN durur. */
+function paraYapistirmaMi(el, e){
+  if (!e) return false;
+  const it = e.inputType || '';
+  if (it === 'insertFromPaste' || it === 'insertFromDrop') return true;
+  /* inputType vermeyen tarayici icin OLCUT: bu olayda e.data YOK ve
+     alan bir karakterden FAZLA buyudu — tek tusla olmaz. */
+  return !e.data && (el.value.length - String(el.__paraEski || '').length) > 1;
+}
+/* ⚠ BELIRSIZ GIRDI SESSIZCE SECILMEZ. "1,234" hem 1,23 hem 1.234
+   olabilir (tek ayirac, arkasinda TAM 3 hane). Secilen yorum alanin
+   ALTINDA yazilir; kullanici yanlissa duzeltir. Sessiz secim, bu
+   turda duzelttigimiz hatanin ta kendisi. */
+const PARA_BELIRSIZ = /^\s*[-−]?\s*\d{1,3}[.,]\d{3}\s*$/;
+function paraNotYaz(el, metin){
+  let n = el.nextElementSibling;
+  if (!n || !n.classList || !n.classList.contains('para-not')){
+    if (!metin) return;
+    n = document.createElement('div'); n.className = 'para-not';
+    el.insertAdjacentElement('afterend', n);
+  }
+  n.textContent = metin || '';
+  n.style.display = metin ? '' : 'none';
+}
+function paraYapistir(el, eksiVar){
+  const ham = el.value;
+  const eksi = !!eksiVar && /^\s*[-−]/.test(ham);
+  const r = paraCoz(ham, 2, eksiVar);
+  const metin = r.ok ? String(r.metin || '0').replace(/^-/, '') : null;
+  if (metin == null) return false;               // cozulemedi: yazma yoluna dus
+  const yeni = paraCanli((eksi ? '-' : '') + metin, eksiVar);
+  el.value = yeni; el.__paraEski = yeni;
+  try { el.setSelectionRange(yeni.length, yeni.length); } catch(err){}
+  paraNotYaz(el, PARA_BELIRSIZ.test(ham)
+    ? '"' + ham.trim() + '" -> ' + yeni + ' olarak okundu. Yanlışsa düzelt.'
+    : '');
+  return true;
+}
 function paraCanliUygula(el, e, eksiVar){
+  /* ⚠ DM · YAPISTIRMA ONCE: yazma yolunun nokta varsayimi burada
+     gecerli degil (yukarida). Cozulemezse yazma yoluna DUSER. */
+  if (paraYapistirmaMi(el, e) && paraYapistir(el, eksiVar)) return;
   const geri = !!(e && /^delete/i.test(e.inputType || ''));
   let t = el.value;
   let p = el.selectionStart == null ? t.length : el.selectionStart;
