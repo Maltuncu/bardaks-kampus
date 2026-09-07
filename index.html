@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-29">
+<meta name="surum" content="2026-08-27-30">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -657,6 +657,14 @@ const bugun = () => tarihStr(new Date());
    devam ediyor. Bugun hala SECILEBILIR (max = bugun). */
 const dunTarih = () => { const d = new Date(); d.setDate(d.getDate() - 1); return tarihStr(d); };
 const tl = n => (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
+/* ⚠ kasa_nakit'te UC hal var, ikisi degil:
+     null = sayilmadi (ekranda "sayılmamış")
+     0    = SAYILDI ve kasa bostu
+     >0   = sayildi, icinde para vardi
+   Cipla "0,00 TL" ikinciyi birinciyle karistirilabilir kilar — o yuzden
+   sifir kendi notunu tasir. tl() ile birlikte kullanilir. */
+const kasaSifirNot = v => (v != null && +v === 0)
+  ? ' <span class="k">(sayıldı, kasa boştu)</span>' : '';
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ===== GÖRSEL DİL YARDIMCILARI =====
@@ -1902,7 +1910,8 @@ async function odemelerBlogu(hedefId, ctx){
   /* ---- ELDE · kasa + banka · fark hesaplanmaz ---- */
   const ks = (kasa.data||[])[0];
   const kasaM = ks && ks.kasa_nakit != null
-    ? tl(ks.kasa_nakit) + ' <span class="k">(' + (ks.tarih === dun ? 'dün akşam' : ks.tarih === b ? 'bugün' : BB_GG(ks.tarih)) + ')</span>'
+    ? tl(ks.kasa_nakit) + kasaSifirNot(ks.kasa_nakit)
+      + ' <span class="k">(' + (ks.tarih === dun ? 'dün akşam' : ks.tarih === b ? 'bugün' : BB_GG(ks.tarih)) + ')</span>'
     : '<span style="color:var(--uyari)">sayılmamış</span>';
   const bankalar = banka.data||[];
   const bankaM = bankalar.length
@@ -2039,7 +2048,7 @@ async function odemelerBlogu(hedefId, ctx){
        <button class="btn2 kb-bt" onclick="katlaAc('bbKutu',this)">Banka gir</button></div>` : ''}
     <div class="kart" id="bfDun" style="cursor:pointer" onclick="sekmeAc('gunsonu')">
       ${kbaslik('DÜN', BB_GG(dun) + (gs ? ' · gün sonu ✓' : ''), gs ? '' : '<span class="rozet rz-uyari">gün sonu girilmemiş</span>')}
-      ${gs ? `<div class="bilgi-not" style="margin-top:0">ciro <b>${tl(gs.toplam)}</b> · kasa nakit <b>${gs.kasa_nakit != null ? tl(gs.kasa_nakit) : 'sayılmamış'}</b></div>`
+      ${gs ? `<div class="bilgi-not" style="margin-top:0">ciro <b>${tl(gs.toplam)}</b> · kasa nakit <b>${gs.kasa_nakit != null ? tl(gs.kasa_nakit) : 'sayılmamış'}</b>${gs.kasa_nakit != null ? kasaSifirNot(gs.kasa_nakit) : ''}</div>`
            : `<div class="bilgi-not" style="margin-top:0">Dünün gün sonu girilmemiş — dokun, gir.</div>`}
     </div>
     <div class="kart" id="odemelerKart">
@@ -3589,7 +3598,7 @@ async function personelSonKayit(){
         <div class="l-sol"><div class="b">${t}</div>
           <div class="k">Kart ${tl(g.kart_toplam)} · Nakit ${tl(g.nakit_toplam)}
           ${ks.length?'<br>'+ks.map(k=>`<b>${et(k)}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; '):''}
-          ${g.kasa_nakit!==null?'<br>Z dışı kasa: '+tl(g.kasa_nakit):''}
+          ${g.kasa_nakit!==null?'<br>Z dışı kasa: '+tl(g.kasa_nakit)+kasaSifirNot(g.kasa_nakit):''}
           <div style="margin-top:6px">${ks.map(k=>
             belgeBtn(k.z_foto_path,`${et(k)} Z`,`${t} — Kasa ${k.kasa_no} ${zCok(ks,k.kasa_no)?(k.sira||1)+'. Z':'Z'} Raporu`)+
             slipBtn(k.pos_slip_foto_path,`${et(k)} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')}</div>
@@ -3649,8 +3658,27 @@ async function gunSonuKaydet(){
   const pKasa = paraOku(document.getElementById('gsKasa'));
   if (!pKasa.ok){ mesaj('gsMsg','hata','Kasadaki Para alanı geçersiz — örnek: 4400 veya 4400,50'); return; }
   const kasa = pKasa.deger;
-  if (kasa === 0 &&
+  /* ⚠ GERCEK SIFIR KAYBOLUYORDU — OLCULDU.
+     Iki kayit yolunda da `p_kasa: kasa > 0 ? kasa : null` yaziyordu.
+     Kasa sayilip icinden GERCEKTEN sifir para ciktiginda sisteme null
+     gidiyordu. Veritabani null'i "sayilmadi" okuyor (taban: sayilan_gun
+     ... WHERE kasa_nakit IS NOT NULL) ve zincir isliyor: o gun
+     sayilmamis sayilir, o gunun nakit hareketleri kapsam_disi_nakit'e
+     duser ve GERCEK CIRODAN CIKAR. Yani kasasi bos cikan bir gun, o
+     gunun nakdini rapordan siliyordu.
+     Veritabani DOGRU: kasa_nakit nullable, null = sayilmadi, 0 =
+     sayildi ve bostu. Ayrim zaten vardi; ekran kullanmiyordu.
+     ⚠ DEGERE BAKMAK YETMEZ: paraOku bos alani da 0 dondurur. Olcut
+       alanin KENDISI — bos mu, yoksa kullanici 0 mi yazdi. */
+  const kasaBos = !document.getElementById('gsKasa').value.trim();
+  const kasaGonder = kasaBos ? null : kasa;
+  if (kasaBos &&
       !confirm('Kasadaki Para girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
+  /* ⚠ TEK SORU, BIR KEZ: yanlis cevap veri kaybettiriyor. */
+  if (!kasaBos && kasa === 0 &&
+      !confirm('Kasada 0,00 TL mi vardı?\n\n'
+             + 'EVET → "saydım, kasa boştu" olarak kaydedilir; o günün nakdi raporda kalır.\n'
+             + 'HAYIR → kayıt durur. Saymadıysan bu alanı BOŞ bırak.')) return;
   const ozet = kasalar.map(k=>{
     const kv = k.kdv.reduce((a,x)=>a+x.kdv_tutar,0);
     const et = `Kasa ${k.n}${ZLISTE[k.n].length>1?' ('+k.s+'. Z)':''}`;
@@ -3689,7 +3717,7 @@ async function gunSonuKaydet(){
          anahtar degisir ve koruma bosa cikardi. */
       p_idem: await idemKararli('gun_sonu_guncelle',[DUZENLE.id]), p_id: DUZENLE.id,
       p_not: document.getElementById('gsNot').value.trim()||null,
-      p_kasa: kasa > 0 ? kasa : null,
+      p_kasa: kasaGonder,
       p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
         kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
         z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
@@ -3714,7 +3742,7 @@ async function gunSonuKaydet(){
     p_iptal_adet: 0, p_iptal_tutar: 0,
     p_z_no: null, p_kdv: null, p_z_foto: null, p_slip_foto: null,
     p_not: document.getElementById('gsNot').value.trim()||null,
-    p_kasa: kasa > 0 ? kasa : null,
+    p_kasa: kasaGonder,          /* ⚠ IKINCI KAYIT YOLU — biri unutulmasin */
     p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
       kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
       z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
