@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-28">
+<meta name="surum" content="2026-08-27-29">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5443,8 +5443,8 @@ function gdFisMal(){
       </div>
       <label>Toplam (miktar × birim fiyat — fişte yuvarlama varsa düzelt)</label>
       <input type="text" inputmode="decimal" id="mfToplam" placeholder="0,00">
-      <label>KDV Tutarı (fişte yazanı aynen yaz; yoksa boş bırak)</label>
-      <input type="text" inputmode="decimal" id="mfKdv" placeholder="0,00">
+      <div class="bilgi-not">Fişin KDV'si <b>indirilemez</b> — o yüzden ayrıca sorulmuyor.
+        Ödediğin tutarın <b>tamamı</b> maliyet sayılır.</div>
       <label>Kimden aldın?</label>
       <select id="mfTedarikci">${KATALOG.tedarikciler.map(t =>
         `<option value="${t.id}"${tedVar && t.id===sonTed ? ' selected' : ''}>${esc(t.ad)}</option>`).join('')}</select>
@@ -5458,7 +5458,7 @@ function gdFisMal(){
   /* ⚠ miktar para alani DEGIL: bas===3 yolu (gruplama yok) — ADIM 01'de
      gram alanlari icin bilerek ayrilan yol. */
   paraBagla(document.getElementById('mfMiktar'), mfToplamTazele, 3);
-  paraBaglaHepsi(['mfFiyat','mfToplam','mfKdv']);
+  paraBaglaHepsi(['mfFiyat','mfToplam']);
   paraBagla(document.getElementById('mfFiyat'), mfToplamTazele);
   /* toplam kullanicinin yazdigi degeri EZMEZ — ADIM 02'nin bayragi */
   const tp = document.getElementById('mfToplam');
@@ -5520,7 +5520,6 @@ async function malAlimKaydet(){
     mesaj('mfMsg','hata','Ürün tanımlanamadı: ' + hataTr(e.message));
     btn.disabled = false; btn.textContent = 'Kaydet'; return;
   }
-  const kdvT = paraDeger('mfKdv');
   const kasadan = document.getElementById('mfKasadan').checked;
   /* ⚠ p_tur = 'fatura' · 'bilgi_fisi' DEGIL — OLCULDU, GEREKCESI:
        taban.sql: alis.tur yorumu 'bilgi_fisi (SIFIR tutarli mal gelisi,
@@ -5530,16 +5529,26 @@ async function malAlimKaydet(){
          rpc_sayim_kaydet maliyet CTE
      Bu yolun butun amaci fiyat gecmisine nokta dusurmek; 'bilgi_fisi'
      ile kayit tam da o gorunumun disinda kalir, is sessizce curur.
-     'fatura' odenmis gercek bir alistir; KDV indirimi yalniz
-     kdv_tutar'dan gelir (v_kdv_indirilebilir_ay: tur='fatura'), fis
-     KDV'siz ise 0 gonderilir ve hicbir indirim olusmaz.
-     Belge no yok, fis oldugu p_fis_no ve nottan anlasilir. */
+     'fatura' odenmis gercek bir alistir.
+   ⚠ KDV TUTARI HER ZAMAN 0 — OLCULDU, DUZELTILDI:
+     v_kdv_indirilebilir_ay, alis tarafinda tur='fatura' satirlarinin
+     kdv_tutar'ini KOSULSUZ indirime katiyor (gider tarafinda ise
+     kdv_indirilebilir_kayit suzgeci var). Eski Fis yolu 'Fiş/Gündelik'
+     kategorisi indirilemez oldugu icin fisin KDV'sini havuzun DISINDA
+     tutuyordu. Bu yol tur='fatura' oldugu icin ICERI sokuyordu ve
+     indirilecek KDV'yi oldugundan yuksek gosteriyordu — sistemin kendi
+     politikasiyla celisiyordu.
+     Cozum: KDV alani kaldirildi, 0 gonderiliyor. Odenen tutarin
+     TAMAMI maliyet sayilir; fisin KDV'si zaten indirilemez.
+   ⚠ 'irsaliye' DENENMEDI: taban.sql:5517 urun_alacak teslimatlarini
+     tur IN ('bilgi_fisi','irsaliye') uzerinden turetiyor; market alisi
+     odenmis bir urun alacagini sessizce kapatabilirdi. */
   const data = await rpcCagir('rpc_alis_kaydet', {
     p_idem: idem(), p_sube: AKTIF_SUBE, p_tedarikci: tedId,
     p_tarih: document.getElementById('gdTarih').value,
     p_tur: 'fatura', p_belge_no: null, p_fis_no: null,
     p_toplam: toplam,
-    p_kdv_orani: null, p_kdv_tutar: kdvT, p_kdv_kirilim: [], p_kdv_dahil: true,
+    p_kdv_orani: null, p_kdv_tutar: 0, p_kdv_kirilim: [], p_kdv_dahil: true,
     p_ocr_ham: null, p_ocr_model: null, p_foto: foto,
     p_not: 'fişli mal alımı',
     p_kalemler: [{ urun_id: urunId, miktar, birim_fiyat: fiyat,
