@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-27">
+<meta name="surum" content="borc-2026-08-27-28">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1135,11 +1135,64 @@ function paraCoz(ham){
   if (!isFinite(d)) return {ok:false,hata:'Geçersiz tutar.'};
   return { ok:true, kurus: Math.round(d*100) };
 }
+/* ==================================================================
+   ADIM 08 · GRAM COZUCU — TAHMIN YOK, YA KESIN YA RED
+   ==================================================================
+   Eski hal para cozucusunun grama OLDUGU GIBI uygulanmasiydi:
+     replace(',','.') yalniz ILK virgulu ceviriyor, parseFloat ilk
+     gecersiz karakterde sessizce DURUYORDU. Olculdu:
+       "3.250"     -> 3,25   (bin kat, sessiz)
+       "3.250,5"   -> 3,25   (bin kat, sessiz)
+       "1.234.567" -> 1,234
+   Gramda ondalik UC hane; "nokta + uc rakam" sekli GERCEKTEN iki
+   anlamli. Tahmin edilmez, reddedilir.
+
+   KURAL
+     · VIRGUL her zaman ondaliktir.           3250,5   -> 3250,500
+     · Virgul VARSA noktalar binliktir.       3.250,5  -> 3250,500
+     · Nokta var, virgul YOK:
+         kuyruk 3 rakam DEGILSE nokta ondaliktir.   3.25   -> 3,250
+         kuyruk TAM 3 rakamsa BELIRSIZ -> RED.       3.250  -> reddet
+         birden fazla nokta -> binliktir.            1.234.567 -> 1234567
+     · Ondalik en cok 3 hane; fazlasi KESILMEZ, reddedilir (yanlis
+       tuslama isaretidir).
+     · Sifir ve eksi: eski mesajlar korunur.
+
+   ⚠ Alanlar (mGram/moGram) paraBagla'ya BILEREK bagli degil; ekranda
+     ham metin durur, tek okuyan burasidir. paraCoz/paraCanli'ye
+     dokunulmadi — onlar noktayi silip yeniden gruplar, ekran yalan
+     soyler (Y14). gramYaz DOGRU, sorun yalniz giristeydi.
+   ⚠ Belirsiz desen ADIM 01'deki PARA_BELIRSIZ ile ayni aileden ama
+     gramin kendi kurali. Red mesaji sekli degil KARARI soyler. */
+const GRAM_BELIRSIZ = /^\s*\d{1,3}\.\d{3}\s*$/;
 function gramCoz(ham){
-  const t = String(ham==null?'':ham).replace(',','.').replace(/[^\d.]/g,'');
-  if (!/\d/.test(t)) return {ok:false,hata:'Geçersiz gram.'};
-  const d = parseFloat(t);
-  if (!isFinite(d) || d <= 0) return {ok:false,hata:'Gram sıfırdan büyük olmalı.'};
+  const s = String(ham==null?'':ham).trim();
+  if (!/\d/.test(s)) return {ok:false,hata:'Geçersiz gram.'};
+  if (/[^\d.,\-\s]/.test(s)) return {ok:false,hata:'Geçersiz gram.'};
+  if (GRAM_BELIRSIZ.test(s)){
+    const ond = s.replace('.', ','), bin = s.replace('.', '');
+    return { ok:false, belirsiz:true,
+      hata: s + ' iki anlamlı: ' + s + ' gram mı, ' + ond + ' gram mı? '
+          + 'Binlik için ' + bin + ', ondalık için ' + ond + ' yaz.' };
+  }
+  let tam, ond;
+  const v = s.indexOf(',');
+  if (v >= 0){
+    if (s.indexOf(',', v+1) >= 0) return {ok:false,hata:'Geçersiz gram.'};
+    tam = s.slice(0, v).replace(/\./g, ''); ond = s.slice(v+1);
+    if (/\./.test(ond)) return {ok:false,hata:'Geçersiz gram.'};
+  } else {
+    const nokta = (s.match(/\./g) || []).length;
+    if (nokta === 0){ tam = s; ond = ''; }
+    else if (nokta >= 2){ tam = s.replace(/\./g, ''); ond = ''; }
+    else { const son = s.lastIndexOf('.'); tam = s.slice(0, son); ond = s.slice(son+1); }
+  }
+  tam = tam.replace(/\s/g, ''); ond = ond.replace(/\s/g, '');
+  if (ond.length > 3)
+    return {ok:false,hata:'Gram en çok 3 ondalık hane olabilir — örnek: 3250,500'};
+  const d = parseFloat((tam || '0') + (ond ? '.' + ond : ''));
+  if (!isFinite(d)) return {ok:false,hata:'Geçersiz gram.'};
+  if (d <= 0) return {ok:false,hata:'Gram sıfırdan büyük olmalı.'};
   return { ok:true, deger: Math.round(d*1000)/1000 };
 }
 const gramYaz = g => (Number(g)||0).toLocaleString('tr-TR',{minimumFractionDigits:0,maximumFractionDigits:3})+' gr';
@@ -9206,6 +9259,11 @@ async function madenDetayAc(madenId, sessiz){
         ok.appendChild(onIzleme);
         const hesapla = () => {
           const g2 = gramCoz(ig.value), p2 = paraCoz(ifi.value);
+          /* ⚠ ADIM 08 · BELIRSIZ/GECERSIZ GRAM ON IZLEMEDE ACIKCA SOYLENIR,
+             "—" DEGIL. Kullanici tutari gormeden kaydetmiyor; yanlisi
+             burada yakalamak en ucuzu. Bos alan eskisi gibi "—". */
+          if (!g2.ok && ig.value.trim()){
+            onIzleme.textContent = 'Gram: ' + g2.hata; return; }
           if (!g2.ok || !p2.ok || g2.deger <= 0 || p2.kurus <= 0){
             onIzleme.textContent = 'Tutar: —'; return; }
           onIzleme.textContent = 'Tutar: ' + gramYaz(g2.deger) + ' × ' + tl(p2.kurus/100)
