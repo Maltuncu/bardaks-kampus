@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-27">
+<meta name="surum" content="2026-08-27-28">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -3889,7 +3889,11 @@ async function vGider(){
   const sekBtn = (id, ad) => `<button class="sg-btn${GIDER_BOLUM===id?' aktif':''}" onclick="gdBolumAc('${id}')">${ad}</button>`;
   el.innerHTML = `
     <h2 class="bolum">Giderler</h2>
-    <div class="segment">${sekBtn('temel','Temel')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
+    ${/* ⚠ "Temel" hicbir sey anlatmiyordu ve ILK sekme oldugu icin
+          varsayilan yol oydu — en kolay yol, yanlis yol. Ad artik
+          YAPILAN ISI soyluyor. 375px'te bes sekme var, kisa kalmali;
+          tasma olculdu. Oteki sekme adlarina dokunulmadi. */''}
+    <div class="segment">${sekBtn('temel','Gider')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
     <div id="gdIcerik"></div>
     <div id="gdListe"></div>`;
   if (GIDER_BOLUM==='temel') gdTemel();
@@ -5343,8 +5347,56 @@ function gdVadeFark(){
       + ' — farklı tutar kaydedilebilir (kısmi ödeme / gecikme zammı).';
   } else n.hidden = true;
 }
+/* ==================================================================
+   Y12 · BELGESIZ MAL ALISI ICIN YOL ACILDI
+   ==================================================================
+   OLCULDU: Fis sekmesi bir ALIS yolu DEGILDI. giderKaydet('fis')
+   cagiriyor, sabit 'Fiş/Gündelik' kategorisine GIDER yaziyordu; miktar
+   ve birim fiyat SORMUYORDU. Urun/miktar/fiyat yalniz Fatura
+   sekmesinden giriyordu. Yani pazardan belgesiz alinan bir malin kac
+   kilo/kaca alindigini girecek HICBIR YER YOKTU. Kullanici yanlis
+   ekran secmiyordu — dogru ekran bulunmuyordu.
+   Sonuc: ayni urun iki kez gider olarak girilmis, ikisinde de miktar
+   yok; "zamlandi mi" sorusu artik cevaplanamiyor ve miktar hic
+   kaydedilmedigi icin geriye donuk tamamlanamiyor.
+
+   ⚠ SORU KAGIT ADI DEGIL, YAPILAN IS: "Mal aldim" / "Isletme gideri".
+   ⚠ "Isletme gideri" yolu BUGUNKUYLE BIREBIR AYNI kaydi uretir —
+     giderKaydet('fis') yoluna, alanlarina, davranisina DOKUNULMADI.
+   ⚠ VARSAYILAN YOK. Ilk kullanimda hicbiri secili degil; kullanici bir
+     kez secer, secim cihazda hatirlanir. Sessiz bir varsayilan koymak,
+     bu turda duzelttigimiz hatanin ta kendisi olurdu ("en kolay yol,
+     yanlis yol"). Hangi yolun daha sik kullanildigi olculmedi —
+     olculunce tek satirla varsayilan konur. */
+let GD_FIS_MOD = null;                       // null | 'mal' | 'gider'
+const GD_FIS_ANAHTAR = 'ktu_fis_mod';
+const GD_TED_ANAHTAR = 'ktu_fis_tedarikci';
+function yerelOku(k){ try { return localStorage.getItem(k) || null; } catch(e){ return null; } }
+function yerelYaz(k, d){ try { localStorage.setItem(k, d); } catch(e){} }
+function gdFisModSec(m){ GD_FIS_MOD = m; yerelYaz(GD_FIS_ANAHTAR, m); gdFis(); }
 function gdFis(){
+  if (GD_FIS_MOD === null) GD_FIS_MOD = yerelOku(GD_FIS_ANAHTAR);
+  const sec = (id, ad) =>
+    `<button class="sg-btn${GD_FIS_MOD===id?' aktif':''}" onclick="gdFisModSec('${id}')">${ad}</button>`;
   document.getElementById('gdIcerik').innerHTML = `
+    <div class="kart">
+      <div class="kbaslik">Ne girdin?</div>
+      <div class="segment">${sec('mal','Mal aldım')}${sec('gider','İşletme gideri')}</div>
+      <div class="bilgi-not">Müşteriye <b>sattığın</b> ya da sattığın şeyin <b>içine giren</b>
+        bir şeyse <b>Mal aldım</b> — kaç kilo, kaça aldığın da kaydolur, sonra fiyatı
+        karşılaştırabilirsin. Peçete, çöp poşeti gibi işletme masrafıysa
+        <b>İşletme gideri</b>.</div>
+    </div>
+    <div id="gdFisIcerik"></div>`;
+  if (GD_FIS_MOD === 'mal') gdFisMal();
+  else if (GD_FIS_MOD === 'gider') gdFisGider();
+  giderListe();
+}
+/* ⚠ BU FONKSIYON BUGUNKU FIS FORMUNUN AYNISI — tek fark, kapsayici
+   kabin id'si ve giderListe() cagrisinin yukari tasinmasi. Alanlar,
+   yer tutucular, kaydet yolu (giderKaydet('fis')) DEGISMEDI. */
+function gdFisGider(){
+  document.getElementById('gdFisIcerik').innerHTML = `
     <div class="kart">
       <div class="kbaslik">Fiş (gündelik ufak tefek alımlar)</div>
       ${tarihSecici('gdTarih')}
@@ -5360,7 +5412,150 @@ function gdFis(){
       <div class="hata-msg" id="gdMsg"></div>
     </div>`;
   paraBaglaHepsi(['gdTutar','gdKdvTutar']);
-  giderListe();
+}
+/* MAL ALDIM YOLU · uc alan: urun adi · miktar · birim fiyat.
+   ⚠ TEDARIKCI ZORUNLU (alis.tedarikci_id NOT NULL) ama ARATTIRILMAZ:
+     bu ekranda en son kullanilan tedarikci onceden dolu gelir (cihazda
+     hatirlanir). Hic yoksa kullanici bir kez secer.
+   ⚠ BIRIM yalniz urun YENIYSE sorulur; mevcut urunde katalogdaki birim
+     kullanilir. Ortak yol uc alanda kalsin diye boyle. */
+function gdFisMal(){
+  const sonTed = yerelOku(GD_TED_ANAHTAR);
+  const tedVar = KATALOG.tedarikciler.some(t => t.id === sonTed);
+  document.getElementById('gdFisIcerik').innerHTML = `
+    <div class="kart">
+      <div class="kbaslik">Mal alımı (fişli / belgesiz)</div>
+      ${tarihSecici('gdTarih')}
+      <label>Ne aldın?</label>
+      <input type="text" id="mfAd" list="mfUrunler" autocomplete="off" placeholder="örn: mantar">
+      <datalist id="mfUrunler">${KATALOG.urunler.map(u =>
+        `<option value="${esc(u.ad)}">`).join('')}</datalist>
+      <div id="mfYeniAlan" hidden>
+        <label>Birimi (yeni ürün)</label>
+        <select id="mfBirim">
+          <option value="kg">kg</option><option value="adet">adet</option>
+          <option value="lt">lt</option><option value="paket">paket</option>
+        </select>
+      </div>
+      <div class="satir">
+        <div><label>Miktar</label><input type="text" inputmode="decimal" id="mfMiktar" placeholder="örn: 3,5"></div>
+        <div><label>Birim fiyat</label><input type="text" inputmode="decimal" id="mfFiyat" placeholder="0,00"></div>
+      </div>
+      <label>Toplam (miktar × birim fiyat — fişte yuvarlama varsa düzelt)</label>
+      <input type="text" inputmode="decimal" id="mfToplam" placeholder="0,00">
+      <label>KDV Tutarı (fişte yazanı aynen yaz; yoksa boş bırak)</label>
+      <input type="text" inputmode="decimal" id="mfKdv" placeholder="0,00">
+      <label>Kimden aldın?</label>
+      <select id="mfTedarikci">${KATALOG.tedarikciler.map(t =>
+        `<option value="${t.id}"${tedVar && t.id===sonTed ? ' selected' : ''}>${esc(t.ad)}</option>`).join('')}</select>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;color:var(--metin);font-weight:700">
+        <input type="checkbox" id="mfKasadan" style="width:20px;height:20px;flex:none" checked> Kasadan nakit ödendi
+      </label>
+      <label>Fiş Fotoğrafı</label><input type="file" id="mfFoto" accept="image/*,application/pdf,.pdf">
+      <button class="btn" id="mfKaydet" onclick="malAlimKaydet()">Kaydet</button>
+      <div class="hata-msg" id="mfMsg"></div>
+    </div>`;
+  /* ⚠ miktar para alani DEGIL: bas===3 yolu (gruplama yok) — ADIM 01'de
+     gram alanlari icin bilerek ayrilan yol. */
+  paraBagla(document.getElementById('mfMiktar'), mfToplamTazele, 3);
+  paraBaglaHepsi(['mfFiyat','mfToplam','mfKdv']);
+  paraBagla(document.getElementById('mfFiyat'), mfToplamTazele);
+  /* toplam kullanicinin yazdigi degeri EZMEZ — ADIM 02'nin bayragi */
+  const tp = document.getElementById('mfToplam');
+  tp.addEventListener('input', e => { if (e.isTrusted) tp.dataset.elle = tp.value.trim() ? '1' : ''; });
+  document.getElementById('mfAd').addEventListener('input', mfUrunDurum);
+  mfUrunDurum();
+}
+function mfUrunBul(ad){
+  const t = String(ad||'').trim().toLocaleLowerCase('tr');
+  if (!t) return null;
+  return KATALOG.urunler.find(u => String(u.ad||'').trim().toLocaleLowerCase('tr') === t) || null;
+}
+function mfUrunDurum(){
+  const ad = document.getElementById('mfAd').value;
+  const yeni = !!ad.trim() && !mfUrunBul(ad);
+  document.getElementById('mfYeniAlan').hidden = !yeni;
+}
+function mfToplamTazele(){
+  const tp = document.getElementById('mfToplam');
+  if (!tp || tp.dataset.elle === '1') return;
+  const m = paraDeger('mfMiktar', 3), f = paraDeger('mfFiyat');
+  const t = +(m * f).toFixed(2);
+  tp.value = t > 0 ? t.toFixed(2).replace('.', ',') : '';
+  tp.dispatchEvent(new Event('input', { bubbles:true }));
+}
+async function malAlimKaydet(){
+  const ad = document.getElementById('mfAd').value.trim();
+  const miktar = paraDeger('mfMiktar', 3);
+  const fiyat = paraDeger('mfFiyat');
+  const toplam = paraDeger('mfToplam');
+  const tedId = document.getElementById('mfTedarikci').value;
+  if (!ad){ mesaj('mfMsg','hata','Ne aldığını yaz.'); return; }
+  if (miktar <= 0){ mesaj('mfMsg','hata','Miktar boş olamaz — örnek: 3,5'); return; }
+  if (fiyat <= 0){ mesaj('mfMsg','hata','Birim fiyat boş olamaz.'); return; }
+  if (toplam <= 0){ mesaj('mfMsg','hata','Toplam boş olamaz.'); return; }
+  if (!tedId){ mesaj('mfMsg','hata','Kimden aldığını seç — bir kez seçersen sonra hatırlanır.'); return; }
+  const btn = document.getElementById('mfKaydet');
+  btn.disabled = true; btn.textContent = 'Fotoğraf yükleniyor...';
+  let foto = null;
+  try { foto = await fotoYukle('mfFoto','fatura'); }
+  catch(e){ mesaj('mfMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Kaydet'; return; }
+  /* ⚠ URUN UCUSTA: yeni mekanizma UYDURULMADI, fatura yolunun kullandigi
+     rpc_urun_tanimla cagriliyor (personel tabloya dogrudan yazamaz; bu
+     fonksiyon uzerinden tanimlar, actigi urun yoneticinin onayina duser). */
+  const mevcut = mfUrunBul(ad);
+  const birim = mevcut ? (mevcut.birim || 'adet')
+                       : (document.getElementById('mfBirim').value || 'adet');
+  let urunId, yeniMi = false, kod = null;
+  try {
+    const { data:r, error:re } = await sb.rpc('rpc_urun_tanimla', {
+      p_ad: mevcut ? null : ad, p_birim: birim, p_paket_ici: null, p_kategori: null,
+      p_tedarikci: tedId, p_ham_kod: null, p_ham_ad: ad,
+      p_carpan: 1, p_birim_ad: birim, p_urun_id: mevcut ? mevcut.id : null
+    });
+    if (re) throw new Error(re.message);
+    urunId = r.urun_id; yeniMi = !!r.yeni; kod = r.kod;
+  } catch(e){
+    console.error('rpc_urun_tanimla', e);
+    mesaj('mfMsg','hata','Ürün tanımlanamadı: ' + hataTr(e.message));
+    btn.disabled = false; btn.textContent = 'Kaydet'; return;
+  }
+  const kdvT = paraDeger('mfKdv');
+  const kasadan = document.getElementById('mfKasadan').checked;
+  /* ⚠ p_tur = 'fatura' · 'bilgi_fisi' DEGIL — OLCULDU, GEREKCESI:
+       taban.sql: alis.tur yorumu 'bilgi_fisi (SIFIR tutarli mal gelisi,
+       borc yaratmaz)' ve UC yerde DISLANIYOR:
+         v_urun_son_fiyat  (a.tur <> 'bilgi_fisi')  <- FIYAT GECMISI
+         v_stok_durum maliyet CTE                   <- MALIYET
+         rpc_sayim_kaydet maliyet CTE
+     Bu yolun butun amaci fiyat gecmisine nokta dusurmek; 'bilgi_fisi'
+     ile kayit tam da o gorunumun disinda kalir, is sessizce curur.
+     'fatura' odenmis gercek bir alistir; KDV indirimi yalniz
+     kdv_tutar'dan gelir (v_kdv_indirilebilir_ay: tur='fatura'), fis
+     KDV'siz ise 0 gonderilir ve hicbir indirim olusmaz.
+     Belge no yok, fis oldugu p_fis_no ve nottan anlasilir. */
+  const data = await rpcCagir('rpc_alis_kaydet', {
+    p_idem: idem(), p_sube: AKTIF_SUBE, p_tedarikci: tedId,
+    p_tarih: document.getElementById('gdTarih').value,
+    p_tur: 'fatura', p_belge_no: null, p_fis_no: null,
+    p_toplam: toplam,
+    p_kdv_orani: null, p_kdv_tutar: kdvT, p_kdv_kirilim: [], p_kdv_dahil: true,
+    p_ocr_ham: null, p_ocr_model: null, p_foto: foto,
+    p_not: 'fişli mal alımı',
+    p_kalemler: [{ urun_id: urunId, miktar, birim_fiyat: fiyat,
+      ham_ad: ad, ham_kod: null, birim_ad: birim, birim_carpani: 1,
+      satir_tutar: toplam, kdv_orani: null,
+      iskonto_orani: null, iskonto_tutar: null }],
+    p_odendi: kasadan, p_odeme_yontem: kasadan ? 'nakit' : null,
+    p_vade: null, p_cek_no: null, p_cek_vade: null
+  }, 'mfKaydet', 'mfMsg', 'Mal alımı kaydedildi ✓');
+  if (data && data.ok){
+    yerelYaz(GD_TED_ANAHTAR, tedId);
+    if (yeniMi) KATALOG.urunler.push({ id:urunId, ad, birim, kod, paket_ici_adet:null });
+    gdFis();
+    mesaj('mfMsg','ok', 'Mal alımı kaydedildi ✓'
+      + (yeniMi ? ` · yeni ürün kartı açıldı: ${kod} ${ad}` : ''));
+  }
 }
 async function giderKaydet(mod){
   const tutar = paraDeger('gdTutar');
