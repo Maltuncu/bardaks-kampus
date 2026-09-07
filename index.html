@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-30">
+<meta name="surum" content="2026-08-27-32">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2048,7 +2048,7 @@ async function odemelerBlogu(hedefId, ctx){
        <button class="btn2 kb-bt" onclick="katlaAc('bbKutu',this)">Banka gir</button></div>` : ''}
     <div class="kart" id="bfDun" style="cursor:pointer" onclick="sekmeAc('gunsonu')">
       ${kbaslik('DÜN', BB_GG(dun) + (gs ? ' · gün sonu ✓' : ''), gs ? '' : '<span class="rozet rz-uyari">gün sonu girilmemiş</span>')}
-      ${gs ? `<div class="bilgi-not" style="margin-top:0">ciro <b>${tl(gs.toplam)}</b> · kasa nakit <b>${gs.kasa_nakit != null ? tl(gs.kasa_nakit) : 'sayılmamış'}</b>${gs.kasa_nakit != null ? kasaSifirNot(gs.kasa_nakit) : ''}</div>`
+      ${gs ? `<div class="bilgi-not" style="margin-top:0">ciro <b>${tl(gs.toplam)}</b> · Kasada sayılan <b>${gs.kasa_nakit != null ? tl(gs.kasa_nakit) : 'sayılmamış'}</b>${gs.kasa_nakit != null ? kasaSifirNot(gs.kasa_nakit) : ''}</div>`
            : `<div class="bilgi-not" style="margin-top:0">Dünün gün sonu girilmemiş — dokun, gir.</div>`}
     </div>
     <div class="kart" id="odemelerKart">
@@ -2070,7 +2070,7 @@ async function odemelerBlogu(hedefId, ctx){
           onclick="event.stopPropagation();bdAc(this,'bfEk')">ayın dökümü</button>` : ''}</div>`)}
       ${OZ_O ? `<div class="bilgi-not" style="margin-top:0">gerçek ciro <b>${tl(OZ_O.gercek_ciro)}</b> · nakit çıkışı <b>${tl(OZ_O.nakit_cikisi)}</b> · kâr <b>${tl(OZ_O.gercek_ay_kari)}</b>${!OZ_O.stok_bazli ? ' <span class="rozet rz-uyari">tahmin</span>' : ''}</div>`
              : '<div class="bilgi-not" style="margin-top:0">Bu ay için kayıt yok.</div>'}
-      <div class="bilgi-not" onclick="event.stopPropagation()"><b>Ödeme gücü:</b> kasa ${kasaM} · banka ${bankaM}
+      <div class="bilgi-not" onclick="event.stopPropagation()"><b>Ödeme gücü:</b> kasada sayılan ${kasaM} · banka ${bankaM}
         <button class="btn2 kb-bt" onclick="katlaAc('bbKutu',this)">Banka gir</button></div>
       <div id="bbKutu" style="display:none" onclick="event.stopPropagation()">
         <div class="satir"><div><label>Banka</label><select id="bbBanka">${bankalar.map(x=>`<option>${esc(x.banka)}</option>`).join('')}<option value="__yeni">Yeni banka…</option></select></div>
@@ -2381,7 +2381,7 @@ async function gunDetay(tarih){
     ${ozSatir('Z nakit', tl(g.nakit_toplam))}
     ${kasa!==null?ozSatir('Kasada sayılan', tl(kasa)):''}
     ${cikisT>0?ozSatir('Kasadan ödenen', tl(cikisT)):''}
-    ${zDisi!==null?ozSatir(zDisi<0?'Kasa açığı':"Bunun KDV'ye girmeyen kısmı", tl(zDisi)):''}
+    ${zDisi!==null?ozSatir(zDisi<0?'Kasa açığı':'Z dışı nakit', tl(zDisi)):''}
     ${ozSatir('GERÇEK TOPLAM', tl(gercek), true)}
     ${ks.length?`<div class="ud-bas" style="margin-top:16px"><span class="ud-blk">YAZARKASALAR</span></div>`
       +ks.map(k=>{
@@ -2638,7 +2638,7 @@ async function vOzet(){
       ${ozSatir('Giderler (KDV hariç)', '−'+tl(o.gider_net))}
       ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
       ${ozSatir('Beyana giden kâr', tl(o.ay_kari))}
-      ${+o.z_disi_nakit>0 ? ozSatir('Z dışı kasa nakdi', '+'+tl(o.z_disi_nakit)) : ''}
+      ${+o.z_disi_nakit>0 ? ozSatir('Z dışı nakit (ay)', '+'+tl(o.z_disi_nakit)) : ''}
       ${ozSatir('GERÇEK AY KÂRI', tl(o.gercek_ay_kari), true)}
       ${/* ⚠ AYRIM **gercek_ay_kari** UZERINE KURULUR, ay_kari uzerine DEGIL.
              ay_kari BEYAN rakamidir; Z disi kasa nakdini icermez. Kafenin
@@ -2734,7 +2734,7 @@ async function vOzet(){
     ${PROFIL.rol === 'owner' ? '' : `<div class="ozet-grid">
       <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
         <div class="d">${g?tl(g.toplam):'—'}</div>
-        <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Elde kalan +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
+        <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Z dışı nakit +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
       <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU (GERÇEK)</div>
         <div class="d">${o?tl(o.gercek_ciro):'—'}</div>
         <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${o&&+o.z_disi_nakit>0?'<br>Z raporu '+tl(o.ciro):''}</div></div>
@@ -2745,7 +2745,7 @@ async function vOzet(){
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="e">AY KÂRI (GERÇEK)</div>
         <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.gercek_ay_kari):'—'}</div>
-        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${o&&+o.z_disi_nakit>0?'Elde kalan '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
+        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${o&&+o.z_disi_nakit>0?'Z dışı nakit (ay) '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
     </div>`}
 
     ${sahip ? '' : `
@@ -3436,7 +3436,7 @@ function kasaHesapla(){
   });
   const pz=paraOku(document.getElementById('gsKasa'));
   const zDisi=pz.deger;
-  if(!pz.ok) eksikler.push('Z DIŞI KASA — tutar geçersiz');
+  if(!pz.ok) eksikler.push('KASADA SAYILAN — tutar geçersiz');
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('gsTKart', tl(tk)); set('gsTNakit', tl(tn)); set('gsTGenel', tl(+(tk+tn).toFixed(2)));
   set('gsZDisi', tl(zDisi)); set('gsTKdv', tl(tkdv));
@@ -3549,7 +3549,11 @@ async function vGunSonu(zListe){
         <button type="button" class="ks-btn" id="ksBtn2" onclick="kasaSec(2)"><div class="ks-ad">KASA 2 <span id="ksDrm2">○</span></div><div class="ks-tut" id="ksTut2">0,00 ₺</div></button>
       </div>
       <div class="kasa-grid">${kasaPanelHtml(1)}<div class="kasa-ayirici"></div>${kasaPanelHtml(2)}</div>
-      <label>Kasadaki Para (günün nakiti — bırakılan bozukluk HARİÇ say)</label>
+      ${/* ⚠ TEK RAKAM TEK AD (ADIM 07-B): gun_sonu.kasa_nakit'in adi her
+            yerde "Kasada sayılan". "Z dışı" terimi KALIYOR ama yalniz
+            FARKA (kasada sayilan − Z nakiti) yapisir. Yalniz etiket
+            degisti, hicbir hesap degismedi. */''}
+      <label>Kasada sayılan (günün nakiti — bırakılan bozukluk HARİÇ say)</label>
       <input type="text" inputmode="decimal" autocomplete="off" id="gsKasa" placeholder="0,00">
       <label>Gün Notu (isteğe bağlı)</label><textarea id="gsNot" rows="2"></textarea>
       <div class="gs-bant">
@@ -3559,7 +3563,7 @@ async function vGunSonu(zListe){
         <div class="kalem"><div class="gs-et">Toplam KDV (beyana giden)</div><div class="dg" id="gsTKdv">0,00 ₺</div></div>
       </div>
       <div class="gs-zdisi">
-        <div class="gs-et">Z Dışı Kasa Nakdi</div>
+        <div class="gs-et">Kasada sayılan</div>
         <div style="font-size:15px;font-weight:700;font-variant-numeric:tabular-nums" id="gsZDisi">0,00 ₺</div>
         <div class="bilgi-not" style="margin:4px 0 0">Z raporu toplamına dahil değildir.</div>
       </div>
@@ -3598,7 +3602,7 @@ async function personelSonKayit(){
         <div class="l-sol"><div class="b">${t}</div>
           <div class="k">Kart ${tl(g.kart_toplam)} · Nakit ${tl(g.nakit_toplam)}
           ${ks.length?'<br>'+ks.map(k=>`<b>${et(k)}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; '):''}
-          ${g.kasa_nakit!==null?'<br>Z dışı kasa: '+tl(g.kasa_nakit)+kasaSifirNot(g.kasa_nakit):''}
+          ${g.kasa_nakit!==null?'<br>Kasada sayılan: '+tl(g.kasa_nakit)+kasaSifirNot(g.kasa_nakit):''}
           <div style="margin-top:6px">${ks.map(k=>
             belgeBtn(k.z_foto_path,`${et(k)} Z`,`${t} — Kasa ${k.kasa_no} ${zCok(ks,k.kasa_no)?(k.sira||1)+'. Z':'Z'} Raporu`)+
             slipBtn(k.pos_slip_foto_path,`${et(k)} Slip`,`${t} — Kasa ${k.kasa_no} POS Slip`)).join('')}</div>
@@ -3656,7 +3660,7 @@ async function gunSonuKaydet(){
         !confirm(`KDV kontrolü: %${x.oran} için ${tl(x.satis_toplam)} satışın KDV'si yaklaşık ${tl(beklenen)} olmalı, siz ${tl(x.kdv_tutar)} girdiniz.\nZ kağıdındaki TOPKDV satırıyla karşılaştırın. Yine de kaydedilsin mi?`)) return;
   }
   const pKasa = paraOku(document.getElementById('gsKasa'));
-  if (!pKasa.ok){ mesaj('gsMsg','hata','Kasadaki Para alanı geçersiz — örnek: 4400 veya 4400,50'); return; }
+  if (!pKasa.ok){ mesaj('gsMsg','hata','Kasada sayılan alanı geçersiz — örnek: 4400 veya 4400,50'); return; }
   const kasa = pKasa.deger;
   /* ⚠ GERCEK SIFIR KAYBOLUYORDU — OLCULDU.
      Iki kayit yolunda da `p_kasa: kasa > 0 ? kasa : null` yaziyordu.
@@ -3673,7 +3677,7 @@ async function gunSonuKaydet(){
   const kasaBos = !document.getElementById('gsKasa').value.trim();
   const kasaGonder = kasaBos ? null : kasa;
   if (kasaBos &&
-      !confirm('Kasadaki Para girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
+      !confirm('Kasada sayılan girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
   /* ⚠ TEK SORU, BIR KEZ: yanlis cevap veri kaybettiriyor. */
   if (!kasaBos && kasa === 0 &&
       !confirm('Kasada 0,00 TL mi vardı?\n\n'
@@ -3684,7 +3688,7 @@ async function gunSonuKaydet(){
     const et = `Kasa ${k.n}${ZLISTE[k.n].length>1?' ('+k.s+'. Z)':''}`;
     return `${et} — Z ${k.zno}: ${tl(k.kart+k.nakit)}   KDV ${tl(kv)}`;
   }).join('\n');
-  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nZ dışı kasa nakdi: ${tl(kasa)}\n(vergiye DAHİL DEĞİL — gerçek nakit takibi için)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
+  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nKasada sayılan: ${tl(kasa)}\n(gün sonunda kasadan sayılan para)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
 
   const btn = document.getElementById('gsKaydet');
   const eskiBtnMetin = DUZENLE ? 'Değişiklikleri Kaydet' : 'Gün Sonunu Kaydet';
@@ -3852,7 +3856,7 @@ async function gunSonuListe(){
       ? `<div class="uyari-orta">${eksikGunler.length} gün girilmemiş: ${eksikGunler.join(', ')}</div>`
       : ''}
     <div class="bilgi-not" style="margin:0 0 10px">
-      <b>${gunler.length}</b> gün girildi · Z dışı kasa toplamı <b>${tl(tZDisi)}</b>${eksikGunler.length?'':' · bugüne kadar eksik gün yok'}
+      <b>${gunler.length}</b> gün girildi · Kasada sayılan toplamı <b>${tl(tZDisi)}</b>${eksikGunler.length?'':' · bugüne kadar eksik gün yok'}
     </div>
     ${gunler.length===0?bosDurum('belge','Bu ayda gün sonu kaydı yok','Yukarıdan başka ay seçebilir veya bugünün Z raporlarını girebilirsin.'):gunler.map(g=>{
       const kasa = g.kasa_nakit===null ? null : +g.kasa_nakit;
@@ -3868,7 +3872,7 @@ async function gunSonuListe(){
             return ks.length ? '<br>'+ks.map(k=>`<b>K${k.kasa_no}${zCok(ks,k.kasa_no)?'/'+(k.sira||1):''}</b> Z:${esc(k.z_no||'—')} · ${tl(k.toplam)}`).join(' &nbsp;|&nbsp; ')
                              : ' · Z:'+esc(g.z_no||'—');
           })()}
-          ${gercek!==null?`<br>Gerçek: <b>${tl(gercek)}</b> · Z-dışı nakit: <b>${fark>=0?'+':''}${tl(fark)}</b>${kasadan>0?' · kasadan ödenen: '+tl(kasadan):''}`:''}
+          ${gercek!==null?`<br>Gerçek: <b>${tl(gercek)}</b> · Z dışı nakit: <b>${fark>=0?'+':''}${tl(fark)}</b>${kasadan>0?' · kasadan ödenen: '+tl(kasadan):''}`:''}
           ${(()=>{const kd=(g.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
             const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
             if(!kd.length) return '<br><span style="color:var(--uyari)">⚠ KDV girilmemiş</span>';
