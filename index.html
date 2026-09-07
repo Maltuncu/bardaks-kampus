@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-26">
+<meta name="surum" content="2026-08-27-27">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5698,31 +5698,48 @@ function alMatrahTamamla(){
   const bos = sat.filter(s => paraOku(s.mEl).deger === 0 && kdvOf(s) > 0 && s.oran > 0);
   if (!bos.length) return 0;
   bos.forEach(s => { s.tahmin = +(kdvOf(s) / (s.oran/100)).toFixed(2); });
-  const pT = paraOku(document.getElementById('alToplam'));
-  if (pT.ok && pT.deger > 0){
-    const kdvT = sat.reduce((a,s)=>a+kdvOf(s),0);
-    const dolu = sat.filter(s=>!bos.includes(s)).reduce((a,s)=>a+paraOku(s.mEl).deger,0);
-    const hedef = +(pT.deger - kdvT - dolu).toFixed(2);
-    const tahminT = bos.reduce((a,s)=>a+s.tahmin,0);
-    const fark = +(hedef - tahminT).toFixed(2);
-    // Sadece yuvarlama düzeyindeki farkı kapat; büyük sapmada dokunma (veri yanlıştır)
-    if (hedef > 0 && Math.abs(fark) <= Math.max(1, hedef*0.02)){
-      const enBuyuk = bos.reduce((a,b)=> a.tahmin >= b.tahmin ? a : b);
-      enBuyuk.tahmin = +(enBuyuk.tahmin + fark).toFixed(2);
-    }
-  }
-  bos.forEach(s => { s.mEl.value = String(s.tahmin).replace('.', ','); s.mEl.classList.add('oku-dolu'); });
+  /* ⚠ FARK DAĞITIMI KALDIRILDI (B05).
+     Eskiden belge toplamıyla tahmin arasındaki fark, hedefin %2'sine kadar
+     EN BÜYÜK satırın matrahına yazılıyordu. Bu, satırın kendi denklemini
+     (matrah × oran = KDV) bozarak belge denklemini tutturuyordu; ekran da
+     yeşil "belge tutuyor" diyordu. Yeniden üretildi:
+       toplam 1.120 · KDV 100 · oran %10 -> matrah 1.020 yazılıyordu,
+       oysa 1.020'nin %10'u 102, yazan KDV 100. Aritmetik eşitlik veri
+       doğruluğunu KANITLAMAZ.
+     Artık matrah yalnız kendi satırından türetilir: kdv / oran.
+     Fark varsa kapatılmaz — alHesapla iki denklemi AYRI AYRI gösterir. */
+  bos.forEach(s => {
+    s.mEl.value = String(s.tahmin).replace('.', ',');
+    s.mEl.classList.add('oku-dolu');
+    /* belgeden okunmadı, hesaplandı: alHesapla bunu ayrı anlatır */
+    s.mEl.dataset.hesaplandi = '1';
+  });
   alHesapla();
   return bos.length;
 }
+/* ⚠ İKİ DENKLEM, BAĞIMSIZ KONTROL (B05):
+     SATIR denklemi : matrah × oran% = o satırın KDV'si
+     BELGE denklemi : Σmatrah + Σkdv = ödenecek tutar
+   Belge denklemini tutturmak için satır denklemini bozan bir rakam yazılırsa
+   toplam "tutuyor" görünür ama veri yanlıştır. Yeşil onay artık İKİSİ BİRDEN
+   tutmadan verilmez. Satır denklemi tutmuyorsa bu belgenin hatalı olduğu
+   anlamına GELMEZ — iskonto/istisna/tevkifat da bozar; o yüzden söylenir,
+   engellenmez. */
 function alHesapla(){
   let kdv = 0, matrah = 0, gecerli = true;
+  const bozukSatir = [];
   document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d=>{
     const n = d.id.split('_')[1];
     const pm = paraOku(document.getElementById('alKdvM_'+n));
     const pt = paraOku(document.getElementById('alKdvT_'+n));
+    const oran = +document.getElementById('alKdvO_'+n).value || 0;
     if (!pm.ok || !pt.ok) gecerli = false;
     matrah += pm.deger; kdv += pt.deger;
+    if (pm.ok && pt.ok && pm.deger > 0 && pt.deger > 0 && oran > 0){
+      const bek = +(pm.deger * oran / 100).toFixed(2);
+      if (Math.abs(bek - pt.deger) > 0.05)
+        bozukSatir.push({ oran, matrah:pm.deger, kdv:pt.deger, bek });
+    }
   });
   kdv = +kdv.toFixed(2); matrah = +matrah.toFixed(2);
   const el = document.getElementById('alKdvToplam'); if(el) el.textContent = tl(kdv);
@@ -5735,11 +5752,22 @@ function alHesapla(){
   if (toplam === 0 || kdv === 0){ tut.innerHTML = ''; return; }
   // Matrah + KDV = ödenecek tutar mı? (belgenin kendi aritmetiği)
   const fark = +(matrah + kdv - toplam).toFixed(2);
-  if (Math.abs(fark) <= 0.05){
+  const belgeTutuyor = Math.abs(fark) <= 0.05;
+  const satirNot = bozukSatir.map(b =>
+    `%${b.oran} satırı: ${tl(b.matrah)} × %${b.oran} = <b>${tl(b.bek)}</b>, yazan KDV <b>${tl(b.kdv)}</b>`
+  ).join('<br>');
+  if (belgeTutuyor && !bozukSatir.length){
     tut.innerHTML = `<div class="bilgi-not" style="color:var(--ok)">✓ Matrah ${tl(matrah)} + KDV ${tl(kdv)} = ${tl(toplam)} — belge tutuyor</div>`;
+  } else if (belgeTutuyor){
+    /* ⚠ TOPLAM TUTUYOR AMA SATIR TUTMUYOR — yeşil onay VERİLMEZ. */
+    tut.innerHTML = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Toplam eşitliği tutuyor
+      (${tl(matrah)} + ${tl(kdv)} = ${tl(toplam)}) <b>ama satır oranı tutmuyor</b>:<br>${satirNot}<br>
+      Bu, belgenin hatalı olduğu anlamına gelmez — iskonto, istisna ya da tevkifat da böyle görünür.
+      Belgeyle karşılaştır; tutturmak için rakam değiştirme.</div>`;
   } else {
     tut.innerHTML = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Matrah ${tl(matrah)} + KDV ${tl(kdv)} = ${tl(matrah+kdv)},
-      ödenecek tutar ${tl(toplam)} — <b>${fark>0?'+':''}${tl(fark)}</b> fark var. Belgeyle karşılaştır.</div>`;
+      ödenecek tutar ${tl(toplam)} — <b>${fark>0?'+':''}${tl(fark)}</b> fark var. Belgeyle karşılaştır.
+      ${satirNot ? '<br>Ayrıca satır oranı da tutmuyor:<br>'+satirNot : ''}</div>`;
   }
 }
 /* ===== e-FATURA PDF'İNDEN METİN ÇIKARMA =====
@@ -5950,8 +5978,13 @@ async function faturaOku(){
     alHesapla();
     // Matrahı olmayan KDV satırlarını toplamdan geri hesapla (satır karşılaştırması buna dayanıyor)
     const matrahTamamlanan = alMatrahTamamla();
-    if (matrahTamamlanan) denetimNot += `<div class="bilgi-not" style="color:var(--ok)">
-      ✎ ${matrahTamamlanan} KDV satırında matrah boştu, toplam ve KDV'den hesaplandı — belgeyle karşılaştır.</div>`;
+    /* ⚠ RENK YEŞİLDEN UYARIYA ALINDI (B05): "hesaplandı" ile "belgeden okundu"
+       aynı şey değil. Yeşil, kullanıcıya doğrulanmış izlenimi veriyordu.
+       Ayrıca metin artık nereden türetildiğini doğru söylüyor: matrah
+       BELGE TOPLAMINDAN değil, o satırın kendi KDV'si ve oranından geliyor. */
+    if (matrahTamamlanan) denetimNot += `<div class="bilgi-not" style="color:var(--uyari)">
+      ✎ ${matrahTamamlanan} KDV satırında matrah boştu; satırın kendi KDV'si ve oranından
+      <b>hesaplandı</b>, belgeden okunmadı — belgeyle karşılaştır.</div>`;
     if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
     // Faturadaki ürün satırları — tanınanlar otomatik, ilk kez görülenler sorulur
     await alSatirlariKur(v.satirlar, es.t ? es.t.id : null);
