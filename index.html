@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-32">
+<meta name="surum" content="2026-08-27-33">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1830,7 +1830,10 @@ async function odemelerBlogu(hedefId, ctx){
       .in('durum',['acik','tutar_yok']).lte('vade_tarihi', s30).order('vade_tarihi'),
     sb.from('v_kart_taksit').select('firma,banka,vade,donem,taksit_tutari,taksit_no,taksit_sayisi')
       .gt('taksit_sayisi',1).gte('vade', b).lte('vade', s30).order('vade'),
-    sb.from('v_banka_son').select('banka,bakiye,kayit_zamani,saat_once').order('banka'),
+    /* v122 · sahip SONA eklendi: kimlik artik (banka, sahip). Ikinci
+       siralama (sahis once, ltd sonra) istemcide — PostgREST tek order
+       aliyor ve ekranda hep ayni sira gorunsun. */
+    sb.from('v_banka_son').select('banka,bakiye,kayit_zamani,saat_once,sahip').order('banka'),
     sb.from('gun_sonu').select('tarih,kasa_nakit').eq('is_deleted',false).order('tarih',{ascending:false}).limit(1),
     sb.from('gun_sonu').select('tarih,toplam,kasa_nakit').eq('tarih', dun).eq('is_deleted',false).maybeSingle(),
     sb.from('ay_kapanis').select('kapali').eq('donem', gecenAy).eq('is_deleted',false).maybeSingle(),
@@ -1913,11 +1916,17 @@ async function odemelerBlogu(hedefId, ctx){
     ? tl(ks.kasa_nakit) + kasaSifirNot(ks.kasa_nakit)
       + ' <span class="k">(' + (ks.tarih === dun ? 'dün akşam' : ks.tarih === b ? 'bugün' : BB_GG(ks.tarih)) + ')</span>'
     : '<span style="color:var(--uyari)">sayılmamış</span>';
-  const bankalar = banka.data||[];
+  /* v122 · HESAP BASINA. Ayni bankanin sahis ve Ltd hesabi IKI AYRI
+     parca; sira banka adi, sonra sahis -> ltd. TOPLAM YOK — v109 karari
+     aynen ("toplanmaz, en yenisi gecerli"), yalniz artik her HESAP icin. */
+  const bankalar = (banka.data||[]).slice()
+    .sort((a,c) => (a.banka||'').localeCompare(c.banka||'','tr')
+                || (a.sahip === c.sahip ? 0 : a.sahip === 'ltd' ? 1 : -1));
+  const bbSahipAd = s => s === 'ltd' ? 'Ltd' : 'Şahıs';
   const bankaM = bankalar.length
     ? bankalar.map(x => { const eski = +x.saat_once >= 24;
         const ne = +x.saat_once < 1 ? 'az önce' : +x.saat_once < 48 ? Math.round(+x.saat_once) + ' saat önce' : Math.round(+x.saat_once/24) + ' gün önce';
-        return esc(x.banka) + ' ' + tl(x.bakiye) + ' <span class="k"' + (eski ? ' style="color:var(--uyari);font-weight:800"' : '') + '>(' + ne + ')</span>'; }).join(' · ')
+        return esc(x.banka) + ' · ' + bbSahipAd(x.sahip) + ' ' + tl(x.bakiye) + ' <span class="k"' + (eski ? ' style="color:var(--uyari);font-weight:800"' : '') + '>(' + ne + ')</span>'; }).join(' · ')
     : '<span style="color:var(--uyari)">girilmemiş</span>';
 
   /* ---- BORC SINIFLARI · borc.html bantVerisi formullerinin BIREBIR portu.
@@ -2072,12 +2081,23 @@ async function odemelerBlogu(hedefId, ctx){
              : '<div class="bilgi-not" style="margin-top:0">Bu ay için kayıt yok.</div>'}
       <div class="bilgi-not" onclick="event.stopPropagation()"><b>Ödeme gücü:</b> kasada sayılan ${kasaM} · banka ${bankaM}
         <button class="btn2 kb-bt" onclick="katlaAc('bbKutu',this)">Banka gir</button></div>
+      ${/* v122 · HESABIN KIMLIGI (banka, sahip). Sahip secici Y12
+            kalibinin AYNISI (.segment + sg-btn + aktif); VARSAYILAN YOK,
+            ilk kullanimda hicbiri secili degil — sessiz varsayilan bu
+            turda duzelttigimiz hatanin ta kendisi olurdu. Son secim
+            cihazda hatirlanir. */''}
       <div id="bbKutu" style="display:none" onclick="event.stopPropagation()">
-        <div class="satir"><div><label>Banka</label><select id="bbBanka">${bankalar.map(x=>`<option>${esc(x.banka)}</option>`).join('')}<option value="__yeni">Yeni banka…</option></select></div>
+        <label>Hesabın sahibi</label>
+        <div class="segment" id="bbSahipSec">
+          <button type="button" class="sg-btn" data-s="sahis" onclick="bbSahipSec('sahis')">Şahıs</button>
+          <button type="button" class="sg-btn" data-s="ltd" onclick="bbSahipSec('ltd')">Bardaks Ltd</button>
+        </div>
+        <div class="satir"><div><label>Banka</label><select id="bbBanka">${bankalar.map(x=>`<option value="${esc(x.banka)}|${esc(x.sahip)}">${esc(x.banka)} · ${bbSahipAd(x.sahip)}</option>`).join('')}<option value="__yeni">Yeni banka…</option></select></div>
           <div><label>Bakiye</label><input type="text" inputmode="decimal" id="bbBakiye" placeholder="0,00"></div></div>
         <input type="text" id="bbYeniBanka" placeholder="Banka adı" style="display:none">
+        <div class="bilgi-not" id="bbYeniHesapNot" hidden></div>
         <button class="btn" id="bbKaydet" onclick="bankaBakiyeKaydet()">Kaydet</button><div class="hata-msg" id="bbMsg"></div>
-        <div class="ipucu" style="margin-top:6px">Fotoğraf: şu an bankada ne var. Toplanmaz, en yenisi geçerli.</div>
+        <div class="ipucu" style="margin-top:6px">Fotoğraf: şu an bankada ne var. Toplanmaz, her hesap için en yenisi geçerli.</div>
       </div>
       ${ek.buAy ? `<div id="bfEkk" hidden onclick="event.stopPropagation()"
         style="border-top:1px solid var(--cizgi);margin-top:12px;padding-top:12px">${ek.buAy}</div>` : ''}
@@ -2108,8 +2128,22 @@ async function odemelerBlogu(hedefId, ctx){
   if (ek.buAy) ownerHareketYukle(ek.donem || ctx.donem || bugun().slice(0,7));
   const sel = document.getElementById('bbBanka');
   if (!bankalar.length) sel.value = '__yeni';
+  /* v122 · liste, "bu hesap ilk kez mi giriliyor" sorusu icin saklanir */
+  BB_LISTE = bankalar.map(x => ({ banka: x.banka, sahip: x.sahip }));
+  if (BB_SAHIP === null) BB_SAHIP = yerelOku(BB_SAHIP_ANAHTAR);
   const yeniAlan = () => { document.getElementById('bbYeniBanka').style.display = sel.value === '__yeni' ? 'block' : 'none'; };
-  sel.onchange = yeniAlan; yeniAlan();
+  /* ⚠ Bir CIFT secilince sahip secicisi o sahibe gecer; kullanici yine
+     degistirebilir — degistirirse artik YENI HESAP giriyordur ve bunu
+     ekranda soyluyoruz. */
+  sel.onchange = () => {
+    yeniAlan();
+    if (sel.value !== '__yeni'){
+      const s = sel.value.split('|').pop();
+      if (s === 'sahis' || s === 'ltd') bbSahipSec(s);
+    }
+    bbSahipCiz();
+  };
+  yeniAlan(); bbSahipCiz();
   el.dataset.gec = JSON.stringify({ n: gec.n, t: gec.t, gi: gecGi });
   /* Erisim: borc.html kutuErisim kalibi (bfErisim). Kart-2 ve kart-5 KART
      GOVDESI olarak dugme YAPILMADI — kendi ic dugmelerini tasiyorlar, govde
@@ -2126,10 +2160,47 @@ function bfGit(href){ sessionStorage.setItem('ozScroll', String(window.scrollY))
 let VADE_HEDEF = null;
 function ozVadeGit(id){ VADE_HEDEF = id || null; sekmeAc('vergi'); }
 
+/* ==================================================================
+   v122 · HESABIN KIMLIGI (banka, sahip)
+   ==================================================================
+   OLCULDU: ezme YAZMADA degil OKUMADAYDI — kayit hep duz INSERT'ti,
+   tarihce birikiyordu; v_banka_son DISTINCT ON (banka) yaptigi icin
+   ayni bankanin sahis ve Ltd hesabi TEK satira cokuyor ve son giren
+   oburunu ekrandan siliyordu. v122 gorunumu (banka, sahip) basina
+   ayirdi; bu blok da ekranda ayni ayrimi yapiyor.
+   ⚠ VARSAYILAN YOK (Y12 karari): ilk kullanimda hicbiri secili degil.
+     Son secim cihazda hatirlanir. */
+let BB_SAHIP = null;                       // null | 'sahis' | 'ltd'
+let BB_LISTE = [];                         // [{banka, sahip}] — mevcut hesaplar
+const BB_SAHIP_ANAHTAR = 'ktu_banka_sahip';
+function bbSahipSec(s){ BB_SAHIP = s; yerelYaz(BB_SAHIP_ANAHTAR, s); bbSahipCiz(); }
+function bbSahipCiz(){
+  const kap = document.getElementById('bbSahipSec'); if (!kap) return;
+  [...kap.querySelectorAll('.sg-btn')].forEach(b =>
+    b.classList.toggle('aktif', b.dataset.s === BB_SAHIP));
+  const sel = document.getElementById('bbBanka');
+  const not = document.getElementById('bbYeniHesapNot');
+  if (!sel || !not) return;
+  const banka = sel.value === '__yeni'
+    ? (document.getElementById('bbYeniBanka')||{}).value?.trim()
+    : sel.value.slice(0, sel.value.lastIndexOf('|'));
+  const ilkKez = BB_SAHIP && banka
+    && !BB_LISTE.some(x => x.banka === banka && x.sahip === BB_SAHIP);
+  not.hidden = !ilkKez;
+  if (ilkKez) not.textContent = 'Bu banka için '
+    + (BB_SAHIP === 'ltd' ? 'Ltd' : 'Şahıs') + ' hesabı ilk kez giriliyor.';
+}
 async function bankaBakiyeKaydet(){
   const g = id => document.getElementById(id);
-  const banka = g('bbBanka').value === '__yeni' ? g('bbYeniBanka').value.trim() : g('bbBanka').value;
+  const ham = g('bbBanka').value;
+  const banka = ham === '__yeni' ? g('bbYeniBanka').value.trim()
+                                 : ham.slice(0, ham.lastIndexOf('|'));
   if (!banka){ mesaj('bbMsg','hata','Banka adı gerekli.'); return; }
+  /* ⚠ '|' AYIRICI: select value'su "banka|sahip". Banka adinda gecerse
+     ayirici bozulur ve yanlis hesaba yazilir. */
+  if (banka.includes('|')){ mesaj('bbMsg','hata','Banka adında | olamaz.'); return; }
+  if (BB_SAHIP !== 'sahis' && BB_SAHIP !== 'ltd'){
+    mesaj('bbMsg','hata','Hesabın sahibini seç.'); return; }
   /* ⚠ BOŞ ile SIFIR AYNI DEĞİL: paraDeger boşta 0 döndürür ve 0 meşru bir
      bakiyedir (hesap boşalmış). Boşluğa ham metinden bakılıyor — ölçüldü,
      boş alan sessizce 0,00 kaydediyordu. */
@@ -2137,7 +2208,7 @@ async function bankaBakiyeKaydet(){
   const bakiye = paraDeger('bbBakiye');
   if (!(bakiye >= 0)){ mesaj('bbMsg','hata','Bakiye eksi olamaz.'); return; }
   const btn = g('bbKaydet'); btn.disabled = true;
-  const { error } = await sb.from('banka_bakiye').insert({ banka, bakiye, giren_id: PROFIL.id });
+  const { error } = await sb.from('banka_bakiye').insert({ banka, sahip: BB_SAHIP, bakiye, giren_id: PROFIL.id });
   btn.disabled = false;
   if (error){ mesaj('bbMsg','hata', hataTr(error.message)); return; }
   await odemelerBlogu('odemelerBlok');
