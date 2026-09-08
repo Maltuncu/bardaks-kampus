@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-34">
+<meta name="surum" content="2026-08-27-35">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -3174,6 +3174,33 @@ function paraBagla(el, sonra, bas, eksiVar){
    type="text" + paraBagla (yazarken temizler) + paraDeger (okurken virgülü çevirir). */
 function paraDeger(id, bas, eksiVar){ return paraOku(document.getElementById(id), bas, eksiVar).deger; }
 function paraBaglaHepsi(idler, bas, eksiVar){ idler.forEach(i => paraBagla(document.getElementById(i), null, bas, eksiVar)); }
+
+/* ==================================================================
+   ADIM 14 · "OKUYUCU BULAMADI" ILE "KULLANICI BILEREK BOS BIRAKTI"
+   ==================================================================
+   Ikisi de BOS bir alandir ama ayni sey DEGILDIR: ilki bir EKSIK,
+   ikincisi bir KARAR. Ekran ikisini ayirt edemeyince okunamayan KDV
+   sessizce 0,00 olarak kayda giriyordu (olculdu: arac ve gider
+   akislarinda kayda giden kdv 0, durum satiri YESIL).
+   Fark alanin KENDISINDE tasinir; kullanici alana dokunur dokunmaz
+   isaret DUSER — o andan sonra bosluk artik onun karari.
+   ⚠ Yeni bir gorunum deseni DEGIL: yalniz bir bayrak. Renk/metin
+     birlestirmesi B TURU'nun isi. */
+function okunamadiIsaretle(id, dolduMu){
+  const e = document.getElementById(id); if (!e) return;
+  if (dolduMu){ delete e.dataset.okunamadi; return; }
+  e.dataset.okunamadi = '1';
+  if (e.dataset.okunamadiBagli !== '1'){
+    e.dataset.okunamadiBagli = '1';
+    e.addEventListener('input', () => { delete e.dataset.okunamadi; });
+  }
+}
+/* Alan HALA bos VE okuyucu onu bulamamis mi? Kullanici bir sey yazdiysa
+   (0 dahil) bayrak dusmustur ve burasi false doner. */
+function okunamadiMi(id){
+  const e = document.getElementById(id);
+  return !!e && e.dataset.okunamadi === '1' && !String(e.value || '').trim();
+}
 /* ===== Z RAPORU OKUMA — sistem doldurur, PERSONEL DOĞRULAR ===== */
 async function zRaporuOku(k){
   const inp = document.getElementById('gsZFoto_'+k);
@@ -3235,10 +3262,27 @@ async function zRaporuOku(k){
     kasaHesapla();
 
     const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
+    /* ⚠ ADIM 14 · OKUYUCUNUN DOLDURAMADIGI ALAN ADIYLA YAZILIR ve
+       durum YESIL VERILMEZ. Eskiden yalniz `dolduruldu.length`e
+       bakiliyordu: nakit okunamamis bir Z'de satir yine yesil
+       "Okundu → Z No · Kart" diyordu, eksigin adi hic gecmiyordu. */
+    const ZOR = [['gsZNo_'+k,'Z No'], ['gsKart_'+k,'Kart tutarı'],
+                 ['gsNakit_'+k,'Nakit tutarı']];
+    ZOR.forEach(([id]) => okunamadiIsaretle(id,
+      !!(document.getElementById(id)||{}).value));
+    const bosKalan = ZOR.filter(([id]) => okunamadiMi(id)).map(x => x[1]);
+    /* ⚠ Form bir BOS KDV satiriyla aciliyor — satir saymak yetmez,
+       DOLU satir aranir (zDurum ile ayni olcut). */
+    if (![...document.querySelectorAll('#kdvSatirlari_'+k+' .kdv-satir')]
+        .some(d => { const i = d.id.split('_')[1];
+          return (document.getElementById('kdvT_'+i)?.value || '').trim() !== ''
+              || (document.getElementById('kdvV_'+i)?.value || '').trim() !== ''; }))
+      bosKalan.push('KDV dökümü');
     let msj = 'Okundu → ' + (dolduruldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları fişle KARŞILAŞTIR.';
     if (eksik.length) msj += ' Okunamayan: ' + eksik.join(', ');
+    if (bosKalan.length) msj += ' BOŞ KALDI: ' + bosKalan.join(', ') + ' — elle yaz.';
     if (v.uyari) msj += ' (' + v.uyari + ')';
-    yaz(msj, dolduruldu.length ? 'ok' : 'uyari');
+    yaz(msj, (dolduruldu.length && !bosKalan.length) ? 'ok' : 'uyari');
   }catch(e){
     yaz('Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
   }finally{
@@ -3449,16 +3493,53 @@ function zDurum(n, s){
   const mev = (DUZENLE && DUZENLE.foto && DUZENLE.foto[k]) || {};
   const zfVar=!!(zf&&zf.files&&zf.files[0]) || !!mev.z;
   const on = ZLISTE[n].length>1 ? s+'. Z — ' : '';
+  /* ==================================================================
+     ⚠ ADIM 14 · BOS ALAN 0 SAYILMAZ — OLCUT DEGER DEGIL ALANIN KENDISI
+     ==================================================================
+     OLCULDU: Z raporunun nakit satiri okunamayinca alan BOS kaliyor,
+     ama paraOku bos alani da 0 donduruyordu; blok "nakit: 0" olarak
+     hesaplaniyor, ara toplam 4.500,00 yerine 3.000,00 cikiyor ve kutu
+     "✓ Tamamlandi" diyordu. eksik[] BOSTU. Yani gunun cirosu 1.500,00
+     eksik kaydediliyor ve ekran her sey yolunda diyordu.
+     ⚠ ADIM 07'de kasa_nakit icin kurulan ayrimin AYNISI: alanin HAM
+       metnine bakilir. Bos -> girilmedi. "0" yazildiysa -> GERCEK
+       SIFIR, eksik degil, kullanicinin beyani. */
+  const kartHam  = (document.getElementById('gsKart_'+k)?.value || '').trim();
+  const nakitHam = (document.getElementById('gsNakit_'+k)?.value || '').trim();
+  /* ⚠ SATIR SAYMAK YANLIS OLCUT: form BIR BOS KDV satiriyla aciliyor
+     (oran %10, tutarlar bos) — sayi her zaman >= 1 (olculdu). Dolu
+     satir olcutu gunSonuKaydet'in kendi tanimiyla AYNI olmali, yoksa
+     ekran "KDV var" derken kayit yolu "KDV yok" diye onay sorar.
+     kdvOku'nun kurali: satis ya da tutar alanlarindan biri DOLU. */
+  const kdvDoluAdet = [...document.querySelectorAll('#kdvSatirlari_'+k+' .kdv-satir')]
+    .filter(d => { const i = d.id.split('_')[1];
+      return (document.getElementById('kdvT_'+i)?.value || '').trim() !== ''
+          || (document.getElementById('kdvV_'+i)?.value || '').trim() !== ''; }).length;
+  /* ⚠ 'bos' ARTIK HAM METNE BAKAR: eskiden sayiya bakiyordu ve
+     kullanici "0" yazdiginda blok "○ Baslanmadi" goruniyordu. */
+  const bos=!zno && !kartHam && !nakitHam && !zfVar && pk.ok && pn.ok;
   const eksik=[];
   if(!zno) eksik.push(on+'Z No');
   if(!pk.ok) eksik.push(on+'Kart tutarı geçersiz');
   if(!pn.ok) eksik.push(on+'Nakit tutarı geçersiz');
   if(!pit.ok) eksik.push(on+'Fiş iptal tutarı geçersiz');
   if(!zfVar) eksik.push(on+'Z fotoğrafı');
-  const bos=!zno && !kart && !nakit && !zfVar && pk.ok && pn.ok;
+  /* Blok baslamissa tutarlar ZORUNLU. Bilinmiyorsa 0 yazilmaz —
+     okunamadigi soylenir ve elle yazilir. */
+  if(!bos && pk.ok && !kartHam)  eksik.push(on+'Kart tutarı girilmedi');
+  if(!bos && pn.ok && !nakitHam) eksik.push(on+'Nakit tutarı girilmedi');
+  /* ⚠ KDV 'bekleyen', 'eksik' DEGIL: gunSonuKaydet KDV bos ekrani icin
+     ZATEN onay soruyor ("beyana giden KDV eksik kalir ... yine de
+     kaydedilsin mi") ve o karar SOYLE-DURDURMA kaliginin parcasi.
+     Buraya eksik olarak konursa o onay olu koda doner ve kayit
+     tamamen engellenir. Ekranda gorunur, yesili keser, DURDURMAZ. */
+  const bekleyen=[];
+  if(!bos && kdvDoluAdet === 0) bekleyen.push(on+'KDV dökümü');
   return { k, n, s, zno, kart, nakit, kadet, iadet, itutar,
            ara:+(kart+nakit).toFixed(2), kdv:kdvToplam(k),
-           eksik, bos, gecerli: pk.ok && pn.ok && pit.ok };
+           /* ara, eksik tutar varken TOPLAM DEGIL — ekran '—' basar */
+           araGecerli: bos || (!!kartHam && !!nakitHam),
+           eksik, bekleyen, bos, gecerli: pk.ok && pn.ok && pit.ok };
 }
 function kasaDurum(n){
   const bloklar = ZLISTE[n].map(s=>zDurum(n,s));
@@ -3469,6 +3550,7 @@ function kasaDurum(n){
     ara  : +bloklar.reduce((a,b)=>a+b.ara  ,0).toFixed(2),
     kdv  : +bloklar.reduce((a,b)=>a+b.kdv  ,0).toFixed(2),
     eksik: bloklar.flatMap(b=>b.eksik),
+    bekleyen: bloklar.flatMap(b=>b.bekleyen),      // ADIM 14 · yesili keser, durdurmaz
     bos  : bloklar.every(b=>b.bos)
   };
 }
@@ -3481,11 +3563,15 @@ function kdvToplam(k){
   return +t.toFixed(2);
 }
 function kasaHesapla(){
-  let tk=0, tn=0, tkdv=0; const eksikler=[];
+  let tk=0, tn=0, tkdv=0; const eksikler=[]; const bekleyenler=[];
   [1,2].forEach(n=>{
     const d=kasaDurum(n); tk+=d.kart; tn+=d.nakit; tkdv+=d.kdv;
     d.bloklar.forEach(b=>{
-      const za=document.getElementById('gsZAra_'+b.k); if(za) za.textContent=tl(b.ara);
+      /* ⚠ ADIM 14 · EKSIK ALAN TOPLAMA GIRMEZ. Eskiden bos nakit 0
+         sayilip ara toplam TAM gibi yaziliyordu; rakam dogru gorunup
+         yanlis oluyordu. Alan eksikse toplam BASILMAZ. */
+      const za=document.getElementById('gsZAra_'+b.k);
+      if(za) za.textContent = b.araGecerli ? tl(b.ara) : '— (tutar eksik)';
     });
     const kdvEl=document.getElementById('gsKdv'+n); if(kdvEl) kdvEl.textContent=tl(d.kdv);
     const ara=document.getElementById('gsAra'+n); if(ara) ara.textContent=tl(d.ara);
@@ -3494,11 +3580,21 @@ function kasaHesapla(){
     const zEk = ZLISTE[n].length>1 ? ` · ${ZLISTE[n].length} Z` : '';
     let sinif, metin, sembol;
     if(d.bos){ sinif='bos'; metin='○ Başlanmadı'; sembol='○'; }
-    else if(d.eksik.length===0){ sinif='tam'; metin='✓ Tamamlandı'+zEk; sembol='✓'; }
-    else { sinif='eksik'; metin='● '+d.eksik.length+' eksik: '+d.eksik.join(', '); sembol='●'; }
+    /* ⚠ ADIM 14 · YESIL EKSIKTEN HABERSIZ OLMAZ. "✓ Tamamlandı" yalniz
+       HEM sert eksik HEM bekleyen bosken verilir. Eskiden yalniz
+       eksik[]'e bakiyordu ve KDV dokumu okunamamis bir Z "Tamamlandı"
+       goruniyordu (olculdu). */
+    else if(d.eksik.length===0 && d.bekleyen.length===0){
+      sinif='tam'; metin='✓ Tamamlandı'+zEk; sembol='✓'; }
+    else if(d.eksik.length){
+      sinif='eksik'; metin='● '+d.eksik.length+' eksik: '+d.eksik.join(', '); sembol='●'; }
+    else { sinif='eksik'; sembol='●';
+      metin='● '+d.bekleyen.join(', ')+' okunamadı — kaydetmeden önce kontrol et'; }
     if(drm){ drm.className='kp-drm '+sinif; drm.textContent=metin; }
     if(ks) ks.textContent=sembol;
     d.eksik.forEach(e=>eksikler.push('KASA '+n+' — '+e));
+    /* bekleyen KAYDI ENGELLEMEZ; alt bantta ayri satirda yazar */
+    d.bekleyen.forEach(e=>bekleyenler.push('KASA '+n+' — '+e));
   });
   // Aynı kasada aynı Z No iki kez girilmiş mi (arıza gününde kopyala-yapıştır hatası)
   [1,2].forEach(n=>{
@@ -3515,9 +3611,17 @@ function kasaHesapla(){
   const hazir = eksikler.length===0 && (tk+tn)>0;
   if(btn){ btn.disabled=!hazir; btn.style.opacity=hazir?'1':'.5'; }
   if(ek){
-    ek.style.color = hazir ? 'var(--ok)' : 'var(--uyari)';
-    ek.innerHTML = hazir ? '✓ Gün sonu kaydedilebilir'
-      : (eksikler.length ? 'Bekleyen: '+eksikler.map(esc).join(' · ') : 'Bekleyen: tutar girilmedi');
+    /* ⚠ ADIM 14 · KAYDEDILEBILIR ≠ EKSIKSIZ. Sert eksik yoksa kayit
+       acilir (bugunku davranis), ama okunamamis alan varsa yesil
+       "kaydedilebilir" YAZILMAZ — kullanici once ona baksin. */
+    const temiz = hazir && !bekleyenler.length;
+    ek.style.color = temiz ? 'var(--ok)' : 'var(--uyari)';
+    ek.innerHTML = eksikler.length
+      ? 'Bekleyen: '+eksikler.map(esc).join(' · ')
+      : (!hazir ? 'Bekleyen: tutar girilmedi'
+        : (bekleyenler.length
+          ? 'Kaydedilebilir — ama önce kontrol et: '+bekleyenler.map(esc).join(' · ')+' okunamadı'
+          : '✓ Gün sonu kaydedilebilir'));
   }
 }
 /* ===== T · GUN SONU TASLAK KORUMA =====
@@ -4770,6 +4874,12 @@ function tpKur(eksikler){
       oneri: TP_GECMIS[(x.vkn || '') + '|' + (x.firma || '')] || null, sonuc:null };
     /* ⚠ CY · OKUNAN KDV DOGRUDAN YAZILMAZ, KAPIDAN GECER. */
     kdvUygula(satir, x.kdv ? (paraCoz(x.kdv).deger || null) : null);
+    /* ⚠ ADIM 14 · KDV OKUNAMADI ISARETI. OLCULDU: KDV eksik satir
+       hicbir sey demeden kaydedilebiliyordu; tarih/tutar/belge no
+       eksikse satir kilitleniyor ama KDV bos gecip gidiyordu.
+       ⚠ eksik[]'e KONMAZ — ADIM 06'nin karari: SOYLER, DURDURMAZ.
+         Bir faturada gercekten KDV olmayabilir (istisna, tevkifat). */
+    satir.kdvOkunamadi = !x.kdv && satir.kdv == null;
     return satir;
   });
 }
@@ -4944,6 +5054,10 @@ function tpCiz(){
             ${r.eksik.length
               ? `<div class="k" style="color:var(--hata)">${esc(r.eksik.join(' · '))} — bu satır
                    toplu kaydedilemez, <b>Tek tek gir</b> ile forma al</div>` : ''}
+            ${r.kdvOkunamadi && !r.eksik.length
+              ? `<div class="k" style="color:var(--uyari)">KDV okunamadı — bu satır
+                   <b>KDV’siz</b> kaydedilir, indirilecek KDV’ye girmez.
+                   Faturada KDV varsa <b>Tek tek gir</b> ile forma al.</div>` : ''}
             ${r.oneri && !r.tur
               ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'alış' : 'gider'}</b>
                    olarak girilmişti — yine de sen seç</div>` : ''}
@@ -5747,7 +5861,19 @@ async function giderKaydet(mod){
     kategori = document.getElementById('gdKategori').value;
   }
   if (tutar===0){ mesaj('gdMsg','hata','Tutar boş olamaz.'); return; }
-  if (kdvT===0 && !confirm('KDV tutarı BOŞ — bu gider indirilecek KDV hesabına girmeyecek. Faturasız/KDV\'siz gider mi? Yine de kaydedilsin mi?')) return;
+  /* ⚠ ADIM 14 · IKI AYRI HAL, IKI AYRI SORU.
+     Bugunku onay ("faturasiz/KDV'siz gider mi") KULLANICININ BILEREK bos
+     biraktigi hal icin dogru ve AYNEN duruyor. Ama okuyucunun KDV'yi
+     BULAMADIGI hal ayni soruyla karsilaniyordu — kullanici "evet
+     KDV'siz" deyip indirilecek KDV'yi sessizce dusuruyordu.
+     ⚠ ENGEL DEGIL, AYRI CUMLE: karar yine kullanicinin. */
+  if (kdvT===0 && okunamadiMi('gdKdvTutar')){
+    if (!confirm('KDV belgeden OKUNAMADI ve alan boş.\n\n'
+      + 'Böyle kaydedilirse KDV 0,00 yazılır ve bu gider indirilecek KDV '
+      + 'hesabına GİRMEZ.\n\nİptal → forma dön, belgedeki KDV\'yi yaz\n'
+      + 'Tamam → belgede KDV yok, 0,00 olarak kaydet')) return;
+  }
+  else if (kdvT===0 && !confirm('KDV tutarı BOŞ — bu gider indirilecek KDV hesabına girmeyecek. Faturasız/KDV\'siz gider mi? Yine de kaydedilsin mi?')) return;
   const btn = document.getElementById('gdKaydet');
   btn.disabled=true; btn.textContent='Fotoğraf yükleniyor...';
   let foto=null;
@@ -6102,11 +6228,27 @@ function alMatrahTamamla(){
 function alHesapla(){
   let kdv = 0, matrah = 0, gecerli = true;
   const bozukSatir = [];
+  /* ==================================================================
+     ⚠ ADIM 14 · YESIL ONAY, BELGEDEN OKUNMAMIS ALAN VARKEN VERILMEZ
+     ==================================================================
+     OLCULDU: matrah sutunu okunamayinca alMatrahTamamla onu satirin
+     KENDI KDV'si ve oranindan hesapliyor (ADIM 06'nin dogru karari),
+     sonra buradaki denklem kendiliginden tutuyor ve ekran
+     "✓ belge tutuyor" diyordu. Matrahi OKUNMUS ve HESAPLANMIS iki
+     turda cumle BIREBIR AYNIYDI — yani yesil, eksigi PERDELIYORDU.
+     Uyari vardi ama BASKA kutuda (alOkuOzet); bu kutu ondan habersizdi.
+     ⚠ dataset.hesaplandi ADIM 06'da yaziliyor ama HIC OKUNMUYORDU;
+       okuyan yer burasi.
+     ⚠ ADIM 06'nin iki-denklem kontrolu ve metinleri DEGISMEDI; bu
+       UCUNCU bir kosul. */
+  const hesaplananlar = [];
   document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d=>{
     const n = d.id.split('_')[1];
     const pm = paraOku(document.getElementById('alKdvM_'+n));
     const pt = paraOku(document.getElementById('alKdvT_'+n));
     const oran = +document.getElementById('alKdvO_'+n).value || 0;
+    if (document.getElementById('alKdvM_'+n).dataset.hesaplandi === '1')
+      hesaplananlar.push('%' + oran);
     if (!pm.ok || !pt.ok) gecerli = false;
     matrah += pm.deger; kdv += pt.deger;
     if (pm.ok && pt.ok && pm.deger > 0 && pt.deger > 0 && oran > 0){
@@ -6130,7 +6272,16 @@ function alHesapla(){
   const satirNot = bozukSatir.map(b =>
     `%${b.oran} satırı: ${tl(b.matrah)} × %${b.oran} = <b>${tl(b.bek)}</b>, yazan KDV <b>${tl(b.kdv)}</b>`
   ).join('<br>');
-  if (belgeTutuyor && !bozukSatir.length){
+  if (belgeTutuyor && !bozukSatir.length && hesaplananlar.length){
+    /* ⚠ ARITMETIK TUTUYOR AMA RAKAM BELGEDEN GELMIYOR — yesil YOK.
+       Hesaplanan matrah, kendi KDV'sinden turedigi icin satir oranini
+       HER ZAMAN tutturur; o esitlik bir sey KANITLAMAZ. */
+    tut.innerHTML = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Toplam eşitliği tutuyor
+      (${tl(matrah)} + ${tl(kdv)} = ${tl(toplam)}) <b>ama ${hesaplananlar.length} satırın matrahı
+      belgeden OKUNMADI</b> (${esc(hesaplananlar.join(', '))}) — satırın kendi KDV'si ve oranından
+      hesaplandı. Hesaplanan matrah kendi oranını her zaman tutturur, bu eşitlik doğruluğu
+      KANITLAMAZ. Matrahı belgeden karşılaştır; tutmuyorsa elle düzelt.</div>`;
+  } else if (belgeTutuyor && !bozukSatir.length){
     tut.innerHTML = `<div class="bilgi-not" style="color:var(--ok)">✓ Matrah ${tl(matrah)} + KDV ${tl(kdv)} = ${tl(toplam)} — belge tutuyor</div>`;
   } else if (belgeTutuyor){
     /* ⚠ TOPLAM TUTUYOR AMA SATIR TUTMUYOR — yeşil onay VERİLMEZ. */
@@ -8430,8 +8581,21 @@ async function aracBelgeOku(){
       if (parca.length){ ack.value = parca.join(' · '); ack.classList.add('oku-dolu'); doldu.push('Açıklama'); }
     }
 
+    /* ⚠ ADIM 14 · OKUNAMAYAN ALAN ADIYLA YAZILIR, DURUM YESIL DEGIL.
+       OLCULDU: KDV okunamayinca alan bos kaliyor, durum satiri
+       "Dolduruldu: Tarih, Tutar, Açıklama" diye YESIL cikiyor ve
+       kayda paraDeger uzerinden 0,00 gidiyordu — indirilecek KDV
+       sessizce dusuyordu. ADIM 06'da ayni sinif hatayi kapatmistik.
+       Isaret alanda kalir; kullanici yazinca duser (okunamadiIsaretle). */
+    [['agTutar','Tutar'], ['agKdv','KDV']].forEach(([id]) =>
+      okunamadiIsaretle(id, !!(document.getElementById(id)||{}).value));
+    const bosKalan = [['agTutar','Tutar'], ['agKdv','KDV']]
+      .filter(([id]) => okunamadiMi(id)).map(x => x[1]);
     if (doldu.length === 0){
       yaz('Belge okundu ama tutar bulunamadı — elle yaz.','uyari');
+    } else if (bosKalan.length){
+      yaz('Dolduruldu: ' + doldu.join(', ') + ' · OKUNAMADI: ' + bosKalan.join(', ')
+        + ' — belgeye bakıp elle yaz, yoksa o alan kayda GİRMEZ.','uyari');
     } else {
       yaz('Dolduruldu: ' + doldu.join(', ') + ' · rakamları belgeyle karşılaştır, sonra kaydet.','ok');
     }
@@ -8446,6 +8610,21 @@ async function aracMasrafKaydet(){
   if (tutar === 0){ mesaj('agMsg','hata','Tutar boş olamaz.'); return; }
   const arac = document.getElementById('agArac').value;
   if (!arac){ mesaj('agMsg','hata','Önce araç ekle.'); return; }
+  /* ⚠ ADIM 14 · OKUNAMAYAN KDV SESSIZ 0 OLMAZ.
+     OLCULDU: bu yolda hicbir soru YOKTU — agKdv bos kalinca
+     paraDeger 0 donduruyor ve kayda 0,00 giriyordu. Gider yolunda
+     zaten bir onay vardi (giderKaydet); ayni karar buraya da geliyor.
+     ⚠ Yeni bir kapi degil, ev kalibi: soyler, durdurmaz. */
+  if (paraDeger('agKdv') === 0){
+    const okunamadi = okunamadiMi('agKdv');
+    if (!confirm(okunamadi
+      ? 'KDV belgeden OKUNAMADI ve alan boş.\n\n'
+        + 'Böyle kaydedilirse KDV 0,00 yazılır ve bu masraf indirilecek '
+        + 'KDV hesabına GİRMEZ.\n\nİptal → forma dön, belgedeki KDV\'yi yaz\n'
+        + 'Tamam → belgede KDV yok, 0,00 olarak kaydet'
+      : 'KDV tutarı BOŞ — bu masraf indirilecek KDV hesabına girmeyecek. '
+        + 'Faturasız/KDV\'siz masraf mı? Yine de kaydedilsin mi?')) return;
+  }
   const btn = document.getElementById('agKaydet');
   btn.disabled = true; btn.textContent = 'Fotoğraf yükleniyor...';
   let foto = null;
@@ -9912,9 +10091,19 @@ async function giderBelgeOku(){
       ac.value = [v.belge_no, v.tedarikci?.ad].filter(Boolean).join(' · ');
       ac.classList.add('oku-dolu'); doldu.push('Açıklama');
     }
-    yaz(doldu.length
-      ? 'Dolduruldu: ' + doldu.join(', ') + ' · KATEGORİYİ sen seç, sonra kaydet.'
-      : 'Belge okundu ama tutar bulunamadı — elle yaz.', doldu.length ? 'ok' : 'uyari');
+    /* ⚠ ADIM 14 · aracBelgeOku ile AYNI KARAR: okunamayan alan adiyla
+       yazilir, durum yesil verilmez. Bu akista da kayda 0 gidiyordu. */
+    [['gdTutar','Tutar'], ['gdKdvTutar','KDV']].forEach(([id]) =>
+      okunamadiIsaretle(id, !!(document.getElementById(id)||{}).value));
+    const bosKalan = [['gdTutar','Tutar'], ['gdKdvTutar','KDV']]
+      .filter(([id]) => okunamadiMi(id)).map(x => x[1]);
+    yaz(!doldu.length
+      ? 'Belge okundu ama tutar bulunamadı — elle yaz.'
+      : (bosKalan.length
+        ? 'Dolduruldu: ' + doldu.join(', ') + ' · OKUNAMADI: ' + bosKalan.join(', ')
+          + ' — belgeye bakıp elle yaz. KATEGORİYİ de sen seç.'
+        : 'Dolduruldu: ' + doldu.join(', ') + ' · KATEGORİYİ sen seç, sonra kaydet.'),
+      (doldu.length && !bosKalan.length) ? 'ok' : 'uyari');
   }catch(e){
     yaz(hataTr(e.message || String(e)), 'uyari');
   }finally{
