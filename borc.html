@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-28">
+<meta name="surum" content="borc-2026-08-27-30">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1282,6 +1282,9 @@ function hataTrIc(m){
      kapiyi ATLAYAN yol icin (betikle yazma, eski sekme). */
   if (/kart_faiz_ust_chk/i.test(s))   return 'Aylık faiz oranı %100\'den büyük olamaz — yıllık oranı girmiş olabilirsin.';
   if (/kart_faiz_orani_chk/i.test(s)) return 'Faiz oranı eksi olamaz. Bilinmiyorsa boş bırak.';
+  /* v121 · kd_son_odeme_chk: vade, donemin basindan (donem||'-01') once olamaz */
+  if (/kd_son_odeme_chk/i.test(s))
+    return 'Son ödeme tarihi dönemin başından önce olamaz — ekstredeki vadeyi ve dönemi karşılaştır.';
   if (/kd_asgari_chk/i.test(s))       return 'Asgari tutar eksi olamaz.';
   if (/kd_donem_odemesi_chk/i.test(s)) return 'Bu ekstreye ödediğim tutar eksi olamaz.';
   if (/kd_faiz_chk/i.test(s))         return 'Faiz tutarı eksi olamaz. Bilinmiyorsa boş bırak.';
@@ -1597,7 +1600,7 @@ async function kartGetir(){
     sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama,kart_limiti,limit_paylasan_id,faiz_orani')
       .eq('is_deleted', false).order('ad'),
     sb.from('v_kart_donem')
-      .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path,asgari_tutar,donem_odemesi,kapanmamis,odeme_turu,devir_farki,faiz_tutari,vergi_masraf_tutari')
+      .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path,asgari_tutar,donem_odemesi,kapanmamis,odeme_turu,devir_farki,faiz_tutari,vergi_masraf_tutari,son_odeme_tarihi')
       .order('donem', { ascending:false })
   ]);
   if (k.error) throw k.error;
@@ -1871,6 +1874,37 @@ async function toplamBorcGetir(){
     .reduce((a, x) => a + kr(x.tutar), 0);
   return t;
 }
+/* ==================================================================
+   v121 · DONEMIN VADESI — TEK YARDIMCI
+   ==================================================================
+   KURAL (tek cumle): bir donemin vadesi VARSA (son_odeme_tarihi dolu)
+   her yerde O kullanilir; YOKSA kartin son_odeme_gunu + ay kurali ile
+   turetilir. Turetme KALDIRILMADI — eski donemlerin hepsi NULL.
+   ⚠ OLCULDU: takvim vadeyi DORT yerde (bu ayin donemi · gecikme testi ·
+     takvim tarihi · yansitma) ayni formulle ama AYRI AYRI turetiyordu ve
+     kart_donem'de vade sutunu yoktu. Tatil kaymasi, banka ertelemesi,
+     ayin son gununde kesilme kayboluyordu; ayni kartin iki doneminde
+     farkli vade DURAMIYORDU. Dort yer + elle form artik buraya bagli;
+     biri ayrilirsa takvim ile Kartlar ekrani yine celisir (CJ notu).
+   ⚠ IKI SEY KARISTIRILMAZ: kart.son_odeme_gunu = kartin GENEL kurali,
+     kart_donem.son_odeme_tarihi = BU ekstrenin gercegi. */
+/* ⚠ OLCULDU: sonrakiAy bantVerisi'nin YEREL sabitiydi (2055); ust duzey
+   yardimci ona ulasamiyordu ve takvimde patlamamasinin tek sebebi kisa
+   devreydi (son_odeme_gunu > kesim_gunu). Ayni govde, global oncekiAy
+   (7926) kalibiyla ust duzeye alindi; bantVerisi'ndeki yerel kopya onu
+   golgeler, matematik birebir ayni. */
+function sonrakiAy(ay){
+  const [y,m] = ay.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m, 1));
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0');
+}
+function donemVadeTuret(k, donem){
+  const oAy = k.son_odeme_gunu > k.kesim_gunu ? donem : sonrakiAy(donem);
+  return oAy + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(oAy))).padStart(2,'0');
+}
+function donemVadesi(k, d){
+  return d.son_odeme_tarihi || donemVadeTuret(k, d.donem);
+}
 async function bantVerisi(){
   const [krediler, taksitler, sahis, maden, kart, cek, tb] = await Promise.all([
     krediGetir(), taksitGetir(null), sahisGetir(), madenGetir(), kartGetir(), cekGetir(),
@@ -1937,8 +1971,11 @@ async function bantVerisi(){
     for (const k of kart.kartlar){
       if (!k.aktif){ buAyKart.pasif++; continue; }
       if (k.kesim_gunu == null || k.son_odeme_gunu == null){ buAyKart.gunYok++; continue; }
-      const hedef = k.son_odeme_gunu > k.kesim_gunu ? M : oncekiAy(M);
-      const d = donemAnahtar.get(k.id + '|' + hedef);
+      /* v121 · "bu ayin donemi" = VADESI bu aya dusen donem. Vade NULL
+         ise donemVadesi turetir ve eski "hedef ay" seciminin AYNISINI
+         verir; dolu vadeyle (tatil kaymasi) DOGRUSUNU. */
+      const d = kart.donemler.find(x => x.kart_id === k.id
+                                     && donemVadesi(k, x).slice(0,7) === M);
       if (!d){ buAyKart.donemYok++; continue; }
       /* ⚠ CJ · KAPANMAMIS. "Bu ay cikacak nakit" sorusunun cevabi
          ekstrenin yazdigi tutar degil, HENUZ ODENMEMIS olan; odenmis
@@ -1964,7 +2001,9 @@ async function bantVerisi(){
          ⚠ ASGARI NULL ise GECIKMIS SAYILMAZ: bilinmeyen ile gecikmis
            ayni sey degil. Ayri sayilir, ekranda "ayirt edilemiyor" der.
          ⚠ KIL PAYI ICIN AYRI ESIK YOK — sahibin karari. Yalniz uc durum. */
-      if (Math.min(k.son_odeme_gunu, ayinSonGunu(M)) < gunBugun){
+      /* v121 · gun karsilastirmasi DEGIL, tam tarih: vadesi 22.09 olan
+         donem 21.09'da gecikmis DEGILDIR, kartin gunu 20 olsa da. */
+      if (donemVadesi(k, d) < bugun()){
         const asgari = (d.asgari_tutar === null || d.asgari_tutar === undefined)
                        ? null : kr(d.asgari_tutar);
         const odenen = kr(d.donem_odemesi || 0);
@@ -2040,8 +2079,7 @@ async function bantVerisi(){
          cevap odenmemis kisimdir. bantVerisi icinde ve dosya kapsaminda
          oldugu icin duzeltildi; degistigi RAPORDA yazili. */
       if (kr(d.kapanmamis) <= 0 || d.odeme_turu === 'tam') continue;
-      const oAy = k.son_odeme_gunu > k.kesim_gunu ? d.donem : sonrakiAy(d.donem);
-      const tarih = oAy + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(oAy))).padStart(2,'0');
+      const tarih = donemVadesi(k, d);          // v121 · dolu vade || turetme
       kartOdemeleri.push({ tarih, kart: k, donem: d, kalanKurus: kr(d.kapanmamis) });
     }
   }
@@ -2073,13 +2111,14 @@ async function bantVerisi(){
       if (d.kart_id === k.id && (!sonD || d.donem > sonD.donem)) sonD = d;
     if (!sonD) continue;
     if (kr(sonD.kapanmamis) <= 0 || sonD.odeme_turu === 'tam') continue;
-    const oAyS = k.son_odeme_gunu > k.kesim_gunu ? sonD.donem : sonrakiAy(sonD.donem);
-    const tarihS = oAyS + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(oAyS))).padStart(2,'0');
+    const tarihS = donemVadesi(k, sonD);   // v121 · son donemin GERCEK vadesi varsa o
     if (tarihS >= bugunISO) continue;      // gunu daha gelmedi: zaten takvimde duruyor
     const yDonem = sonrakiAy(sonD.donem);
     if (kart.donemler.some(d => d.kart_id === k.id && d.donem === yDonem)) continue;
-    const yAy = k.son_odeme_gunu > k.kesim_gunu ? yDonem : sonrakiAy(yDonem);
-    const yTarih = yAy + '-' + String(Math.min(k.son_odeme_gunu, ayinSonGunu(yAy))).padStart(2,'0');
+    /* v121 · yTarih HENUZ OLMAYAN donemin vadesi: satiri yok, vadesi de yok
+       -> turetme KALIR (ayni yardimci, ikinci formul yok). Yansitma zaten
+       "tahmin, alt sinir" diye isaretli; o isaretlere dokunulmadi. */
+    const yTarih = donemVadeTuret(k, yDonem);
     kartOdemeleri.push({ tarih: yTarih, kart: k, donem: { donem: yDonem },
       kalanKurus: kr(sonD.kapanmamis), yansitma: true, kaynakDonem: sonD.donem });
   }
@@ -6533,6 +6572,22 @@ async function ekstreOnayEkrani(a, dosya, toplamIpucu){
   k.appendChild(el('div', donem ? 'kucuk' : 'uyari-agir', donem
     ? 'Dönem ' + donem + ' olarak yazılacak — HESAP KESİM ayından türetildi, son ödeme ayından değil.'
     : 'Hesap kesim tarihi okunamadı; dönem belirlenemiyor. Bu ekstre kaydedilemez, elle gir.'));
+  /* v121 · VADE DE KAYDETMEDEN GORUNSUN. Okuyucu son odemenin TAM
+     tarihini buluyor (4728 -> 5420: gun + ay); artik kayda da giriyor.
+     ⚠ 'belirsiz' ve 'yok' -> null, TAHMIN YOK: belirsizde kartin gununu
+       yazmak, okunamayani okunmus gibi gostermek olur. */
+  {
+    const so = a.sonOdeme;
+    const vadeISO = (so && so.durum === 'ok')
+      ? so.ay + '-' + String(so.gun).padStart(2,'0') : null;
+    const kartSec = v.kart.kartlar.find(x => x.id === sec.value);
+    const gunNot = kartSec && kartSec.son_odeme_gunu != null
+      ? ' — kartın gününe (ayın ' + kartSec.son_odeme_gunu + '.) düşülecek'
+      : ' — kartın son ödeme günü de yok';
+    k.appendChild(el('div', vadeISO ? 'kucuk' : 'uyari-orta', vadeISO
+      ? 'Son ödeme ' + trGun(vadeISO) + ' — ekstreden okundu, bu döneme yazılacak.'
+      : 'Son ödeme okunamadı' + gunNot + '.'));
+  }
 
   const kaydet = el('button','btn','Kartı ve dönemi kaydet'); kaydet.id = 'axKaydet';
   kayitDugmesi = kaydet;
@@ -6654,6 +6709,13 @@ async function ekstreKaydet(a, dosya, donem, btn, donemZatenVar, elleAlanlar, zo
     devir: P(a.devir) || '0.00', yeni_harcama: P(a.yeni) || '0.00',
     duzeltme: '0.00', odenen: P(a.odenen) || '0.00',
     asgari_tutar: P(a.asgari), faiz_tutari: P(a.faiz), vergi_masraf_tutari: P(a.vergi),
+    /* v121 · BANKANIN son odeme tarihi (vade) — okuyucu tam tarihi zaten
+       buluyordu (4728 -> 5420), yalniz .gun'u kullaniliyordu (6355/6383/
+       6447: kartin VARSAYILAN gununu guncellemek icin; o ayri ve hala
+       dogru bir is, DOKUNULMADI). Burasi BU ekstrenin gercegi.
+       ⚠ 'belirsiz'/'yok' -> null. TAHMIN YOK. */
+    son_odeme_tarihi: (a.sonOdeme && a.sonOdeme.durum === 'ok')
+      ? a.sonOdeme.ay + '-' + String(a.sonOdeme.gun).padStart(2,'0') : null,
     /* ⚠ donem_odemesi OKUNMAZ: o, ekstreye KARSILIK yapilan odeme ve
        ekstre basildiginda henuz yapilmamistir (v107'deki ayrim). */
     /* ⚠ DG · ELLE GIRILEN ALANLAR KAYDA GECER. Alti ay sonra "bu rakam
@@ -6900,16 +6962,31 @@ function kartKutusu(v, kart, buAy, liste){
     kutu.appendChild(el('div','kk-lim', 'ekstre ' + tl(gosterilen.kalan)
       + ' · ödedim ' + tl(gosterilen.donem_odemesi)));
   const vd = el('div','kk-vade');
+  /* ⚠ v121 · BESINCI YER — brifte sayilmamisti, grep'le cikti (dosyada
+     ayinSonGunu( yalniz iki yerde geciyordu: yardimci ve BURASI).
+     IKI KUSUR birden kapaniyor:
+      · YENI: donemin GERCEK vadesini hic okumuyordu. Takvim 22.09
+        gosterirken kutu 21.09'da "1 gun gecti" diyordu — ADIM 07'deki
+        yan yana celiski sinifi.
+      · ESKI (v121'den bagimsiz): ay olarak BUGUNUN ayini kullaniyordu,
+        donemin ayini degil. Kesim 29.07 / vade 03.08 olan kartta
+        30.07'de "son odeme 03.07 · 27 gun gecti" yazardi.
+     ⚠ SIRA DEGISTI: donemin dolu vadesi varsa kartin genel gunu
+       bilinmese de vade BILINIR; once ona bakilir.
+     ⚠ 'fark' adi ve ISARETI korunuyor (+ileri / -gecti) — alttaki BA
+       rozet blogu yalniz fark < 0'a bakiyor, ona DOKUNULMADI. */
+  const vadeISO = !gosterilen ? null
+    : (gosterilen.son_odeme_tarihi
+       || ((kart.son_odeme_gunu != null && kart.kesim_gunu != null)
+           ? donemVadesi(kart, gosterilen) : null));
   if (!gosterilen) vd.textContent = 'dönem girilmemiş';
-  else if (kart.son_odeme_gunu == null) vd.textContent = 'son ödeme günü girilmemiş';
+  else if (!vadeISO) vd.textContent = kart.son_odeme_gunu == null
+    ? 'son ödeme günü girilmemiş'
+    : 'kesim günü girilmemiş — vade hesaplanamıyor';
   else {
-    /* ⚠ "3 gün kaldı" yazan bir kutu, gun GECMISSE YALAN SOYLER.
-       Gun farki bugunun gunuyle karsilastiriliyor; ayin son gununden
-       buyuk odeme gunu ayin sonuna kirpiliyor (buAyKart ile ayni kural). */
-    const bg2 = bugun(), ayGun = +bg2.slice(8,10);
-    const vg = Math.min(kart.son_odeme_gunu, ayinSonGunu(bg2.slice(0,7)));
-    const fark = vg - ayGun;
-    const tarih = String(vg).padStart(2,'0') + '.' + bg2.slice(5,7);
+    /* ⚠ "3 gün kaldı" yazan bir kutu, gun GECMISSE YALAN SOYLER. */
+    const fark = gunFarki(vadeISO, bugun());       // +ileri · 0 bugun · -gecti
+    const tarih = vadeISO.slice(8,10) + '.' + vadeISO.slice(5,7);
     vd.textContent = 'son ödeme ' + tarih + ' · '
       + (fark > 0 ? fark + ' gün kaldı' : fark === 0 ? 'bugün son gün' : (-fark) + ' gün geçti');
     /* ⚠ BA · RENK ODEME DURUMUNDAN GELIR, TAKVIMDEN DEGIL. Olculdu: kutu
@@ -7876,7 +7953,15 @@ function oncekiAy(ay){
   const d = new Date(Date.UTC(y, m - 2, 1));
   return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0');
 }
-function donemVarsayilan(kart, okunanKesimAy){
+/* v121 · B01 · "BUGUNUN AYI" HICBIR DALDA KALMADI.
+   Eski hal: kartin kesim gunu yoksa bugunun ayini yaziyordu. Etiketli,
+   sessiz degildi; ama "agustos ekstresini 4 ve 20 Eylul'de gir, ay ayni
+   kalsin" olcutunu elle formda bozuyordu (okuyucu yolu zaten reddediyor).
+   Sira: (1) okunan kesim ayi · (2) kesim gunu varsa bugunku turetme ·
+   (3) hicbiri yoksa kartin SON MEVCUT DONEMI + 1 ay — deterministik,
+   4 Eylul'de de 20 Eylul'de de ayni cevap · (4) donem de yoksa BOS
+   birak ve kullaniciya sor. */
+function donemVarsayilan(kart, okunanKesimAy, liste){
   const b = bugun(), buAy = b.slice(0,7);
   if (okunanKesimAy && /^\d{4}-\d{2}$/.test(okunanKesimAy))
     return { ay: okunanKesimAy, kaynak: 'Dönem ekstrenin hesap kesim tarihinden geldi.' };
@@ -7887,8 +7972,13 @@ function donemVarsayilan(kart, okunanKesimAy){
       + '.) türetildi: bugün ' + Number(b.slice(8,10)) + '. gün, son kesim '
       + ayAdi(ay) + '. Yanlışsa değiştir.' };
   }
-  return { ay: buAy, kaynak: 'Kartın kesim günü girilmemiş; bugünün ayı yazıldı. '
-    + 'Ekstrenin hesap kesim ayını kontrol et.' };
+  let son = null;
+  for (const d of (liste || []))
+    if (kart && d.kart_id === kart.id && (!son || d.donem > son)) son = d.donem;
+  if (son)
+    return { ay: sonrakiAy(son), kaynak: 'Kartın kesim günü girilmemiş; son mevcut dönem '
+      + ayAdi(son) + ', bir sonrakisi önerildi. Yanlışsa değiştir.' };
+  return { ay: '', kaynak: 'Kesim günü de önceki dönem de yok — ekstrenin hesap kesim ayını sen seç.' };
 }
 function donemFormu(kart, liste, duz){
   const k = el('div','kart');
@@ -7909,7 +7999,7 @@ function donemFormu(kart, liste, duz){
   k.appendChild(el('label', null, 'Dönem (YYYY-AA)')).setAttribute('for','kdDonem');
   const dn = document.createElement('input');
   dn.id = 'kdDonem'; dn.type = 'month';
-  const vd = duz ? { ay: duz.donem, kaynak: null } : donemVarsayilan(kart);
+  const vd = duz ? { ay: duz.donem, kaynak: null } : donemVarsayilan(kart, null, liste);
   dn.value = vd.ay;
   k.appendChild(dn);
   /* ⚠ DD · DEGERIN NEREDEN GELDIGI YAZILI. Alan KILITLI DEGIL — yalniz
@@ -7987,6 +8077,30 @@ function donemFormu(kart, liste, duz){
       .then(r => { if (r.data && r.data.donem_odemesi_tarih){
         odTarih.value = r.data.donem_odemesi_tarih;
         duz.donem_odemesi_tarih = r.data.donem_odemesi_tarih; } });
+  /* v121 · BANKANIN SON ODEME TARIHI — kdOdedimTarih kalibiyla, ayni tuzak:
+     "bugunu/varsayilani koyup eskiyi ezme". Duzenlemede deger 1599'dan
+     gelen duz.son_odeme_tarihi'nden dolar; bos ise (eski donem, NULL)
+     kartin kuraliyla turetilen tarih ONERILIR ama kaydedilmez — kullanici
+     tatil kaymasini biliyorsa duzeltir, bos birakirsa null gider.
+     ⚠ Turetme donemVadeTuret — bantVerisi'nin dort noktasiyla AYNI
+       fonksiyon, ikinci formul YOK. */
+  k.appendChild(el('label', null, 'Bankanın son ödeme tarihi (ekstrede yazan)')).setAttribute('for','kdSonOdeme');
+  const soTarih = document.createElement('input');
+  soTarih.id = 'kdSonOdeme'; soTarih.type = 'date';
+  const vadeTuret = () => (kart && kart.kesim_gunu != null && kart.son_odeme_gunu != null
+                           && /^\d{4}-\d{2}$/.test(dn.value))
+                          ? donemVadeTuret(kart, dn.value) : '';
+  if (duz && duz.son_odeme_tarihi) soTarih.value = duz.son_odeme_tarihi;
+  else if (!duz) soTarih.value = vadeTuret();
+  k.appendChild(soTarih);
+  k.appendChild(el('div','kucuk', duz && duz.son_odeme_tarihi
+    ? 'Kayıtlı vade — ekstreden okunmuş ya da elle girilmişti.'
+    : 'İsteğe bağlı. Boş bırakılırsa kartın gününe (ayın '
+      + (kart && kart.son_odeme_gunu != null ? kart.son_odeme_gunu : '?')
+      + '.) düşülür. Tatil kayması varsa ekstredeki tarihi yaz.'));
+  /* yeni kayitta donem degisirse oneri de degissin — kayitli degere DOKUNMA */
+  if (!duz) dn.addEventListener('change', () => { if (!soTarih.dataset.elle) soTarih.value = vadeTuret(); });
+  soTarih.addEventListener('input', e => { if (e.isTrusted) soTarih.dataset.elle = '1'; });
   /* ⚠ AW · FAIZ ve VERGI AYRI TUTULUYOR, tek "maliyet" alaninda
      BIRLESTIRILMEDI — ev kalibi kredi_taksit'te de anapara/faiz/vergi
      diye uce bolunmus. Ekstrede de ayri yaziyor: FZ:... VR/FN:...
@@ -8113,6 +8227,8 @@ function donemSatiriUret(kart){
       duzeltme:(dzKurus/100).toFixed(2), odenen:(odn.kurus/100).toFixed(2),
       asgari_tutar: asg.deger, donem_odemesi: odm.deger,
       donem_odemesi_tarih: odm.deger != null ? odTarih : null,
+      /* v121 · elle girilen/onerilen vade; bos -> null (kartin gununa dusulur) */
+      son_odeme_tarihi: (document.getElementById('kdSonOdeme') || {}).value || null,
       faiz_tutari: fz.deger, vergi_masraf_tutari: vr.deger,
       giren_id: PROFIL ? PROFIL.id : null } };
 }
