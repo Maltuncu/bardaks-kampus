@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-30">
+<meta name="surum" content="borc-2026-08-27-31">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -561,6 +561,23 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .kg-nok{display:inline-block;width:6px;height:6px;border-radius:50%;
   background:var(--soluk);opacity:.55;margin-left:5px;vertical-align:middle}
 .kg-tarihsiz{margin-left:4px;color:var(--uyari);font-weight:800}
+/* v123 · ADIM 11 · odeme dokumu: donem satirinin ALTINDA colSpan'li alt
+   satir. Tablo GENISLEMIYOR.
+   ⚠ OLCULDU — ILK HALI KULLANILAMAZDI: hucre colSpan=14 oldugu icin
+     icerik TABLONUN TAM GENISLIGINE (1148px) yayiliyordu. Kullanici
+     dugmelere ulasmak icin tabloyu saga kaydirinca TARIH ekrandan
+     cikiyor, solda dururken de tutar/Sil gorunmuyordu. Sayfa tasmasi
+     0'di — yani "tasma yok" olcumu bu hatayi GORMEZ; ekran goruntusu
+     gordu.
+   ⚠ COZUM: icerik sticky bir kutuda ve GENISLIGI ICERIGE gore. Yatay
+     kaydirma nereye giderse gitsin kutu sol kenara yapisik kalir. */
+.ko-hucre{padding:0;background:var(--acik)}
+.ko-kutu{position:sticky;left:0;display:inline-block;box-sizing:border-box;
+  max-width:100vw;padding:4px 8px 8px}
+.ko-satir{display:flex;gap:12px;align-items:center;padding:4px 0;font-size:13px}
+.ko-gun{flex:0 0 auto;color:var(--soluk);white-space:nowrap;min-width:104px}
+.ko-tut{flex:0 0 auto;font-variant-numeric:tabular-nums;white-space:nowrap;
+  min-width:92px;text-align:right}
 table{border-collapse:collapse;width:100%;min-width:520px;font-size:15px}
 th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--cizgi);white-space:nowrap}
 th{font-size:11px;color:var(--soluk);letter-spacing:.4px}
@@ -1287,6 +1304,11 @@ function hataTrIc(m){
     return 'Son ödeme tarihi dönemin başından önce olamaz — ekstredeki vadeyi ve dönemi karşılaştır.';
   if (/kd_asgari_chk/i.test(s))       return 'Asgari tutar eksi olamaz.';
   if (/kd_donem_odemesi_chk/i.test(s)) return 'Bu ekstreye ödediğim tutar eksi olamaz.';
+  /* v123 · ADIM 11 · kart_odeme.ko_tutar_chk: olay tutari SIFIRDAN BUYUK.
+     "0 odedim" bir olay degil; ekran zaten kapi tutuyor, bu satir kapiyi
+     ATLAYAN yol icin (betikle yazma, eski sekme). */
+  if (/ko_tutar_chk/i.test(s))
+    return 'Ödeme tutarı sıfırdan büyük olmalı. Hiç ödeme yapılmadıysa satır eklenmez.';
   if (/kd_faiz_chk/i.test(s))         return 'Faiz tutarı eksi olamaz. Bilinmiyorsa boş bırak.';
   if (/kd_vergi_masraf_chk/i.test(s)) return 'Faiz vergisi/masrafı eksi olamaz. Bilinmiyorsa boş bırak.';
   /* ⚠ ux_kart_donem KISMI tekil: ayni kartta ayni ay IKI KEZ acik olamaz.
@@ -1596,16 +1618,55 @@ async function sahisGetir(){
 /* KART — kalan ve devir tutarsizligi GORUNUMDEN gelir, burada
    hesaplanmaz: iki yerde hesaplanan sey ayrisir. */
 async function kartGetir(){
-  const [k, d] = await Promise.all([
+  const [k, d, o] = await Promise.all([
     sb.from('kart').select('id,ad,banka,sahip,son_odeme_gunu,kesim_gunu,aktif,aciklama,kart_limiti,limit_paylasan_id,faiz_orani')
       .eq('is_deleted', false).order('ad'),
     sb.from('v_kart_donem')
       .select('kart_id,donem_id,donem,devir,yeni_harcama,duzeltme,odenen,kalan,onceki_kalan,devir_tutarsiz,foto_path,asgari_tutar,donem_odemesi,kapanmamis,odeme_turu,devir_farki,faiz_tutari,vergi_masraf_tutari,son_odeme_tarihi')
-      .order('donem', { ascending:false })
+      .order('donem', { ascending:false }),
+    /* ⚠ v123 · ADIM 11 · ODEMELER ARTIK OLAY. Gorunumun donem_odemesi'i
+       BU SATIRLARIN TOPLAMI (sunucuda). Burada TEKRAR TOPLANMAZ —
+       satirlar yalniz DOKUM, TARIH sorusu ve SILME icin okunur. Iki
+       yerde toplanan sey ayrisir; bu turda kapattigimiz hata oydu. */
+    sb.from('kart_odeme').select('id,donem_id,tarih,tutar,aciklama')
+      .eq('is_deleted', false)
   ]);
   if (k.error) throw k.error;
   if (d.error) throw d.error;
-  return { kartlar: k.data || [], donemler: d.data || [] };
+  /* ⚠ ODEME HATASI YUTULMAZ, TASINIR (cekGetir kalibi): kart_odeme en
+     yeni parca ve tek basina Kartlar ekraninin TAMAMINI karartmamali.
+     Toplamlar sunucudan geldigi icin rakamlar yerinde kalir; okunamayan
+     sey DOKUM. Ekran bunu YAZAR — sessiz sifir degil. */
+  const odemeler = o.error ? [] : (o.data || []);
+  return { kartlar: k.data || [], donemler: d.data || [], odemeler,
+           odemeHarita: odemeHaritasi(odemeler),
+           odemeHata: o.error ? hataTr(o.error.message) : null };
+}
+/* v123 · ADIM 11 · donem_id -> odeme olaylari (tarihli once, eskiden
+   yeniye; tarihsizler sonda). ⚠ TOPLAM URETMEZ. */
+function odemeHaritasi(odemeler){
+  const m = new Map();
+  for (const o of (odemeler || [])){
+    if (!m.has(o.donem_id)) m.set(o.donem_id, []);
+    m.get(o.donem_id).push(o);
+  }
+  for (const a of m.values())
+    a.sort((x, y) => (x.tarih ? 0 : 1) - (y.tarih ? 0 : 1)
+                  || String(x.tarih).localeCompare(String(y.tarih)));
+  return m;
+}
+/* Bu donemin odemesinin TARIHI BILINMIYOR mu?
+   ⚠ IKI AYRI HAL, TEK CEVAP: (1) tarihi girilmemis olay var;
+     (2) hic olay yok ama gorunumde tutar var — o rakam v123 KOPRUSUNDEN,
+     eski skalerden geliyor ve tarihi HIC yok.
+   ⚠ ONCEKI SURUMDE BU TEST YANLISTI: d.donem_odemesi_tarih okunuyordu,
+     oysa o sutun v_kart_donem'de HIC YOK (v121 kolon listesi) — deger
+     hep undefined, '== null' hep dogru, yani '?' odeme girilmis HER
+     donemde cikiyordu. Olculdu. */
+function donemTarihsizMi(d, harita){
+  const ol = harita && harita.get(d.donem_id);
+  if (ol && ol.length) return ol.some(o => o.tarih == null);
+  return d.donem_odemesi != null && kr(d.donem_odemesi) > 0;
 }
 /* Her kartin EN SON donemi — kalan bundan okunur. */
 function kartSonDonemler(donemler){
@@ -7164,23 +7225,33 @@ async function vKartlar(duzKartId){
   if (oransizN && oransizKap > 0)
     ozet.appendChild(el('div','uyari-orta', oransizN + ' kartın faizi girilmemiş — '
       + tk(oransizKap) + ' için hesaplanamıyor.'));
-  /* C · bu ay odedigim — tarih v113'te acildi; v_kart_donem gorunumu
-     tasimiyor (bilerek genisletilmedi), tek hafif sorgu tablodan.
-     ⚠ "0 odedim" ile "bilmiyorum" AYNI GORUNMEZ: tarihi girilmemis
-       odeme varken 0,00 yazilmaz. */
+  /* C · bu ay odedigim.
+     ⚠ v123 · ADIM 11 · KAYNAK DEGISTI: eskiden kart_donem'in tek skaler
+       alani okunuyordu (ayri bir sorgu). Artik odemeler OLAY; ay bazinda
+       soru ancak olaylara sorulabilir. AGUSTOS EKSTRESINE EYLULDE yapilan
+       odeme artik EYLULE dusuyor — eski skalerde bu imkansizdi, cunku
+       donem basina TEK tarih vardi.
+     ⚠ AYRI SORGU KALKTI: satirlar kartGetir ile zaten geldi.
+     ⚠ "0 odedim" ile "bilmiyorum" AYNI GORUNMEZ. Tarihi bilinmeyen
+       IKI hal var ve ikisi de ayni sayaca girer: tarihsiz OLAY, ve
+       gorunumde tutari olup HIC OLAYI OLMAYAN donem (v123 koprusu —
+       rakam eski skalerden geliyor, tarihi hic yok). */
   const buAyOd = satOz('Bu ay ödediğim', '…');
-  sb.from('kart_donem').select('donem_odemesi,donem_odemesi_tarih')
-    .eq('is_deleted', false).not('donem_odemesi', 'is', null)
-    .then(r => {
-      const dg2 = buAyOd.querySelector('.dg');
-      if (r.error){ dg2.textContent = 'okunamadı'; return; }
-      const oy = bugun().slice(0,7);
-      const tarihsiz = (r.data||[]).filter(x => x.donem_odemesi_tarih == null).length;
-      const buAyT = (r.data||[]).filter(x => x.donem_odemesi_tarih
-                       && x.donem_odemesi_tarih.slice(0,7) === oy)
-                     .reduce((s,x) => s + kr(x.donem_odemesi), 0);
+  {
+    const dg2 = buAyOd.querySelector('.dg');
+    const notKoy = (metin) => buAyOd.appendChild(el('div','kucuk', metin));
+    if (v.kart.odemeHata){
+      dg2.textContent = 'okunamadı';
+      notKoy('Ödeme dökümü okunamadı: ' + v.kart.odemeHata);
+    } else {
+      const oy = bugun().slice(0,7), ody = v.kart.odemeler;
+      const olayli = v.kart.odemeHarita;
+      const kopru = v.kart.donemler.filter(d => !olayli.has(d.donem_id)
+                      && d.donem_odemesi != null && kr(d.donem_odemesi) > 0).length;
+      const tarihsiz = ody.filter(o => o.tarih == null).length + kopru;
+      const buAyT = ody.filter(o => o.tarih && o.tarih.slice(0,7) === oy)
+                       .reduce((s,o) => s + kr(o.tutar), 0);
       /* uzun not dg icinde 137px'e sariyordu (olculdu) — ayri kucuk satir */
-      const notKoy = (metin) => buAyOd.appendChild(el('div','kucuk', metin));
       if (buAyT > 0){
         dg2.textContent = tlk(buAyT);
         if (tarihsiz) notKoy('+' + tarihsiz + ' tarihi girilmemiş — eksik olabilir');
@@ -7188,7 +7259,8 @@ async function vKartlar(duzKartId){
         dg2.textContent = 'hesaplanamıyor';
         notKoy(tarihsiz + ' ödemenin tarihi girilmemiş');
       } else dg2.textContent = 'bu ay kayıtlı ödeme yok';
-    });
+    }
+  }
   /* kavram uyarisi eski kutudan TASINDI — rakamlarin yaninda kalir */
   ozet.appendChild(el('div','kavram',
     'Ekstrelere göre — son kesimden bu yana yapılan harcamalar dahil değil. '
@@ -7542,10 +7614,13 @@ async function kartSil(kart, liste, acan){
    ⚠ BOS HUCRE ile SIFIR AYRI: o ay o kartta donem YOKSA hucre BOS
      kalir, "0,00" YAZILMAZ. Bu ayrimi mukerrer donem olayinda
      pahaliya ogrendik — "0" ile "girilmemis" ayni sey degil.
-   ⚠ ODEME TARIHI DURUSTLUGU: donem_odemesi_tarih donem BASINA tek
-     tarih. Agustos ekstresine eylulde yapilan odeme AGUSTOS satirinda
-     durur; sebebi tablonun altinda yazili, yoksa kullanici "eylulde
-     odedim, neden agustosta yaziyor" der.
+   ⚠ ODEME TARIHI DURUSTLUGU: bu tablo EKSTRE ayina gore dizilir, odeme
+     gunune gore DEGIL. Agustos ekstresine eylulde yapilan odeme AGUSTOS
+     satirinda durur; sebebi tablonun altinda yazili, yoksa kullanici
+     "eylulde odedim, neden agustosta yaziyor" der.
+     ⚠ v123 · ADIM 11: odemeler artik OLAY (kart_odeme) ve her birinin
+       KENDI tarihi var — hucredeki rakam onlarin toplami. "Bu ay
+       odedigim" ozeti odeme gunune gore sorulur; ikisi ayri soru.
    ⚠ KATLANIR: ekran birikmesi kurali. Serit kapaliyken de yilin
      odeme toplamini gosteriyor — bir dokunus uzakta. */
 let KG_GORUNUM = 'odeme', KG_YIL = null;
@@ -7595,6 +7670,8 @@ function kartGecmisiSeridi(v){
 }
 function kartGecmisi(v, yillar){
   const kartlar = v.kart.kartlar, donemler = v.kart.donemler;
+  /* v123 · ADIM 11 · '?' isareti bu haritadan sorulur (donemTarihsizMi). */
+  const KO_HARITA = v.kart.odemeHarita || new Map();
   const k = el('div','kart');
   k.appendChild(el('div','kbaslik','Kart geçmişi — ay ay'));
 
@@ -7668,8 +7745,11 @@ function kartGecmisi(v, yillar){
         /* ⚠ EKSTRESI OLMAYAN DONEM ISARETLI: kullanici hangi ayin
            belgesinin eksik oldugunu gormeli. */
         if (!d.foto_path){ h.appendChild(el('span','kg-nok','')); ekstresiz++; }
-        if (KG_GORUNUM === 'odeme' && d.donem_odemesi != null
-            && d.donem_odemesi_tarih == null){
+        /* ⚠ v123 · ADIM 11 · '?' ARTIK OLAYA SORULUYOR. Eskiden
+           d.donem_odemesi_tarih okunuyordu; o sutun v_kart_donem'de
+           YOK, deger hep undefined idi ve '?' odeme girilmis HER
+           donemde cikiyordu (olculdu). */
+        if (KG_GORUNUM === 'odeme' && donemTarihsizMi(d, KO_HARITA)){
           h.appendChild(el('span','kg-tarihsiz','?')); tarihsiz++;
         }
         tr.appendChild(h);
@@ -7726,8 +7806,19 @@ function kgDonemAc(v, kart, d){
   sat('KALAN', g(d.kalan));
   sat('Asgari', g(d.asgari_tutar));
   sat('Bu ekstreye ödediğim', g(d.donem_odemesi));
-  sat('Ödemenin günü', d.donem_odemesi_tarih ? trGun(d.donem_odemesi_tarih)
-    : (d.donem_odemesi == null ? '—' : 'girilmedi'));
+  /* ⚠ v123 · ADIM 11 · TEK TARIH YOK, OLAYLAR VAR. Ustteki toplam
+     GORUNUMDEN geliyor (sunucuda toplandi); asagisi onun DOKUMU —
+     burada tekrar toplanmiyor. Hic olayi olmayan donemin tutari
+     kopruden, eski skalerden geliyor; tarihi HIC yok. */
+  {
+    const ol = (v.kart.odemeHarita && v.kart.odemeHarita.get(d.donem_id)) || [];
+    if (ol.length)
+      for (const o of ol)
+        sat('· ödeme', (o.tarih ? trGun(o.tarih) : 'tarihi girilmemiş')
+                     + ' — ' + tl(o.tutar));
+    else if (d.donem_odemesi != null && kr(d.donem_odemesi) > 0)
+      sat('Ödemenin günü', 'girilmedi');
+  }
   sat('KAPANMAMIŞ', g(d.kapanmamis));
   sat('Faiz', g(d.faiz_tutari));
   sat('Faiz vergisi/masrafı', g(d.vergi_masraf_tutari));
@@ -7755,7 +7846,7 @@ async function kartDetayAc(kartId, duzenlenenId){
   const c = document.getElementById('icerik');
   c.textContent = ''; c.appendChild(el('div','bos','Yükleniyor...'));
   try{
-    const { kartlar, donemler } = await kartGetir();
+    const { kartlar, donemler, odemeHarita, odemeHata } = await kartGetir();
     const kart = kartlar.find(x => x.id === kartId);
     if (!kart){ c.textContent=''; c.appendChild(el('div','uyari-agir','Kart bulunamadı.')); return; }
     const liste = donemler.filter(d => d.kart_id === kartId).sort((a,b) => b.donem.localeCompare(a.donem));
@@ -7864,9 +7955,10 @@ async function kartDetayAc(kartId, duzenlenenId){
            cikiyordu; ikinci odemede kullanici Duzenle'ye dusuyor ve
            KUMULATIF toplami yazmak zorunda kaliyordu. Bir ekstreye
            birden cok odeme yapilmasi NORMAL hal — istisna degil.
-           Girilen tutar mevcudun UZERINE EKLENIR.
-           ⚠ Rakami DEGISTIRMEK hala Duzenle'nin isi (tek denetim yolu);
-             eklemek ayri, duzeltmek ayri. */
+           ⚠ v123 · ADIM 11: her dokunus AYRI BIR SATIR yaziyor; "ustune
+             ekleme" diye bir sey yok, ezme de yok. Yanlis girilen odeme
+             DUZELTILMEZ, SILINIR (satirin kendi Sil dugmesi, gerekce
+             zorunlu) ve dogrusu yeniden eklenir. */
         const bo = el('button','btn-mini','Ödeme yap');
         bo.onclick = () => odemeYapAc(kart, d);
         ey.appendChild(bo);
@@ -7878,6 +7970,63 @@ async function kartDetayAc(kartId, duzenlenenId){
         ey.appendChild(ba);
         tr.appendChild(ey);
         t.appendChild(tr);
+
+        /* ==============================================================
+           ⚠ v123 · ADIM 11 · ODEME DOKUMU — HER ODEME BIR SATIR
+           ==============================================================
+           "BU EKSTREYE ÖDEDİĞİM" sutunu TOPLAMI gosteriyor ve toplam
+           GORUNUMDEN geliyor (sunucuda toplandi). Burasi o toplamin
+           DOKUMU: hangi gun ne odendi. Onceki surumde bu soru
+           CEVAPSIZDI — tek skaler alan vardi, ikinci odeme birincinin
+           uzerine yaziliyordu.
+           ⚠ BURADA TOPLAMA YAPILMIYOR. Satirlar tek tek yaziliyor;
+             toplam ustteki hucrede, sunucunun rakami.
+           ⚠ KATLANIR (ekran birikmesi kurali): kapaliyken tek satir,
+             kac odeme oldugunu soyluyor.
+           ⚠ HIC OLAYI OLMAYAN ama tutari OLAN donem: rakam v123
+             koprusunden, eski skalerden geliyor. Bunu "odeme yok" diye
+             gostermek YALAN olur — ayrica yaziliyor. */
+        const olaylar = (odemeHarita && odemeHarita.get(d.donem_id)) || [];
+        const kopruTutar = !olaylar.length && d.donem_odemesi != null
+                        && kr(d.donem_odemesi) > 0;
+        if (olaylar.length || kopruTutar || odemeHata){
+          const otr = document.createElement('tr');
+          const otd = document.createElement('td');
+          otd.colSpan = 14; otd.className = 'ko-hucre';
+          /* ⚠ Icerik dogrudan hucreye DEGIL, sticky kutuya giriyor —
+             colSpan'li hucre tablo kadar genis, kutu ekran kadar. */
+          const ktu = el('div','ko-kutu'); otd.appendChild(ktu);
+          if (odemeHata){
+            ktu.appendChild(el('div','uyari-orta',
+              'Ödeme dökümü okunamadı: ' + odemeHata
+            + ' Üstteki toplam yerinde — okunamayan şey dökümdür.'));
+          } else if (kopruTutar){
+            ktu.appendChild(el('div','kucuk',
+              'Bu tutar eski tek alandan geliyor; hangi gün ne ödendiği kayıtlı '
+            + 'değil. Bundan sonraki ödemeler tek tek görünecek.'));
+          } else {
+            const ac = el('button','btn-mini', olaylar.length + ' ödeme ▾');
+            ac.type = 'button'; ac.setAttribute('aria-expanded','false');
+            const kutu = el('div'); kutu.hidden = true;
+            ac.onclick = () => {
+              kutu.hidden = !kutu.hidden;
+              ac.textContent = olaylar.length + ' ödeme ' + (kutu.hidden ? '▾' : '▴');
+              ac.setAttribute('aria-expanded', kutu.hidden ? 'false' : 'true');
+            };
+            for (const o of olaylar){
+              const s = el('div','ko-satir');
+              s.appendChild(el('span','ko-gun', o.tarih ? trGun(o.tarih)
+                                                        : 'tarihi girilmemiş'));
+              s.appendChild(el('span','ko-tut', tl(o.tutar)));
+              const bs = el('button','btn-mini','Sil'); bs.type = 'button';
+              bs.onclick = () => kartOdemeSil(kart, d, o, bs);
+              s.appendChild(bs);
+              kutu.appendChild(s);
+            }
+            ktu.appendChild(ac); ktu.appendChild(kutu);
+          }
+          otr.appendChild(otd); t.appendChild(otr);
+        }
       }
       sar.appendChild(t); k.appendChild(sar);
       k.appendChild(el('div','kucuk',
@@ -8058,25 +8207,37 @@ function donemFormu(kart, liste, duz){
      Ikisine de "odenen" denince kullanici eslestiremedi (BN); artik ayni
      ekranda "oden" kokunden tek etiket var. Alan adi `odenen` DEGISMEDI. */
   alan('Asgari tutar (ekstreden, bilinmiyorsa boş)', 'kdAsgari', duz ? fm(duz.asgari_tutar) : '', 'decimal');
-  alan('Bu ekstreye karşılık ödediğim (bilinmiyorsa boş)', 'kdOdedim', duz ? fm(duz.donem_odemesi) : '', 'decimal');
-  /* ⚠ CG · v113 · ODEMENIN GUNU. Varsayilan BUGUN — tek dokunusla
-     degistirilir; tutar girildiyse tarih de dolu GITMEK ZORUNDA (veri
-     eksik kalmasin), tutar bosken tarih GONDERILMEZ (null gider —
-     UPDATE'te eski tarihi de temizler, yoksa kd_odeme_tarih_chk
-     "tarihli-tutarsiz" satiri reddederdi).
-     ⚠ Duzenlemede MEVCUT tarih v_kart_donem'de YOK (gorunum v113'te
-       bilerek genisletilmedi); tek satirlik sorguyla tablodan cekilir
-       ve hem alana hem duz'a yazilir — yoksa her duzenleme bugunu
-       koyup eski tarihi sessizce EZERDI. */
-  k.appendChild(el('label', null, 'Ödemenin günü')).setAttribute('for','kdOdedimTarih');
-  const odTarih = document.createElement('input');
-  odTarih.id = 'kdOdedimTarih'; odTarih.type = 'date'; odTarih.value = bugun();
-  k.appendChild(odTarih);
-  if (duz && duz.donem_id)
-    sb.from('kart_donem').select('donem_odemesi_tarih').eq('id', duz.donem_id).maybeSingle()
-      .then(r => { if (r.data && r.data.donem_odemesi_tarih){
-        odTarih.value = r.data.donem_odemesi_tarih;
-        duz.donem_odemesi_tarih = r.data.donem_odemesi_tarih; } });
+  /* ==================================================================
+     ⚠ v123 · ADIM 11 · ODEME ARTIK BU FORMUN ISI DEGIL
+     ==================================================================
+     ONCESI: burada tek bir kutu vardi ve KUMULATIF toplam istiyordu.
+     Ikinci odemede kullanici oncekini ezberden bilip toplamak zorunda
+     kaliyordu; toplamayinca onceki odeme kayittan SILINIYORDU. Donem
+     basina TEK tarih oldugu icin de ay sinirina yayilan odeme yanlis
+     aya dusuyordu.
+     ⚠ YENI KAYITTA alan DURUYOR — ekstreyi ilk girerken "sunu da
+       odemistim" demek dogal ve tek islemde bitiyor; girilen rakam
+       kart_donem'e DEGIL, donem kaydedildikten sonra kart_odeme'ye
+       ILK OLAY olarak yaziliyor.
+     ⚠ DUZENLEMEDE alan HIC CIKMIYOR. Cikip da yazmamak, kullaniciya
+       "yazdim" dedirtip hicbir sey yapmamak olurdu — bu ekranin en
+       pahali hatasi tam olarak oydu. Duzeltme yolu: satiri sil, yenisini
+       ekle; ikisi de donem listesinden. */
+  if (!duz){
+    alan('Bu ekstreye karşılık ödediğim (bilinmiyorsa boş)', 'kdOdedim', '', 'decimal');
+    /* ⚠ CG · v113 · ODEMENIN GUNU. Varsayilan BUGUN — tek dokunusla
+       degistirilir; tutar girildiyse tarih de dolu GITMEK ZORUNDA
+       (veri eksik kalmasin), tutar bosken hic odeme yazilmaz. */
+    k.appendChild(el('label', null, 'Ödemenin günü')).setAttribute('for','kdOdedimTarih');
+    const odTarih = document.createElement('input');
+    odTarih.id = 'kdOdedimTarih'; odTarih.type = 'date'; odTarih.value = bugun();
+    k.appendChild(odTarih);
+  } else {
+    k.appendChild(el('div','kucuk',
+      'Ödemeler bu formda değil: her ödeme ayrı bir satır. Dönem '
+    + 'listesindeki "Ödeme yap" ile eklenir, "ödemeler" satırından '
+    + 'görülür ve silinir. Bu form ekstrenin kendi rakamlarını düzeltir.'));
+  }
   /* v121 · BANKANIN SON ODEME TARIHI — kdOdedimTarih kalibiyla, ayni tuzak:
      "bugunu/varsayilani koyup eskiyi ezme". Duzenlemede deger 1599'dan
      gelen duz.son_odeme_tarihi'nden dolar; bos ise (eski donem, NULL)
@@ -8128,10 +8289,13 @@ function donemFormu(kart, liste, duz){
   alan('Faiz vergisi/masrafı — TUTAR (yoksa boş)', 'kdVergi',
     duz ? fm(duz.vergi_masraf_tutari) : '', 'decimal');
   /* CO · ekstre alanlari. kdDuzeltme EKSI kabul eder -> eksiVar. */
-  paraBaglaHepsi(k, ['kdDevir','kdYeni','kdOdenen','kdAsgari','kdOdedim','kdFaiz','kdVergi']);
+  /* ⚠ kdOdedim duzenlemede YOK (v123 · ADIM 11) — listeye kosulsuz
+     yazilirsa paraAl null doner ve bicimleme sessizce hic baglanmaz. */
+  const PARA_ID = ['kdDevir','kdYeni','kdOdenen','kdAsgari','kdFaiz','kdVergi']
+    .concat(duz ? [] : ['kdOdedim']);
+  paraBaglaHepsi(k, PARA_ID);
   paraBagla(paraAl(k, 'kdDuzeltme'), null, true);
-  ['kdDevir','kdYeni','kdOdenen','kdAsgari','kdOdedim','kdFaiz','kdVergi']
-    .forEach(i => paraBicimle(paraAl(k, i)));
+  PARA_ID.forEach(i => paraBicimle(paraAl(k, i)));
   paraBicimle(paraAl(k, 'kdDuzeltme'), true);
   const zn = el('div','kucuk'); zn.id = 'kdZincir'; k.appendChild(zn);
 
@@ -8202,7 +8366,11 @@ function donemSatiriUret(kart){
      "-5" SESSIZCE 5,00 oluyor (AS turunda olculdu). Isarete paraCoz'DEN
      ONCE bakiliyor — dzH'deki kalibin aynisi. */
   const secmeli = (id, etiket) => {
-    const h = document.getElementById(id).value.trim();
+    /* ⚠ v123 · ADIM 11 · kdOdedim duzenleme formunda YOK. Alan yoksa
+       "girilmedi" demek dogru cevap; getElementById(null).value patlardi. */
+    const e = document.getElementById(id);
+    if (!e) return { ok:true, deger:null };
+    const h = e.value.trim();
     if (!h) return { ok:true, deger:null };
     if (/^\s*[-−]/.test(h)) return { ok:false, hata: etiket + ' eksi olamaz. Bilinmiyorsa BOŞ bırak.' };
     const r = paraCoz(h);
@@ -8214,19 +8382,25 @@ function donemSatiriUret(kart){
   const fz  = secmeli('kdFaiz','Faiz tutarı');       if (!fz.ok)  return fz;
   const vr  = secmeli('kdVergi','Faiz vergisi/masrafı'); if (!vr.ok) return vr;
 
-  /* CG · v113 tarih kurali: tutar VARSA tarih zorunlu; tutar yoksa null. */
+  /* CG · v113 tarih kurali: tutar VARSA tarih zorunlu; tutar yoksa yazilmaz. */
   const odTar = document.getElementById('kdOdedimTarih');
   const odTarih = odTar ? odTar.value : '';
   if (odm.deger != null && !odTarih)
     return { ok:false, hata:'Ödeme tutarını girdin; gününü de seç (varsayılan bugündü, silinmiş).' };
 
   const kalan = dev.kurus + yen.kurus + dzKurus - odn.kurus;
+  /* ⚠ v123 · ADIM 11 · satir'da donem_odemesi ve donem_odemesi_tarih YOK.
+     Odeme AYRI BIR OLAY (kart_odeme); donem satiri ekstrenin kendi
+     rakamlarini tasir. Iki yere birden yazilirsa hangisi dogru belli
+     olmaz — koprü yalniz OKUMA icin duruyor. Tutar/tarih asagida ayri
+     alanlarda tasiniyor, kayit yolu bunlari donem insert'inden SONRA
+     kart_odeme'ye yaziyor. */
   return { ok:true, donem, kalan, asgariKurus: asg.kurus, odemeKurus: odm.kurus,
+    odemeTarih: odm.deger != null ? odTarih : null,
     satir: { kart_id: kart.id, donem,
       devir:(dev.kurus/100).toFixed(2), yeni_harcama:(yen.kurus/100).toFixed(2),
       duzeltme:(dzKurus/100).toFixed(2), odenen:(odn.kurus/100).toFixed(2),
-      asgari_tutar: asg.deger, donem_odemesi: odm.deger,
-      donem_odemesi_tarih: odm.deger != null ? odTarih : null,
+      asgari_tutar: asg.deger,
       /* v121 · elle girilen/onerilen vade; bos -> null (kartin gununa dusulur) */
       son_odeme_tarihi: (document.getElementById('kdSonOdeme') || {}).value || null,
       faiz_tutari: fz.deger, vergi_masraf_tutari: vr.deger,
@@ -8238,9 +8412,11 @@ function donemSatiriUret(kart){
    ANINDA yazar. Sahibin sorunu "odeme kaydedilmiyor" degildi —
    kaydediliyordu; ekran yanlis sutunu gosterdigi icin oyle
    goruluyordu.
-   ⚠ YENI KAYIT YOLU DEGIL: donem duzenleme yolunun yazdigi ayni iki
-     alani (donem_odemesi, donem_odemesi_tarih) ayni mekanizmayla
-     (kart_donem update) yaziyor. Donem duzenleme yolu aynen duruyor.
+   ⚠ v123 · ADIM 11 · ARTIK TEK ODEME YOLU BURASI. Eskiden ayni iki
+     alani (donem_odemesi, donem_odemesi_tarih) donem duzenleme yolu da
+     yaziyordu; iki yazici, tek kutu — ikincisi birincisini eziyordu.
+     Duzenleme formundan odeme alanlari KALKTI, burasi kart_odeme'ye
+     SATIR EKLIYOR ve hicbir sey ezmiyor.
    ⚠ v113: tarih girilecekse tutar da girilmis olmali. Bu yuzden
      ONCE TUTAR isteniyor; tutar gecerli degilse Kaydet kapali ve
      sunucuya hicbir sey gitmiyor. */
@@ -8277,7 +8453,8 @@ function odemeYapAc(kart, d){
   dlg.appendChild(el('div','kucuk','KALAN ' + tl(d.kalan)
     + ' — ekstrenin tutarı, ödeme bunu değiştirmez.'
     + (onceki > 0 ? '\nBu ekstreye daha önce ' + tlk(onceki)
-                    + ' ödenmiş; yazdığın tutar bunun ÜZERİNE eklenir.' : '')));
+                    + ' ödenmiş; yazdığın tutar AYRI BİR SATIR olarak eklenir, '
+                    + 'öncekini değiştirmez.' : '')));
 
   const alan = (etiket, id, tip) => {
     const l = el('label', null, etiket); l.setAttribute('for', id); dlg.appendChild(l);
@@ -8348,15 +8525,17 @@ function odemeYapAc(kart, d){
       s.appendChild(v); oniz.appendChild(s); };
     st('Önceki ödeme', tlk(onceki));
     st('Bu ödeme', tlk(x));
-    st('Toplam', tlk(toplam), true);
-    st('KAPANMAMIŞ', tlk(yeni), true);
+    st('Toplam (olacak)', tlk(toplam), true);
+    st('KAPANMAMIŞ (olacak)', tlk(yeni), true);
     if (yeni < 0){ hata.hidden = false;
       hata.textContent = 'Toplam ödeme ekstre tutarından ' + tlk(-yeni)
         + ' fazla — yine de kaydedilir.'; }
     if (!gGun.value){ hata.hidden = false;
       hata.textContent = 'Ödemenin gününü seç.'; return; }
     kay.disabled = false;
-    return toplam;
+    /* ⚠ v123 · ADIM 11 · ARTIK 'toplam' DEGIL 'x' DONUYOR: kaydedilen sey
+       BU ODEME, kumulatif toplam degil. Toplami sunucu tutuyor. */
+    return x;
   };
   /* CO · bicimlenince onizleme tazelenir */
   paraBagla(gTutar, () => { if (!esitleniyor) denetle('tutar'); });
@@ -8376,21 +8555,39 @@ function odemeYapAc(kart, d){
   vaz.onclick = kapat;
   dlg.addEventListener('cancel', (e) => { e.preventDefault(); kapat(); });
   kay.onclick = async () => {
-    const toplam = denetle();
-    if (toplam == null || !gGun.value) return;        // kapi: sunucuya GITMEZ
+    const x = denetle();
+    if (x == null || !gGun.value) return;             // kapi: sunucuya GITMEZ
     kay.disabled = true; kay.textContent = 'Kaydediliyor...';
-    /* ⚠ EKLENEREK yazilir: donem_odemesi kumulatif alandir, ustune
-       tek odeme yazmak onceki odemeyi silerdi. */
-    const { error } = await sb.from('kart_donem')
-      .update({ donem_odemesi: (toplam/100).toFixed(2), donem_odemesi_tarih: gGun.value })
-      .eq('id', d.donem_id);
+    /* ⚠ v123 · ADIM 11 · HER ODEME BIR SATIR.
+       ONCESI: kart_donem.donem_odemesi'ne KUMULATIF toplam yaziliyordu
+       (onceki + x). Ucuncu odeme girildiginde alanda yalniz SON rakam
+       kaliyor, oncekiler kayitta HIC yok — "hangi gun ne odedim"
+       sorusunun cevabi yoktu ve ay sinirina yayilan odeme yanlis aya
+       dusuyordu (donem basina tek tarih).
+       ⚠ donem_odemesi ve donem_odemesi_tarih'e ARTIK YAZILMIYOR. v123
+         koprusu yalniz OKUMA icin duruyor; iki yere birden yazmak bu
+         turda kapattigimiz hatanin ta kendisi olurdu. */
+    const { error } = await sb.from('kart_odeme').insert({
+      donem_id: d.donem_id, tarih: gGun.value,
+      tutar: (x/100).toFixed(2),
+      giren_id: PROFIL ? PROFIL.id : null });
     if (error){ kay.disabled = false; kay.textContent = 'Kaydet';
       hata.hidden = false; hata.textContent = hataTr(error.message); return; }
+    /* ⚠ TOPLAM ISTEMCIDE HESAPLANMAZ, GORUNUMDEN OKUNUR. Onceki surum
+       onceki + x topluyordu; artik toplayan tek yer sunucu. Okuma
+       basarisiz olursa toplam UYDURULMAZ — yalniz yazilan satir
+       soylenir, yeni toplam ekrandan gorulur. */
+    const son = await sb.from('v_kart_donem')
+      .select('donem_odemesi,kapanmamis').eq('donem_id', d.donem_id).maybeSingle();
     kapat();
     await kartDetayAc(kart.id);
-    mesaj('kartMsg','ok', d.donem + ' ödemesi yazıldı: bu ödeme '
-      + tlk(toplam - onceki) + ' · toplam ' + tlk(toplam)
-      + ' · kapanmamış ' + tlk(kalan - toplam));
+    if (son.error || !son.data)
+      mesaj('kartMsg','ok', d.donem + ' ödemesi yazıldı: ' + tlk(x)
+        + ' · ' + trGun(gGun.value) + '. Yeni toplam listede.');
+    else
+      mesaj('kartMsg','ok', d.donem + ' ödemesi yazıldı: bu ödeme ' + tlk(x)
+        + ' · toplam ' + tl(son.data.donem_odemesi)
+        + ' · kapanmamış ' + tl(son.data.kapanmamis));
   };
   document.body.appendChild(dlg); dlg.showModal();
   return dlg;
@@ -8439,8 +8636,9 @@ async function donemOnizle(kart, liste, kaydet, duz){
   if (duz){
     const ALAN = [['donem','Dönem',0],['devir','Devir',1],['yeni_harcama','Yeni harcama',1],
                   ['duzeltme','Düzeltme',1],['odenen','Alacak kayıtları',1],['asgari_tutar','Asgari',1],
-                  ['donem_odemesi','Bu ekstreye ödediğim',1],
-                  ['donem_odemesi_tarih','Ödemenin günü',0],
+                  /* ⚠ v123 · ADIM 11 · donem_odemesi / donem_odemesi_tarih
+                     LISTEDEN CIKTI: bu yol onlara artik YAZMIYOR, dolayisiyla
+                     "degisiyor" diye gostermek yalan olurdu. */
                   ['faiz_tutari','Faiz',1],
                   ['vergi_masraf_tutari','Faiz vergisi',1]];
     const gos = (v, para) => v == null || v === '' ? '—' : (para ? tl(v) : v);
@@ -8558,9 +8756,29 @@ async function donemOnizle(kart, liste, kaydet, duz){
 
   const btn = document.getElementById('kdKaydet');
   btn.disabled = true; btn.textContent = 'Kaydediliyor...';
-  const { error } = await sb.from('kart_donem').insert(r.satir);
+  /* ⚠ v123 · ADIM 11 · IKI YAZMA, SIRALI. Donem satiri once gider; odeme
+     onun id'sine bagli AYRI BIR OLAY. `.select('id').single()` olmadan
+     id geri gelmez ve odeme baglanacak yeri bulamaz. */
+  const { data: yeniD, error } = await sb.from('kart_donem')
+    .insert(r.satir).select('id').single();
   btn.disabled = false; btn.textContent = 'Ayı kaydet';
   if (error){ hataYaz('kartMsg','Ay kaydedilemedi.', error); return; }
+  /* ⚠ IKINCI YAZMA SESSIZ DUSMEZ. Donem kaydedildi, odeme kaydedilmediyse
+     kullanici bunu BILMELI — yoksa "ödemeyi girdim" sanip ekranda
+     gormeyecek ve ikinci kez girecek. */
+  let odemeHatasi = null, odemeSifir = false;
+  if (r.odemeKurus > 0 && yeniD && yeniD.id){
+    const o = await sb.from('kart_odeme').insert({
+      donem_id: yeniD.id, tarih: r.odemeTarih,
+      tutar: (r.odemeKurus/100).toFixed(2),
+      giren_id: PROFIL ? PROFIL.id : null });
+    if (o.error) odemeHatasi = hataTr(o.error.message);
+  } else if (r.odemeKurus === 0 && r.odemeTarih != null)
+    /* ⚠ OLCULEN BOSLUK: "0 odedim" artik KAYDEDILEMIYOR. Olay tablosunun
+       kisiti tutar > 0; sifir tutarli olay YOK. Eskiden bu bilgi
+       donem_odemesi = 0,00 ile tutuluyordu ve gorunum onu 'odenmedi'
+       diye gosteriyordu (v107). Sessizce yutulmuyor — soyleniyor. */
+    odemeSifir = true;
   /* ⚠ ONCE tazele SONRA mesaj: ters sirada kartDetayAc #kartMsg'i yeniden
      kurup mesaji siliyor ve kayit sessizce gecmis gibi gorunuyordu. */
   await kartDetayAc(kart.id);
@@ -8568,11 +8786,21 @@ async function donemOnizle(kart, liste, kaydet, duz){
      sonra kartDetayAc #kdOnizleme'yi komple siliyor. Nobetci oraya
      yazilinca kullanici goremeden ucuyordu; 3.25 tam bu yoldan girdi.
      Bu yuzden uyari, yeniden kurulan #kartMsg'e tasiniyor. */
-  if (oranTutarKarismis)
+  if (odemeHatasi)
+    mesaj('kartMsg','hata', r.donem + ' KAYDEDİLDİ ama ÖDEME KAYDEDİLMEDİ: '
+      + odemeHatasi + ' Ödemeyi ayın "Ödeme yap" düğmesiyle yeniden gir — '
+      + 'ekstre satırını tekrar kaydetme.');
+  else if (odemeSifir)
+    mesaj('kartMsg','uyari', r.donem + ' kaydedildi. ÖDEME YAZILMADI: "0,00" '
+      + 'ödeme satırı olarak tutulamıyor (satır tutarı sıfırdan büyük olmalı). '
+      + 'Ekstre "ödeme girilmemiş" görünecek. Ödeme yapınca "Ödeme yap" ile ekle.');
+  else if (oranTutarKarismis)
     mesaj('kartMsg','uyari', r.donem + ' kaydedildi — AMA KONTROL ET: ' + OT_METIN
       + ' Düzeltmek için ayın "Düzenle" düğmesini kullan.');
   else
-    mesaj('kartMsg','ok', r.donem + ' kaydedildi. Ekstreyi eklemeyi unutma.');
+    mesaj('kartMsg','ok', r.donem + ' kaydedildi.'
+      + (r.odemeKurus > 0 ? ' Ödeme ' + tlk(r.odemeKurus) + ' ayrı satır olarak yazıldı.' : '')
+      + ' Ekstreyi eklemeyi unutma.');
 }
 
 /* AW · donem arsivleme — kart/kredi/maden arsivlemesiyle AYNI mekanik.
@@ -8586,6 +8814,27 @@ function donemSil(kart, d, acan){
       async () => { await kartDetayAc(kart.id); mesaj('kartMsg','ok',
         d.donem + ' silindi. Aynı ay yeniden girilebilir.'); },
       'kart_donem')});
+}
+
+/* ⚠ v123 · ADIM 11 · ODEME SILME.
+   Ev kalibi aynen: pasifeAlAc gerekce ZORUNLU ister, pasifeAlUygula iki
+   fazi ayirir. RPC YAZILMADI (cekSil ile ayni karar, kapsam disi):
+   dogrudan UPDATE ile is_deleted + silme_nedeni.
+   ⚠ TOPLAM KENDILIGINDEN DUSER: gorunumun donem_odemesi'i
+     "NOT is_deleted" satirlarin toplami. Istemci hicbir yerde toplam
+     duzeltmez — iki yerde tutulan sey ayrisir. */
+function kartOdemeSil(kart, d, o, acan){
+  pasifeAlAc(acan, { tur:'Ödeme',
+    ad: kart.ad + ' · ' + d.donem + ' · '
+      + (o.tarih ? trGun(o.tarih) : 'tarihi girilmemiş'),
+    kim:'Bu ekstrenin kapanmamış tutarı bu kadar ARTAR', tutar: tl(o.tutar),
+    uygula: (neden) => pasifeAlUygula(
+      () => sb.from('kart_odeme')
+              .update({ is_deleted:true, silme_nedeni:neden }).eq('id', o.id),
+      async () => { await kartDetayAc(kart.id);
+        mesaj('kartMsg','ok', d.donem + ' ödemesi silindi: ' + tl(o.tutar)
+          + '. Toplam ve kapanmamış yeniden hesaplandı.'); },
+      'kart_odeme')});
 }
 
 /* ================== 7 · FINANS ==================
