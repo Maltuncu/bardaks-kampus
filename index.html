@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-35">
+<meta name="surum" content="2026-08-27-37">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -85,6 +85,77 @@
 .oku-durum.ok{color:var(--ok)}
 .oku-durum.uyari{color:var(--uyari)}
 .oku-dolu{background:#F2F8F4!important;border-color:var(--ok)!important}
+/* ===== ADIM 14 B · "OKUNDU" ILE "HESAPLANDI" AYNI RENGI ALAMAZ =====
+   OLCULDU: `oku-dolu` 22 yerde kullaniliyordu ve BELGEDEN OKUNAN alanla
+   HESAPLANAN alani ayirt etmiyordu — alMatrahTamamla'nin turettigi matrah
+   da ayni yesil zemini aliyordu. ADIM 06'nin kendi cumlesi: "aritmetik
+   esitlik veri dogrulugunu KANITLAMAZ"; A turunda METIN ayrildi, burada
+   RENK de ayriliyor.
+   ⚠ YENI BAYRAK UYDURULMADI: kaynak `dataset.hesaplandi` (ADIM 06'da
+     yaziliyordu, A turunda okunmaya baslandi).
+   ⚠ RENK EVDEN: borc.html'in `ax-elle-kutu`'su ile AYNI dil — kesik
+     turuncu cerceve + ayni zemin. Yesil "dogrulandi" demektir; turetilen
+     deger dogrulanmis degildir. */
+.oku-turetildi{background:#FBF3E4!important;border-color:var(--uyari)!important;
+  border-style:dashed!important}
+
+/* ===== ADIM 14 B · OKUMA ONAY TABLOSU (ax-t) — borc.html'DEN KOPYA =====
+   NEDEN KOPYA, NEDEN PAYLASILAN DOSYA DEGIL:
+     Evin bu sorusu ZATEN CEVAPLANMIS ve iki kez yazili — borc.html'de
+     sekme cubugu icin ("ortak bir sekmeler.js cikarmak ... gunluk
+     kullanilan dosyaya yeni bir yukleme sirasi bagimliligi eklemek
+     kazanandan cok kaybettirirdi") ve bu tablonun kendi CSS'inde
+     ("desen KOPYALANDI, ortaklastirilmadi: oksuz CSS'e baglanmak, biri
+     onu temizlediginde bu tabloyu da sessizce bozardi"). Iki dosya da
+     tek parca HTML; yerel betik dosyasi HIC yuklenmiyor, yalniz SRI'li CDN.
+     Ustelik borc.html'i ortaklastirmak icin DEGISTIRMEK gerekirdi, bu
+     turun kapsami ise index.html.
+   AYRISMA RISKI GERCEK ve kabul edildi. Karsiligi: araclar/kalip-tara.mjs
+   iki dosyanin baslik satirini ve sinif adlarini KARSILASTIRIYOR —
+   SEKMELER_TUM/IKON icin kullanilan nobetcinin aynisi.
+   ⚠ CSS `.ax-t` ile SINIRLANDI: borc'ta genel `table{}` kurali var,
+     index.html'de HIC tablo yok — genel kural yazmak ileride eklenecek
+     her tabloyu sessizce etkilerdi. Degerler birebir borc'tan. */
+.tablo-sar{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:10px -3px}
+.ax-t{border-collapse:collapse;width:100%;min-width:520px;font-size:15px}
+.ax-t th,.ax-t td{padding:9px 8px;text-align:left;
+  border-bottom:1px solid var(--cizgi);white-space:nowrap}
+.ax-t th{font-size:11px;color:var(--soluk);letter-spacing:.4px}
+.ax-t td.sag,.ax-t th.sag{text-align:right}
+/* ⚠ borc'ta `.kucuk` ve `.gri` GENEL sinif; index.html'de o adlar YOK
+   (kucuk metin `.k` ile ve hep bir kapsayicinin altinda tanimli).
+   Genel sinif eklemek yerine tabloya SINIRLANDI — degerler borc'tan. */
+.ax-t .kucuk{font-size:13px;color:var(--soluk);line-height:1.55;
+  overflow-wrap:anywhere;white-space:normal}
+.ax-t .gri{color:var(--soluk)}
+/* ===== <768px'TE KARTLASIR — sutun ATILMAZ, SARMALANIR =====
+   375px'te dort sutun sigmaz. Cozum sutun atmak DEGIL (atilan sutun
+   kullanicidan saklanan bilgidir): her satir bir KART olur, hucre
+   etiketini data-et'ten alir, baslik satiri gizlenir. >=768px'te dort
+   sutun AYNEN durur. borc.html:378-394 ile birebir. */
+@media(max-width:767px){
+  .tablo-sar:has(.ax-t){overflow-x:visible}
+  .ax-t, .ax-t tbody, .ax-t tr, .ax-t td{display:block;width:auto;min-width:0}
+  .ax-t tr:first-of-type{display:none}
+  .ax-t tr{border:1.5px solid var(--cizgi);border-radius:12px;
+    padding:10px 12px;margin:0 0 10px;background:var(--kart)}
+  /* ⚠ KOPYAYA TEK EKLEME — OLCULDU VE GEREKCELI: borc'un kart kurali
+     `white-space` SIFIRLAMIYOR; genel tablo kuralindaki `nowrap` kartta
+     da yuruyor. borc'ta sorun cikmiyor cunku o tablonun hucre metinleri
+     kisa. Buradaki "HESAPLANDI — belgeden okunmadı (KDV ÷ %10)" sigmadi
+     ve SAYFA 29px TASTI (olculdu: -35'te 0, -36'nin ilk halinde 29).
+     Cozum sutun atmak degil SARMALAMAK — brief'in de dedigi. */
+  .ax-t td{border:none;padding:2px 0;text-align:left!important;white-space:normal}
+  .ax-t td[data-et="ALAN"]{font-size:11px;font-weight:800;letter-spacing:.5px;
+    color:var(--soluk);padding-bottom:0}
+  .ax-t td[data-et="OKUNAN"]{font-size:17px;font-weight:600;padding-bottom:4px}
+  .ax-t td[data-et="KAYNAK ETİKET"],.ax-t td[data-et="NASIL BULUNDU"]{
+    display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+    font-size:11.5px;color:var(--soluk)}
+  .ax-t td[data-et="KAYNAK ETİKET"]::before,.ax-t td[data-et="NASIL BULUNDU"]::before{
+    content:attr(data-et);font-size:10px;font-weight:800;letter-spacing:.5px;
+    color:var(--soluk);flex:none}
+}
 /* ===== Uyarı hiyerarşisi =====
    Para kaybettiren şey ile arşiv eksiği aynı ağırlıkta durmamalı.
    AĞIR: para riski · ORTA: beyan/kayıt eksiği · geri kalanı düz metin satırı. */
@@ -3176,6 +3247,55 @@ function paraDeger(id, bas, eksiVar){ return paraOku(document.getElementById(id)
 function paraBaglaHepsi(idler, bas, eksiVar){ idler.forEach(i => paraBagla(document.getElementById(i), null, bas, eksiVar)); }
 
 /* ==================================================================
+   ADIM 14 B · OKUMA DILI — TEK KAYNAK
+   ==================================================================
+   OLCULDU: ayni is icin SEKIZ ayri elle yazilmis cumle vardi
+   ("Okunamayan:" · "● N eksik:" · "Bekleyen:" · "<alan> okunamadı" ·
+   "· ELLE:" · "✎ N KDV satırında matrah boştu..." · borc'ta
+   "bulunamadı" ve "elle girildi"). Ayni durum ekranin her yerinde
+   BASKA turlu soyleniyordu.
+   ⚠ SAHIP SECTI (B seti): metin hem DURUMU hem SONRAKI ADIMI soyler.
+     A seti ("bulunamadı") ne yapilacagini soylemiyordu; C setindeki
+     tek harflik fark ("okunamadı"/"okunmadı") kacirilabilirdi.
+   ⚠ METIN BURADAN BASKA HICBIR YERDE YAZILMAZ. Ikinci kez yazilan
+     cumle ucuncu lehceyi dogurur — bugunku sorunun kendisi buydu.
+   ⚠ KISALTILMADI: secilen metin BUDUR. Sigmama sorunu SARMALAYARAK
+     cozuldu (CSS), metin kirparak degil — kirpilan yari, metnin
+     secilme sebebi olan "ne yapacagim" yarisidir. */
+const DIL = {
+  EKSIK:      'OKUNAMADI — elle yaz',
+  HESAPLANDI: 'HESAPLANDI — belgeden okunmadı',
+  /* ⚠ TANIMLI AMA index'te HENUZ CIZILMIYOR — GOZDEN KACMA DEGIL.
+     "Elle girildi" isaretini bugun yalniz borc.html'in onay tablosu
+     ciziyor; index'in fatura tablosu okuma ANINDA bir kez ciziliyor,
+     kullanici sonradan alani duzeltince yeniden cizilmiyor. Tabloyu
+     her tusa basista yeniden cizmek DAVRANIS degisikligi olurdu ve
+     bu tur GORUNUM turu. Terim burada duruyor ki borc.html sozluge
+     baglanirken ucuncu bir lehce dogmasin. */
+  ELLE:       'ELLE YAZILDI',
+  /* Secilen uclunun disinda ama tabloda gereken notr hal. */
+  OKUNDU:     'belgeden okundu'
+};
+/* "<alan1>, <alan2>: OKUNAMADI — elle yaz" */
+function dilEksik(alanlar){
+  const a = (alanlar || []).filter(Boolean);
+  return a.length ? a.join(', ') + ': ' + DIL.EKSIK : '';
+}
+/* "HESAPLANDI — belgeden okunmadı (KDV ÷ %10)" */
+function dilHesaplandi(nasil){
+  return DIL.HESAPLANDI + (nasil ? ' (' + nasil + ')' : '');
+}
+/* ⚠ DORDUNCU HAL — SECILEN UCLUNUN DISINDA, BUGUNKU KELIME KORUNDU.
+   "Gecersiz" ile "okunamadi" AYNI SEY DEGIL: birinde alan BOS,
+   otekinde kullanici bir sey YAZMIS ama sayi degil. Ikincisine
+   "elle yaz" demek yanlis yonlendirir — zaten elle yazmis.
+   Sozluge dorduncu kalip eklemek AYRI BIR KARAR; uydurulmadi. */
+function dilGecersiz(alanlar){
+  const a = (alanlar || []).filter(Boolean);
+  return a.length ? a.join(', ') + ' geçersiz' : '';
+}
+
+/* ==================================================================
    ADIM 14 · "OKUYUCU BULAMADI" ILE "KULLANICI BILEREK BOS BIRAKTI"
    ==================================================================
    Ikisi de BOS bir alandir ama ayni sey DEGILDIR: ilki bir EKSIK,
@@ -3279,10 +3399,14 @@ async function zRaporuOku(k){
               || (document.getElementById('kdvV_'+i)?.value || '').trim() !== ''; }))
       bosKalan.push('KDV dökümü');
     let msj = 'Okundu → ' + (dolduruldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları fişle KARŞILAŞTIR.';
-    if (eksik.length) msj += ' Okunamayan: ' + eksik.join(', ');
-    if (bosKalan.length) msj += ' BOŞ KALDI: ' + bosKalan.join(', ') + ' — elle yaz.';
+    /* ⚠ ADIM 14 B · TEK CUMLE, SOZLUKTEN. Eskiden IKI ayri cumle vardi
+       ("Okunamayan: ..." ve "BOŞ KALDI: ... — elle yaz.") ve ikisi ayni
+       seyi soyluyordu: okuyucunun bildirdigi eksik ile ekranda BOS
+       kalan alan. Tekillestirildi; kesisenler bir kez yazilir. */
+    const eksikHepsi = [...new Set([...eksik, ...bosKalan])];
+    if (eksikHepsi.length) msj += ' ' + dilEksik(eksikHepsi);
     if (v.uyari) msj += ' (' + v.uyari + ')';
-    yaz(msj, (dolduruldu.length && !bosKalan.length) ? 'ok' : 'uyari');
+    yaz(msj, (dolduruldu.length && !eksikHepsi.length) ? 'ok' : 'uyari');
   }catch(e){
     yaz('Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
   }finally{
@@ -3518,16 +3642,23 @@ function zDurum(n, s){
   /* ⚠ 'bos' ARTIK HAM METNE BAKAR: eskiden sayiya bakiyordu ve
      kullanici "0" yazdiginda blok "○ Baslanmadi" goruniyordu. */
   const bos=!zno && !kartHam && !nakitHam && !zfVar && pk.ok && pn.ok;
-  const eksik=[];
+  /* ⚠ ADIM 14 B · LISTELER ARTIK CIPLAK ALAN ADI TASIR. Eskiden
+     "Kart tutarı geçersiz" / "Nakit tutarı girilmedi" gibi HUKMU de
+     iceren cumlelerdi; hukum artik sozlukten geliyor (dilEksik /
+     dilGecersiz), yoksa ayni sey iki yerde yazilmis olurdu.
+     ⚠ IKI LISTE, CUNKU IKI AYRI HAL: 'eksik' alan BOS demek,
+       'gecersiz' kullanici bir sey YAZMIS ama sayi degil demek.
+       Ikisine ayni cumleyi kurmak yanlis yonlendirir. */
+  const eksik=[], gecersiz=[];
   if(!zno) eksik.push(on+'Z No');
-  if(!pk.ok) eksik.push(on+'Kart tutarı geçersiz');
-  if(!pn.ok) eksik.push(on+'Nakit tutarı geçersiz');
-  if(!pit.ok) eksik.push(on+'Fiş iptal tutarı geçersiz');
+  if(!pk.ok) gecersiz.push(on+'Kart tutarı');
+  if(!pn.ok) gecersiz.push(on+'Nakit tutarı');
+  if(!pit.ok) gecersiz.push(on+'Fiş iptal tutarı');
   if(!zfVar) eksik.push(on+'Z fotoğrafı');
   /* Blok baslamissa tutarlar ZORUNLU. Bilinmiyorsa 0 yazilmaz —
      okunamadigi soylenir ve elle yazilir. */
-  if(!bos && pk.ok && !kartHam)  eksik.push(on+'Kart tutarı girilmedi');
-  if(!bos && pn.ok && !nakitHam) eksik.push(on+'Nakit tutarı girilmedi');
+  if(!bos && pk.ok && !kartHam)  eksik.push(on+'Kart tutarı');
+  if(!bos && pn.ok && !nakitHam) eksik.push(on+'Nakit tutarı');
   /* ⚠ KDV 'bekleyen', 'eksik' DEGIL: gunSonuKaydet KDV bos ekrani icin
      ZATEN onay soruyor ("beyana giden KDV eksik kalir ... yine de
      kaydedilsin mi") ve o karar SOYLE-DURDURMA kaliginin parcasi.
@@ -3539,7 +3670,7 @@ function zDurum(n, s){
            ara:+(kart+nakit).toFixed(2), kdv:kdvToplam(k),
            /* ara, eksik tutar varken TOPLAM DEGIL — ekran '—' basar */
            araGecerli: bos || (!!kartHam && !!nakitHam),
-           eksik, bekleyen, bos, gecerli: pk.ok && pn.ok && pit.ok };
+           eksik, gecersiz, bekleyen, bos, gecerli: pk.ok && pn.ok && pit.ok };
 }
 function kasaDurum(n){
   const bloklar = ZLISTE[n].map(s=>zDurum(n,s));
@@ -3550,6 +3681,7 @@ function kasaDurum(n){
     ara  : +bloklar.reduce((a,b)=>a+b.ara  ,0).toFixed(2),
     kdv  : +bloklar.reduce((a,b)=>a+b.kdv  ,0).toFixed(2),
     eksik: bloklar.flatMap(b=>b.eksik),
+    gecersiz: bloklar.flatMap(b=>b.gecersiz),      // ADIM 14 B · dorduncu hal, ayri cumle
     bekleyen: bloklar.flatMap(b=>b.bekleyen),      // ADIM 14 · yesili keser, durdurmaz
     bos  : bloklar.every(b=>b.bos)
   };
@@ -3563,7 +3695,10 @@ function kdvToplam(k){
   return +t.toFixed(2);
 }
 function kasaHesapla(){
-  let tk=0, tn=0, tkdv=0; const eksikler=[]; const bekleyenler=[];
+  let tk=0, tn=0, tkdv=0;
+  /* ADIM 14 B · dort ayri hal, dort ayri liste — hepsi kaydi engeller
+     (bekleyen HARIC), ama ekranda AYRI cumleyle anlatilir. */
+  const eksikler=[], gecersizler=[], mukerrer=[], bekleyenler=[];
   [1,2].forEach(n=>{
     const d=kasaDurum(n); tk+=d.kart; tn+=d.nakit; tkdv+=d.kdv;
     d.bloklar.forEach(b=>{
@@ -3584,31 +3719,34 @@ function kasaHesapla(){
        HEM sert eksik HEM bekleyen bosken verilir. Eskiden yalniz
        eksik[]'e bakiyordu ve KDV dokumu okunamamis bir Z "Tamamlandı"
        goruniyordu (olculdu). */
-    else if(d.eksik.length===0 && d.bekleyen.length===0){
+    else if(d.eksik.length===0 && d.gecersiz.length===0 && d.bekleyen.length===0){
       sinif='tam'; metin='✓ Tamamlandı'+zEk; sembol='✓'; }
-    else if(d.eksik.length){
-      sinif='eksik'; metin='● '+d.eksik.length+' eksik: '+d.eksik.join(', '); sembol='●'; }
+    /* ⚠ ADIM 14 B · METIN SOZLUKTEN. Eskiden "● N eksik: a, b" elle
+       yaziliyordu; sayi yerine artik ne yapilacagi yaziyor. */
     else { sinif='eksik'; sembol='●';
-      metin='● '+d.bekleyen.join(', ')+' okunamadı — kaydetmeden önce kontrol et'; }
+      metin = '● ' + [dilEksik(d.eksik), dilGecersiz(d.gecersiz),
+                      dilEksik(d.bekleyen)].filter(Boolean).join(' · '); }
     if(drm){ drm.className='kp-drm '+sinif; drm.textContent=metin; }
     if(ks) ks.textContent=sembol;
     d.eksik.forEach(e=>eksikler.push('KASA '+n+' — '+e));
+    d.gecersiz.forEach(e=>gecersizler.push('KASA '+n+' — '+e));
     /* bekleyen KAYDI ENGELLEMEZ; alt bantta ayri satirda yazar */
     d.bekleyen.forEach(e=>bekleyenler.push('KASA '+n+' — '+e));
   });
   // Aynı kasada aynı Z No iki kez girilmiş mi (arıza gününde kopyala-yapıştır hatası)
   [1,2].forEach(n=>{
     const nolar = ZLISTE[n].map(s=>(document.getElementById('gsZNo_'+n+'_'+s)?.value||'').trim()).filter(Boolean);
-    if (new Set(nolar).size !== nolar.length) eksikler.push('KASA '+n+' — aynı Z No iki kez girilmiş');
+    if (new Set(nolar).size !== nolar.length) mukerrer.push('KASA '+n+' — aynı Z No iki kez girilmiş');
   });
   const pz=paraOku(document.getElementById('gsKasa'));
   const zDisi=pz.deger;
-  if(!pz.ok) eksikler.push('KASADA SAYILAN — tutar geçersiz');
+  if(!pz.ok) gecersizler.push('KASADA SAYILAN tutarı');
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('gsTKart', tl(tk)); set('gsTNakit', tl(tn)); set('gsTGenel', tl(+(tk+tn).toFixed(2)));
   set('gsZDisi', tl(zDisi)); set('gsTKdv', tl(tkdv));
   const btn=document.getElementById('gsKaydet'), ek=document.getElementById('gsEksik');
-  const hazir = eksikler.length===0 && (tk+tn)>0;
+  const engel = eksikler.length + gecersizler.length + mukerrer.length;
+  const hazir = engel===0 && (tk+tn)>0;
   if(btn){ btn.disabled=!hazir; btn.style.opacity=hazir?'1':'.5'; }
   if(ek){
     /* ⚠ ADIM 14 · KAYDEDILEBILIR ≠ EKSIKSIZ. Sert eksik yoksa kayit
@@ -3616,11 +3754,16 @@ function kasaHesapla(){
        "kaydedilebilir" YAZILMAZ — kullanici once ona baksin. */
     const temiz = hazir && !bekleyenler.length;
     ek.style.color = temiz ? 'var(--ok)' : 'var(--uyari)';
-    ek.innerHTML = eksikler.length
-      ? 'Bekleyen: '+eksikler.map(esc).join(' · ')
-      : (!hazir ? 'Bekleyen: tutar girilmedi'
+    /* ⚠ ADIM 14 B · METIN SOZLUKTEN. Eskiden "Bekleyen: ..." ve
+       "... okunamadı" elle yaziliyordu, iki ayri kalip. */
+    /* ⚠ esc BIR KEZ, en sonda: parcalari once esc'leyip sonra tumunu
+       tekrar esc'lemek metni "&amp;" gibi gosterirdi. */
+    const bant = [dilEksik(eksikler), dilGecersiz(gecersizler),
+                  mukerrer.join(' · ')].filter(Boolean).join(' · ');
+    ek.innerHTML = bant ? esc(bant)
+      : (!hazir ? esc(dilEksik(['Tutar']))
         : (bekleyenler.length
-          ? 'Kaydedilebilir — ama önce kontrol et: '+bekleyenler.map(esc).join(' · ')+' okunamadı'
+          ? 'Kaydedilebilir — ama önce: ' + esc(dilEksik(bekleyenler))
           : '✓ Gün sonu kaydedilebilir'));
   }
 }
@@ -3801,7 +3944,14 @@ async function gunSonuKaydet(){
   const kasalar = [];
   for (const n of [1,2]){
     const d = kasaDurum(n);
-    if (d.eksik.length){ kasaSec(n); mesaj('gsMsg','hata',`KASA ${n} eksik: ${d.eksik.join(', ')}`); return; }
+    /* ⚠ ADIM 14 B · GECERSIZ DE ENGEL, metin sozlukten. Kapinin
+       KENDISI degismedi: eskiden 'gecersiz' girdileri de d.eksik
+       icindeydi, ayrildilar — engel ayni engel. */
+    if (d.eksik.length || d.gecersiz.length){
+      kasaSec(n);
+      mesaj('gsMsg','hata', `KASA ${n} — ` + [dilEksik(d.eksik),
+        dilGecersiz(d.gecersiz)].filter(Boolean).join(' · '));
+      return; }
     for (const b of d.bloklar){
       let kdvSatir;
       try { kdvSatir = kdvOku(b.k); }
@@ -4864,9 +5014,10 @@ function tpKur(eksikler){
     const isoT = faTarihISO(x.tarih);
     const p = x.tutar ? paraCoz(x.tutar) : { ok:false };
     const eksik = [];
-    if (!isoT) eksik.push('tarih okunamadı');
-    if (!p.ok || !p.deger) eksik.push('tutar okunamadı');
-    if (!x.belge_no) eksik.push('belge no okunamadı');
+    /* ⚠ ADIM 14 B · CIPLAK ALAN ADI: hukum sozlukten geliyor. */
+    if (!isoT) eksik.push('Tarih');
+    if (!p.ok || !p.deger) eksik.push('Tutar');
+    if (!x.belge_no) eksik.push('Belge no');
     const satir = { i, kaynak:x, belge_no:x.belge_no, firma:x.firma || x.ad,
       unvan, esles:e.durum, tarih:isoT || '', tutar:p.ok ? p.deger : null,
       kdv:null, kdvDurum:'yok', kdvNot:null, kdvHam:null, kdvKontrol:'yapilamadi',
@@ -5052,7 +5203,7 @@ function tpCiz(){
             <div class="k" style="overflow-wrap:anywhere">${esc(r.belge_no || 'belge no yok')}${
               r.tarih ? ' · ' + new Date(r.tarih+'T00:00').toLocaleDateString('tr-TR') : ''}</div>
             ${r.eksik.length
-              ? `<div class="k" style="color:var(--hata)">${esc(r.eksik.join(' · '))} — bu satır
+              ? `<div class="k" style="color:var(--hata)">${esc(dilEksik(r.eksik))} — bu satır
                    toplu kaydedilemez, <b>Tek tek gir</b> ile forma al</div>` : ''}
             ${r.kdvOkunamadi && !r.eksik.length
               ? `<div class="k" style="color:var(--uyari)">KDV okunamadı — bu satır
@@ -6076,6 +6227,8 @@ function gdFatura(){
         📄 Belgeyi oku — alanları doldur</button>
       <div class="oku-durum" id="alOkuDurum"></div>
       <div id="alOkuOzet"></div>
+      ${/* ADIM 14 B · okuma onay tablosu (ax-t) — borc.html deseni */''}
+      <div id="alOkuTablo"></div>
       <label>Firma</label>
       <select id="alTedarikci" onchange="firmaBilgiGoster()">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
       ${KATALOG.tedarikciler.length===0?'<div class="bilgi-not">Firma yok — önce Tedarikçi sekmesinden ekleyin.</div>':''}
@@ -6210,9 +6363,26 @@ function alMatrahTamamla(){
      Fark varsa kapatılmaz — alHesapla iki denklemi AYRI AYRI gösterir. */
   bos.forEach(s => {
     s.mEl.value = String(s.tahmin).replace('.', ',');
-    s.mEl.classList.add('oku-dolu');
+    /* ⚠ ADIM 14 B · YESIL DEGIL: bu deger belgeden OKUNMADI, hesaplandi.
+       Eskiden `oku-dolu` (yesil zemin) alıyordu ve ekranda okunan
+       alanlardan AYIRT EDILEMIYORDU. */
+    s.mEl.classList.remove('oku-dolu');
+    s.mEl.classList.add('oku-turetildi');
     /* belgeden okunmadı, hesaplandı: alHesapla bunu ayrı anlatır */
     s.mEl.dataset.hesaplandi = '1';
+    /* ⚠ KULLANICI DUZELTIRSE ISARET DUSER. Olmazsa bayrak asili kalir,
+       alHesapla yesili SONSUZA KADAR vermez ve kullanici belgeden
+       yazdigi dogru matrahla bile "okunmadi" uyarisi gorurdu. Isaret bir
+       KAYNAK beyani; kaynak degisince beyan da degisir. */
+    if (s.mEl.dataset.turetildiBagli !== '1'){
+      s.mEl.dataset.turetildiBagli = '1';
+      s.mEl.addEventListener('input', () => {
+        if (s.mEl.dataset.hesaplandi !== '1') return;
+        delete s.mEl.dataset.hesaplandi;
+        s.mEl.classList.remove('oku-turetildi');
+        alHesapla();
+      });
+    }
   });
   alHesapla();
   return bos.length;
@@ -6225,6 +6395,120 @@ function alMatrahTamamla(){
    tutmadan verilmez. Satır denklemi tutmuyorsa bu belgenin hatalı olduğu
    anlamına GELMEZ — iskonto/istisna/tevkifat da bozar; o yüzden söylenir,
    engellenmez. */
+/* ==================================================================
+   ADIM 14 B · OKUMA ONAY TABLOSU — borc.html:6208-6300'un AYNISI
+   ==================================================================
+   Kullanici RAKAMI degil ESLESMEYI dogrular: her satirin yaninda
+   kaydedilecek deger, belgede yazani, hangi alandan geldigi ve nasil
+   bulundugu yazar. Bugun index'te bu bilgi ya HIC yoktu ya da uc ayri
+   kutuya dagilmisti.
+   ⚠ SATIR SOZLESMESI: { alan, deger, ham, etiket, nasil }
+     deger : KAYDEDILECEK deger (bicimlenmis)
+     ham   : belgede yazan — deger'den FARKLIYSA ikinci satirda cikar,
+             AYNIYSA HIC cikmaz. borc'un kurali; ayni rakami iki kez
+             yazmak gurultudur.
+   ⚠ ONEK "Belgede:" — borc'ta "PDF'te:" yazar cunku o okuyucu YALNIZ
+     PDF okur. Bu ekran fotograf da okuyor; "PDF'te" demek okunmayan
+     bir kaynagi beyan etmek olurdu. Tek bilincli metin farki.
+   ⚠ Baslik satiri ve sinif adlari araclar/kalip-tara.mjs tarafindan
+     borc.html ile KARSILASTIRILIYOR — ayrisirsa nobetci bagirir. */
+const AX_BASLIK = ['ALAN','OKUNAN','KAYNAK ETİKET','NASIL BULUNDU'];
+const AX_HAM_ONEK = 'Belgede: ';
+function axTabloCiz(kap, satirlar){
+  if (!kap) return;
+  kap.textContent = '';
+  if (!satirlar || !satirlar.length) return;
+  const sar = document.createElement('div'); sar.className = 'tablo-sar';
+  const t = document.createElement('table'); t.className = 'ax-t';
+  const hr = document.createElement('tr');
+  AX_BASLIK.forEach((h, i) => {
+    const th = document.createElement('th');
+    if (i === 1) th.className = 'sag';
+    th.textContent = h; hr.appendChild(th);
+  });
+  t.appendChild(hr);
+  const hucre = (et, metin, sinif) => {
+    const td = document.createElement('td');
+    td.dataset.et = et; if (sinif) td.className = sinif;
+    if (metin != null) td.textContent = metin;
+    return td;
+  };
+  for (const s of satirlar){
+    const tr = document.createElement('tr');
+    tr.appendChild(hucre('ALAN', s.alan));
+    const c2 = hucre('OKUNAN', null, 'sag');
+    if (s.deger == null || s.deger === ''){
+      const g = document.createElement('span'); g.className = 'gri';
+      g.textContent = '—'; c2.appendChild(g);
+    } else {
+      const d = document.createElement('div'); d.textContent = s.deger;
+      c2.appendChild(d);
+      const ham = String(s.ham == null ? '' : s.ham).trim();
+      if (ham && ham !== s.deger){
+        const alt = document.createElement('div');
+        alt.className = 'kucuk'; alt.style.marginTop = '2px';
+        alt.textContent = AX_HAM_ONEK + ham;
+        c2.appendChild(alt);
+      }
+    }
+    tr.appendChild(c2);
+    tr.appendChild(hucre('KAYNAK ETİKET', s.etiket ? '"' + s.etiket + '"' : '—'));
+    tr.appendChild(hucre('NASIL BULUNDU', s.nasil || DIL.EKSIK));
+    t.appendChild(tr);
+  }
+  sar.appendChild(t); kap.appendChild(sar);
+}
+/* Fatura okumasinin ciktisini satir sozlesmesine cevirir.
+   ⚠ KAYNAK ETIKET UYDURULMUYOR: okuyucu bir PDF etiketi dondurmuyor,
+     ama HANGI ALANINDAN okundugunu biliyoruz (odenecek mi genel_toplam
+     mi, kdv_kirilim mi kdv_toplam mi). Kullanicinin dogruladigi sey
+     tam olarak budur: rakam nereden geldi. */
+function alOkumaSatirlari(v){
+  const s = [];
+  const trh = (x) => { try { return new Date(x+'T00:00').toLocaleDateString('tr-TR'); }
+                       catch(e){ return x; } };
+  s.push({ alan:'Tarih', deger: v.tarih ? trh(v.tarih) : null, ham: v.tarih,
+    etiket: v.tarih ? 'tarih' : null,
+    nasil: v.tarih ? DIL.OKUNDU : DIL.EKSIK });
+  s.push({ alan:'Belge no', deger: v.belge_no || null, ham: v.belge_no,
+    etiket: v.belge_no ? 'belge_no' : null,
+    nasil: v.belge_no ? DIL.OKUNDU : DIL.EKSIK });
+  const topHam = v.odenecek ?? v.genel_toplam;
+  s.push({ alan:'Ödenecek tutar',
+    deger: topHam == null ? null : tl(+topHam), ham: topHam == null ? null : String(topHam),
+    etiket: v.odenecek != null ? 'odenecek' : (v.genel_toplam != null ? 'genel_toplam' : null),
+    nasil: topHam == null ? DIL.EKSIK : DIL.OKUNDU });
+  /* KDV satirlari — ekrandaki kutulardan okunur, cunku matrah orada
+     HESAPLANMIS olabilir (alMatrahTamamla). Tablo, kaydedilecek olani
+     gosterir; nereden geldigini de o alanin kendi bayragi soyler. */
+  document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d => {
+    const n = d.id.split('_')[1];
+    const mEl = document.getElementById('alKdvM_'+n);
+    const tEl = document.getElementById('alKdvT_'+n);
+    const oran = document.getElementById('alKdvO_'+n).value;
+    const kirilimVar = Array.isArray(v.kdv_kirilim) && v.kdv_kirilim.length;
+    const kaynak = kirilimVar ? 'kdv_kirilim' : 'kdv_toplam';
+    const hesaplandi = mEl.dataset.hesaplandi === '1';
+    const kirilim = kirilimVar
+      ? v.kdv_kirilim.find(x => String(x.oran) === String(oran)) : null;
+    s.push({ alan:'%'+oran+' matrah', deger: mEl.value || null,
+      ham: hesaplandi ? null : (kirilim && kirilim.matrah != null ? String(kirilim.matrah)
+                                : (v.mal_hizmet_toplam != null ? String(v.mal_hizmet_toplam) : null)),
+      etiket: hesaplandi ? null : kaynak,
+      nasil: !mEl.value ? DIL.EKSIK
+           : (hesaplandi ? dilHesaplandi('KDV ÷ %'+oran) : DIL.OKUNDU) });
+    s.push({ alan:'%'+oran+' KDV', deger: tEl.value || null,
+      ham: kirilim && kirilim.kdv_tutar != null ? String(kirilim.kdv_tutar)
+           : (v.kdv_toplam != null ? String(v.kdv_toplam) : null),
+      etiket: tEl.value ? kaynak : null,
+      nasil: tEl.value ? DIL.OKUNDU : DIL.EKSIK });
+  });
+  s.push({ alan:'Tedarikçi', deger: (v.tedarikci && v.tedarikci.ad) || null,
+    ham: (v.tedarikci && v.tedarikci.ad) || null,
+    etiket: (v.tedarikci && v.tedarikci.ad) ? 'tedarikci.ad' : null,
+    nasil: (v.tedarikci && v.tedarikci.ad) ? DIL.OKUNDU : DIL.EKSIK });
+  return s;
+}
 function alHesapla(){
   let kdv = 0, matrah = 0, gecerli = true;
   const bozukSatir = [];
@@ -6276,11 +6560,12 @@ function alHesapla(){
     /* ⚠ ARITMETIK TUTUYOR AMA RAKAM BELGEDEN GELMIYOR — yesil YOK.
        Hesaplanan matrah, kendi KDV'sinden turedigi icin satir oranini
        HER ZAMAN tutturur; o esitlik bir sey KANITLAMAZ. */
+    /* ⚠ ADIM 14 B · hukum sozlukten; cumlenin gerisi bu ekrana ozgu. */
     tut.innerHTML = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Toplam eşitliği tutuyor
-      (${tl(matrah)} + ${tl(kdv)} = ${tl(toplam)}) <b>ama ${hesaplananlar.length} satırın matrahı
-      belgeden OKUNMADI</b> (${esc(hesaplananlar.join(', '))}) — satırın kendi KDV'si ve oranından
-      hesaplandı. Hesaplanan matrah kendi oranını her zaman tutturur, bu eşitlik doğruluğu
-      KANITLAMAZ. Matrahı belgeden karşılaştır; tutmuyorsa elle düzelt.</div>`;
+      (${tl(matrah)} + ${tl(kdv)} = ${tl(toplam)}) ama ${hesaplananlar.length} satırın matrahı:
+      <b>${esc(dilHesaplandi('satırın kendi KDV\'si ÷ oranı'))}</b>
+      (${esc(hesaplananlar.join(', '))}). Hesaplanan matrah kendi oranını her zaman tutturur,
+      bu eşitlik doğruluğu KANITLAMAZ. Matrahı belgeden karşılaştır; tutmuyorsa elle düzelt.</div>`;
   } else if (belgeTutuyor && !bozukSatir.length){
     tut.innerHTML = `<div class="bilgi-not" style="color:var(--ok)">✓ Matrah ${tl(matrah)} + KDV ${tl(kdv)} = ${tl(toplam)} — belge tutuyor</div>`;
   } else if (belgeTutuyor){
@@ -6507,17 +6792,21 @@ async function faturaOku(){
        aynı şey değil. Yeşil, kullanıcıya doğrulanmış izlenimi veriyordu.
        Ayrıca metin artık nereden türetildiğini doğru söylüyor: matrah
        BELGE TOPLAMINDAN değil, o satırın kendi KDV'si ve oranından geliyor. */
+    /* ⚠ ADIM 14 B · metin sozlukten; eskiden bu cumle elle yaziliydi. */
     if (matrahTamamlanan) denetimNot += `<div class="bilgi-not" style="color:var(--uyari)">
-      ✎ ${matrahTamamlanan} KDV satırında matrah boştu; satırın kendi KDV'si ve oranından
-      <b>hesaplandı</b>, belgeden okunmadı — belgeyle karşılaştır.</div>`;
+      ✎ ${matrahTamamlanan} KDV satırında matrah —
+      ${esc(dilHesaplandi('satırın kendi KDV\'si ÷ oranı'))}. Belgeyle karşılaştır.</div>`;
     if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
+    /* ⚠ ADIM 14 B · ONAY TABLOSU — alMatrahTamamla'dan SONRA cizilir:
+       hesaplanan matrahin bayragi orada konuyor, tablo onu okuyor. */
+    axTabloCiz(document.getElementById('alOkuTablo'), alOkumaSatirlari(v));
     // Faturadaki ürün satırları — tanınanlar otomatik, ilk kez görülenler sorulur
     await alSatirlariKur(v.satirlar, es.t ? es.t.id : null);
 
     const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
     let msj = (OKUMA_YONTEMI === 'PDF metni' ? '✓ e-Fatura PDF\'inden okundu (rakamlar birebir) → ' : 'Okundu → ')
             + (doldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları belgeyle KARŞILAŞTIR.';
-    if (eksik.length) msj += ' Okunamayan: ' + eksik.join(', ');
+    if (eksik.length) msj += ' ' + dilEksik(eksik);   // ADIM 14 B · sozlukten
     if (v.uyari) msj += ' (' + v.uyari + ')';
     yaz(msj, doldu.length ? 'ok' : 'uyari');
   }catch(e){
@@ -8594,8 +8883,8 @@ async function aracBelgeOku(){
     if (doldu.length === 0){
       yaz('Belge okundu ama tutar bulunamadı — elle yaz.','uyari');
     } else if (bosKalan.length){
-      yaz('Dolduruldu: ' + doldu.join(', ') + ' · OKUNAMADI: ' + bosKalan.join(', ')
-        + ' — belgeye bakıp elle yaz, yoksa o alan kayda GİRMEZ.','uyari');
+      yaz('Dolduruldu: ' + doldu.join(', ') + ' · ' + dilEksik(bosKalan)
+        + ' — yoksa o alan kayda GİRMEZ.','uyari');
     } else {
       yaz('Dolduruldu: ' + doldu.join(', ') + ' · rakamları belgeyle karşılaştır, sonra kaydet.','ok');
     }
@@ -9598,14 +9887,17 @@ function sgkDekontDoldur(dk, yaz){
   const doldu = [], eksik = [];
 
   if (dk.tutar != null){ if (yazAlan('voTutar', kurus(dk.tutar))) doldu.push('Tutar'); }
-  else eksik.push('Ana Para satırı okunamadı — tutarı elle yaz');
+  /* ⚠ ADIM 14 B · CIPLAK ALAN ADI + NEDEN. Hukum ("okunamadi — elle
+     yaz") sozlukten geliyor; parantez icindeki sebep KALIYOR, cunku
+     kullaniciya belgede NEDEN olmadigini o soyluyor. */
+  else eksik.push('Tutar (Ana Para satırı)');
   if (dk.tarih && yazAlan('voTarih', dk.tarih)) doldu.push('Ödeme tarihi');
 
   /* Tur: OLMAYAN secenek atanirsa select bosalir — once varligi sinanir. */
   const stu = g('voTur');
   if (dk.tur && stu && [...stu.options].some(o => o.value === dk.tur)){
     stu.value = dk.tur; stu.classList.add('oku-dolu'); doldu.push('Tür');
-  } else eksik.push('Tür (dekontta 4A/4B yazmıyor) — sen seç');
+  } else eksik.push('Tür (dekontta 4A/4B yazmıyor)');
 
   /* DONEM: belgede YOK. Varsayilan olarak duran bu ayi BIRAKMAK, yanlis
      donemi sessizce kaydetmek olurdu — alan bosaltilir. */
@@ -9677,8 +9969,9 @@ function sgkDekontDoldur(dk, yaz){
       + 'eklenmedi. Önce vergiyi kaydet, sonra bu düğmeye bas.', null, null);
   }
 
+  /* ⚠ ADIM 14 B · metin sozlukten; eskiden "· ELLE: ..." elle yaziliydi. */
   yaz('Dolduruldu: ' + (doldu.join(', ') || 'hiçbir alan')
-    + (eksik.length ? ' · ELLE: ' + eksik.join(', ') : '') + '.',
+    + (eksik.length ? ' · ' + dilEksik(eksik) : '') + '.',
     eksik.length ? 'uyari' : 'ok');
 }
 
@@ -10100,8 +10393,8 @@ async function giderBelgeOku(){
     yaz(!doldu.length
       ? 'Belge okundu ama tutar bulunamadı — elle yaz.'
       : (bosKalan.length
-        ? 'Dolduruldu: ' + doldu.join(', ') + ' · OKUNAMADI: ' + bosKalan.join(', ')
-          + ' — belgeye bakıp elle yaz. KATEGORİYİ de sen seç.'
+        ? 'Dolduruldu: ' + doldu.join(', ') + ' · ' + dilEksik(bosKalan)
+          + '. KATEGORİYİ de sen seç.'
         : 'Dolduruldu: ' + doldu.join(', ') + ' · KATEGORİYİ sen seç, sonra kaydet.'),
       (doldu.length && !bosKalan.length) ? 'ok' : 'uyari');
   }catch(e){
