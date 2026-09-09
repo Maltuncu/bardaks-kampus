@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-37">
+<meta name="surum" content="2026-08-27-38">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -332,6 +332,15 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 #ustBar .ad{font-weight:900;font-size:18px;letter-spacing:-0.5px;line-height:1.1}
 #ustBar .ad .kmp{font-family:'Caveat',cursive;font-weight:600;font-size:15px;letter-spacing:0;margin-left:4px}
 #ustBar .kim{font-size:11.5px;color:var(--soluk);font-weight:600}
+/* ADIM 15 · KAPSAM SERIDI. Uc parca tek satirda; 375px'te sarar,
+   sutun ATILMAZ (ADIM 14 B'nin karari). Yukseklik butcesi: tek
+   satirda ~15px, sardiginda ~30px. */
+#ustBar .kapsam{font-size:10.5px;font-weight:700;letter-spacing:.2px;
+  line-height:1.45;margin-top:2px;display:flex;flex-wrap:wrap;
+  column-gap:8px;row-gap:0;max-width:100%}
+#ustBar .kapsam .ks{color:var(--soluk);white-space:nowrap}
+#ustBar .kapsam .ks.eksik{color:var(--uyari)}
+#ustBar .kapsam .ks.tam{color:var(--ok)}
 #cikisBtn{background:var(--acik);color:var(--ana);padding:7px 12px;font-size:12.5px}
 /* ============ UYGULAMA KABUĞU ============
    Telefonda 8 sekme 496px yer kaplıyordu; 375px ekranda son ikisi (Yapılacaklar, Yönetim)
@@ -554,7 +563,11 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
 <!-- ================= UYGULAMA ================= -->
 <div id="uygulama" class="gizli">
   <div id="ustBar">
-    <div><div class="ad">bardak's<span class="kmp">kampüs</span></div><div class="kim" id="kimBilgi"></div></div>
+    <div><div class="ad">bardak's<span class="kmp">kampüs</span></div><div class="kim" id="kimBilgi"></div>
+      <!-- ADIM 15 · KAPSAM SERIDI: sube · tamlik · donem. #ustBar zaten
+           position:sticky oldugu icin AYRI bir yapisik kutu kurulmadi —
+           serit onun ICINDE, yani her ekranda ve kaydirirken yerinde. -->
+      <div class="kapsam" id="kapsamSerit" hidden></div></div>
     <div style="display:flex;gap:6px">
       <button id="sifreBtn" onclick="sifreDegistir()" style="background:var(--acik);color:var(--ana);padding:7px 12px;font-size:12.5px">Şifre</button>
       <button id="cikisBtn" onclick="cikisYap()">Çıkış</button>
@@ -676,6 +689,43 @@ const SUBE_SUZGEC = new Map([
   };
 })();
 let PROFIL = null;   // {id, ad, rol, sube_id}
+let SUBE_AD = null;  // ADIM 15 · kapsam seridi icin; 'sube' haritada DEGIL (kendi id'siyle okunur)
+
+/* ==================================================================
+   ADIM 15 · KAPSAM SERIDI — hangi sube · veri tam mi · hangi donem
+   ==================================================================
+   Sahibin ekraninda hangi subede oldugu ve verinin tam olup olmadigi
+   KALICI olarak yazmiyordu; tamlik bilgisi yalniz Ozet'in icindeki
+   bir uyari listesindeydi.
+   ⚠ NEDEN #ustBar'IN ICINDE: o kutu zaten position:sticky/top:0.
+     Ayri bir yapisik serit kurmak ikinci bir sticky katman, ikinci
+     bir z-index ve her ekranda ekstra dikey yer demekti; "ekran
+     birikmesi" kuralina takilirdi. Icine konunca serit HER EKRANDA
+     ve KAYDIRIRKEN yerinde, ek kutu maliyeti YOK.
+   ⚠ "HUKUKI KISILIK" BILEREK KONULMADI. Bu dosya isletmenin kendi
+     defteri; sahis/Ltd ayrimi borc.html'in konusu (kart/kredi/cek
+     sahipligi orada tutuluyor). Buraya koymak, index'te karsiligi
+     olmayan bir ayrimi ekrana yazmak olurdu. Sonradan "unutulmus"
+     diye eklenmesin diye gerekce burada duruyor.
+   ⚠ SUBE SECICI DEGIL, YALNIZ YAZI: secici ADIM 03'un isi. */
+function kapsamSeridiCiz(){
+  const el = document.getElementById('kapsamSerit'); if (!el) return;
+  const t = OZ_TAMLIK;
+  const p = [];
+  p.push({ s:'ks', m: SUBE_AD || 'şube okunamadı' });
+  if (!t) p.push({ s:'ks', m:'veri: —' });
+  else if (t.bilinmiyor) p.push({ s:'ks eksik', m:'veri tamlığı bilinmiyor' });
+  else {
+    const gun = t.eksikGunler.length
+      ? { s:'ks eksik', m: t.eksikGunler.length + ' gün eksik' }
+      : { s:'ks tam',   m:'gün sonları tam' };
+    p.push(gun);
+    p.push(t.sayimYok ? { s:'ks eksik', m:'sayım yok' } : { s:'ks tam', m:'sayım var' });
+  }
+  p.push({ s:'ks', m: t ? ayAdi(t.ay) : ayAdi(OZ_AY || bugun().slice(0,7)) });
+  el.innerHTML = p.map(x => '<span class="' + x.s + '">' + esc(x.m) + '</span>').join('');
+  el.hidden = false;
+}
 
 /* AKTIF_SUBE — "şu an hangi şubeye bakıyorum".
    Neden PROFIL.sube_id değil: v59 owner'ın herhangi bir şubeyi
@@ -727,6 +777,42 @@ const bugun = () => tarihStr(new Date());
    tarihSecici'nin kendisi degismedi, gider/alis bugunle acilmaya
    devam ediyor. Bugun hala SECILEBILIR (max = bugun). */
 const dunTarih = () => { const d = new Date(); d.setDate(d.getDate() - 1); return tarihStr(d); };
+
+/* ==================================================================
+   ADIM 15 · "AYIN EKSIK GUNLERI" — TEK TANIM
+   ==================================================================
+   OLCULDU: ayni ad, IKI FARKLI TANIM.
+   · Sunucu (v_uyarilar · taban:5625): pencere son 7 gun, ust sinir
+     CURRENT_DATE-1 (bugun HARIC), kapali_gun HARIC TUTULUYOR.
+   · Istemci (gun sonu listesi): BUTUN ay, bugun DAHIL, kapali_gun
+     HIC SORULMUYOR — kasten kapatilan gun "girilmemis" goruniyordu.
+   Sonuc: ayin basinda unutulan bir gun v_uyarilar'da HIC cikmiyor
+   (7 gunu gecti) ama ayin toplamini dusurmeye devam ediyordu.
+   ⚠ IKI SORU AYRI KALIR, TEK TANIMA INDIRILMEZ. v_uyarilar
+     "son bir haftada ne unuttum" sorusudur; penceresi BILEREK dardir
+     ve degistirmek migration ister. Burasi "BU AYIN TOPLAMI TAM MI"
+     sorusudur. Adlari da ayri: uyarida 'Gün sonu girilmedi',
+     burada 'ayın eksik günleri'.
+   ⚠ BUGUN SAYILMAZ: bugunun gun sonu aksam girilir. Sunucunun ust
+     siniri da CURRENT_DATE-1 — bu noktada iki tanim ARTIK UYUSUYOR.
+   ⚠ SAF FONKSIYON: sorgu yapmaz, tarihleri disaridan alir. Boylece
+     iki cagri yeri de AYNI hesabi kullanir, ikinci hesap kalmaz. */
+function ayinEksikGunleri(ay, girilenler, kapalilar){
+  const girilen = girilenler instanceof Set ? girilenler : new Set(girilenler || []);
+  const kapali  = kapalilar  instanceof Set ? kapalilar  : new Set(kapalilar  || []);
+  const sonTarih = aySon(ay), dun = dunTarih();
+  /* Gecmis ayda sinir ayin son gunu, icinde bulunulan ayda DUN. */
+  const bitis = sonTarih < dun ? sonTarih : dun;
+  const eksik = [];
+  for (let d = 1; d <= +sonTarih.slice(8,10); d++){
+    const t = ay + '-' + String(d).padStart(2,'0');
+    if (t > bitis) break;
+    if (!girilen.has(t) && !kapali.has(t)) eksik.push(d);
+  }
+  return eksik;
+}
+/* Gun listesini tarih Set'ine cevirir (iki cagri yeri de bunu kullanir). */
+const tarihKumesi = (satirlar) => new Set((satirlar || []).map(x => x.tarih));
 const tl = n => (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
 /* ⚠ kasa_nakit'te UC hal var, ikisi degil:
      null = sayilmadi (ekranda "sayılmamış")
@@ -1156,6 +1242,16 @@ async function baslat(){
   }
   PROFIL = p;
   AKTIF_SUBE = p.sube_id;   // tek kaynak; bundan sonra PROFIL.sube_id doğrudan okunmaz
+  /* ⚠ ADIM 15 · SUBE ADI. 'sube' SUBE_SUZGEC haritasinda DEGIL (kendi
+     id'siyle okunur, sube_id sutunu yok) — id ile suzuluyor, RLS de
+     iki rolde birden aciyor: owner_all_sube ve yetki_sel_sube.
+     ⚠ Serit adi okuyamazsa GIZLENMEZ, "şube okunamadı" yazar; sessiz
+       bos serit "tek sube var" izlenimi verirdi. */
+  try{
+    const sn = await sb.from('sube').select('ad').eq('id', p.sube_id).maybeSingle();
+    SUBE_AD = (sn.data && sn.data.ad) || null;
+  }catch(e){ SUBE_AD = null; }
+  kapsamSeridiCiz();
   await yetkileriYukle();
   document.getElementById('girisEkran').classList.add('gizli');
   document.getElementById('uygulama').classList.remove('gizli');
@@ -1764,6 +1860,85 @@ function bdAc(btn, id){
 }
 
 let OZ_O = null;         // vOzet'in aylik ozeti — kart-3 ve kart-5'e girer
+/* ADIM 15 · verinin TAMLIGI — kart-3, kart-5 ve kapsam seridi AYNI
+   nesneyi okur. Ikisi ayri hesaplarsa ayrisir. */
+let OZ_TAMLIK = null;    // { ay, eksikGunler[], bilinmiyor, sayimYok, kayitVar }
+
+/* ==================================================================
+   ADIM 15 · EKSIK GUN VARKEN HICBIR TOPLAM KESIN DEGIL
+   ==================================================================
+   PLANIN OLCUTU. Bugune kadar "tahmin" rozeti YALNIZ stok sayimina
+   bagliydi; gun sonu girilmemis bir gun varken uc rakam da eksik
+   hesaplaniyor ama KESIN goruniyordu. Eksik gun uyarisi ayri bir
+   listede duruyor, rakamlara HIC dokunmuyordu.
+   ⚠ RAKAM GIZLENMEZ, KESINLIK IDDIASI KALKAR. ADIM 06'nin karari:
+     "aritmetik esitlik veriyi kanitlamaz" — burada da "toplam
+     cikmasi, tam oldugunu kanitlamaz".
+
+   ⚠ HANGI RAKAMIN HANGI SEBEPTEN ETKILENDIGI OLCULDU (taban,
+     v_aylik_ozet govdesi) — ISARET OLCUME GORE KONUYOR:
+       gercek_ciro    = ciro + z_disi_nakit
+                        ikisi de gun_sonu -> EKSIK GUN dusurur
+       gercek_ay_kari = (ciro - satis_kdv - smm - gider_net
+                         - personel_toplam) + z_disi_nakit
+                        ciro/satis_kdv/z_disi gun_sonu -> EKSIK GUN dusurur
+                        smm stok -> SAYIM YOK yonu BELIRSIZ birakir
+       nakit_cikisi   = odenen_tedarikci + gider_toplam + personel_toplam
+                        + personel_avans + borc_anapara_odenen
+                        + borc_sahis_odenen
+
+   ⚠ BRIEF'IN BIR NOKTASI OLCUMLE DOGRULANMADI: "eksik gun -> ciro,
+     nakit ve kar UCU DE eksik" deniyordu. nakit_cikisi'nin HICBIR
+     bileseni gun_sonu'ndan gelmiyor; eksik gun onu DUSURMUYOR.
+     Etkilenmeyen rakami "en az" diye isaretlemek yeni bir yanlis
+     beyan olurdu — nakit cikisi ISARETSIZ birakildi.
+
+   ⚠ "EN AZ" HER EKSIKTE KULLANILMAZ — YON BILINMELI:
+     · Eksik gun -> ciro ve kar ASAGI dusuyor, "en az" DOGRU.
+     · Sayim yok -> depodan kullanilan mal maliyeti hicbir yerde
+       gorunmuyor, yani smm EKSIK, yani kar OLDUGUNDAN YUKSEK
+       cikabiliyor. Burada "en az" YANLIS bir taban vaat ederdi;
+       o yuzden sayim yokken kar "tahmin" kalir, "en az" DEMEZ.
+     · Ikisi birden varsa yon belirsizdir; yine "en az" YOK. */
+const tamlikOnek = (hangi) => {
+  const t = OZ_TAMLIK;
+  if (!t || t.bilinmiyor || !t.eksikGunler.length) return '';
+  if (hangi === 'ciro') return 'en az ';
+  return t.sayimYok ? '' : 'en az ';     // yon belirsizse taban vaat edilmez
+};
+const tamlikRozet = () => {
+  const t = OZ_TAMLIK; if (!t) return '';
+  const r = [];
+  if (t.bilinmiyor) r.push('veri tamlığı bilinmiyor');
+  else if (t.eksikGunler.length) r.push(t.eksikGunler.length + ' gün eksik');
+  if (t.sayimYok) r.push('sayım yok');
+  return r.map(x => ' <span class="rozet rz-uyari">' + esc(x) + '</span>').join('');
+};
+/* ⚠ IKI SEBEP AYRI CUMLE — tek cumleye sikistirilmaz, cunku
+   etkiledikleri rakam ve YON farkli. */
+const tamlikNotlari = () => {
+  const t = OZ_TAMLIK; if (!t) return '';
+  const s = [];
+  if (t.bilinmiyor)
+    s.push('<div class="bilgi-not" style="color:var(--uyari)">Kapalı gün listesi okunamadı — '
+      + 'ayın eksik günü hesaplanamadı. Rakamlar eksik olabilir.</div>');
+  else if (t.eksikGunler.length)
+    /* ⚠ TEK SATIR. Ilk hali dort satira sariyordu (olculdu: 64px) ve
+       "nakit cikisi etkilenmez" cumlesini tasiyordu; o bilgi zaten
+       RAKAMIN KENDISINDE duruyor — nakit cikisi "en az" ISARETI
+       ALMIYOR. Iki yerde soylemek yer yiyor, ayirt etmiyor. */
+    s.push('<div class="bilgi-not" style="color:var(--uyari);cursor:pointer;margin-top:4px" '
+      + 'onclick="event.stopPropagation();sekmeAc(\'gunsonu\')">'
+      + 'Gün sonu yok: ' + esc(t.eksikGunler.join(', ')) + '. Dokun, gir.</div>');
+  /* ⚠ SAYIM NOTU BURAYA KONMADI — "ekran birikmesi" kurali.
+     kararBlogu ZATEN "Ay sonu sayımı yok — kâr TAHMİN" satirini
+     Bugun Duzelt listesine, ustelik "Sayım" dugmesiyle koyuyor
+     (bkz. D.push(['sayim', ...])). Ucuncu bir kopya 84px yer yiyip
+     yeni bir sey soylemiyordu (olculdu). Rakamin yanindaki
+     "sayım yok" rozeti HANGI rakamin etkilendigini soyluyor; ne
+     yapilacagini soyleyen yer zaten var. */
+  return s.join('');
+};
 /* ===== BQ · ALTI ESKI BLOK BES KARTIN ICINE (2026-08-24-2) =====
    Ozet'te bes kart (DUN · 7 GUN · BU AY · BORC SINIFLARI · BUGUN DUZELT)
    altlarindaki alti blogu (GUNLUK GERCEK CIRO · Uyarilar · AY RAPORU ·
@@ -2148,7 +2323,7 @@ async function odemelerBlogu(hedefId, ctx){
         ek.buAy ? `<button class="btn2 kb-bt" id="bfEkb" aria-expanded="false" aria-controls="bfEkk"
           style="display:block;margin:6px 0 0 auto" data-t="ayın dökümü"
           onclick="event.stopPropagation();bdAc(this,'bfEk')">ayın dökümü</button>` : ''}</div>`)}
-      ${OZ_O ? `<div class="bilgi-not" style="margin-top:0">gerçek ciro <b>${tl(OZ_O.gercek_ciro)}</b> · nakit çıkışı <b>${tl(OZ_O.nakit_cikisi)}</b> · kâr <b>${tl(OZ_O.gercek_ay_kari)}</b>${!OZ_O.stok_bazli ? ' <span class="rozet rz-uyari">tahmin</span>' : ''}</div>`
+      ${OZ_O ? `<div class="bilgi-not" style="margin-top:0">gerçek ciro <b>${tamlikOnek('ciro')}${tl(OZ_O.gercek_ciro)}</b> · nakit çıkışı <b>${tl(OZ_O.nakit_cikisi)}</b> · kâr <b>${tamlikOnek('kar')}${tl(OZ_O.gercek_ay_kari)}</b>${tamlikRozet()}</div>${tamlikNotlari()}`
              : '<div class="bilgi-not" style="margin-top:0">Bu ay için kayıt yok.</div>'}
       <div class="bilgi-not" onclick="event.stopPropagation()"><b>Ödeme gücü:</b> kasada sayılan ${kasaM} · banka ${bankaM}
         <button class="btn2 kb-bt" onclick="katlaAc('bbKutu',this)">Banka gir</button></div>
@@ -2557,7 +2732,7 @@ async function vOzet(){
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
   const ay = OZ_AY || bugun().slice(0,7);
   OZ_AY = ay;
-  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayGider] = await Promise.all([
+  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayGider, ayKapali] = await Promise.all([
     sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
@@ -2585,7 +2760,12 @@ async function vOzet(){
        ⚠ FORMUL DEGISMIYOR: v_aylik_ozet'e dokunulmuyor, ay_kari ayni
          kaliyor. Ustune iki satir ekleniyor. */
     sb.from('gider').select('tutar,kdv_tutar,kdv_indirilebilir_kayit,kategori_id,gider_kategori(ad)')
-      .eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay))
+      .eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    /* ⚠ ADIM 15 · AYRI TUR ATILMADI, mevcut toplu cagriya EKLENDI.
+       Ozet'in "eksik gun" hesabi gun sonu listesiyle AYNI fonksiyonu
+       kullaniyor; o fonksiyon kapali gunleri de istiyor. */
+    sb.from('kapali_gun').select('tarih').eq('is_deleted',false)
+      .gte('tarih', ay+'-01').lte('tarih', aySon(ay))
   ]);
   /* KRİTİK DİLİMLER — biri düşerse Özet HİÇ çizilmez.
      gs/ayGunler = gün sonu · ozet = v_aylik_ozet · kdv = v_kdv_ay ·
@@ -2615,6 +2795,18 @@ async function vOzet(){
     sahipNakitMap[x.tarih] = (sahipNakitMap[x.tarih]||0) + isaret * (+x.tutar);
   });
   const GC = gunlukCiro(ayGunler.data||[], ay, kasaCikisMap, sahipNakitMap);
+  /* ⚠ ADIM 15 · TEK TANIM: gun sonu listesiyle AYNI fonksiyon.
+     ⚠ kapali_gun SORGUSU DUSERSE TAM SAYILMAZ. Bos dizi vermek
+       "kapali gun yok" demektir ve kapatilan gunu eksik gosterirdi —
+       yani sessiz yanlis. Hata varsa tamlik BILINMIYOR isaretlenir. */
+  const kapaliHata = !!ayKapali.error;
+  const OZ_EKSIK = kapaliHata ? [] : ayinEksikGunleri(
+    ay, tarihKumesi(ayGunler.data), tarihKumesi(ayKapali.data));
+  /* kart-3 (odemelerBlogu) ve kart-5 ayni tamlik bilgisini okur —
+     ikisi ayri hesaplarsa ayrisir. Serit de buradan besleniyor. */
+  OZ_TAMLIK = { ay, eksikGunler: OZ_EKSIK, bilinmiyor: kapaliHata,
+                sayimYok: !!(o && !o.stok_bazli), kayitVar: !!o };
+  kapsamSeridiCiz();
   const acikTalep = talep.data||[];
   if (acikTalep.length > 0){
     const gunFarki = Math.floor((Date.now() - new Date(acikTalep[0].created_at).getTime()) / 86400000);
@@ -2878,16 +3070,24 @@ async function vOzet(){
         <div class="d">${g?tl(g.toplam):'—'}</div>
         <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Z dışı nakit +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
       <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU (GERÇEK)</div>
-        <div class="d">${o?tl(o.gercek_ciro):'—'}</div>
-        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${o&&+o.z_disi_nakit>0?'<br>Z raporu '+tl(o.ciro):''}</div></div>
+        <div class="d">${o?tamlikOnek('ciro')+tl(o.gercek_ciro):'—'}</div>
+        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${
+          /* ⚠ ADIM 15 · eksik gun kutunun KENDI aciklamasinda yazar —
+             uyari listesine bakmak zorunda kalmadan gorunsun. */
+          OZ_TAMLIK && OZ_TAMLIK.eksikGunler.length
+            ? '<br><b style="color:var(--uyari)">'+OZ_TAMLIK.eksikGunler.length+' gün eksik</b>' : ''
+        }${o&&+o.z_disi_nakit>0?'<br>Z raporu '+tl(o.ciro):''}</div></div>
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="e">NAKİT ÇIKIŞI</div>
         <div class="d" style="color:var(--hata)">${o?tl(o.nakit_cikisi):'—'}</div>
         <div class="aciklama">bu ay elden çıkan<br>${o&&+o.odenmeyen_alis>0?'+ '+tl(o.odenmeyen_alis)+' bekliyor':'ödenmemiş alış yok'}</div></div>
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="e">AY KÂRI (GERÇEK)</div>
-        <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tl(o.gercek_ay_kari):'—'}</div>
-        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${o&&+o.z_disi_nakit>0?'Z dışı nakit (ay) '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
+        <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tamlikOnek('kar')+tl(o.gercek_ay_kari):'—'}</div>
+        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${
+          OZ_TAMLIK && OZ_TAMLIK.eksikGunler.length
+            ? '<b style="color:var(--uyari)">'+OZ_TAMLIK.eksikGunler.length+' gün eksik</b><br>' : ''
+        }${o&&+o.z_disi_nakit>0?'Z dışı nakit (ay) '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
     </div>`}
 
     ${sahip ? '' : `
@@ -4146,24 +4346,28 @@ async function gunSonuListe(){
   const gunler = data||[];
   // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
   const kasadanMap = {};
-  const [kg, no] = await Promise.all([
+  const [kg, no, kapali] = await Promise.all([
     sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
-    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
+    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
+    /* ⚠ ADIM 15 · kapali_gun index'te ILK KEZ OKUNUYOR. Bugune kadar
+       yalniz rpc_kapali_gun ile YAZILIYORDU; okuma yolu yoktu ve
+       kasten kapatilan gun bu listede "girilmemis" goruniyordu. */
+    sb.from('kapali_gun').select('tarih,neden').eq('is_deleted',false)
+      .gte('tarih',bas).lte('tarih',son)
   ]);
   [...(kg.data||[]), ...(no.data||[])].forEach(x=>{ kasadanMap[x.tarih] = (kasadanMap[x.tarih]||0) + (+x.tutar); });
+  const kapaliGunler = kapali.data || [];
 
   // Ay toplamı + girilmeyen günler (bugünden sonrası beklenmez)
   const tKart  = gunler.reduce((a,g)=>a+ +g.kart_toplam,0);
   const tNakit = gunler.reduce((a,g)=>a+ +g.nakit_toplam,0);
   const tKdv   = gunler.reduce((a,g)=>a+(g.gun_sonu_kdv||[]).filter(x=>!x.is_deleted).reduce((b,x)=>b+ +x.kdv_tutar,0),0);
   const tZDisi = gunler.reduce((a,g)=>a+(g.kasa_nakit===null?0:+g.kasa_nakit),0);
-  const girilen = new Set(gunler.map(g=>g.tarih));
-  const bugunS = bugun();
-  const eksikGunler = [];
-  for (let d=1; d<=sonGun; d++){
-    const t = ay + '-' + String(d).padStart(2,'0');
-    if (t <= bugunS && !girilen.has(t)) eksikGunler.push(d);
-  }
+  /* ⚠ ADIM 15 · IKINCI HESAP KALDIRILDI. Buradaki dongu butun aya
+     bakiyor, BUGUNU DE sayiyor ve kapali_gun'u HIC sormuyordu; artik
+     Ozet ile AYNI fonksiyon. DAVRANIS DEGISIYOR ve ekranda gorunur:
+     kapatilan gun ARTIK "girilmemis" sayilmiyor, bugun de sayilmiyor. */
+  const eksikGunler = ayinEksikGunleri(ay, tarihKumesi(gunler), tarihKumesi(kapaliGunler));
   const ayBasligi = ayAdi(ay);   // global ayAdi() fonksiyonuyla ayni ismi kullanma: golgeliyordu
 
   el.innerHTML = `<div class="kart">
@@ -4181,7 +4385,14 @@ async function gunSonuListe(){
       ? `<div class="uyari-orta">${eksikGunler.length} gün girilmemiş: ${eksikGunler.join(', ')}</div>`
       : ''}
     <div class="bilgi-not" style="margin:0 0 10px">
-      <b>${gunler.length}</b> gün girildi · Kasada sayılan toplamı <b>${tl(tZDisi)}</b>${eksikGunler.length?'':' · bugüne kadar eksik gün yok'}
+      <b>${gunler.length}</b> gün girildi · Kasada sayılan toplamı <b>${tl(tZDisi)}</b>${eksikGunler.length?'':' · düne kadar eksik gün yok'}${
+      /* ⚠ ADIM 15 · KAPATILAN GUN SESSIZ DUSMEZ. Artik "eksik"
+         sayilmiyor; sayilmadigi da YAZIYOR, yoksa kullanici listede
+         gormeyip "kayboldu" sanar. */
+      kapaliGunler.length
+        ? ` · ${kapaliGunler.length} gün kapalı işaretli (${kapaliGunler
+            .map(x=>+x.tarih.slice(8,10)).sort((a,b)=>a-b).join(', ')}) — eksik sayılmadı`
+        : ''}
     </div>
     ${gunler.length===0?bosDurum('belge','Bu ayda gün sonu kaydı yok','Yukarıdan başka ay seçebilir veya bugünün Z raporlarını girebilirsin.'):gunler.map(g=>{
       const kasa = g.kasa_nakit===null ? null : +g.kasa_nakit;
