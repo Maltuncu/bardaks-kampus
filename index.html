@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-39">
+<meta name="surum" content="2026-08-27-40">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2108,6 +2108,16 @@ const tamlikRozet = () => {
   const r = [];
   if (t.bilinmiyor) r.push('veri tamlığı bilinmiyor');
   else if (t.eksikGunler.length) r.push(t.eksikGunler.length + ' gün eksik');
+  /* ⚠ SADELESTIRME · BU ROZET KALDI — ONCE KALDIRILDI, OLCUM GERI
+     GETIRDI. Varsayim suydu: "AY KARI kirmizi kutusu ayni kartta
+     (bfAy), rozet tekrar." OLCULDU VE YANLIS CIKTI: owner'da o kutu
+     "ayın dökümü" KATLANMIS panelinin (bfEkk) icinde, yani GORUNMUYOR
+     — innerText'te 0 kez geciyor. Rozet kaldirilinca owner'in ekranda
+     GORDUGU tek isaret kapsam seridindeki kelime kaliyordu ve kart-3'
+     teki kar rakami isaretsiz duruyordu. ADIM 15'in olcutu ("eksik
+     varken hicbir toplam kesin degil") bunu kaldirmaz.
+     ⚠ Tekrar, kaldirilan yerlerden dustu: "Bugün düzelt" satiri ve
+       personelin ozet-kut notu. Owner 2, personel 2. */
   if (t.sayimYok) r.push('sayım yok');
   return r.map(x => ' <span class="rozet rz-uyari">' + esc(x) + '</span>').join('');
 };
@@ -2430,7 +2440,13 @@ async function odemelerBlogu(hedefId, ctx){
   if (dik.limitsiz) D.push(['kart', dik.limitsiz + ' kartın limiti girilmemiş', null, null]);
   if (tutarsiz) D.push(['vade', tutarsiz + ' vadenin tutarı girilmemiş — toplama girmedi', "sekmeAc('vergi')", 'Gir']);
   if (!(kapanis.data && kapanis.data.kapali)) D.push(['kapanis', ayAdi(gecenAy) + ' kapatılmamış', "sekmeAc('yonetim')", 'Aç']);
-  if (OZ_O && !OZ_O.stok_bazli) D.push(['sayim', 'Ay sonu sayımı yok — kâr TAHMİN', "sekmeAc('stok')", 'Sayım']);
+  /* ⚠ SADELESTIRME · "Ay sonu sayımı yok" SATIRI BURADAN KALKTI.
+     Ayni ekranda, AY KARI kartinin kirmizi kutusu hem daha fazlasini
+     soyluyor ("kâr olduğundan YÜKSEK görünüyor") hem de gidilecek
+     yeri gosteriyor ("Stok sekmesindeki Sayım kartı"). Buradaki satir
+     yalniz ayni cumleyi ucuncu kez tekrarliyordu.
+     ⚠ BILGI KAYBOLMADI: AY KARI kirmizi kutusu (bfAy) + kapsam
+       seridindeki tek kelime duruyor. */
   if (ekstrede) D.push(['kart', ekstrede + ' kart taksiti zaten girilmiş ekstrenin içinde — ayrıca sayılmadı', "sekmeAc('tedarikci')", 'Gör']);
 
   /* Kapali kartta GORUNENLER: is SAYISI + gun sonu satirlari (bugun/dun).
@@ -3281,7 +3297,12 @@ async function vOzet(){
       <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
         <div class="e">AY KÂRI (GERÇEK)</div>
         <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tamlikOnek('kar')+tl(o.gercek_ay_kari):'—'}</div>
-        <div class="aciklama">${o&&!o.stok_bazli?'<b style="color:var(--uyari)">sayım yok — tahmin</b><br>':''}${
+        ${/* ⚠ SADELESTIRME · "sayım yok — tahmin" BURADAN KALKTI: hemen
+              ASAGISINDAKI AY KARI blogunun kirmizi kutusu ayni seyi
+              daha aciklayici soyluyor (personel ekraninda ikisi ust
+              uste duruyordu, olculdu). Eksik GUN notu DURUYOR — onun
+              baska yeri yok. */''}
+        <div class="aciklama">${
           OZ_TAMLIK && OZ_TAMLIK.eksikGunler.length
             ? '<b style="color:var(--uyari)">'+OZ_TAMLIK.eksikGunler.length+' gün eksik</b><br>' : ''
         }${o&&+o.z_disi_nakit>0?'Z dışı nakit (ay) '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
@@ -6303,6 +6324,8 @@ function gdVadeFark(){
 let GD_FIS_MOD = null;                       // null | 'mal' | 'gider'
 const GD_FIS_ANAHTAR = 'ktu_fis_mod';
 const GD_TED_ANAHTAR = 'ktu_fis_tedarikci';
+/* SADELESTIRME · "Bir ürüne dokun" ipucu bir kez gosterilir (bkz. vStok). */
+const STOK_IPUCU_ANAHTAR = 'ktu_stok_ipucu';   // ASCII: oteki anahtarlarla ayni bicim
 function yerelOku(k){ try { return localStorage.getItem(k) || null; } catch(e){ return null; } }
 function yerelYaz(k, d){ try { localStorage.setItem(k, d); } catch(e){} }
 function gdFisModSec(m){ GD_FIS_MOD = m; yerelYaz(GD_FIS_ANAHTAR, m); gdFis(); }
@@ -7762,10 +7785,17 @@ async function vStok(){
     ${liste.length ? `<div class="ozet-grid">
       ${owner ? `<div class="ozet-kut"><div class="e">${cikisVar?'TOPLAM STOK DEĞERİ':'ALINAN MAL DEĞERİ'}</div>
         <div class="d">${tl(toplamDeger)}</div>
-        <div class="aciklama">${liste.length} üründe${cikisVar?(sayimGunu===0?'<br>bugün sayıldı':'<br>'+sayimGunu+' gün önce sayıldı'):'<br>tüketim düşülmedi'}</div></div>` : ''}
+        ${/* ⚠ SADELESTIRME · "tüketim düşülmedi" ALT NOTU KALKTI: hemen
+              altindaki kirmizi kutu ("stok yalnızca artıyor, satılınca
+              azalmıyor") AYNI SEYI daha aciklayici soyluyor. Sayim
+              YAPILMISSA not bilgi tasiyor, o KALIYOR. */''}
+        <div class="aciklama">${liste.length} üründe${cikisVar?(sayimGunu===0?'<br>bugün sayıldı':'<br>'+sayimGunu+' gün önce sayıldı'):''}</div></div>` : ''}
       <div class="ozet-kut"><div class="e">KRİTİK ÜRÜN</div>
         <div class="d" style="color:${kritikler.length?'var(--hata)':'var(--ok)'}">${kritikler.length}</div>
-        <div class="aciklama">${seviyesiz.length?seviyesiz.length+' üründe seviye tanımsız':'hepsinde seviye tanımlı'}</div></div>
+        ${/* ⚠ "N üründe seviye tanımsız" KALKTI: asagidaki turuncu kutu
+              ayni seyi soyluyor ve NE YAPILACAGINI da yaziyor. Hepsinde
+              tanimliysa not bilgi tasiyor, o KALIYOR. */''}
+        <div class="aciklama">${seviyesiz.length?'':'hepsinde seviye tanımlı'}</div></div>
     </div>` : ''}
 
     ${liste.length && !cikisVar ? `<div class="uyari-agir">
@@ -7781,31 +7811,69 @@ async function vStok(){
     <div class="kart">
       ${kbaslik('', cikisVar?'Ürünler':'Alınan Ürünler', `<div class="kb-sag">${liste.length}</div>`)}
       ${kritikler.length ? `<div class="uyari-agir">${kritikler.length} ürün kritik seviyenin altında: ${kritikler.slice(0,4).map(s=>esc(s.ad)).join(', ')}${kritikler.length>4?' ve '+(kritikler.length-4)+' tane daha':''}</div>` : ''}
-      ${seviyesiz.length === liste.length && liste.length ? `<div class="uyari-orta">Hiçbir üründe kritik seviye tanımlı değil — sistem "stok bitiyor" uyarısı veremiyor. Yönetim sekmesinden ürün başına seviye gir.</div>` : ''}
-      <div class="ipucu">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>
+      ${/* ⚠ SADELESTIRME · KOSUL GENISLEDI: eskiden yalniz HEPSI eksikse
+            cikiyordu. Satir ici "Kritik seviye girilmemiş" metni ve
+            "seviye yok" rozeti buradan kaldirilinca, KARISIK durumda
+            (bazisinda var bazisinda yok) eksik urunler HICBIR YERDE
+            yazmaz olurdu — bilgi kaybi. Kutu artik bir tane bile eksik
+            varsa cikiyor ve SAYISINI soyluyor.
+            ⚠ Urun detay penceresi kritik_seviye'yi CEKIYOR ama
+              GOSTERMIYOR (olculdu); o pencereye dokunulmuyor (kapsam
+              disi), o yuzden tek yer burasi. */''}
+      ${seviyesiz.length && liste.length ? `<div class="uyari-orta">${
+        seviyesiz.length === liste.length ? 'Hiçbir üründe' : seviyesiz.length + ' üründe'
+        } kritik seviye tanımlı değil — sistem o ürünler için "stok bitiyor" uyarısı veremiyor. Yönetim sekmesinden ürün başına seviye gir.</div>` : ''}
+      ${/* ⚠ SADELESTIRME · OGRENILEN IPUCU BIR KEZ. Bu satir her acilista
+            duruyordu; kullanici bir kez urune dokunduysa artik biliyor.
+            yerelOku/yerelYaz — ev kalibi (Y12'de kurulan localStorage
+            sarmalayicisi). ⚠ SESSIZ DEGIL: dokunana kadar HER acilista
+            cikiyor; kaybolmasi bir OGRENME isareti. */''}
+      ${yerelOku(STOK_IPUCU_ANAHTAR) ? ''
+        : '<div class="ipucu" id="stokIpucu">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>'}
       ${liste.length===0
         ? bosDurum('kutu','Ürün tanımlı değil','Fatura girdikçe ürünler kendiliğinden açılır. Elle eklemek için Yönetim sekmesini kullan.')
         : liste.map(s=>{
             const f = fiyatMap[s.urun_id];
             const sev = +s.kritik_seviye > 0;
+            /* ⚠ SADELESTIRME · "seviye yok" ROZETI KALKTI (30 satirda 30 kez).
+               Rozet bir BEYANDIR; "seviye yok" bir beyan degil, bir EKSIK —
+               ve o eksik ustteki turuncu kutuda BIR KEZ, ne yapilacagiyla
+               birlikte yaziyor. Seviye TANIMLI olanlarda rozet DURUYOR
+               (KRITIK / Yeterli): orada gercek bilgi var. */
             const rozet = s.kritik ? '<span class="rozet rz-hata">KRİTİK</span>'
-                        : sev ? '<span class="rozet rz-ok">Yeterli</span>'
-                              : '<span class="rozet rz-gri">seviye yok</span>';
+                        : sev ? '<span class="rozet rz-ok">Yeterli</span>' : '';
             // SON ALIŞ — tedarikçi karşındayken karşılaştıracağın rakam.
             // Ortalama maliyet geçmişin karışımı; adam sana bugünkü fiyatı söylüyor.
             const zam = f && f.degisim_yuzde != null && Math.abs(+f.degisim_yuzde) >= 0.05;
+            /* ⚠ Bastaki <br> KALKTI: ustteki parca artik BOS olabiliyor
+               (seviye tanimsizsa) ve satir bos bir satirla basliyordu.
+               Birlestirme asagida, filter(Boolean).join('<br>') ile. */
             const sonSatir = !(owner && f) ? '' :
-              `<br><b>Son alış ${tl(f.son_fiyat)}</b>/${esc(f.birim||'')}`
+              `<b>Son alış ${tl(f.son_fiyat)}</b>/${esc(f.birim||'')}`
               + ` · ${new Date(f.son_tarih+'T00:00').toLocaleDateString('tr-TR')}`
               + ` · ${esc(f.son_firma||'')}`
               + (zam ? ` <span style="color:${+f.degisim_yuzde>0?'var(--hata)':'var(--ok)'};font-weight:800">`
                        + `${+f.degisim_yuzde>0?'▲':'▼'} %${Math.abs(+f.degisim_yuzde)}</span>`
                        + ` <span style="color:var(--soluk)">(önce ${tl(f.onceki_fiyat)})</span>` : '');
+            /* ==========================================================
+               ⚠ SADELESTIRME · URUN SATIRI DORT SATIRDAN IKIYE
+               ==========================================================
+               ONCE (olculdu, 375px): 129px yukseklik, dort satir —
+                 ad · "Kritik seviye girilmemiş · ort. maliyet X" ·
+                 "Son alış Y/birim · tarih · firma ▲%Z" · rozet+deger.
+               ⚠ NE CIKTI VE NEREDE DURUYOR:
+                 · "Kritik seviye girilmemiş" -> ustteki turuncu kutu
+                   (bir kez, ne yapilacagiyla). Seviye TANIMLIYSA
+                   satirda KALIYOR — orada bilgi var.
+                 · "ort. maliyet" -> urun detay penceresi; orada
+                   ELDEKI · BIRIM MALIYET · STOK DEGERI zaten duruyor.
+                   Satira dokunmak tek hareket.
+               ⚠ HICBIR RAKAM SILINMEDI, YER DEGISTIRMEDI: ikisi de
+                 zaten baska yerde vardi; buradan TEKRARI kalkti. */
             return srSatir({
               ad: (s.kod?esc(s.kod)+' · ':'') + esc(s.ad),
-              alt: (sev ? 'Kritik seviye '+s.kritik_seviye+' '+esc(s.birim) : 'Kritik seviye girilmemiş')
-                   + (owner && +s.ort_maliyet>0 ? ' · ort. maliyet '+tl(s.ort_maliyet) : '')
-                   + sonSatir,
+              alt: [sev ? 'Kritik seviye '+s.kritik_seviye+' '+esc(s.birim) : '',
+                    sonSatir].filter(Boolean).join('<br>'),
               tutar: `${s.mevcut} ${esc(s.birim)}`,
               tutarAlt: rozet + (owner && +s.stok_degeri>0 ? ' ' + tl(s.stok_degeri) : ''),
               tikla: `urunDetay('${s.urun_id}')`,
@@ -8040,6 +8108,9 @@ async function faturaDetay(id){
     </div>`;
 }
 async function urunDetay(urunId){
+  /* Ipucu ogrenildi: bir daha gosterme (SADELESTIRME). */
+  yerelYaz(STOK_IPUCU_ANAHTAR, '1');
+  const ip = document.getElementById('stokIpucu'); if (ip) ip.remove();
   const ov=udKutu(), ic=document.getElementById('udIcerik');
   ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Yükleniyor...</div></div>
     <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
