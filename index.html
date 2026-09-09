@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-38">
+<meta name="surum" content="2026-08-27-39">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -357,6 +357,12 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 #sekmeBar button.aktif{color:var(--ana);border-top-color:var(--ana)}
 /* "#sekmeBar button" bir id taşıdığı için düz .sk-gizli sınıfını ezer; seçici eş güçte olmalı */
 #sekmeBar button.sk-gizli{display:none}   /* telefonda sığmayan bölümler — "Daha"dan açılır */
+/* ===== ADIM 17 (C) · KLAVYE ACIKKEN YAPISIK CUBUK ALANI ORTMESIN =====
+   Alt cubuk position:fixed/bottom:0. Telefonda klavye acilinca gorunur
+   alan kisaliyor ama fixed cubuk EKRANIN dibinde kaliyor ve odaklanan
+   alanin uzerine biniyor. Klavye acikken cubuk gizlenir — kullanici
+   zaten yaziyor, sekme degistirmiyor. Sinifi visualViewport koyuyor. */
+body.klavye-acik #sekmeBar{display:none}
 #sekmeBar .iko{width:21px;height:21px}
 #sekmeBar .iko svg{width:100%;height:100%}
 main{padding:14px;max-width:640px;margin:0 auto}
@@ -1366,6 +1372,98 @@ function formKirliMi(){
   return !confirm('Bu ekranda kaydedilmemiş bilgi var.\n\n'
     + 'Çıkarsan girdiklerin kaybolur.\n\nYine de çıkmak istiyor musun?');
 }
+
+/* ==================================================================
+   ADIM 17 (B) · "DOLU" BAYRAK DEGIL, DEGER
+   ==================================================================
+   OLCULDU: FORM_KIRLI, #icerik icindeki HERHANGI bir 'input' olayinda
+   true oluyor ve bir daha DUSMUYOR. Yani kullanici bir alana "5" yazip
+   sonra SILSE bile form "dolu" sayiliyor ve cikarken bos yere soru
+   soruluyordu. ADIM 07 (kasa_nakit) ve ADIM 14-A (eksik alan) ile ayni
+   ayrim: olcut DOKUNULMUS OLMAK degil, IÇINDE BIR SEY OLMASI.
+   ⚠ VARSAYILAN DEGER DOLU SAYILMAZ: tarih alanlari bugunle, taksit
+     secicisi '1' ile aciliyor. defaultValue/defaultSelected ile
+     karsilastiriliyor — kullanicinin YAZDIGI sey araniyor.
+   ⚠ FORM_KIRLI ve beforeunload KALDIRILMADI: tarayicidan CIKARKEN
+     (sekme kapatma, adres degistirme) tek korumamiz o ve metni
+     bizim degistirebilecegimiz bir sey degil. Bu fonksiyon UYGULAMA
+     ICI gecisler icin, onun YANINA geliyor. */
+function doluAlanlar(kok){
+  const k = kok || document.getElementById('icerik');
+  if (!k) return [];
+  return [...k.querySelectorAll('input, textarea, select')].filter(e => {
+    if (e.disabled || e.readOnly) return false;
+    if (e.type === 'search' || e.type === 'hidden') return false;
+    if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
+    if (e.type === 'file') return !!(e.files && e.files.length);
+    if (e.tagName === 'SELECT'){
+      /* ⚠ OLCULDU — YANLIS POZITIF: innerHTML ile kurulan secicilerde
+         HICBIR option `selected` tasimiyor, ama tarayici ILKINI seciyor.
+         "o.selected !== o.defaultSelected" o yuzden her dokunulmamis
+         secicide DOGRU donuyordu; gider ekrani acilir acilmaz
+         gdKategori ve gdVade "dolu" sayiliyor ve cikista bos yere soru
+         soruluyordu. Isaretli option YOKSA varsayilan ILK option'dir. */
+      /* ⚠ IKINCI YANLIS POZITIF, YINE OLCULDU: secenegi HIC OLMAYAN
+         secici (urun listesi bosken) selectedIndex = -1 veriyor ve
+         "-1 !== 0" dolu sayiyordu. Secenegi olmayan secicide kullanici
+         girdisi OLAMAZ. */
+      if (!e.options.length || e.selectedIndex < 0) return false;
+      const bildirilen = [...e.options].findIndex(o => o.defaultSelected);
+      return e.selectedIndex !== (bildirilen >= 0 ? bildirilen : 0);
+    }
+    const v = String(e.value == null ? '' : e.value).trim();
+    if (!v) return false;
+    return v !== String(e.defaultValue == null ? '' : e.defaultValue).trim();
+  });
+}
+const formDoluMu = () => doluAlanlar().length > 0;
+
+/* ==================================================================
+   ADIM 17 (B) · UYGULAMA ICI CIKIS — UC SECENEK
+   ==================================================================
+   Bugun iki ayri sey vardi ve ikisi de yarimdi: beforeunload (metni
+   DEGISTIRILEMEZ, tarayicinin kutusu) ve YALNIZ gun sonu formundaki
+   taslak. Ekran degistirirken sorulan sey ise duz bir confirm'di:
+   "yine de cikmak istiyor musun" — kaydetmek diye bir secenek YOKTU.
+   ⚠ EV KALIBI: pasifeAlAc'in gercek <dialog> deseni; yeni pencere
+     mekanigi icat edilmedi. Uc dugme, Escape = "kal" (en zararsizi). */
+function formCikisSor(alanSayisi, taslakVar){
+  return new Promise(coz => {
+    /* ⚠ `yap`, bu dosyanin KENDI kalibi (sifreDegistir'deki gibi).
+       borc.html'in `el()` helper'i index.html'de YOK — oradan kopyalamak
+       ReferenceError veriyordu (olculdu). */
+    const yap = (t, s, m) => { const e = document.createElement(t);
+      if (s) e.className = s; if (m != null) e.textContent = m; return e; };
+    const d = document.createElement('dialog'); d.className = 'pm';
+    d.setAttribute('aria-modal','true');
+    const bas = yap('div','pm-bas sakin','Kaydedilmemiş bilgi var'); bas.id = 'fcBas';
+    d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
+    d.appendChild(yap('div','pm-ad', alanSayisi + ' alan dolu'));
+    d.appendChild(yap('div','pm-etki', taslakVar
+      ? 'Taslak bu cihazda saklanır, sunucuya gitmez. Aynı ekrana '
+        + 'dönünce "Geri yükle" ile alırsın.'
+      : 'Bu ekranda taslak tutulmuyor; çıkarsan girdiklerin kaybolur.'));
+    const ey = yap('div','pm-ey');
+    const kal = yap('button','btn','Kal');
+    const vaz = yap('button','btn2','Vazgeç (sil)');
+    vaz.type = kal.type = 'button';
+    const bitir = (s) => { try{ d.close(); }catch(e){} d.remove(); coz(s); };
+    if (taslakVar){
+      const sak = yap('button','btn2','Taslak olarak sakla'); sak.type = 'button';
+      sak.onclick = () => bitir('sakla'); ey.appendChild(sak);
+    }
+    ey.appendChild(vaz); ey.appendChild(kal);          // "Kal" EN SAGDA, varsayilan
+    vaz.onclick = () => bitir('vazgec');
+    kal.onclick = () => bitir('kal');
+    /* Escape ve geri tusu EN ZARARSIZ secenege duser: KAL. */
+    d.addEventListener('cancel', (e) => { e.preventDefault(); bitir('kal'); });
+    d.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape'){ e.preventDefault(); bitir('kal'); }
+    });
+    d.appendChild(ey);
+    document.body.appendChild(d); d.showModal(); kal.focus();
+  });
+}
 document.addEventListener('input', e => {
   const t = e.target;
   if (!t || !t.closest || !t.closest('#icerik')) return;
@@ -1375,6 +1473,50 @@ window.addEventListener('beforeunload', e => {
   if (!FORM_KIRLI) return;
   e.preventDefault(); e.returnValue = '';
 });
+
+/* ==================================================================
+   ADIM 17 (C) · KLAVYE ALANI KAPATMASIN
+   ==================================================================
+   OLCULDU: visualViewport HIC KULLANILMIYORDU. env(safe-area-inset)
+   var ama o CENTIK/ev cubugu icin; klavye acilinca odaklanan alanin
+   altta kalip kalmadigi HIC ele alinmamis. En cok tutar/miktar
+   alanlarinda isiriyor: klavye acilir, alan klavyenin altinda kalir,
+   kullanici ne yazdigini GORMEZ.
+   ⚠ YENI DESEN UYDURULMADI: alani gorunur alana getiren sey
+     scrollIntoView — dosyada ZATEN 12 yerde kullaniliyor, ayni
+     secenekler (block:'center', behavior:'smooth').
+   ⚠ ESIK 120px: klavye ile adres cubugunun gizlenmesi ayrilmali.
+     Adres cubugu ~50-60px, klavye ~250-350px. 120 ikisinin arasinda.
+   ⚠ MASAUSTUNDE ETKISIZ: visualViewport orada da var ama yukseklik
+     120px'ten fazla kucultmez; sinif hic konmaz. Klavyesiz cihazda
+     davranis DEGISMEZ. */
+(function klavyeAlaniKoru(){
+  const vv = window.visualViewport;
+  if (!vv) return;                       // eski tarayici: bugunku davranis aynen
+  let sonYukseklik = vv.height, zaman = null;
+  const alaniGoster = () => {
+    const e = document.activeElement;
+    if (!e || !e.matches || !e.matches('input, textarea, select')) return;
+    e.scrollIntoView({ block:'center', behavior:'smooth' });
+  };
+  const tazele = () => {
+    const acik = (window.innerHeight - vv.height) > 120;
+    document.body.classList.toggle('klavye-acik', acik);
+    /* Klavye YENI acildiysa alani gorunur alana getir. Her resize'da
+       kaydirmak, kullanici sayfayi elle kaydirirken onu geri ceker. */
+    if (acik && vv.height < sonYukseklik - 120){
+      clearTimeout(zaman); zaman = setTimeout(alaniGoster, 60);
+    }
+    sonYukseklik = vv.height;
+  };
+  vv.addEventListener('resize', tazele);
+  /* Alan degistirince de (klavye zaten acik) yeni alan gorunur olsun. */
+  document.addEventListener('focusin', (e) => {
+    if (!document.body.classList.contains('klavye-acik')) return;
+    if (!e.target.matches || !e.target.matches('input, textarea, select')) return;
+    clearTimeout(zaman); zaman = setTimeout(alaniGoster, 60);
+  });
+})();
 
 /* ===== SÜRÜKLE–BIRAK =====
    Dokuz ayrı dosya alanı var, hiçbiri sürükle-bırak kabul etmiyordu.
@@ -1443,11 +1585,66 @@ window.addEventListener('beforeunload', e => {
 })();
 
 let OZ_SCROLL = 0;   // BF · Ozet'e donunce ayni yerde kal, basa sarma
-function sekmeAc(id){
-  if (id !== AKTIF_SEKME && formKirliMi()) return;
+/* ==================================================================
+   ADIM 17 (A) · GERI TUSU KAPSAMI KORUSUN
+   ==================================================================
+   OLCULDU: index.html'de HICBIR history yonetimi yoktu (pushState /
+   popstate hic gecmiyordu). Sekme degistirip geri basinca uygulamadan
+   CIKILIYORDU. borc.html'de takvim gunu icin ZATEN bir kalip vardi
+   (takvimGunSec + popstate, borc:2806-2821); YENI KALIP ICAT
+   EDILMEDI — pushState ile hash yaziliyor, location.hash'e DOGRUDAN
+   yazilmiyor (o hashchange tetikler ve ekrani ikinci kez acardi).
+   ⚠ SON SEKMEDEN GERI = CIKIS. Engellenmiyor; tarayicinin kendi
+     davranisi dogru davranistir.
+   ⚠ ACIK MODAL VARKEN GERI ONCE MODALI KAPATIR. Olculdu: index'te
+     dort, borc.html'de on <dialog> uretim yeri var. Modal, kendi
+     'cancel' olayiyla kapatiliyor — close()+remove() cagirmak
+     pasifeAlAc'in "islem surerken kapanmaz" korumasini ATLARDI. */
+function acikModalKapat(){
+  const d = document.querySelector('dialog[open]');
+  if (!d) return false;
+  /* Kendi 'cancel' handler'i calissin: odak iadesi ve isleniyor
+     korumasi orada. Handler yoksa duz close(). */
+  const engellendi = !d.dispatchEvent(new Event('cancel', { cancelable:true }));
+  if (!engellendi && d.open) d.close();
+  return true;
+}
+function sekmeGecmisineYaz(id, ilk){
+  const durum = { sekme: id }, yol = '#' + id;
+  if (ilk) history.replaceState(durum, '', yol);
+  else if (!history.state || history.state.sekme !== id)
+    history.pushState(durum, '', yol);
+}
+addEventListener('popstate', (e) => {
+  /* 1) Acik modal ONCE kapanir, sekme DEGISMEZ; konum geri konur. */
+  if (acikModalKapat()){ history.pushState(history.state, '', location.hash); return; }
+  const id = (e.state && e.state.sekme) || (location.hash || '').slice(1);
+  if (!id || id === AKTIF_SEKME) return;
+  if (!sekmeListesi().some(s => s.id === id)) return;   // bilinmeyen id: dokunma
+  sekmeAc(id, true);                                     // gecmisten geldi: PUSH YOK
+});
+
+async function sekmeAc(id, gecmisten){
+  /* ⚠ ADIM 17 (B) · UYGULAMA ICI CIKIS. Eski hal: duz confirm, tek
+     secenek ("yine de cik" / "kal"), kaydetmek YOKTU. Yeni hal: uc
+     secenek. Olcut de degisti — bayrak degil, DOLU ALAN sayisi. */
+  if (id !== AKTIF_SEKME){
+    const dolu = doluAlanlar();
+    if (dolu.length){
+      const s = await formCikisSor(dolu.length, ekranTaslakTutuluyorMu());
+      if (s === 'kal'){
+        /* Geri tusundan geldiyse konum geri konur, yoksa kullanici
+           "kal" dedigi halde gecmiste bir adim geri gitmis olurdu. */
+        if (gecmisten) sekmeGecmisineYaz(AKTIF_SEKME);
+        return;
+      }
+      if (s === 'sakla') ekranTaslakYaz();
+    }
+  }
   if (AKTIF_SEKME === 'ozet') OZ_SCROLL = window.scrollY;
   if (id === 'borc'){ location.href = 'borc.html'; return; }   /* modül ayrı dosyada */
   formTemiz();
+  if (!gecmisten) sekmeGecmisineYaz(id, AKTIF_SEKME === null);
   AKTIF_SEKME = id;
   document.querySelectorAll('#sekmeBar button, #dahaKutu button').forEach(b=>b.classList.remove('aktif'));
   const sk = document.getElementById('sk_'+id); if (sk) sk.classList.add('aktif');
@@ -4003,10 +4200,83 @@ function taslakYaz(){
     bloklar: b, foto })); }catch(e){}
 }
 function taslakEskileriAt(){
-  try{ Object.keys(localStorage).filter(k => k.indexOf(TASLAK_ONEK) === 0).forEach(k => {
-    let t; try{ t = JSON.parse(localStorage.getItem(k)); }catch(e){ t = null; }
-    if (!t || !t.zaman || Date.now() - t.zaman > TASLAK_OMUR) localStorage.removeItem(k);
-  }); }catch(e){}
+  /* ⚠ ADIM 17 · IKI ONEK BIRDEN suprulur; omur kurali (7 gun) TEK. */
+  try{ Object.keys(localStorage)
+    .filter(k => k.indexOf(TASLAK_ONEK) === 0 || k.indexOf(EKRAN_TASLAK_ONEK) === 0)
+    .forEach(k => {
+      let t; try{ t = JSON.parse(localStorage.getItem(k)); }catch(e){ t = null; }
+      if (!t || !t.zaman || Date.now() - t.zaman > TASLAK_OMUR) localStorage.removeItem(k);
+    }); }catch(e){}
+}
+
+/* ==================================================================
+   ADIM 17 (B) · TASLAK, IKINCI EKRANA GENISLETILDI
+   ==================================================================
+   ⚠ MEVCUT MEKANIZMA YENIDEN YAZILMADI. Gun sonunun kendi taslagi
+     (taslakYaz/Oku/Sil/Seridi) AYNEN duruyor; asagidaki katman onun
+     YANINA geliyor ve AYNI kurallari paylasiyor: localStorage, sube
+     bazli anahtar, 7 gun omur (taslakEskileriAt ikisini de supuruyor),
+     SESSIZ DOLDURMA YOK — kullanici "Geri yükle" demeden alan dolmaz.
+   ⚠ NEDEN GUN SONU AYRI KALDI: orada alanlar DINAMIK — ZLISTE ile Z
+     bloklari, kdvSatirEkle ile KDV satirlari calisma aninda ekleniyor.
+     Duz bir "id -> deger" anlik goruntusu o yapiyi GERI KURAMAZ;
+     taslakGeriYukle bloklari yeniden yaratiyor. Tek mekanizmaya
+     zorlamak, calisan ve daha zengin olani bozardi.
+   ⚠ HANGI IKI EKRAN, NEDEN: gunluk GIDER (gdTemel) ve ALIS FATURASI
+     (gdFatura). Gerekce olcume dayali degil kullanima: bu ikisi her
+     gun doldurulan ve en cok alan tasiyan formlar (fatura formunda
+     tarih/belge no/toplam/KDV satirlari/tedarikci/urun satirlari).
+     Ucuncusu gun sonu ve onda ZATEN var. Kalan formlar (arac, vergi,
+     personel) daha seyrek ve daha kisa; hepsine birden yaymak bu
+     turun isi degil. */
+const EKRAN_TASLAK_ONEK = 'ekranTaslak:';
+/* Bu ekranda taslak tutuluyor mu — tutuluyorsa anahtari. */
+function ekranTaslakAnahtari(){
+  if (!AKTIF_SUBE) return null;
+  if (AKTIF_SEKME === 'gider' && (GIDER_BOLUM === 'temel' || GIDER_BOLUM === 'fatura'))
+    return EKRAN_TASLAK_ONEK + AKTIF_SUBE + ':gider:' + GIDER_BOLUM;
+  return null;
+}
+const ekranTaslakTutuluyorMu = () =>
+  AKTIF_SEKME === 'gunsonu' ? !!document.getElementById('gsKaydet')
+                            : !!ekranTaslakAnahtari();
+function ekranTaslakYaz(){
+  if (AKTIF_SEKME === 'gunsonu'){ taslakYaz(); return true; }
+  const a = ekranTaslakAnahtari(); if (!a) return false;
+  const d = {};
+  /* ⚠ YALNIZ DOLU ALANLAR: varsayilanlari da saklamak, geri yuklemede
+     kullanicinin o an gordugu varsayilani ESKISIYLE ezerdi. */
+  doluAlanlar().forEach(e => { if (e.id && e.type !== 'file') d[e.id] = e.value; });
+  if (!Object.keys(d).length) return false;
+  try{ localStorage.setItem(a, JSON.stringify({ zaman: Date.now(), d })); }
+  catch(e){ return false; }
+  return true;
+}
+const ekranTaslakOku = () => { const a = ekranTaslakAnahtari(); if (!a) return null;
+  try{ return JSON.parse(localStorage.getItem(a) || 'null'); }catch(e){ return null; } };
+function ekranTaslakSil(){ const a = ekranTaslakAnahtari(); if (!a) return;
+  try{ localStorage.removeItem(a); }catch(e){} ekranTaslakSeridi(); }
+function ekranTaslakGeriYukle(){
+  const t = ekranTaslakOku(); if (!t || !t.d) return;
+  Object.keys(t.d).forEach(id => { const e = document.getElementById(id);
+    if (!e) return; e.value = t.d[id];
+    e.dispatchEvent(new Event('input', { bubbles:true }));
+    e.dispatchEvent(new Event('change', { bubbles:true })); });
+  ekranTaslakSil();
+}
+/* Serit: gun sonundaki taslakSeridi'nin AYNI kalibi — kart, iki dugme. */
+function ekranTaslakSeridi(){
+  const yer = document.getElementById('ekTaslakBar'); if (!yer) return;
+  yer.innerHTML = '';
+  const t = ekranTaslakOku(); if (!t || !t.d) return;
+  if (formDoluMu()) return;                    // form doluyken sorulmaz (gun sonu kurali)
+  const z = new Date(t.zaman);
+  yer.innerHTML = `<div class="kart" style="border-color:var(--uyari)">
+    <div>Bu ekranda kaydedilmemiş bir taslak var
+      (${z.toLocaleDateString('tr-TR')} ${z.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})})
+      — ${Object.keys(t.d).length} alan.</div>
+    <button class="btn2" onclick="ekranTaslakGeriYukle()">Geri yükle</button>
+    <button class="btn2" onclick="ekranTaslakSil()">Sil</button></div>`;
 }
 function taslakSeridi(){
   const yer = document.getElementById('gsTaslakBar'); if (!yer) return;
@@ -4451,7 +4721,20 @@ async function gunSil(id, tarih){
 /* ================== GİDERLER (3 bölüm: Temel / Fatura / Fiş) ================== */
 let GIDER_BOLUM = 'temel';
 let GD_ODEME_AY = null;                              // Ödemeler bölümünde hangi ay
-function gdBolumAc(b){ GIDER_BOLUM = b; vGider(); }
+/* ⚠ ADIM 17 (B) · ALT SEKME DE "EKRAN DEGISIMI"DIR. Gider ile Fatura
+   arasinda gecmek dolu formu ayni sekilde ucuruyordu; ust sekmeyle
+   AYNI soru burada da soruluyor. */
+async function gdBolumAc(b){
+  if (b !== GIDER_BOLUM){
+    const dolu = doluAlanlar();
+    if (dolu.length){
+      const s = await formCikisSor(dolu.length, ekranTaslakTutuluyorMu());
+      if (s === 'kal') return;
+      if (s === 'sakla') ekranTaslakYaz();
+    }
+  }
+  GIDER_BOLUM = b; formTemiz(); vGider();
+}
 async function vGider(){
   const el = document.getElementById('icerik');
   const sekBtn = (id, ad) => `<button class="sg-btn${GIDER_BOLUM===id?' aktif':''}" onclick="gdBolumAc('${id}')">${ad}</button>`;
@@ -4462,6 +4745,8 @@ async function vGider(){
           YAPILAN ISI soyluyor. 375px'te bes sekme var, kisa kalmali;
           tasma olculdu. Oteki sekme adlarina dokunulmadi. */''}
     <div class="segment">${sekBtn('temel','Gider')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
+    ${/* ADIM 17 (B) · taslak seridi — gun sonundaki gsTaslakBar'in esi */''}
+    <div id="ekTaslakBar"></div>
     <div id="gdIcerik"></div>
     <div id="gdListe"></div>`;
   if (GIDER_BOLUM==='temel') gdTemel();
@@ -4469,6 +4754,7 @@ async function vGider(){
   else if (GIDER_BOLUM==='mutabakat') gdMutabakat();
   else if (GIDER_BOLUM==='odeme') gdOdeme();
   else gdFis();
+  taslakEskileriAt(); ekranTaslakSeridi();
 }
 /* ===== ÖDEMELER =====
    Ay içinde elden çıkan paranın tamamı tek listede: kime, ne zaman, neyle, ne kadar.
@@ -6261,7 +6547,8 @@ async function giderKaydet(mod){
     p_kasadan: document.getElementById('gdKasadan').checked,
     p_tedarikci: null, p_vade: vadeId
   },'gdKaydet','gdMsg','Kaydedildi ✓');
-  if (data && data.ok){ ['gdTutar','gdKdvTutar','gdAciklama'].forEach(i=>document.getElementById(i).value=''); document.getElementById('gdFoto').value=''; document.getElementById('gdKasadan').checked=false;
+  if (data && data.ok){ ekranTaslakSil();   // ADIM 17 · basarida taslak DUSER
+    ['gdTutar','gdKdvTutar','gdAciklama'].forEach(i=>document.getElementById(i).value=''); document.getElementById('gdFoto').value=''; document.getElementById('gdKasadan').checked=false;
     if (vadeId){ const n = document.getElementById('gdVadeNot'); if (n) n.hidden = true; gdVadeDoldur(); }  // kapanan vade listeden duser
     giderListe(); }
 }
@@ -7356,6 +7643,7 @@ async function alisKaydet(){
     p_cek_vade: (document.getElementById('alOdendi').value==='1' && document.getElementById('alYontem').value==='cek') ? (document.getElementById('alCekVade').value||null) : null
   },'alKaydet','alMsg','Fatura kaydedildi ✓');
   if (data && data.ok){
+    ekranTaslakSil();          // ADIM 17 · basarida taslak DUSER
     const yeni = YENI_URUN_UYARI.slice();
     vGider();
     if (yeni.length) mesaj('alMsg','ok',

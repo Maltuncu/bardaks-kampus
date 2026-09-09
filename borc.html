@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-31">
+<meta name="surum" content="borc-2026-08-27-32">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -106,6 +106,9 @@ main{padding:14px;max-width:640px;margin:0 auto}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #sekmeBar button.aktif{color:var(--ana);border-top-color:var(--ana)}
 #sekmeBar button.sk-gizli{display:none}
+/* ===== ADIM 17 (C) · KLAVYE ACIKKEN YAPISIK CUBUK ALANI ORTMESIN =====
+   index.html'deki kuralin AYNISI; sinifi visualViewport koyuyor. */
+body.klavye-acik #sekmeBar{display:none}
 #sekmeBar .iko{width:21px;height:21px}
 #sekmeBar .iko svg{width:100%;height:100%}
 #dahaOv{position:fixed;inset:0;z-index:60;background:rgba(28,24,18,.55);display:none;
@@ -1862,7 +1865,17 @@ function seritiHizala(){
   srt.scrollLeft = Math.max(0, Math.min(enAz, enCok));
 }
 
-async function ekranAc(ad){
+async function ekranAc(ad, gecmisten){
+  /* ⚠ ADIM 17 (A) · BOLUM DEGISIMI GECMISE GIRER. takvimGunSec'in
+     kalibinin AYNISI: pushState ile hash yaziliyor, location.hash'e
+     DOGRUDAN yazilmiyor (o hashchange tetikler ve ekrani ikinci kez
+     acardi). Takvim gunu varsa hash'te KORUNUR — "takvim/2026-08-18"
+     bicimini router zaten cozuyor. */
+  if (!gecmisten && ad !== EKRAN){
+    const yol = '#' + ad + (ad === 'takvim' && TAKVIM_GUN ? '/' + TAKVIM_GUN : '');
+    if (EKRAN === null) history.replaceState({ bolum: ad }, '', yol);
+    else if (location.hash !== yol) history.pushState({ bolum: ad }, '', yol);
+  }
   EKRAN = ad; SECILI_KREDI = null;
   /* ⚠ AC-05: aktif bolum EKRAN OKUYUCUYA da bildirilir. Olculdu: aktiflik
      yalniz `.aktif` sinifiyla, yani GORSEL olarak tasiniyordu; ekran
@@ -2812,9 +2825,30 @@ function takvimGunSec(tar, ctx){
 /* Geri/ileri: secimi geri getirir. Ekran zaten takvimse yalniz izgara
    tazelenir; baska ekrandaysa ekranAc devreye girer (asagidaki dinleyici
    yalniz takvimdeyken is yapar, digerlerinde mevcut akis surer). */
-addEventListener('popstate', () => {
-  if (EKRAN !== 'takvim') return;
+/* ⚠ ADIM 17 (A) · SIRA ONEMLI: once ACIK MODAL, sonra BOLUM, en son
+   takvim gunu. index.html'de kurulan sirayla AYNI.
+   Olculdu: borc.html'de ON <dialog> uretim yeri var; geri tusu
+   bunlari atlayip bolum degistiriyordu.
+   ⚠ Modal kendi 'cancel' olayiyla kapatilir — close()+remove() cagirmak
+     pasifeAlAc'in "islem surerken kapanmaz" korumasini ATLARDI. */
+function acikModalKapat(){
+  const d = document.querySelector('dialog[open]');
+  if (!d) return false;
+  const engellendi = !d.dispatchEvent(new Event('cancel', { cancelable:true }));
+  if (!engellendi && d.open) d.close();
+  return true;
+}
+addEventListener('popstate', (e) => {
+  if (acikModalKapat()){ history.pushState(history.state, '', location.hash); return; }
   const p = decodeURIComponent((location.hash || '').slice(1)).split('/');
+  /* Bolum degistiyse ONCE bolumu ac — takvim gunu ikincil. */
+  const BOLUMLER = [...document.querySelectorAll('#bolumSerit button[data-b]')].map(b => b.dataset.b);
+  if (BOLUMLER.includes(p[0]) && p[0] !== EKRAN){
+    TAKVIM_GUN = (p[0] === 'takvim' && p[1]) ? p[1] : null;
+    ekranAc(p[0], true);                 // gecmisten geldi: PUSH YOK
+    return;
+  }
+  if (EKRAN !== 'takvim') return;
   TAKVIM_GUN = (p[0] === 'takvim' && p[1]) ? p[1] : null;
   if (TAKVIM_CTX) takvimYenile(TAKVIM_CTX);
 });
@@ -10772,6 +10806,39 @@ async function cekSil(x, acan){
       async () => { CEK_DETAY = null; await ekranAc('cek'); mesaj('cekMsg','ok','Çek silindi.'); },
       'cek')});
 }
+
+/* ==================================================================
+   ADIM 17 (C) · KLAVYE ALANI KAPATMASIN — index.html ile AYNI KALIP
+   ==================================================================
+   ⚠ KOPYA, ORTAKLASTIRILMADI: iki dosya da tek parca HTML, yerel
+     betik yuklemesi yok (borc.html:844'teki karar). Ayrisma riskine
+     karsi kural adi ve esik AYNI tutuldu.
+   ⚠ scrollIntoView bu dosyada ZATEN 8 yerde kullaniliyor — desen
+     oradan, yenisi uydurulmadi. */
+(function klavyeAlaniKoru(){
+  const vv = window.visualViewport;
+  if (!vv) return;
+  let sonYukseklik = vv.height, zaman = null;
+  const alaniGoster = () => {
+    const e = document.activeElement;
+    if (!e || !e.matches || !e.matches('input, textarea, select')) return;
+    e.scrollIntoView({ block:'center', behavior:'smooth' });
+  };
+  const tazele = () => {
+    const acik = (window.innerHeight - vv.height) > 120;
+    document.body.classList.toggle('klavye-acik', acik);
+    if (acik && vv.height < sonYukseklik - 120){
+      clearTimeout(zaman); zaman = setTimeout(alaniGoster, 60);
+    }
+    sonYukseklik = vv.height;
+  };
+  vv.addEventListener('resize', tazele);
+  document.addEventListener('focusin', (e) => {
+    if (!document.body.classList.contains('klavye-acik')) return;
+    if (!e.target.matches || !e.target.matches('input, textarea, select')) return;
+    clearTimeout(zaman); zaman = setTimeout(alaniGoster, 60);
+  });
+})();
 
 /* ================== ACILIS ================== */
 sb.auth.onAuthStateChange((olay) => { if (olay === 'SIGNED_OUT') location.reload(); });
