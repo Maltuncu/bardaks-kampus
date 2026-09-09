@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-41">
+<meta name="surum" content="2026-08-27-42">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -726,7 +726,15 @@ function kapsamSeridiCiz(){
       ? { s:'ks eksik', m: t.eksikGunler.length + ' gün eksik' }
       : { s:'ks tam',   m:'gün sonları tam' };
     p.push(gun);
-    p.push(t.sayimYok ? { s:'ks eksik', m:'sayım yok' } : { s:'ks tam', m:'sayım var' });
+    /* ⚠ ADIM 13 FAZ 2 · UC DURUM. Eskiden ikili idi ve 30 urunun 12'si
+       sayilmis bir ayda YESIL "sayım var" yaziyordu (olculdu) — Ay Kari
+       blogu iki ekran asagida "Tam ölçüm değil" derken serit tam
+       olculdugunu iddia ediyordu. Ayni ekranin iki yani celisemez.
+       ⚠ Yeni renk YOK: mevcut ks/ks tam/ks eksik uclusu kullaniliyor.
+       Kismi sayim "eksik" degil ama "tam" da degil — notr sinif. */
+    p.push(t.sayimYok   ? { s:'ks eksik', m:'sayım yok' }
+         : t.sayimKismi ? { s:'ks',       m:'sayım kısmi' }
+         :                { s:'ks tam',   m:'sayım var' });
   }
   p.push({ s:'ks', m: t ? ayAdi(t.ay) : ayAdi(OZ_AY || bugun().slice(0,7)) });
   el.innerHTML = p.map(x => '<span class="' + x.s + '">' + esc(x.m) + '</span>').join('');
@@ -895,10 +903,22 @@ function aySon(donem){           // "2026-07" → "2026-07-31"
   const y=+String(donem).slice(0,4), a=+String(donem).slice(5,7);
   return donem+'-'+String(new Date(y, a, 0).getDate()).padStart(2,'0');
 }
+const ayKisa = donem => AY_ADI[(+String(donem||'').split('-')[1]||1)-1] || '';
 function ayAdi(donem){            // "2026-07" → "Temmuz 2026"
-  const p = String(donem||'').split('-');
-  return (AY_ADI[(+p[1]||1)-1] || '') + ' ' + (p[0]||'');
+  return ayKisa(donem) + ' ' + (String(donem||'').split('-')[0]||'');
 }
+/* ⚠ ADIM 13 FAZ 2 · AY ADI TEK KAYNAKTAN. ayAdi yila kadar yazar
+   ("Ağustos 2026"); cumle icinde yalniz ay lazim ("Ağustos ayına").
+   Ikinci bir AY_ADI[] indisi YAZILMADI — ikisi de ayKisa'yi okuyor. */
+const gunAyAdi = tarih => {       // "2026-09-06" → "6 Eylül"
+  const p = String(tarih||'').split('-');
+  return (+p[2]||'') + ' ' + ayKisa(tarih);
+};
+/* "2026-08" → "2026-07". v_aylik_ozet'in acilis_stok JOIN'i ile AYNI
+   kaydirma: acilis = BIR ONCEKI donemin sayimi (olculdu, taban govdesi). */
+const ayOnceki = donem => { const t = new Date(donem+'-01T00:00');
+  t.setMonth(t.getMonth()-1);
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0'); };
 /* ⚠ ARTIK YALNIZ IDEMPOTENT ISLEMLER ICIN. Her cagrida YENI anahtar
    uretir; sunucunun mukerrer kontrolu onu ASLA bulamaz. Bu, ikinci kez
    calistirmasi ZARARSIZ olan islerde (silme, durum guncellemesi, salt
@@ -2096,12 +2116,17 @@ let OZ_TAMLIK = null;    // { ay, eksikGunler[], bilinmiyor, sayimYok, kayitVar 
        gorunmuyor, yani smm EKSIK, yani kar OLDUGUNDAN YUKSEK
        cikabiliyor. Burada "en az" YANLIS bir taban vaat ederdi;
        o yuzden sayim yokken kar "tahmin" kalir, "en az" DEMEZ.
-     · Ikisi birden varsa yon belirsizdir; yine "en az" YOK. */
+     · Ikisi birden varsa yon belirsizdir; yine "en az" YOK.
+     · ADIM 13 FAZ 2 · KISMI SAYIM da yonu belirsizlestirir: saymadigin
+       urun sistemde FAZLA da gorunuyor olabilir EKSIK de, yani kapanis
+       deposu iki yone birden sapabilir. OLCULDU (yamasiz -41, 3 eksik
+       gun + 12/30 sayim): kar "en az 16.454,55 TL" yaziyordu — sayim
+       kismiyken vaat edilemeyecek bir TABAN. sayimYok yetmiyor. */
 const tamlikOnek = (hangi) => {
   const t = OZ_TAMLIK;
   if (!t || t.bilinmiyor || !t.eksikGunler.length) return '';
   if (hangi === 'ciro') return 'en az ';
-  return t.sayimYok ? '' : 'en az ';     // yon belirsizse taban vaat edilmez
+  return (t.sayimYok || t.sayimKismi) ? '' : 'en az ';  // yon belirsizse taban vaat edilmez
 };
 const tamlikRozet = () => {
   const t = OZ_TAMLIK; if (!t) return '';
@@ -2118,7 +2143,11 @@ const tamlikRozet = () => {
      varken hicbir toplam kesin degil") bunu kaldirmaz.
      ⚠ Tekrar, kaldirilan yerlerden dustu: "Bugün düzelt" satiri ve
        personelin ozet-kut notu. Owner 2, personel 2. */
+  /* ⚠ UCUNCU DURUM, UCUNCU ROZET DEGIL: "sayim yok" ile "sayim kismi"
+     ayni yerde, ayni sorunun iki derecesi. Ikisi birden CIKAMAZ —
+     sayimKismi ancak stok_bazli true iken, sayimYok ancak false iken. */
   if (t.sayimYok) r.push('sayım yok');
+  else if (t.sayimKismi) r.push('sayım kısmi');
   return r.map(x => ' <span class="rozet rz-uyari">' + esc(x) + '</span>').join('');
 };
 /* ⚠ IKI SEBEP AYRI CUMLE — tek cumleye sikistirilmaz, cunku
@@ -2945,7 +2974,7 @@ async function vOzet(){
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
   const ay = OZ_AY || bugun().slice(0,7);
   OZ_AY = ay;
-  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayGider, ayKapali] = await Promise.all([
+  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayGider, ayKapali, aySayim] = await Promise.all([
     sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
@@ -2978,7 +3007,14 @@ async function vOzet(){
        Ozet'in "eksik gun" hesabi gun sonu listesiyle AYNI fonksiyonu
        kullaniyor; o fonksiyon kapali gunleri de istiyor. */
     sb.from('kapali_gun').select('tarih').eq('is_deleted',false)
-      .gte('tarih', ay+'-01').lte('tarih', aySon(ay))
+      .gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    /* ⚠ ADIM 13 FAZ 2 · AYRI TUR ATILMADI, mevcut toplu cagriya EKLENDI
+         (ADIM 15 kalibi).
+       ⚠ IKI DONEM birden isteniyor: kar iki sayima birden dayaniyor —
+         kapanis BU ayin, acilis BIR ONCEKI ayin sayimi. Yalniz bu ayi
+         sorsaydim, acilisi kismi olan bir ay "tam olculdu" gorunurdu. */
+    sb.from('sayim').select('donem,sayilan_urun,toplam_urun')
+      .in('donem', [ayOnceki(ay), ay]).eq('is_deleted', false)
   ]);
   /* KRİTİK DİLİMLER — biri düşerse Özet HİÇ çizilmez.
      gs/ayGunler = gün sonu · ozet = v_aylik_ozet · kdv = v_kdv_ay ·
@@ -3015,10 +3051,25 @@ async function vOzet(){
   const kapaliHata = !!ayKapali.error;
   const OZ_EKSIK = kapaliHata ? [] : ayinEksikGunleri(
     ay, tarihKumesi(ayGunler.data), tarihKumesi(ayKapali.data));
+  /* ===== ADIM 13 FAZ 2 (C) · SAYIM KAPSAMI · TEK KAYNAK =====
+     Serit, rozet, "en az" oneki ve Ay Kari blogu AYNI iki degeri okur;
+     ayri ayri hesaplasalardi ekranin bir yani "sayim var" derken
+     otekisi "tam olcum degil" derdi.
+     ⚠ SORGU DUSERSE SESSIZ KALINMAZ: bos dizi "sayim tam" demektir ve
+       ekran olmayan bir kesinligi iddia ederdi (ADIM 15'teki kapaliHata
+       dersi). Hata varsa KAPSAM BILINMIYOR. */
+  const sayimHata = !!aySayim?.error;
+  const sayimlar = {};
+  (aySayim?.data || []).forEach(s => { sayimlar[s.donem] = s; });
+  const kismiMi = s => !!s && +s.toplam_urun > 0 && +s.sayilan_urun < +s.toplam_urun;
+  /* Kar IKI sayima birden dayaniyor: kapanis BU ayin, acilis BIR ONCEKI
+     ayin sayimi (olculdu, v_aylik_ozet). Biri kismiyse olcum tam degil. */
+  const sayimKismi = !!(o && o.stok_bazli) && !sayimHata
+    && (kismiMi(sayimlar[ay]) || kismiMi(sayimlar[ayOnceki(ay)]));
   /* kart-3 (odemelerBlogu) ve kart-5 ayni tamlik bilgisini okur —
      ikisi ayri hesaplarsa ayrisir. Serit de buradan besleniyor. */
   OZ_TAMLIK = { ay, eksikGunler: OZ_EKSIK, bilinmiyor: kapaliHata,
-                sayimYok: !!(o && !o.stok_bazli), kayitVar: !!o };
+                sayimYok: !!(o && !o.stok_bazli), sayimKismi, kayitVar: !!o };
   kapsamSeridiCiz();
   const acikTalep = talep.data||[];
   if (acikTalep.length > 0){
@@ -3169,6 +3220,49 @@ async function vOzet(){
   const ayrimBaslik = 'İŞLETME KÂRI ('
     + (FIN.tutar > 0 && YATIRIM.tutar > 0 ? 'finansman ve yatırım hariç'
       : YATIRIM.tutar > 0 ? 'yatırım hariç' : 'finansman hariç') + ')';
+
+  /* ===== ADIM 13 FAZ 2 (C) · KISMI SAYIM KESIN KAR IZLENIMI VERMESIN =====
+     OLCULDU (yamasiz -41, fikstur 30 urun): 12/30 sayilmis ay ile 30/30
+     sayilmis ay BIREBIR AYNI metni veriyordu — "Depo sayimina dayali" ve
+     "Maliyet depo sayimindan geliyor: aldigin degil TUKETTIGIN mal".
+     Blok kismi sayimi HIC soylemiyordu; kayit anindaki "Saymadigin N urun"
+     uyarisi da onay penceresinde kalip kayboluyordu.
+
+     ⚠ stok_bazli'nin ANLAMI DEGISTIRILMEDI — yalniz OKUNDU. Olculdu
+       (taban govdesi, v_aylik_ozet):
+         stok_bazli   = (kapanis_stok IS NOT NULL) AND (acilis_stok IS NOT NULL)
+         kapanis_stok = O DONEMIN sayim.toplam_deger'i
+         acilis_stok  = BIR ONCEKI donemin sayim.toplam_deger'i
+         sayimlar CTE'si yalniz is_deleted'e bakiyor
+       Yani stok_bazli "sayim var mi" DEGIL, ACILIS+KAPANIS IKILISI'dir ve
+       sayilan_urun / toplam_urun'e HIC bakmaz: 30 urunun 1'i sayilmis bir
+       sayim da onu true yapar. Fikstur bunu tasiyor — onceki ayin sayimi
+       silinince stok_bazli GERCEKTEN false oluyor (olculdu).
+     ⚠ "EN AZ" YAZILMIYOR (ADIM 15'ten farki): eksik gun kari ASAGI ceker,
+       yon bellidir. Kismi sayimda yon BELIRSIZ — saymadigin urun sistemde
+       fazla da gorunuyor olabilir eksik de. Onek kapisi tamlikOnek'te.
+     ⚠ Kapsam hesabi YUKARIDA, OZ_TAMLIK'in yaninda (tek kaynak);
+       burada yalniz CUMLE kuruluyor. */
+  /* ⚠ ORTAK KUYRUK BIR KEZ: iki sayim da kismiyse "kalanı sistemdeki
+       miktarla değerlendi" IKI KEZ yaziliyordu (olculdu: kutu 159px).
+       Parca yalniz RAKAMI tasiyor, kuyruk asagida bir kez ekleniyor. */
+  const kismiCumle = (etiket, s) => !kismiMi(s) ? ''
+    /* ⚠ "12'si" DEGIL "12 tanesi": Turkcede sayiya gelen iyelik eki son
+         rakama gore degisiyor (12'si ama 30'u, 40'i, 3'u). On tabanli ek
+         tablosu yazmak yerine eki DEGISMEYEN kelimeye tasidim. */
+    : etiket + ' <b>' + s.toplam_urun + ' üründen ' + s.sayilan_urun + ' tanesi</b>';
+  const kismiler = !sayimKismi ? [] : [
+    kismiCumle(ayKisa(ay) + ' sayımında', sayimlar[ay]),
+    kismiCumle('açılış (' + ayKisa(ayOnceki(ay)) + ') sayımında', sayimlar[ayOnceki(ay)])
+  ].filter(Boolean);
+  /* ⚠ Parca cumlenin BASINA da ORTASINA da gelebiliyor: yalniz kapanis
+     kismiyse "Ağustos ..." (zaten buyuk), yalniz acilis kismiysa
+     "açılış ..." cumle basina duser. Bas harf burada duzeltilir —
+     iki ayri metin yazmaya gerek yok. ⚠ toLocaleUpperCase('tr'): ev
+     kurali, i/I tuzagi bu kelimelerde yok ama desen bozulmasin. */
+  if (kismiler.length)
+    kismiler[0] = kismiler[0].charAt(0).toLocaleUpperCase('tr') + kismiler[0].slice(1);
+
   const blokKar = !o ? '' : `
       ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
       <div class="ipucu">${o.stok_bazli
@@ -3224,6 +3318,23 @@ async function vOzet(){
         maliyeti hesaba girmiyor — kâr olduğundan <b>yüksek</b> görünüyor.
         Stok sekmesindeki <b>Sayım</b> kartından ay sonu sayımını gir.${
           o.kapanis_stok!=null&&o.acilis_stok==null ? ' (Bu ayın sayımı var, açılışı yok — ikisi de gerekiyor.)' : ''}</div>` : ''}
+      ${/* ⚠ ADIM 13 FAZ 2 · "olculmedi" kutusunun KARDESI, ucuncu bir kopya
+             DEGIL: stok_bazli false ise ustteki kirmizi kutu, true ama
+             sayim kismi ise bu turuncu kutu cikar. Ikisi ayni yerde,
+             ayni sorunun iki derecesi — "ekran birikmesi" kurali. */''}
+      ${/* ⚠ "kalanı sistemdeki miktarla değerlendi" EVIN KENDI CUMLESI —
+             syTopla ayni isi ayni sozlerle anlatiyor, yeni dil uydurulmadi.
+           ⚠ NE YAPILACAGI YAZILMADI: ustteki kirmizi kutu zaten "Sayım
+             kartından gir" diyor ve kararBlogu ayni isi Bugun Duzelt
+             listesinde dugmeyle yapiyor. Ucuncu kopya yer yiyip yeni bir
+             sey soylemiyordu (ADIM 15'te olculen "ekran birikmesi"). */''}
+      ${kismiler.length ? `<div class="uyari-orta" style="margin-top:10px">
+        <b>Tam ölçüm değil.</b> ${kismiler.join(', ')} elle sayıldı;
+        kalanı sistemdeki miktarla değerlendi. Saymadığın ürün sistemde fazla da
+        görünüyor olabilir eksik de — kârın hangi yöne kaydığı <b>bilinmiyor</b>.</div>` : ''}
+      ${sayimHata && o.stok_bazli ? `<div class="uyari-orta" style="margin-top:10px">
+        Sayım kapsamı <b>okunamadı</b> — kaç ürünün elle sayıldığı bilinmiyor,
+        bu rakamın tam ölçüm olup olmadığı da bilinmiyor.</div>` : ''}
       ${+(o.kapsam_disi_nakit||0) !== 0 ? `<div class="uyari-orta" style="margin-top:10px">
         Kasası sayılmayan güne düşen ${tl(Math.abs(+o.kapsam_disi_nakit))} nakit hareketi
         <b>gerçek ciroya katılmadı</b> — o gün kasada ne olduğu bilinmiyor,
@@ -7891,8 +8002,14 @@ async function vStok(){
           <div><label>Hangi ayı kapatıyor</label>
             <input type="month" id="syDonem" value="${syVarsayilanDonem()}" max="${bugun().slice(0,7)}"></div>
           <div><label>Sayım tarihi</label>
-            <input type="date" id="syTarih" value="${bugun()}"></div>
+            ${/* ⚠ ADIM 13 FAZ 2 · bugun() DEGIL syTarihOner: ikisi ayri
+                  varsayilan uretince ekran acilir acilmaz tutarsiz
+                  basliyordu (olculdu, 6 Eylul: Agustos + 06.09). */''}
+            <input type="date" id="syTarih" value="${syTarihOner(syVarsayilanDonem())}"></div>
         </div>
+        ${/* ⚠ gdVadeFark kalibi: hidden div + tazeleyen fonksiyon.
+              Yeni kalip ICAT EDILMEDI. */''}
+        <div class="uyari-orta" id="syDonemNot" hidden style="margin:0 0 10px"></div>
         <div id="sayimListe">${liste.map(s=>`
           <div class="sr">
             <div><div class="sr-ad">${esc(s.ad)}</div><div class="sr-alt">sistemde ${s.mevcut} ${esc(s.birim)}${owner&&+s.ort_maliyet>0?' · birim '+tl(s.ort_maliyet):''}</div></div>
@@ -7925,6 +8042,24 @@ async function vStok(){
   document.querySelectorAll('#sayimListe input').forEach(el => paraBagla(el, null, 3));
   document.getElementById('sayimListe')?.addEventListener('input', syTopla);
   syTopla();
+  /* ADIM 13 FAZ 2 · tarih/donem tutarliligi.
+     ⚠ e.isTrusted KAPISI KULLANILMADI — mfToplam'dan bilerek ayrildim.
+       Orada gerekliydi: mfToplamTazele KENDI yazdigi degerden sonra
+       dispatchEvent ediyor, kapi olmasa program kendi yazisini "elle"
+       sayardi. syDonemDegisti dispatch ETMIYOR, yalniz .value atiyor —
+       ve .value atamasi input olayi URETMEZ. Yani syTarih'e sentetik
+       olay gonderen tek yer ekranTaslakGeriYukle; o da KULLANICININ
+       kendi kaydettigi taslak degerini geri koyuyor, "elle" saymasi
+       DOGRU. Kapiyi birakmis olsaydim bayragi yalniz gercek tarayici
+       koyabilirdi ve OLCEMEZDIM: ilk turda dusen olcut buydu
+       (olculdu: elle yazilan 03.09 -> 31.07'ye EZILDI). */
+  const syT = document.getElementById('syTarih'), syD = document.getElementById('syDonem');
+  const syElle = () => { syT.dataset.elle = syT.value ? '1' : ''; syDonemFark(); };
+  syT?.addEventListener('input',  syElle);
+  syT?.addEventListener('change', syElle);
+  syD?.addEventListener('change', syDonemDegisti);
+  syD?.addEventListener('input',  syDonemDegisti);
+  syDonemFark();
   alimRaporu();
   alacakListe();
 }
@@ -8491,6 +8626,52 @@ function syVarsayilanDonem(){
   if (d.getDate() <= 10) d.setMonth(d.getMonth()-1);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 }
+/* ⚠ ADIM 13 FAZ 2 · VARSAYILAN IKILI TUTARLI OLMALI.
+   OLCULDU (yamasiz -41, bugun 6 Eylul): donem "2026-08" onerilirken tarih
+   "2026-09-06" kaliyordu — sistem kullaniciyi kendi uyaracagi tutarsizliga
+   ITIYORDU. "Ilk 10 gun" kurali KALDIRILMADI; gercek bir ihtiyaci
+   karsiliyor (ay basinda onceki ay kapatilir). Duzelen sey TARIH.
+   Kural: donem BUGUNU iceriyorsa bugun, icermiyorsa o donemin SON GUNU.
+   ⚠ TEK TANIM: hem ilk cizimde hem donem degisiminde bu okunur. */
+const syTarihOner = donem => {
+  const b = bugun();
+  return (b >= donem+'-01' && b <= aySon(donem)) ? b : aySon(donem);
+};
+/* ⚠ TEK METIN: ekrandaki not ile onay penceresi AYNI cumleyi yazar.
+     Iki yerde ayri yazilsaydi biri degisince otekisi eskirdi.
+   ⚠ DUZ METIN (etiket yok): confirm() HTML islemez.
+   ⚠ TURKCE EK: kullanicinin verdigi cumle "Ağustos'a bağlıyorsun" /
+     "6 Eylül'de" idi. Bu ekler AYA GORE DEGISIYOR (Ağustos'a ama Eylül'e;
+     6 Eylül'de ama 6 Kasım'da, 6 Aralık'ta). On iki ay icin ek tablosu
+     yazmak yerine eki DEGISMEYEN kelimeye tasidim: "... ayına" ve
+     "... günü". Anlam birebir ayni, cumle her ayda dogru kuruluyor. */
+const syDonemMetni = (donem, tarih) =>
+  gunAyAdi(tarih) + ' günü saydığın rafları ' + ayKisa(donem)
+  + ' ayına bağlıyorsun. Aradaki alış ve tüketim hareketleri sayımı bozar — '
+  + ayKisa(donem) + ' sonundaki depo bu değildi.';
+/* ⚠ SOYLER, DURDURMAZ (ADIM 06 kurali): kayit ENGELLENMEZ.
+   ⚠ TARIH DONEM ICINDEYSE HICBIR SEY CIKMAZ (ADIM 15 dersi: isaret
+     yalniz gercek bir eksiklikte). */
+function syDonemFark(){
+  const d = document.getElementById('syDonem'), t = document.getElementById('syTarih'),
+        n = document.getElementById('syDonemNot');
+  if (!d || !t || !n) return;
+  const donem = d.value, tarih = t.value;
+  if (!donem || !tarih || (tarih >= donem+'-01' && tarih <= aySon(donem))){
+    n.hidden = true; n.textContent = ''; return;
+  }
+  n.hidden = false; n.textContent = syDonemMetni(donem, tarih);
+}
+/* Donem degisince tarih de o doneme gecer — AMA kullanici tarihi elle
+   yazdiysa DOKUNULMAZ (ADIM 09'daki kdSonOdeme dersi; ev bayragi
+   dataset.elle). Bayrak yalniz GERCEK kullanici olayinda konur
+   (e.isTrusted), yoksa asagidaki programatik atama kendi bayragini
+   koyar ve bir daha hicbir varsayilan isleyemezdi. */
+function syDonemDegisti(){
+  const d = document.getElementById('syDonem'), t = document.getElementById('syTarih');
+  if (d && t && t.dataset.elle !== '1') t.value = syTarihOner(d.value);
+  syDonemFark();
+}
 /* Satır satır yuvarla, sonra topla — RPC de öyle yapıyor.
    Toplayıp sonra yuvarlarsak ekrandaki rakam kaydedilenden 1-2 kuruş sapıyor. */
 const syTutar = (miktar, birim) => Math.round(miktar * birim * 100) / 100;
@@ -8530,7 +8711,12 @@ async function sayimKaydet(){
   const saymadigin = SY_LISTE.length - kalemler.length;
   // Depo DEĞERİ maliyet verisidir — personele miktar onayı gösterilir, TL gösterilmez
   const owner = PROFIL.rol === 'owner';
+  /* ⚠ ADIM 13 FAZ 2 · TEK SATIR, EKRANDAKI NOTLA AYNI METIN. Onay
+     penceresi zaten sayilari yaziyor; tutarsizlik da bir sayidir. */
+  const donemNotu = (tarih >= donem+'-01' && tarih <= aySon(donem))
+    ? '' : syDonemMetni(donem, tarih) + '\n';
   if (!confirm(`${ayAdi(donem)} SAYIMI KAYDEDİLECEK\n\n`
+    + donemNotu
     + `Elle sayılan: ${kalemler.length} ürün\n`
     + (saymadigin ? `Saymadığın ${saymadigin} ürün sistemdeki miktarla değerlenecek\n` : '')
     + (owner ? `Depo değeri: ${tl(toplam)}\n` : '')
