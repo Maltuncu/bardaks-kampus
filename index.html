@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-40">
+<meta name="surum" content="2026-08-27-41">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -8198,7 +8198,95 @@ async function urunDetay(urunId){
         <div class="ud-trh"></div>
         <div style="font-size:13px;font-weight:900">Toplam alınan</div>
         <div class="ud-tut">${toplamAdet.toLocaleString('tr-TR')} ${esc(u.birim)}</div></div>`:''}
+      ${/* ==========================================================
+            AYLIK / YILLIK KIRILIM — YENI SORGU YOK
+            ==========================================================
+            Kullanicinin sozu: "toplam basindan beri olsun, sonra
+            istersem AYLIK YILLIK olarak ALTTAN gorebileyim".
+            Ustteki "Toplam alınan" AYNEN duruyor; bu onun ALTINDA
+            ve KAPALI aciliyor.
+            ⚠ KAPALI: bir onceki tur ekranlardaki tekrari temizledi;
+              her zaman acik duran yeni bir blok o isi geri alirdi.
+            ⚠ KATLAMA ICIN `bdAc` SECILDI, `katlaAc` DEGIL. Ikisi de
+              evde var; `bdAc` aria-expanded'i KENDISI yaziyor
+              (ev bunu bilerek eklemis, AC-05/AO notlari), `katlaAc`
+              yazmiyor. Burasi bir <dialog> ici ve ekran okuyucunun
+              acik/kapali durumu bilmesi gerekiyor. Ikisi de
+              DEGISTIRILMEDI.
+            ⚠ Veri: eldeki `alim` dizisi. Sorgu eklenmedi. */''}
+      ${alim.length ? `<div class="ud-bas" style="margin-top:16px">
+        <span class="ud-blk">DÖNEM KIRILIMI</span>
+        <button class="btn2 kb-bt" id="udKirBtn" aria-expanded="false" aria-controls="udKirk"
+          data-t="aç" onclick="bdAc(this,'udKir')">aç</button></div>
+      <div id="udKirk" hidden>
+        <div class="segment">
+          <button class="sg-btn aktif" id="udKirYil" onclick="udKirilimMod('yil')">Yıllık</button>
+          <button class="sg-btn" id="udKirAy" onclick="udKirilimMod('ay')">Aylık</button>
+        </div>
+        <div id="udKirIcerik"></div>
+      </div>` : ''}
     </div>`;
+  /* ⚠ Kirilim, pencere KURULDUKTAN SONRA ciziliyor: `alim` yerelde
+     kaliyor, modul degiskenine tasinip oradan okunuyor (SY_LISTE ve
+     OZ_O ile ayni kalip). Boylece gorunum degistiginde PENCERE
+     yeniden kurulmuyor — yalnizca liste tazeleniyor, panel acik ve
+     kaydirma yerinde kaliyor. */
+  UD_ALIM = alim; UD_BIRIM = u.birim; UD_KIRILIM_MOD = 'yil';
+  udKirilimCiz();
+}
+
+/* ==================================================================
+   URUN DETAYI · DONEM KIRILIMI
+   ==================================================================
+   ⚠ BIRIM TUZAGI — BU BLOGUN ASIL RISKI. Ayni urun farkli birimlerle
+     alinabiliyor (birim_ad: koli / adet) ve `birim_carpani` onlari
+     urunun TEMEL birimine ceviriyor. Ham `miktar` toplanirsa
+     "2 koli + 3 adet = 5" gibi anlamsiz bir rakam cikar.
+     ⚠ OLCULDU: bugunku "Toplam alınan" bu kurali ZATEN kullaniyor
+       (`alim.reduce((a,x)=>a+x.miktar*x.carpan,0)`). Yani tuzak orada
+       kapali; kirilim AYNI kurali kullanmak zorunda, yoksa iki rakam
+       ayrisir ve alt toplam ust toplami tutmaz.
+   ⚠ ORTALAMA: once TOPLA, sonra BOL. Satir bazinda yuvarlanmis
+     ortalamalarin ortalamasi FARKLI bir sayi verir (syTutar'in dersi).
+   ⚠ BOS DONEM URETILMEZ: yalnizca gercek alimlar gruplaniyor.
+     "0 alindi" ile "hic alinmadi" ayni sey degil (ADIM 07 kurali). */
+let UD_ALIM = [], UD_BIRIM = '', UD_KIRILIM_MOD = 'yil';
+function udKirilimVerisi(alim, mod){
+  const m = new Map();
+  for (const a of alim){
+    if (!a.tarih) continue;
+    const k = mod === 'yil' ? a.tarih.slice(0,4) : a.tarih.slice(0,7);
+    const v = m.get(k) || { miktar:0, tutar:0, adet:0 };
+    v.miktar += a.miktar * a.carpan;      // ⚠ CARPAN SART
+    v.tutar  += a.tutar;
+    v.adet++;
+    m.set(k, v);
+  }
+  return [...m.entries()].sort((x,y) => y[0].localeCompare(x[0]));   // yeniden eskiye
+}
+function udKirilimMod(mod){
+  UD_KIRILIM_MOD = mod;
+  const y = document.getElementById('udKirYil'), a = document.getElementById('udKirAy');
+  if (y) y.classList.toggle('aktif', mod === 'yil');
+  if (a) a.classList.toggle('aktif', mod === 'ay');
+  udKirilimCiz();
+}
+function udKirilimCiz(){
+  const el = document.getElementById('udKirIcerik'); if (!el) return;
+  const satirlar = udKirilimVerisi(UD_ALIM, UD_KIRILIM_MOD);
+  if (!satirlar.length){ el.innerHTML = '<div class="ud-bos">Alım kaydı yok.</div>'; return; }
+  el.innerHTML = satirlar.map(([donem, v]) => {
+    /* Ortalama = TOPLAM tutar / TOPLAM miktar. Miktar 0 ise bolme yok. */
+    const ort = v.miktar > 0 ? v.tutar / v.miktar : null;
+    const ad = UD_KIRILIM_MOD === 'yil' ? donem : ayAdi(donem);
+    return `<div class="ud-satir">
+      <div class="ud-trh">${esc(ad)}</div>
+      <div><div style="font-size:13px;font-weight:800">${
+        v.miktar.toLocaleString('tr-TR')} ${esc(UD_BIRIM)}</div>
+        <div class="ud-alt">${v.adet} alım${
+          ort != null ? ' · ortalama ' + tl(ort) + '/' + esc(UD_BIRIM) : ''}</div></div>
+      <div class="ud-tut">${tl(v.tutar)}</div></div>`;
+  }).join('');
 }
 
 /* ===== ÜRÜN ALIMLARI — ne aldık, ne kadar, kaça =====
