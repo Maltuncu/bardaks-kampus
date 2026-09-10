@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-45">
+<meta name="surum" content="2026-08-27-47">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2292,7 +2292,19 @@ function uyariSatir(x){
   return `<div class="${UY_AGIR[x.tip]?'uyari-agir':'uyari-orta'} uy-sr"${
       x.tip==='eksik_gun' ? '' : ` onclick="sekmeAc('${UY_HEDEF[x.tip]||'ozet'}')"`}>
     <span class="uy-et">${UY_ETIKET[x.tip]||'UYARI'}</span>
-    <span class="uy-mt">${esc(x.mesaj)}</span>
+    ${/* ⚠ Y30 · TUTAR SUNUCUDAN SAYI OLARAK GELIYOR, METINDEN
+           AYIKLANMIYOR. Bicimlendirmeyi EKRAN yapar: tl() zaten
+           toLocaleString('tr-TR') cagiriyor, yani DB'nin lc_numeric
+           yereginden BAGIMSIZ.
+         OLCULDU (kullanici, canli, 11 Eylul): lc_numeric = en_US.UTF-8
+           ve to_char(1234.56,'FM999G999G990D00') "1,234.56" veriyor.
+           Turkiye'de virgul ONDALIK ayracidir — o satir "1,23 TL" diye
+           okunabilirdi.
+         ⚠ tutar YOKSA hicbir sey EKLENMEZ: vade/stok/eksik_gun
+           dallarinin tutari yok, yanlarina bos bir " · TL" gelmemeli.
+         ⚠ Gecis penceresinde (sunucu henuz tutar gondermiyor) bu dal
+           hic calismaz ve satir BUGUNKU haliyle cizilir. */''}
+    <span class="uy-mt">${esc(x.mesaj)}${x.tutar != null ? ' · ' + tl(x.tutar) : ''}</span>
     ${x.tip==='eksik_gun' ? `<button class="btn2" style="margin-left:8px"
         onclick="event.stopPropagation();kapaliGunIsaretle('${x.tarih}')">Kapalıydı</button>
       <button class="btn2" style="margin-left:4px"
@@ -2315,14 +2327,47 @@ function uyariSatir(x){
      baslik yerine eski davranis. Gorunumun mesaj metni degisirse burasi
      da degismeli (kaynak: v_uyarilar, taban migration'i). */
 const UY_GRUP = [
-  { k:'fatura_vadesiz', tip:'fatura', on:'Ödenmemiş fatura (vade girilmemiş',
-    ad:n => n + ' faturanın vadesi girilmemiş', eylem:'Gir' },
-  { k:'fatura_gecmis',  tip:'fatura', on:'Vadesi geçmiş fatura:',
+  /* ⚠ Y27 · AD ve EYLEM ODEME DILINE CEVRILDI. KULLANICI KARARI
+       (10 Eylul): fatura bazinda VADE girilmiyor ve girilmeyecek —
+       tedarikciyle cari hesap gibi calisiliyor, odemeler girilip
+       bakiyeden takip ediliyor. Eski cumle ("vadesi girilmemiş") ve
+       eski dugme ("Gir") kullanicinin ASLA doldurmayacagi alani
+       istiyordu; kapanamayan alarm.
+     ⚠ UYARININ KENDISI MESRU: bu faturalar odenmemis, toplami yaziyor
+       ve ODENDIGINDE KAPANIYOR. Yanlis olan ADI ve EYLEMI idi.
+     ⚠ `on:` PREFIXINE DOKUNULMADI — SUNUCU metniyle (v_uyarilar,
+       taban:5647) eslesiyor. Degistirilseydi eslesme SESSIZCE kirilir
+       ve gruplama tamamen dururdu (yukaridaki 'KALIP TUTMAZSA GRUP YOK'
+       notu). Degisen YALNIZ ekranda yazan cumle ve dugme etiketi.
+     ⚠ UY_HEDEF.fatura = 'tedarikci' — hedef zaten dogru, dokunulmadi.
+
+     ⚠ Y28 FAZ 1 · `kod` ALANI EKLENDI, METIN ESLESMESI EMEKLIYE
+       AYRILIYOR. Sunucu (FAZ 2 migration'i) her uyari satirina kendi
+       kodunu yazacak; eslesme once ONA bakar, kod yoksa bugunku `on:`
+       prefix yolu AYNEN calisir.
+     ⚠ `on:` PREFIXLERI SILINMEDI — GECIS PENCERESI ICIN DURUYORLAR.
+       FAZ 1 yayinlandiginda sunucu henuz kod GONDERMIYOR; prefix yolu
+       devrede olmasaydi o pencerede gruplama TAMAMEN DURUR ve on bir
+       fatura on bir satir olurdu. Bu yuzden sira ters olamaz:
+       ONCE istemci (bu dosya), SONRA migration.
+     ⚠ `k` ANAHTARI DEGISMEDI. `fatura_vadesiz` adi artik yaniltici
+       (uyari vade degil ODEME diyor) ama o bir IC anahtar — kullanici
+       gormuyor, `kod` degeriyle birebir ayni tutuluyor. Surum sinirinda
+       ad degistirmek gecis penceresini karmasiklastirirdi. */
+  { k:'fatura_vadesiz', tip:'fatura', kod:'fatura_vadesiz',
+    on:'Ödenmemiş fatura (vade girilmemiş',
+    ad:n => n + ' faturanın ödemesi girilmemiş', eylem:'Öde' },
+  { k:'fatura_gecmis',  tip:'fatura', kod:'fatura_gecmis',
+    on:'Vadesi geçmiş fatura:',
     ad:n => n + ' faturanın vadesi geçti', eylem:'Öde' },
-  { k:'cek',       tip:'cek',       ad:n => n + ' çekin vadesi yaklaştı/geçti', eylem:'Gör' },
-  { k:'vade',      tip:'vade',      ad:n => n + ' vadenin ödeme günü yaklaştı', eylem:'Gör' },
-  { k:'stok',      tip:'stok',      ad:n => n + ' ürün kritik seviyede',        eylem:'Gör' },
-  { k:'eksik_gun', tip:'eksik_gun', ad:n => n + ' günün gün sonu girilmemiş',   eylem:'Gir' }
+  { k:'cek',       tip:'cek',       kod:'cek',
+    ad:n => n + ' çekin vadesi yaklaştı/geçti', eylem:'Gör' },
+  { k:'vade',      tip:'vade',      kod:'vade',
+    ad:n => n + ' vadenin ödeme günü yaklaştı', eylem:'Gör' },
+  { k:'stok',      tip:'stok',      kod:'stok',
+    ad:n => n + ' ürün kritik seviyede',        eylem:'Gör' },
+  { k:'eksik_gun', tip:'eksik_gun', kod:'eksik_gun',
+    ad:n => n + ' günün gün sonu girilmemiş',   eylem:'Gir' }
 ];
 /* Tutar mesajin SONUNDA, to_char(...,'FM999G999G990D00') || ' TL' bicimiyle.
    ⚠ KURUSA cevrilip TAM SAYI toplanir — float toplami kurus kaydirir. */
@@ -2333,15 +2378,31 @@ function uyariKurus(mesaj){
 }
 const uyariKurusTl = k => Math.floor(k / 100).toLocaleString('tr-TR')
   + ',' + String(k % 100).padStart(2, '0') + ' TL';
-/* Doner: { ozet, ayrinti, acil, ayrintiAdet }
+/* Doner: { ozet, ayrinti, acil, ayrintiAdet, grupAdet }
      ozet    — kapali kartta gorunen satirlar (grup ozeti VEYA tek satir)
      ayrinti — YALNIZ gruplanan turlerin tek tek satirlari ("tumunu gor")
-     acil    — para riskli GRUP sayisi (satir sayisi DEGIL) */
+     acil    — para riskli GRUP sayisi (satir sayisi DEGIL)
+     grupAdet— kapali kartta gorunecek uyari satiri sayisi
+   ⚠ Y26 · grupAdet BURADA URETILIR, ikinci bir sayac YAZILMAZ. Baslik
+     "N uyarı" derken gruplamayi yapan yerin kendi sayisini okur; ayri
+     hesaplasaydi catallanir ve bugunku celiskinin aynisi geri gelirdi.
+   ⚠ bulunan.size = kapali karttaki uyari satiri sayisi: gruplanan her
+     tur BIR giris, kalibi tutmayan her satir da (tek1, tek2...) BIR
+     giris. Yani baslik ile GOVDE ayni sayiyi soyler. */
 function uyariGrupla(liste){
   const bulunan = new Map();
   let tekNo = 0;
   for (const x of liste || []){
-    const g = UY_GRUP.find(y => y.tip === x.tip && (!y.on || String(x.mesaj || '').startsWith(y.on)));
+    /* ⚠ Y28 FAZ 1 · IKI YOL, SIRALI. Sunucu kod gonderdiyse (FAZ 2
+         sonrasi) YALNIZ koda bakilir — metin degisse bile grup tutar.
+         Kod yoksa (gecis penceresi, eski sunucu) bugunku prefix yolu
+         aynen calisir. Ucuncu bir hal yok: kod VAR ama eslesmiyorsa
+         prefix'e DUSULMEZ — sunucu o kodu bilerek gonderdiyse ve
+         karsiligi yoksa satir kendi basina kalir, yanlis gruba
+         yapistirilmaz. */
+    const g = x.kod
+      ? UY_GRUP.find(y => y.kod === x.kod)
+      : UY_GRUP.find(y => y.tip === x.tip && (!y.on || String(x.mesaj || '').startsWith(y.on)));
     const anahtar = g ? g.k : 'tek' + (++tekNo);      // kalip tutmadi — kendi basina
     if (!bulunan.has(anahtar)) bulunan.set(anahtar, { g, uye: [] });
     bulunan.get(anahtar).uye.push(x);
@@ -2353,7 +2414,19 @@ function uyariGrupla(liste){
     if (!g || uye.length === 1){ ozet += uyariSatir(ilk); continue; }   // tek örnek: değişmez
     /* Toplam yalniz TUM uyelerin tutari okunabildiyse yazilir — eksik
        toplami "toplam" diye gostermek yanlis rakam olurdu. */
-    const krs = uye.map(x => uyariKurus(x.mesaj));
+    /* ⚠ Y30 · IKI YOL, kod'un AYNISI:
+         x.tutar varsa  -> SAYIYI kullan (sunucu yapi gonderiyor)
+         yoksa          -> bugunku regex yolu (gecis penceresi)
+       ⚠ uyariKurus / UY_TUTAR_KALIP SILINMEDI: sunucu tutar kolonunu
+         gondermeye baslayana kadar tek yol o.
+       ⚠ REGEX YOLU BUGUN CANLIDA ZATEN null DONUYOR (Ingiliz bicim,
+         olculdu) — yani gecis penceresinde grup toplami gorunmez. Bu
+         BUGUNKU HAL, gerileme DEGIL.
+       ⚠ KURUS DISIPLINI KORUNDU: float toplanmaz. Sayi da kurusa
+         cevrilip TAM SAYI olarak toplanir — mevcut kalibin aynisi. */
+    const krs = uye.map(x => x.tutar != null
+      ? Math.round(Number(x.tutar) * 100)
+      : uyariKurus(x.mesaj));
     const toplam = krs.every(v => v != null) ? krs.reduce((a, v) => a + v, 0) : null;
     /* ⚠ uy-et ROZETI YOK: grup cumlesi turu zaten soyluyor ("11 FATURAnın
        vadesi girilmemiş"). Rozet burada tekrar olurdu ve 375px'te satiri
@@ -2367,7 +2440,7 @@ function uyariGrupla(liste){
     ayrinti += uye.map(uyariSatir).join('');
     ayrintiAdet += uye.length;
   }
-  return { ozet, ayrinti, acil, ayrintiAdet };
+  return { ozet, ayrinti, acil, ayrintiAdet, grupAdet: bulunan.size };
 }
 /* borc.html kutuErisim kalibinin AYNISI — mevcut desen, yenisi yazilmadi. */
 function bfErisim(kutu, etiket){
@@ -2696,7 +2769,20 @@ async function odemelerBlogu(hedefId, ctx){
       <div class="sr-alt" style="margin:-2px 0 0">cari ${tk2(cariT)} + maden rayiç ${tk2(madenBugun)} <b>(piyasayla değişir)</b>${kurFarki !== null ? ' · kur farkı ' + (kurFarki >= 0 ? '+' : '−') + tk2(Math.abs(kurFarki)) : ''}${fiyatiYok ? ' · fiyatı olmayan kayıt hariç' : ''}</div>
     </div>
     <div class="kart" id="bfDuzelt">
-      ${kbaslik('BUGÜN DÜZELT', D.length + ' iş' + (uyL.length ? ' · ' + uyL.length + ' uyarı' : ''),
+      ${/* ⚠ Y26 · BASLIK GRUP SAYAR, SATIR DEGIL — kart kendi kendisiyle
+             celisiyordu. OLCULDU (yamasiz -45, 11 vadesiz fatura + 1 cek
+             + 2 eksik gun): baslik "14 uyarı" diyordu, govde 3 satir
+             gosteriyordu, ACIL rozeti de 2 (grup) sayiyordu. Kullanici
+             "14 uyarı" okuyup bir avuc satir goruyordu.
+           ⚠ DOSYA BU DUZELTMEYI ZATEN BIR KEZ YAPMIS, BASLIKTA UNUTMUS:
+             hemen yukaridaki not "ACIL sayaci artik GRUP sayar: on bir
+             vadesiz fatura tek is, tek alarm" diyor. Ayni cumle baslik
+             icin de gecerliydi.
+           ⚠ SAYI uyariGrupla'dan geliyor (grupAdet), burada YENIDEN
+             HESAPLANMIYOR — ikinci sayac catallanma olurdu.
+           ⚠ "tümünü gör (N)" dugmesi SATIR saymaya devam ediyor: o
+             dugme "kac satir acilacak" diyor, dogru soru bu. */''}
+      ${kbaslik('BUGÜN DÜZELT', D.length + ' iş' + (uyG.grupAdet ? ' · ' + uyG.grupAdet + ' uyarı' : ''),
         `${uyG.acil ? `<span class="rozet rz-hata">ACİL ${uyG.acil}</span>` : ''}${d5Gizli ? `<button class="btn2 kb-bt" id="bfD5b" aria-expanded="false" aria-controls="bfD5k"
         data-t="tümünü gör (${d5Tum})" onclick="bdAc(this,'bfD5')">tümünü gör (${d5Tum})</button>` : ''}`)}
       ${DAcik.map((d) => `<div class="uyari-orta uy-sr"${d[2] ? ' onclick="' + d[2] + '"' : ''}><span class="uy-et">${d[0].toUpperCase()}</span><span style="flex:1">${d[1]}</span><span class="k">${d[2] ? (d[3] || 'Aç') + ' ›' : '—'}</span></div>`).join('')}
