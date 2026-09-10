@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-42">
+<meta name="surum" content="2026-08-27-45">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -722,7 +722,24 @@ function kapsamSeridiCiz(){
   if (!t) p.push({ s:'ks', m:'veri: —' });
   else if (t.bilinmiyor) p.push({ s:'ks eksik', m:'veri tamlığı bilinmiyor' });
   else {
-    const gun = t.eksikGunler.length
+    /* ⚠ Y23 · UC DURUM (sayim rozetiyle AYNI kalip, 735'te olculdu).
+       OLCULDU (yamasiz -43): Y19'dan sonra sistem oncesi ayda eksik
+       listesi bosaliyor ve serit YESIL "gün sonları tam" diyordu —
+       hic kayit yokken tamlik iddiasi.
+       ⚠ KAPI kayitVar'a DEGIL "gun bekleniyor mu"ya bagli. IKISI AYNI
+         SEYI OLCMUYOR ve OLCULDU: v_aylik_ozet'in surucusu `satis`
+         CTE'si ve o gun_sonu'ndan grupluyor — yani kayitVar = "bu ayda
+         GUN SONU girilmis mi". Sistem BASLADIKTAN SONRA hicbir gun
+         sonu girilmemis bir ayda kayitVar da FALSE oluyor (olculdu:
+         Agustos bosaltilinca kayitVar false, eksik 31 gun). kayitVar'a
+         baglasaydim o ay notr gorunur ve GERCEK, KAPANABILIR 31 gunluk
+         bosluk SUSARDI — yanlis yesili yanlis sessizlikle degismis
+         olurdum. "Gun bekleniyor mu" ise tam olarak dogru soru:
+         beklenmiyorsa iddia da yok.
+       ⚠ Yeni renk YOK: mevcut ks / ks eksik / ks tam uclusu. */
+    const gun = !t.gunBekleniyor
+      ? { s:'ks',       m:'gün sonu beklenmiyor' }
+      : t.eksikGunler.length
       ? { s:'ks eksik', m: t.eksikGunler.length + ' gün eksik' }
       : { s:'ks tam',   m:'gün sonları tam' };
     p.push(gun);
@@ -731,8 +748,35 @@ function kapsamSeridiCiz(){
        blogu iki ekran asagida "Tam ölçüm değil" derken serit tam
        olculdugunu iddia ediyordu. Ayni ekranin iki yani celisemez.
        ⚠ Yeni renk YOK: mevcut ks/ks tam/ks eksik uclusu kullaniliyor.
-       Kismi sayim "eksik" degil ama "tam" da degil — notr sinif. */
-    p.push(t.sayimYok   ? { s:'ks eksik', m:'sayım yok' }
+       Kismi sayim "eksik" degil ama "tam" da degil — notr sinif.
+
+       ⚠ Y24 · DORDUNCU DURUM: AY HAKKINDA VERI YOKSA IDDIA DA YOK.
+         OLCULDU (yamasiz -44): `o` null iken sayimYok da sayimKismi de
+         false kaliyor ve rozet son dala — YESIL "sayım var" — dusuyordu.
+         O yesil veri oldugunun kaniti degil, `o`nun null olmasinin
+         ARTIGI idi.
+       ⚠ ON KOSUL OLCULDU: `o` null iken blokKar bos (`!o ? '' : ...`) —
+         Ay Kari blogu HIC cizilmiyor (olculdu: iki bos ayda da false).
+         Yani celisecek ikinci yan yok, notr guvenli.
+       ⚠ KAPI kayitVar — Y23'teki gunBekleniyor DEGIL. IKI ROZET AYRI
+         SORU SORUYOR, o yuzden ayri kapilari var:
+           gun rozeti   : "bu ayda gun BEKLENIYOR muydu"
+           sayim rozeti : "bu donem hakkinda IDDIA EDECEK verimiz var mi"
+         UC AYIRT EDICI HALDE IKISI DE KOSTURULDU (olcum):
+           A Haziran bos          kayitVar F · gunBekleniyor F
+               kayitVar notr ✓    gunBekleniyor notr ✓
+           B Agustos bosaltilmis  kayitVar F · gunBekleniyor T
+               kayitVar notr ✓    gunBekleniyor YESIL "sayım var" ✗
+           C ayin 1'i, Eylul      kayitVar T · gunBekleniyor F
+               kayitVar "sayım yok" ✓ (gercek hal, o VAR)
+               gunBekleniyor notr ✗ (elimizde veri varken susardi)
+         kayitVar UCUNDE de dogru; gunBekleniyor B ve C'de yanlis.
+         Y23'un TAM TERSI — orada kayitVar gercek bir 31 gunluk boslugu
+         susturuyordu, burada susacak bosluk yok.
+       ⚠ METIN "sayım var/yok" IDDIASI TASIMIYOR — ayin kendisi hakkinda
+         konusuyor, sayim hakkinda degil. */
+    p.push(!t.kayitVar  ? { s:'ks',       m:'ay için veri yok' }
+         : t.sayimYok   ? { s:'ks eksik', m:'sayım yok' }
          : t.sayimKismi ? { s:'ks',       m:'sayım kısmi' }
          :                { s:'ks tam',   m:'sayım var' });
   }
@@ -810,21 +854,66 @@ const dunTarih = () => { const d = new Date(); d.setDate(d.getDate() - 1); retur
    ⚠ BUGUN SAYILMAZ: bugunun gun sonu aksam girilir. Sunucunun ust
      siniri da CURRENT_DATE-1 — bu noktada iki tanim ARTIK UYUSUYOR.
    ⚠ SAF FONKSIYON: sorgu yapmaz, tarihleri disaridan alir. Boylece
-     iki cagri yeri de AYNI hesabi kullanir, ikinci hesap kalmaz. */
-function ayinEksikGunleri(ay, girilenler, kapalilar){
+     iki cagri yeri de AYNI hesabi kullanir, ikinci hesap kalmaz.
+
+   ⚠ Y19 · ALT SINIR (ilkGun) — KAPANAMAYAN ALARM DUZELTMESI.
+     OLCULDU (yamasiz -42, duzenek sistemi 12 Temmuz'da baslatiyor):
+       2026-06 acilinca ayin 30 gununun TAMAMI "gun sonu yok" diye
+       listeleniyor, serit "30 gun eksik" ilan ediyordu. Girilecek bir
+       sey yok — o gunlerde sistem yoktu. ozAyDegistir yalniz GELECEGI
+       kesiyor, gecmise sinirsiz gidiyor.
+     ⚠ YALNIZ ILK KAYITTAN KESIN ONCEKI GUNLER SUSAR. Baslangictan
+       SONRAKI bir bosluk GERCEK bir bosluktur ve listelenmeye devam
+       eder — olculdu: ilk kaydin ayinda (2026-07) yamasiz [1..11, 20,
+       21], yamali [20, 21]. Toptan susturma bu ikinci yariyi da
+       gotururdu.
+     ⚠ ilkGun YOKSA (sorgu dustu ya da hic gun sonu yok) davranis
+       BUGUNKUYLE AYNI kalir: hepsi listelenir. Sessiz gizleme yok;
+       yanlis yon GURULTU tarafina duser, saklama tarafina degil. */
+/* Ayin BEKLENEN gun araligi — TEK TANIM.
+   ust sinir: gecmis ayda ayin son gunu, icinde bulunulan ayda DUN.
+   alt sinir: ilkGun (sistem o gunden once yoktu, gun beklenmez).
+   ⚠ bas > bitis ise o ayda HICBIR gun beklenmiyor demektir. Iki hal:
+       · ay tamamen sistemden ONCE (ilkGun ayin sonundan sonra)
+       · ayin 1'inde o ayi acmak (dun ONCEKI ayda kaliyor)
+     Ikisi de "kayit yok" degil "BEKLENMIYOR" halidir. */
+function ayinBeklenenAralik(ay, ilkGun){
+  const sonTarih = aySon(ay), dun = dunTarih();
+  const bitis = sonTarih < dun ? sonTarih : dun;
+  const bas   = (ilkGun && ilkGun > ay + '-01') ? ilkGun : ay + '-01';
+  return { bas, bitis };
+}
+/* ⚠ Y23 · "TAM" DEMEK ICIN EN AZ BIR GUN BEKLENMIS OLMALI.
+   OLCULDU (yamasiz -43): sistem oncesi ayda eksik listesi bos oldugu
+   icin serit YESIL "gün sonları tam" diyordu — hic kayit yokken tamlik
+   iddiasi. Yanlis yesil, kaldirdigimiz yanlis kirmizidan daha kotu:
+   biri bosuna telaslandirir, oteki bosuna RAHATLATIR. */
+const ayinGunBekleniyorMu = (ay, ilkGun) => {
+  const { bas, bitis } = ayinBeklenenAralik(ay, ilkGun);
+  return bas <= bitis;
+};
+function ayinEksikGunleri(ay, girilenler, kapalilar, ilkGun){
   const girilen = girilenler instanceof Set ? girilenler : new Set(girilenler || []);
   const kapali  = kapalilar  instanceof Set ? kapalilar  : new Set(kapalilar  || []);
-  const sonTarih = aySon(ay), dun = dunTarih();
-  /* Gecmis ayda sinir ayin son gunu, icinde bulunulan ayda DUN. */
-  const bitis = sonTarih < dun ? sonTarih : dun;
+  const sonTarih = aySon(ay);
+  const { bas, bitis } = ayinBeklenenAralik(ay, ilkGun);
   const eksik = [];
   for (let d = 1; d <= +sonTarih.slice(8,10); d++){
     const t = ay + '-' + String(d).padStart(2,'0');
     if (t > bitis) break;
+    if (t < bas) continue;                   // sistem o gun henuz yoktu
     if (!girilen.has(t) && !kapali.has(t)) eksik.push(d);
   }
   return eksik;
 }
+/* Sistemin ilk gun sonu kaydinin tarihi. ⚠ IKI CAGRI YERI DE BUNU
+   KULLANIR — fonksiyon TEK tanim kalir, catallanmaz.
+   ⚠ Hata/bos = null: ayinEksikGunleri sinirsiz calisir (bugunku hal). */
+const ilkGunSonuSorgusu = () =>
+  sb.from('gun_sonu').select('tarih').eq('is_deleted', false)
+    .order('tarih').limit(1);
+const ilkGunSonuTarihi = (sonuc) =>
+  (sonuc && !sonuc.error && (sonuc.data || [])[0]) ? sonuc.data[0].tarih : null;
 /* Gun listesini tarih Set'ine cevirir (iki cagri yeri de bunu kullanir). */
 const tarihKumesi = (satirlar) => new Set((satirlar || []).map(x => x.tarih));
 const tl = n => (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' TL';
@@ -2167,12 +2256,14 @@ const tamlikNotlari = () => {
       + 'onclick="event.stopPropagation();sekmeAc(\'gunsonu\')">'
       + 'Gün sonu yok: ' + esc(t.eksikGunler.join(', ')) + '. Dokun, gir.</div>');
   /* ⚠ SAYIM NOTU BURAYA KONMADI — "ekran birikmesi" kurali.
-     kararBlogu ZATEN "Ay sonu sayımı yok — kâr TAHMİN" satirini
-     Bugun Duzelt listesine, ustelik "Sayım" dugmesiyle koyuyor
-     (bkz. D.push(['sayim', ...])). Ucuncu bir kopya 84px yer yiyip
-     yeni bir sey soylemiyordu (olculdu). Rakamin yanindaki
-     "sayım yok" rozeti HANGI rakamin etkilendigini soyluyor; ne
-     yapilacagini soyleyen yer zaten var. */
+     Rakamin yanindaki "sayım yok" rozeti HANGI rakamin etkilendigini
+     soyluyor; NEDEN ve YON Ay Kari blogundaki tek cumlede yaziyor.
+     ⚠ Y11 GUNCELLEMESI: bu notun eski gerekcesi "kararBlogu zaten
+       Bugun Duzelt listesine 'Sayım' dugmesi koyuyor" idi. O satir
+       SADELESTIRME turunda, ondan sonra da Ay Kari kirmizi kutusu Y11'de
+       kalkti — cunku aylik sayim YAPILMAYACAK (kullanici karari) ve
+       gidilecek bir is yok. Gerekce degisti, KARAR AYNI: burada ucuncu
+       bir kopya olmayacak. */
   return s.join('');
 };
 /* ===== BQ · ALTI ESKI BLOK BES KARTIN ICINE (2026-08-24-2) =====
@@ -2470,12 +2561,16 @@ async function odemelerBlogu(hedefId, ctx){
   if (tutarsiz) D.push(['vade', tutarsiz + ' vadenin tutarı girilmemiş — toplama girmedi', "sekmeAc('vergi')", 'Gir']);
   if (!(kapanis.data && kapanis.data.kapali)) D.push(['kapanis', ayAdi(gecenAy) + ' kapatılmamış', "sekmeAc('yonetim')", 'Aç']);
   /* ⚠ SADELESTIRME · "Ay sonu sayımı yok" SATIRI BURADAN KALKTI.
-     Ayni ekranda, AY KARI kartinin kirmizi kutusu hem daha fazlasini
-     soyluyor ("kâr olduğundan YÜKSEK görünüyor") hem de gidilecek
-     yeri gosteriyor ("Stok sekmesindeki Sayım kartı"). Buradaki satir
-     yalniz ayni cumleyi ucuncu kez tekrarliyordu.
-     ⚠ BILGI KAYBOLMADI: AY KARI kirmizi kutusu (bfAy) + kapsam
-       seridindeki tek kelime duruyor. */
+     Ayni ekranda, AY KARI karti ayni seyi daha aciklayici soyluyordu;
+     buradaki satir yalniz ucuncu kez tekrarliyordu.
+     ⚠ Y11 GUNCELLEMESI — YUKARIDAKI GEREKCE ARTIK ESKI: o gun isaret
+       edilen sey "kirmizi kutu + Stok sekmesindeki Sayım kartı" idi.
+       O kutu Y11'de KALKTI; aylik sayim YAPILMAYACAK (kullanici karari),
+       yani gidilecek bir is yok ve "Bugun Duzelt" listesi zaten
+       YAPILABILIR isler listesi.
+     ⚠ BILGI HALA KAYBOLMUYOR: Ay Kari blogundaki tek cumle mekanizmayi
+       ve YONU ("kâr olduğundan YÜKSEK") soyluyor + kapsam seridi ve
+       rakam yanindaki rozet duruyor. */
   if (ekstrede) D.push(['kart', ekstrede + ' kart taksiti zaten girilmiş ekstrenin içinde — ayrıca sayılmadı', "sekmeAc('tedarikci')", 'Gör']);
 
   /* Kapali kartta GORUNENLER: is SAYISI + gun sonu satirlari (bugun/dun).
@@ -2974,7 +3069,7 @@ async function vOzet(){
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
   const ay = OZ_AY || bugun().slice(0,7);
   OZ_AY = ay;
-  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayGider, ayKapali, aySayim] = await Promise.all([
+  const [gs, kdv, ozet, uyari, talep, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayGider, ayKapali, aySayim, ilkGunSonu] = await Promise.all([
     sb.from('gun_sonu').select('*').eq('tarih', bugun()).eq('is_deleted', false).maybeSingle(),
     sb.from('v_kdv_ay').select('*').eq('donem', ay),
     sb.from('v_aylik_ozet').select('*').eq('donem', ay),
@@ -3014,7 +3109,11 @@ async function vOzet(){
          kapanis BU ayin, acilis BIR ONCEKI ayin sayimi. Yalniz bu ayi
          sorsaydim, acilisi kismi olan bir ay "tam olculdu" gorunurdu. */
     sb.from('sayim').select('donem,sayilan_urun,toplam_urun')
-      .in('donem', [ayOnceki(ay), ay]).eq('is_deleted', false)
+      .in('donem', [ayOnceki(ay), ay]).eq('is_deleted', false),
+    /* ⚠ Y19 · SISTEMIN ILK GUNU. Ayri tur atilmadi, mevcut toplu
+       cagriya EKLENDI (ADIM 15 kalibi). Gun sonu listesi de AYNI
+       sorguyu kullaniyor — iki ekran ayni capayi okur. */
+    ilkGunSonuSorgusu()
   ]);
   /* KRİTİK DİLİMLER — biri düşerse Özet HİÇ çizilmez.
      gs/ayGunler = gün sonu · ozet = v_aylik_ozet · kdv = v_kdv_ay ·
@@ -3049,8 +3148,9 @@ async function vOzet(){
        "kapali gun yok" demektir ve kapatilan gunu eksik gosterirdi —
        yani sessiz yanlis. Hata varsa tamlik BILINMIYOR isaretlenir. */
   const kapaliHata = !!ayKapali.error;
+  const OZ_ILK_GUN = ilkGunSonuTarihi(ilkGunSonu);
   const OZ_EKSIK = kapaliHata ? [] : ayinEksikGunleri(
-    ay, tarihKumesi(ayGunler.data), tarihKumesi(ayKapali.data));
+    ay, tarihKumesi(ayGunler.data), tarihKumesi(ayKapali.data), OZ_ILK_GUN);
   /* ===== ADIM 13 FAZ 2 (C) · SAYIM KAPSAMI · TEK KAYNAK =====
      Serit, rozet, "en az" oneki ve Ay Kari blogu AYNI iki degeri okur;
      ayri ayri hesaplasalardi ekranin bir yani "sayim var" derken
@@ -3069,6 +3169,10 @@ async function vOzet(){
   /* kart-3 (odemelerBlogu) ve kart-5 ayni tamlik bilgisini okur —
      ikisi ayri hesaplarsa ayrisir. Serit de buradan besleniyor. */
   OZ_TAMLIK = { ay, eksikGunler: OZ_EKSIK, bilinmiyor: kapaliHata,
+                /* Y23 · serit "tam" diyebilmek icin en az bir gun
+                   beklenmis olmali. kayitVar ile AYNI SEY DEGIL —
+                   gerekce kapsamSeridiCiz'de, olcumuyle. */
+                gunBekleniyor: ayinGunBekleniyorMu(ay, OZ_ILK_GUN),
                 sayimYok: !!(o && !o.stok_bazli), sayimKismi, kayitVar: !!o };
   kapsamSeridiCiz();
   const acikTalep = talep.data||[];
@@ -3265,9 +3369,25 @@ async function vOzet(){
 
   const blokKar = !o ? '' : `
       ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
+      ${/* ⚠ Y11 · KAPANAMAYAN ALARM YERINE ACIKLAMA.
+             KULLANICI KARARI (PLAN.md): aylik sayim YAPILMAYACAK, sayim
+             yilda bir — temmuzda. Yani stok_bazli KALICI olarak false ve
+             eski kirmizi kutu HER AY, SONSUZA KADAR calacakti; yanindaki
+             gercek uyariyi da goturuyordu.
+             OLCULDU (yamasiz -42, stok_bazli=false): ayni gercek Ay Kari
+             blogunda UC yerde yaziliyordu (ipucu + kirmizi kutu + alt
+             not), rozet ve seritle birlikte BES gorunur yer.
+             ⚠ UC SEY DE BU TEK CUMLEDE: mekanizma (yalniz o ay satin
+               alinan mal maliyet sayiliyor) · YON ("kar olduğundan
+               YÜKSEK") — bu bugun YALNIZ kirmizi kutuda vardi, kutuyla
+               birlikte kaybolsaydi BILGI KAYBI olurdu · NE ZAMAN
+               olculecegi (temmuzdaki yillik sayim), boylece cumle dirdir
+               degil aciklama oluyor.
+             ⚠ YAPILAMAYACAK IS CAGRISI ("Sayım kartından gir") KALKTI:
+               kullanici o isi yapmamaya KARAR VERDI. */''}
       <div class="ipucu">${o.stok_bazli
         ? 'Depo sayımına dayalı: maliyet = açılış deposu + ay içi alış − kapanış deposu. Depodan kullanılan mal da maliyete giriyor.'
-        : 'Fatura bazlı: yalnız o ay <b>satın alınan</b> mal maliyet sayılır.'}
+        : 'Fatura bazlı: yalnız o ay <b>satın alınan</b> mal maliyet sayılıyor. Depodan kullanılan mal maliyete girmiyor, o yüzden kâr olduğundan <b>yüksek</b> görünüyor — aylık sayım yapılmıyor, gerçek maliyet <b>temmuzdaki yıllık sayımda</b> karşılaştırılacak.'}
         Her kalem <b>KDV hariç</b> — indirilecek KDV maliyet değildir.</div>
       ${ozSatir('Net satış (KDV hariç)', tl(o.net_satis_kdv_haric))}
       ${o.stok_bazli
@@ -3313,21 +3433,31 @@ async function vOzet(){
         İptal edilen fiş Z toplamına <b>hiç girmiyor</b>, yani yukarıdaki rakamlar
         zaten onsuz. Buraya sadece bilinsin diye yazılıyor.
       </div>` : ''}
-      ${!o.stok_bazli ? `<div class="uyari-agir" style="margin-top:10px">
-        Bu ayın kârı <b>ölçülmedi</b>. Depo sayımı olmadığı için depodan kullanılan malın
-        maliyeti hesaba girmiyor — kâr olduğundan <b>yüksek</b> görünüyor.
-        Stok sekmesindeki <b>Sayım</b> kartından ay sonu sayımını gir.${
-          o.kapanis_stok!=null&&o.acilis_stok==null ? ' (Bu ayın sayımı var, açılışı yok — ikisi de gerekiyor.)' : ''}</div>` : ''}
-      ${/* ⚠ ADIM 13 FAZ 2 · "olculmedi" kutusunun KARDESI, ucuncu bir kopya
-             DEGIL: stok_bazli false ise ustteki kirmizi kutu, true ama
-             sayim kismi ise bu turuncu kutu cikar. Ikisi ayni yerde,
-             ayni sorunun iki derecesi — "ekran birikmesi" kurali. */''}
+      ${/* ⚠ Y11 · HER AY CALAN KIRMIZI KUTU KALKTI, ICINDEKI KAPANABILIR
+             UYARI KALDI. Ikisi ayni kutuda duruyordu ve biri sonemedigi
+             icin oteki de goze carpmiyordu.
+             KALAN HAL GERCEK VE KAPANABILIR: bu ayin sayimi VAR ama
+             acilisi YOK. Kullanici onceki ayin sayimini girince soner —
+             yani hala bir is var. Yillik sayim kararindan etkilenmiyor:
+             temmuzda sayim girilince bir sonraki ay bu hale duser. */''}
+      ${!o.stok_bazli && o.kapanis_stok != null && o.acilis_stok == null
+        ? `<div class="uyari-agir" style="margin-top:10px">
+        Bu ayın sayımı var, <b>açılışı yok</b> — kâr hesabı için ikisi de gerekiyor.
+        Önceki ayın sayımı girilince bu ayın kârı ölçülmüş olur.</div>` : ''}
+      ${/* ⚠ ADIM 13 FAZ 2 · KISMI SAYIM. stok_bazli TRUE ama sayim eksik
+             kalemli ise cikar; stok_bazli FALSE iken hic cikmaz (o hali
+             ustteki tek cumle anlatiyor).
+           ⚠ Y11 GUNCELLEMESI: eskiden bu kutunun "kardesi" stok_bazli
+             false'taki kirmizi kutuydu. O kutu kalkti; kardeslik artik
+             ustteki ipucu cumlesiyle — ayni sorunun iki derecesi, ayni
+             blokta ("ekran birikmesi" kurali). */''}
       ${/* ⚠ "kalanı sistemdeki miktarla değerlendi" EVIN KENDI CUMLESI —
              syTopla ayni isi ayni sozlerle anlatiyor, yeni dil uydurulmadi.
-           ⚠ NE YAPILACAGI YAZILMADI: ustteki kirmizi kutu zaten "Sayım
-             kartından gir" diyor ve kararBlogu ayni isi Bugun Duzelt
-             listesinde dugmeyle yapiyor. Ucuncu kopya yer yiyip yeni bir
-             sey soylemiyordu (ADIM 15'te olculen "ekran birikmesi"). */''}
+           ⚠ NE YAPILACAGI YAZILMADI: kismi sayimda yapilacak is BELLI
+             (eksik urunleri say) ama bu bir SAYIM ekrani cagrisi degil,
+             kayit anindaki onay penceresi zaten "Saymadığın N ürün"
+             diyor. Ucuncu kopya yer yiyip yeni bir sey soylemiyordu
+             (ADIM 15'te olculen "ekran birikmesi"). */''}
       ${kismiler.length ? `<div class="uyari-orta" style="margin-top:10px">
         <b>Tam ölçüm değil.</b> ${kismiler.join(', ')} elle sayıldı;
         kalanı sistemdeki miktarla değerlendi. Saymadığın ürün sistemde fazla da
@@ -3343,12 +3473,18 @@ async function vOzet(){
       ${+o.kasa_sayilmayan_gun > 0 ? `<div class="uyari-orta" style="margin-top:10px">
         ${o.kasa_sayilmayan_gun} gün kasa sayılmamış — o günlerin Z dışı nakdi bilinmiyor,
         gerçek kâr bundan yüksek olabilir.</div>` : ''}
+      ${/* ⚠ Y11 · BU NOTUN "stok_bazli false" DALI YUKARIDAKI ipucu ILE
+             BIRLESTI (ayni gercegin ucuncu kopyasiydi). Notun kendi isi —
+             beyan kari ile gercek kar AYRI RAKAMDIR — duruyor; o iki
+             halde de gecerli ve baska hicbir yerde yazmiyor.
+             stok_bazli TRUE dali da duruyor: orada maliyetin NEREDEN
+             geldigini soyluyor, ustteki ipucu ise FORMULU veriyor. */''}
       <div class="bilgi-not" style="margin-top:10px">
         <b>Beyana giden kâr</b> yalnız Z raporundaki ciroyu esas alır. <b>Gerçek kâr</b> kasada
-        sayılan ama Z'ye girmeyen nakdi de ekler — ikisi ayrı rakamdır, karıştırma.<br>
-        ${o.stok_bazli
-          ? 'Maliyet depo sayımından geliyor: aldığın değil, <b>tükettiğin</b> mal maliyet sayılıyor. Depodan kullandığın mal da hesaba giriyor.'
-          : 'Şu an yalnız o ay satın alınan mal maliyet sayılıyor. Depodan kullanırsan o maliyet hiçbir yerde görünmez — iki uçlu sayım (açılış + kapanış) girilene kadar bu rakam tahmindir.'}
+        sayılan ama Z'ye girmeyen nakdi de ekler — ikisi ayrı rakamdır, karıştırma.${
+        o.stok_bazli
+          ? '<br>Maliyet depo sayımından geliyor: aldığın değil, <b>tükettiğin</b> mal maliyet sayılıyor. Depodan kullandığın mal da hesaba giriyor.'
+          : ''}
       </div>`;
 
   /* Owner'da bloklar BU AY / BUGÜN DÜZELT kartına gider — kart kabuğu yerine
@@ -3409,10 +3545,12 @@ async function vOzet(){
         <div class="e">AY KÂRI (GERÇEK)</div>
         <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tamlikOnek('kar')+tl(o.gercek_ay_kari):'—'}</div>
         ${/* ⚠ SADELESTIRME · "sayım yok — tahmin" BURADAN KALKTI: hemen
-              ASAGISINDAKI AY KARI blogunun kirmizi kutusu ayni seyi
-              daha aciklayici soyluyor (personel ekraninda ikisi ust
-              uste duruyordu, olculdu). Eksik GUN notu DURUYOR — onun
-              baska yeri yok. */''}
+              ASAGISINDAKI AY KARI blogu ayni seyi daha aciklayici
+              soyluyor (personel ekraninda ikisi ust uste duruyordu,
+              olculdu). Eksik GUN notu DURUYOR — onun baska yeri yok.
+            ⚠ Y11 GUNCELLEMESI: o gun isaret edilen "kirmizi kutu"ydu;
+              kutu kalkti, yerine ayni blokta tek aciklama cumlesi
+              geldi. Bu satirin gerekcesi degismedi. */''}
         <div class="aciklama">${
           OZ_TAMLIK && OZ_TAMLIK.eksikGunler.length
             ? '<b style="color:var(--uyari)">'+OZ_TAMLIK.eksikGunler.length+' gün eksik</b><br>' : ''
@@ -4748,14 +4886,17 @@ async function gunSonuListe(){
   const gunler = data||[];
   // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
   const kasadanMap = {};
-  const [kg, no, kapali] = await Promise.all([
+  const [kg, no, kapali, ilkGunSonu] = await Promise.all([
     sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
     sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
     /* ⚠ ADIM 15 · kapali_gun index'te ILK KEZ OKUNUYOR. Bugune kadar
        yalniz rpc_kapali_gun ile YAZILIYORDU; okuma yolu yoktu ve
        kasten kapatilan gun bu listede "girilmemis" goruniyordu. */
     sb.from('kapali_gun').select('tarih,neden').eq('is_deleted',false)
-      .gte('tarih',bas).lte('tarih',son)
+      .gte('tarih',bas).lte('tarih',son),
+    /* ⚠ Y19 · Ozet ile AYNI capa sorgusu — iki ekran ayrisirsa biri
+       "eksik" derken oteki demezdi. */
+    ilkGunSonuSorgusu()
   ]);
   [...(kg.data||[]), ...(no.data||[])].forEach(x=>{ kasadanMap[x.tarih] = (kasadanMap[x.tarih]||0) + (+x.tutar); });
   const kapaliGunler = kapali.data || [];
@@ -4769,7 +4910,8 @@ async function gunSonuListe(){
      bakiyor, BUGUNU DE sayiyor ve kapali_gun'u HIC sormuyordu; artik
      Ozet ile AYNI fonksiyon. DAVRANIS DEGISIYOR ve ekranda gorunur:
      kapatilan gun ARTIK "girilmemis" sayilmiyor, bugun de sayilmiyor. */
-  const eksikGunler = ayinEksikGunleri(ay, tarihKumesi(gunler), tarihKumesi(kapaliGunler));
+  const eksikGunler = ayinEksikGunleri(ay, tarihKumesi(gunler), tarihKumesi(kapaliGunler),
+    ilkGunSonuTarihi(ilkGunSonu));
   const ayBasligi = ayAdi(ay);   // global ayAdi() fonksiyonuyla ayni ismi kullanma: golgeliyordu
 
   el.innerHTML = `<div class="kart">
@@ -9223,11 +9365,18 @@ async function vPersonel(){
   /* ⚠ ŞUBE SÜZGECİ UYDURULMADI: personel_gider okumasında şube süzgeci
      YOK, vergi_odeme okuması da AYNI kalıyor. İkisi farklı süzgeçle
      okunursa karşılaştırma sessizce yanlış olur. */
-  const [pgSonuc, voSonuc] = await Promise.all([
+  const [pgSonuc, voSonuc, pgIlk] = await Promise.all([
     sb.from('personel_gider').select('*').eq('donem', donem)
       .eq('is_deleted', false).order('personel_adi'),
     sb.from('vergi_odeme').select('tutar,odeme_tarihi,donem').eq('tur', 'sgk')
-      .eq('donem', donem).eq('is_deleted', false)
+      .eq('donem', donem).eq('is_deleted', false),
+    /* ⚠ Y10 · SISTEMIN ILK PERSONEL DONEMI. pgDonem serbest bir
+       <input type="month"> ve ALT SINIRI YOK; sistemden onceki bir
+       donem secilip o donemin SGK odemesi varsa kirmizi kutu caliyordu
+       — girilecek personel kaydi yokken. Ayri tur atilmadi, mevcut
+       toplu cagriya EKLENDI. */
+    sb.from('personel_gider').select('donem').eq('is_deleted', false)
+      .order('donem').limit(1)
   ]);
   const { data } = pgSonuc;
   /* ⚠ RLS'e takılırsa kutu SESSİZCE gizlenir, hata basılmaz:
@@ -9254,10 +9403,25 @@ async function vPersonel(){
         <div style="margin-top:5px">Ödenen tutardır; gecikme zammı ya da idari para cezası içeriyor olabilir. Tahakkuk fişiyle karşılaştır.</div>
       </div>`
     : `<div class="bilgi-not" style="margin:0 0 10px">Bu ayın SGK'si henüz ödenmedi — ekrandaki rakam tahmin. Ödeme dekontunu girince gerçeği burada göreceksin.</div>`);
-  /* (D) SGK ödenmiş ama o ayın personel gideri hiç girilmemiş. */
-  const eksikAy = (kayitlar.length === 0 && odemeVar)
-    ? `<div class="uyari-agir" style="margin:0 0 10px">Bu ay SGK ödenmiş (<b>${tl(odenen)}</b>) ama personel gideri girilmemiş — bu ayın kârı olduğundan yüksek görünüyor.</div>`
-    : '';
+  /* (D) SGK ödenmiş ama o ayın personel gideri hiç girilmemiş.
+     ⚠ Y10 · KAPANAMAYAN ALARM AYRILDI. Iki hal ayni degil:
+       · Donem sistemin ICINDE ve personel satiri yok -> GERCEK eksik,
+         kapanabilir: satiri gir, kutu soner. KIRMIZI KALIR.
+       · Donem sistemin ILK personel doneminden ONCE -> girilecek bir
+         sey YOK; kutu hicbir zaman sonemez. Ayni gercek ALARM degil
+         ACIKLAMA olarak, bir kez, rakamin yaninda durur.
+     ⚠ RAKAM GIZLENMIYOR: odenen tutar iki halde de yaziliyor.
+     ⚠ personel_gider TAMAMEN BOSSA ilkPgDonem null olur, sistemdenOnce
+       false kalir ve BUGUNKU DAVRANIS AYNEN surer. */
+  const ilkPgDonem = (!pgIlk.error && (pgIlk.data || [])[0])
+    ? pgIlk.data[0].donem : null;
+  const sistemdenOnce = !!ilkPgDonem && donem < ilkPgDonem;
+  const eksikAy = !(kayitlar.length === 0 && odemeVar) ? ''
+    : sistemdenOnce
+    ? `<div class="bilgi-not" style="margin:0 0 10px">Bu döneme <b>${tl(odenen)}</b> SGK
+        ödenmiş ama personel gideri yok — <b>${ayAdi(ilkPgDonem)}</b> sistemdeki ilk
+        personel dönemi, ondan öncesi hiç girilmedi. Girilecek bir şey yok.</div>`
+    : `<div class="uyari-agir" style="margin:0 0 10px">Bu ay SGK ödenmiş (<b>${tl(odenen)}</b>) ama personel gideri girilmemiş — bu ayın kârı olduğundan yüksek görünüyor.</div>`;
   const satir = (ad, maas, sgk, prim, yemek, maliyet, silId, kalin, tahmin) =>
     `<tr style="${kalin?'font-weight:800;background:var(--acik)':''}">
       <td style="padding:8px 6px;text-align:left">${ad}</td>
