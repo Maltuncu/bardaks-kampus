@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-48">
+<meta name="surum" content="2026-08-27-49">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -926,6 +926,15 @@ const tl = n => (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,m
 const kasaSifirNot = v => (v != null && +v === 0)
   ? ' <span class="k">(sayıldı, kasa boştu)</span>' : '';
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* ⚠ TURKCE HARF NORMALLESTIRME — TEK TANIM.
+   JS'te 'ı' ile 'i', 'İ' ile 'i' AYRI karakterdir; 'İ'.toLowerCase()
+   birlesik nokta birakir ('i' + U+0307) ve karsilastirma tutmaz.
+   Once [ıİ] -> i, SONRA toLowerCase.
+   ⚠ ONCE vOzet'in ICINDE tanimliydi (yalniz gider kategorisi eslemesi
+     icin). Belgeler aramasi da ayni ihtiyaci tasiyinca MODUL KAPSAMINA
+     alindi — ikinci bir normallestirici YAZILMADI. "İŞYERİ" yazan bir
+     belgeyi "isyeri" arayan bulabilsin diye. */
+const desenAd = (s) => String(s || '').replace(/[ıİ]/g, 'i').toLowerCase();
 
 /* ===== GÖRSEL DİL YARDIMCILARI =====
    Tek satır deseni 34 farklı bilgi türüne uygulanmıştı. Her ekran artık bilgi türüne
@@ -3389,8 +3398,10 @@ async function vOzet(){
      ⚠ Once [ıİ] -> i, SONRA toLowerCase: 'İ'.toLowerCase() birlesik
        nokta birakir ('i' + U+0307) ve desen yine tutmaz.
      ⚠ TEK YER: iki desen de bu yoldan gecer, ikinci bir tanim yok.
-       Map anahtari HAM ad kalir — ekranda kullanicinin yazdigi gorunur. */
-  const desenAd = (s) => String(s || '').replace(/[ıİ]/g, 'i').toLowerCase();
+       Map anahtari HAM ad kalir — ekranda kullanicinin yazdigi gorunur.
+     ⚠ `desenAd` ARTIK MODUL KAPSAMINDA (esc'in yanında): Belgeler
+       aramasi da ayni normallestirmeye ihtiyac duyunca buradaki yerel
+       tanim KALDIRILDI, kopyalanmadi. Davranis birebir ayni. */
   const kategoriTopla = (sec) => {
     const d = (ayGider && ayGider.data) || [];
     const m = new Map();
@@ -10041,24 +10052,83 @@ async function aracMasrafKaydet(){
    OLMAYAN kayıtlar hiç görünmüyordu — kanıt eksiği sessiz kalıyordu.
    Bu ekran ikisini birden gösterir; eksikler üstte, çünkü iş onlarda. */
 let BG_AY = null, BG_TUR = 'hepsi', BG_LISTE = [];
+/* ⚠ Y36 · OLCULDU: `v_belgeler` gorunumunun BES dali var — z_raporu ·
+     pos_slip · fatura · gider · **vergi**. Yani vergi dekontu Belgeler
+     listesinde ZATEN vardi; eksik olan tek kaynak `banka_mutabakat`.
+     (Uc tablo okuyan yer Belgeler ekrani degil, ARSIV PDF ureticisi.)
+   ⚠ `banka_mutabakat` gorunume EKLENMEDI — o bir DB nesnesi ve bu tur
+     migration YOK. Istemci ayri bir sorguyla okuyup listeye katiyor. */
 const BG_TUR_AD = { z_raporu:'Z Raporu', pos_slip:'POS Slip', fatura:'Fatura',
-                    gider:'Gider', vergi:'Vergi/SGK' };
-async function vBelge(){
+                    gider:'Gider', vergi:'Vergi/SGK', mutabakat:'POS Mutabakatı' };
+let BG_ARA = '';
+let BG_YUKLU_AY = null;   // arama tazelemesinde sorgu atmamak icin
+/* ⚠ Y36 · `onbellek` YALNIZ ARAMA icin: her tus vurusunda yeni sorgu
+     atmak yanlis olurdu — arama YUKLENMIS liste uzerinde calisir.
+     Ay degisiminde, belge yuklemesinden sonra ve ilk acilista
+     cagrilar parametresiz gelir, yani liste TAZELENIR. */
+async function vBelge(onbellek){
   const el = document.getElementById('icerik');
   const ay = BG_AY || bugun().slice(0,7);
+  if (onbellek && BG_YUKLU_AY === ay && BG_LISTE && BG_LISTE.length){
+    bgCiz(el, ay); return;                    // sorgu YOK
+  }
   el.innerHTML = '<h2 class="bolum">Belgeler</h2><div class="kart">Yükleniyor...</div>';
 
-  const { data, error } = await sb.from('v_belgeler').select('*')
-    .gte('tarih', ay + '-01').lte('tarih', aySon(ay)).order('tarih', { ascending:false });
+  /* ⚠ Y36 · IKINCI KAYNAK: `banka_mutabakat`. Gorunume eklenemez
+       (migration yok), o yuzden ayri sorguyla okunup listeye katiliyor.
+     ⚠ `pdf_path` NULL olan ESKI kayitlar ALINMIYOR: tiklaninca hicbir
+       sey acmayan satir, yalan soyleyen dugmedir (dosyanin M3 kurali).
+       Suzgec hem sunucuda hem istemcide — sunucu suzgeci dusse bile
+       NULL satir listeye girmesin. */
+  const [{ data, error }, mut] = await Promise.all([
+    sb.from('v_belgeler').select('*')
+      .gte('tarih', ay + '-01').lte('tarih', aySon(ay)).order('tarih', { ascending:false }),
+    sb.from('banka_mutabakat').select('id,donem,durum,pdf_path')
+      .eq('donem', ay).eq('is_deleted', false).not('pdf_path', 'is', null)
+  ]);
   if (error){
     el.innerHTML = `<h2 class="bolum">Belgeler</h2>
       <div class="uyari-agir">Belgeler yüklenemedi: ${esc(hataTr(error.message))}</div>`;
     return;
   }
   BG_LISTE = data || [];
+  /* ⚠ Mutabakat sorgusu DUSERSE liste yine cizilir, yalniz o satir
+     eksik kalir — Belgeler ekraninin tamami kaybolmaz. */
+  (mut && !mut.error ? (mut.data || []) : []).forEach(m => {
+    if (!m.pdf_path) return;
+    BG_LISTE.push({ kayit_id:m.id, tur:'mutabakat', tur_ad:'POS Mutabakatı',
+      sube_id:AKTIF_SUBE, tarih:aySon(m.donem), tutar:0,
+      baslik:'POS ekstresi · ' + ayAdi(m.donem)
+             + (m.durum ? ' · ' + (m.durum === 'uyumlu' ? 'uyumlu' : 'fark var') : ''),
+      yol:m.pdf_path });
+  });
+  BG_YUKLU_AY = ay;
+  bgCiz(el, ay);
+}
+/* Cizim · sorgu YAPMAZ, BG_LISTE'yi kullanir. vBelge hem ilk yuklemede
+   hem arama tazelemesinde BURAYI cagirir — iki ayri cizim kodu olmasin. */
+function bgCiz(el, ay){
   const eksik = BG_LISTE.filter(x => !x.yol);
   const eksikTutar = eksik.reduce((a,x) => a + (+x.tutar||0), 0);
-  const gorunen = BG_TUR === 'hepsi' ? BG_LISTE : BG_LISTE.filter(x => x.tur === BG_TUR);
+  const turSuzulmus = BG_TUR === 'hepsi' ? BG_LISTE : BG_LISTE.filter(x => x.tur === BG_TUR);
+  /* ⚠ Y36 · METIN ARAMASI · YUKLENMIS LISTE UZERINDE, yeni sorgu YOK.
+     ⚠ TURKCE HARF · IKI MEVCUT YARDIMCI BIRLESTIRILDI, YENISI YAZILMADI:
+       `desenAd` (ı/İ → i, sonra lower) TEK BASINA ı/İ eksenini cozuyor
+       ama ş/ğ/ü/ö/ç'ye dokunmuyor. Olculdu: "İŞYERİ" basligi "İŞYERİ" ·
+       "işyeri" · "ışyerı" ile BULUNUYORDU, ASCII "isyeri" ile BULUNMUYOR;
+       ayni sekilde "agustos" yazan "ağustos"u bulamiyordu (0 sonuc).
+       `trDuz` (jsPDF icin yazilmis tam ASCII cevrimi) ile birlestirilince
+       her iki eksen de duzeliyor ve ONCEDEN CALISAN hicbir sorgu
+       bozulmuyor — olculdu: 1→1, 3→3, 0→1 ve 0→3.
+     ⚠ `desenAd`in KENDISINE DOKUNULMADI: `vOzet`in urun adi eslesmesi
+       ayni tanimi okuyor, orada davranis birebir ayni kaldi. Genisletme
+       yalniz BU cagri yerinde, iki mevcut fonksiyonun bilesimi olarak.
+     ⚠ Baslik VE tur adi birlikte aranir: kullanici "mutabakat" ya da
+       "vergi" diye tur adiyla da arayabilir. */
+  const bgDesen = (s) => desenAd(trDuz(s));
+  const aranan = bgDesen(BG_ARA.trim());
+  const gorunen = !aranan ? turSuzulmus : turSuzulmus.filter(x =>
+    bgDesen((x.baslik || '') + ' ' + (BG_TUR_AD[x.tur] || x.tur || '')).includes(aranan));
   // Eksikler üstte: yapılacak iş onlar
   const sirali = [...gorunen].sort((a,b) => (a.yol?1:0) - (b.yol?1:0) || (a.tarih < b.tarih ? 1 : -1));
 
@@ -10095,9 +10165,21 @@ async function vBelge(){
           </button>`).join('')}
       </div>
     </div>
+    ${/* ⚠ Arama kutusu stok ekranindaki kalibin AYNISI (type=search +
+          oninput + bos sonuc notu). Yeni desen icat edilmedi. */''}
+    <div class="kart">
+      <input type="search" id="bgAra" placeholder="Belge ara — örn: ekstre, elektrik, dekont"
+        value="${esc(BG_ARA)}" oninput="bgAraDegisti(this.value)" autocomplete="off"
+        style="margin:0">
+      ${aranan ? `<div class="bilgi-not" style="margin:8px 0 0">${gorunen.length} sonuç
+        · <span class="tikla" style="text-decoration:underline"
+          onclick="bgAraDegisti('')">aramayı temizle</span></div>` : ''}
+    </div>
     <div class="kart">
       ${sirali.length === 0
-        ? bosDurum('belge','Bu ayda kayıt yok','Başka bir ay seç.')
+        ? (aranan
+            ? bosDurum('belge','Aramaya uyan belge yok','Başka bir kelime dene ya da aramayı temizle.')
+            : bosDurum('belge','Bu ayda kayıt yok','Başka bir ay seç.'))
         : sirali.map(x => `<div class="liste-satir">
             <div class="l-sol">
               <div class="b">${esc(x.baslik || BG_TUR_AD[x.tur] || '—')}
@@ -10113,7 +10195,14 @@ async function vBelge(){
     </div>
     <input type="file" id="bgDosya" accept="image/*,application/pdf,.pdf" style="display:none">
     <div class="hata-msg" id="bgMsg"></div>`;
+  /* ⚠ Yeniden cizim imleci kutunun basina atmasin: odagi ve imlec
+     yerini geri koy. Aksi halde ikinci harfte imlec basa firliyor. */
+  const araEl = document.getElementById('bgAra');
+  if (araEl && BG_ARA){ araEl.focus();
+    araEl.setSelectionRange(BG_ARA.length, BG_ARA.length); }
 }
+/* Arama YUKLENMIS liste uzerinde calisir — yeni sorgu atilmaz. */
+function bgAraDegisti(v){ BG_ARA = String(v || ''); vBelge(true); }
 /* SAHİP PARA HAREKETİ — "kâr var ama para nerede?" sorusunun yarısı burada.
    Sahibin koyduğu/çektiği para kâr değildir ama kasayı ve bankayı değiştirir. */
 /* KAPALI GÜN — kampüs kapalıysa o gün "eksik" sayılmasın.
@@ -11793,9 +11882,37 @@ async function bankaMutabakatKaydet(){
         : '')
     + `Devam edilsin mi?`)) return;
 
+  /* ===== Y35 · POS EKSTRESI ARTIK SAKLANIYOR =====
+     KULLANICI (13 Eylul): "sisteme yüklediğim POS ekstresi nerde,
+     indirip bakmak istiyorum".
+     OLCULDU: PDF `pdfMetinCikar` ile YERELDE okunuyor, rakamlar
+     cikariliyor ve BELGE ATILIYORDU — `p_pdf: null` SABIT yaziliydi.
+     Oysa `rpc_mutabakat_kaydet` p_pdf'i `pdf_path`e YAZIYOR; sunucu
+     tarafi eksiksizdi, kullanilmiyordu. Sistemde belgesi saklanmayan
+     TEK kayit buydu — ustelik mali mutabakatin DAYANAGI olan belge.
+   ⚠ YUKLEME KAYDET ANINDA, ANALIZ ANINDA DEGIL. Olculdu: analiz yalniz
+     `#bmSonuc`u yeniden yaziyor, `#bmPdf` girdisi AYAKTA kaliyor ve
+     dosyayi hala tutuyor. Boylece analiz edilip KAYDEDILMEYEN dosya
+     depoya cop birakmiyor; onay kutusundan SONRA yuklendigi icin
+     vazgecilen kayit da iz birakmiyor.
+   ⚠ HATA YOLU EVIN KALIBI: dort yukleme yeri de (mfFoto, gdFoto,
+     alFoto, voFoto) ayni sekilde davraniyor — hata yaz, dugmeyi geri
+     ver, KAYDETME. Belgesiz kaydedilen bir mutabakat, duzeltmeye
+     calistigimiz denetlenemezligin ta kendisi olurdu.
+   ⚠ KLASOR ADI: mevcut adlar olculdu — `z` · `fatura` · `vergi`.
+     POS ekstresi bunlarin hicbiri degil; `mutabakat` eklendi. */
+  const bmBtn = document.getElementById('bmKaydet');
+  const bmAsil = bmBtn ? bmBtn.textContent : 'Mutabakatı Kaydet';
+  if (bmBtn){ bmBtn.disabled = true; bmBtn.textContent = 'Ekstre yükleniyor...'; }
+  let pdfYol = null;
+  try { pdfYol = await fotoYukle('bmPdf', 'mutabakat'); }
+  catch(e){ mesaj('bmMsg','hata', hataTr(e.message));
+            if (bmBtn){ bmBtn.disabled = false; bmBtn.textContent = bmAsil; } return; }
+  if (bmBtn) bmBtn.textContent = bmAsil;   /* rpcCagir gercek etiketi gorsun */
+
   const data = await rpcCagir('rpc_mutabakat_kaydet', {
     p_idem: idem(), p_sube: AKTIF_SUBE, p_donem: MT_SON.donem,
-    p_gunluk: MT_SON.gunluk, p_ozet: o, p_pdf: null, p_isyeri: MT_SON.isyeri
+    p_gunluk: MT_SON.gunluk, p_ozet: o, p_pdf: pdfYol, p_isyeri: MT_SON.isyeri
   }, 'bmKaydet', 'bmMsg', null);
   if (!data || !data.ok) return;
 
@@ -12205,6 +12322,10 @@ async function akDurumGoster(){
     + akKontrolCiz(k, donem) + '<div id="akSapma"></div>';
   if (PROFIL.rol === 'owner') sapmaCiz(donem, 'akSapma');   // v95 · kâr/KDV rakamı: yalnız owner
 }
+/* ⚠ IKI TUKETICI VAR: (1) arsiv PDF basligi — jsPDF standart fontu
+     Turkce harf basamiyor; (2) Belgeler aramasi (`bgCiz` icindeki
+     `bgDesen`) — ASCII yazip Turkce harfli basligi bulmak buna bagli.
+     Harf eslemesi degistirilirse ARAMA da degisir. */
 function trDuz(s){ // jsPDF standart fontu Türkçe karakter basamıyor — güvenli çevrim
   return String(s||'').replace(/ğ/g,'g').replace(/Ğ/g,'G').replace(/ü/g,'u').replace(/Ü/g,'U')
     .replace(/ş/g,'s').replace(/Ş/g,'S').replace(/ı/g,'i').replace(/İ/g,'I')
