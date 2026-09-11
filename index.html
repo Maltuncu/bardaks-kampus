@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-49">
+<meta name="surum" content="2026-08-27-50">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -8355,15 +8355,24 @@ function udKutu(){
   return o;
 }
 /* Zaman-fiyat çizgisi. Tek nokta varsa çizgi yok, sadece işaret. */
-function fiyatGrafigi(nk){
+/* ⚠ Y13 · `olcusuz`: zemini belirlenemeyen alimlar. Y EKSENINE
+     KONMAZLAR — koysaydik "bu nokta su fiyatta" demis olurduk, oysa
+     hangi zeminde oldugunu bilmiyoruz. Alt cizgide gri isaret olarak
+     dururlar: alim VAR, ama bu olcege oturmuyor. Dosyanin kurali:
+     bilinmiyor, bir HALDIR — sessizce yanlis cizmektense isaretle. */
+function fiyatGrafigi(nk, olcusuz){
   if(!nk.length) return '';
+  olcusuz = olcusuz || [];
   const G=320, Y=112, sol=46, sag=10, ust=12, alt=22;
   const iw=G-sol-sag, ih=Y-ust-alt;
   const fy=nk.map(p=>p.fiyat);
   let enAz=Math.min(...fy), enCok=Math.max(...fy);
   if(enCok-enAz < 0.005){ const p=Math.max(enCok*0.06, 1); enAz-=p; enCok+=p; }
-  const t0=nk[0].ts, t1=nk[nk.length-1].ts, dt=(t1-t0)||1;
-  const X=p=>sol+(nk.length===1?iw/2:((p.ts-t0)/dt)*iw);
+  /* Zaman ekseni olcusuz noktalari da kapsar — yoksa gri isaret
+     grafigin disina duserdi. */
+  const tumTs=[...nk.map(p=>p.ts), ...olcusuz.map(p=>p.ts)];
+  const t0=Math.min(...tumTs), t1=Math.max(...tumTs), dt=(t1-t0)||1;
+  const X=p=>sol+(tumTs.length===1?iw/2:((p.ts-t0)/dt)*iw);
   const Yp=p=>ust+ih-((p.fiyat-enAz)/(enCok-enAz))*ih;
   const kisa=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1).replace('.',',')+'b':n.toFixed(n<10?2:0).replace('.',',');
   const cizgi=nk.map((p,i)=>(i?'L':'M')+X(p).toFixed(1)+' '+Yp(p).toFixed(1)).join(' ');
@@ -8397,9 +8406,30 @@ function fiyatGrafigi(nk){
         ${p.alisId?`<circle cx="${cx}" cy="${cy}" r="13" fill="transparent" style="cursor:pointer"
           onclick="faturaDetay('${p.alisId}')"><title>${esc(ipucu)}</title></circle>`:''}`;
     }).join('')}
-    <text x="${sol}" y="${Y-6}" font-size="9" font-weight="700" fill="var(--soluk)">${tarihEt(nk[0])}</text>
-    ${nk.length>1?`<text x="${G-sag}" y="${Y-6}" font-size="9" font-weight="700" fill="var(--soluk)"
-       text-anchor="end">${tarihEt(nk[nk.length-1])}</text>`:''}
+    ${/* ⚠ OLCUSUZ ALIMLAR: Y degeri YOK, alt cizgide gri kucuk kare.
+          Yukseklige katilmazlar (enAz/enCok onlardan hesaplanmadi) ve
+          cizgiye baglanmazlar. Gorunurler cunku o tarihte bir alim
+          GERCEKTEN var; yalnizca bu olcege oturmuyor. */''}
+    ${olcusuz.map(p=>{
+      const cx=X(p).toFixed(1), cy=ust+ih;
+      const neden = p.oran==null
+        ? 'KDV oranı bilinmiyor'
+        : 'fatura kendi içinde tutmuyor';
+      const ipucu=new Date(p.ts).toLocaleDateString('tr-TR')
+        + ' · bu alım bu ölçeğe indirilemedi (' + neden + ')'
+        + (p.belge?' · '+p.belge:'') + (p.alisId?' — dokun, faturasi acilsin':'');
+      return `<rect x="${(+cx-3).toFixed(1)}" y="${cy-3}" width="6" height="6"
+          fill="none" stroke="var(--soluk)" stroke-width="1.4" style="pointer-events:none"/>
+        ${p.alisId?`<circle cx="${cx}" cy="${cy}" r="13" fill="transparent" style="cursor:pointer"
+          onclick="faturaDetay('${p.alisId}')"><title>${esc(ipucu)}</title></circle>`:''}`;
+    }).join('')}
+    ${/* ⚠ Etiket KOSULU eskisiyle AYNI birakildi (`nk.length>1`), yalniz
+          olcusuz nokta varsa da yazilir. Degerler t0/t1'den geliyor:
+          olcusuz yokken t0=nk[0].ts ve t1=nk[son].ts, yani cikti birebir
+          eski. */''}
+    <text x="${sol}" y="${Y-6}" font-size="9" font-weight="700" fill="var(--soluk)">${tarihEt({ts:t0})}</text>
+    ${(nk.length>1||olcusuz.length)?`<text x="${G-sag}" y="${Y-6}" font-size="9" font-weight="700" fill="var(--soluk)"
+       text-anchor="end">${tarihEt({ts:t1})}</text>`:''}
   </svg>`;
 }
 /* Fatura detayı — satır artık çıkmaz sokak değil: belge, KDV dökümü, ürünler, düzenleme tek yerde */
@@ -8491,8 +8521,11 @@ async function urunDetay(urunId){
   ov.classList.add('acik');
   const [ur, kl, st] = await Promise.all([
     sb.from('urun').select('kod,ad,birim,paket_ici_adet,kategori,kritik_seviye').eq('id',urunId).maybeSingle(),
+    /* ⚠ Y13 · EKLENEN ALANLAR HEPSI SKALER: kalemde `kdv_orani`,
+         faturada `toplam` · `kdv_tutar` · `kdv_orani`. Gomme derinligi
+         DEGISMEDI (zaten `alis!inner(...tedarikci(ad))` iki kademeydi). */
     sb.from('alis_kalem')
-      .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,alis!inner(id,tarih,belge_no,is_deleted,tedarikci(ad))')
+      .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,kdv_orani,alis!inner(id,tarih,belge_no,is_deleted,toplam,kdv_tutar,kdv_orani,tedarikci(ad))')
       .eq('urun_id',urunId).eq('is_deleted',false).eq('alis.is_deleted',false),
     sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', AKTIF_SUBE).maybeSingle()
   ]);
@@ -8500,15 +8533,91 @@ async function urunDetay(urunId){
   if(!u){ ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Ürün bulunamadı</div></div>
     <button class="ud-kapat" onclick="udKapat()">✕</button></div>`; return; }
 
-  const alim=(kl.data||[]).map(k=>({
-      ts:new Date(k.alis.tarih+'T00:00').getTime(), tarih:k.alis.tarih,
-      fiyat:+k.birim_fiyat||0, miktar:+k.miktar||0, carpan:+k.birim_carpani||1,
-      birim:k.birim_ad||u.birim, tutar:+k.satir_tutar||0, isk:+k.iskonto_orani||0,
-      firma:k.alis.tedarikci?.ad||'—', belge:k.alis.belge_no,
-      alisId:k.alis.id                       // grafik ve satir buradan faturayi acar
-    })).sort((a,b)=>a.ts-b.ts);
+  /* ===== Y13 · GRAFIGIN ZEMINI =====
+     KULLANICI SORUSU: "%20'lik sicrama zam mi, giris bicimi mi?"
+     OLCULDU (7 Eylul yedegi, 51 canli kalem):
+       · `satir_tutar` ISKONTODAN SONRAKI tutar — iskontolu 6 satirin
+         6'si da iskonto dusulmus degere birebir uyuyor, hicbiri brute
+         uymuyor. `birim_fiyat` ise LISTE fiyati, iskontodan ONCE.
+         Yani grafik bugune kadar ODENEN degil ISTENEN fiyati ciziyordu.
+       · `alis.kdv_dahil` bayragi ZEMINI SOYLEMIYOR: 51 kalemin 51'inde
+         `true`. Uc yazici da sabit `true` gonderiyor ve bayrak `toplam`
+         alanini tarif ediyor, `birim_fiyat`i DEGIL. Bayraga bakan bir
+         duzeltme 51 noktanin 51'ini yanlis cevirirdi.
+       · `alis_kdv` matrahinin VARLIGI da ayirac DEGIL: matrahsiz tek
+         fatura olculdugunde kalemleri yine KDV HARIC cikti (ayni urunun
+         ayni fiyati). O proxy ile dogru bir nokta BOZULACAKTI.
+     ZEMIN: MALIYETE GIREN BIRIM TUTAR = `satir_tutar / miktar`.
+       (a) iskonto DUSULMUS, (b) INDIRILECEK KDV cikarilmis.
+     ⚠ NEDEN "odenen" DEGIL: fatura alimlarinda KDV indiriliyor, yani
+       maliyet degil; fis alimlarinda indirilmiyor, yani maliyet — ve
+       `satir_tutar` ikisinde de tam olarak "maliyete giren" tutari
+       tasiyor. Ustelik `v_stok_durum.ort_maliyet` de
+       Σsatir_tutar / Σadet. Yani grafik, HEMEN USTUNDEKI
+       "BIRIM MALIYET" ve "STOK DEGERI" ile AYNI zemine oturuyor.
+       "Odenen" zemini secseydik grafik, uzerindeki iki rakamla
+       celisirdi. Liste fiyati kayip DEGIL: alim dokumunde duruyor. */
+  const alisIdler = [...new Set((kl.data||[]).map(k=>k.alis.id))];
+  /* Faturanin zemini ARITMETIKLE bulunur, bayrakla degil: o faturanin
+     BUTUN kalemlerinin toplami `toplam - kdv_tutar`a mi yoksa `toplam`a
+     mi esit. Bu yuzden kardes kalemler ayrica cekilir. */
+  let kardesTop = null;
+  if (alisIdler.length){
+    const { data:kd, error:ke } = await sb.from('alis_kalem')
+      .select('alis_id,satir_tutar').in('alis_id', alisIdler).eq('is_deleted', false);
+    if (!ke){
+      kardesTop = new Map();
+      (kd||[]).forEach(x => kardesTop.set(x.alis_id,
+        +((kardesTop.get(x.alis_id)||0) + (+x.satir_tutar||0)).toFixed(2)));
+    }
+    /* ke varsa kardesTop null kalir: zemin denetimi ATLANIR, noktalar
+       bugunku gibi cizilir. Sorgu dustu diye grafigi bosaltmak, calisan
+       bir ekrani yok etmek olurdu. */
+  }
+  /* Bir faturanin kalemleri hangi zeminde?
+       'maliyet'   -> indirilecek KDV zaten disarida, dogrudan kullanilir
+       'brut'      -> icinde indirilecek KDV VAR, orani biliniyorsa inecek
+       'tutmuyor'  -> fatura kendi icinde tutmuyor, TAHMIN YOK */
+  const zeminBul = (a) => {
+    const top = +a.toplam || 0, kdvT = +a.kdv_tutar || 0;
+    if (kardesTop == null) return 'maliyet';        // denetim yapilamadi
+    const st = kardesTop.get(a.id);
+    if (st == null || top <= 0) return 'tutmuyor';
+    if (kdvT <= 0) return 'maliyet';                // dusulecek KDV YOK
+    if (Math.abs(st - (top - kdvT)) <= 0.05) return 'maliyet';
+    if (Math.abs(st - top) <= 0.05) return 'brut';
+    return 'tutmuyor';
+  };
 
-  const nk=alim.filter(a=>a.fiyat>0);
+  const alim=(kl.data||[]).map(k=>{
+      const miktar = +k.miktar||0, tutar = +k.satir_tutar||0;
+      const liste = +k.birim_fiyat||0;
+      /* ⚠ `v_urun_son_fiyat.net_birim_fiyat` ile AYNI geri cekilme:
+         miktar yoksa liste fiyati kullanilir. Yeni kural uydurulmadi. */
+      let taban = (miktar > 0 && k.satir_tutar != null)
+        ? +(tutar / miktar).toFixed(4) : liste;
+      const zemin = zeminBul(k.alis);
+      /* ⚠ ORAN UYDURULMAZ: once kalemin orani, sonra faturanin orani.
+         Ikisi de yoksa nokta CEVRILMEZ, ISARETLENIR. */
+      const oran = k.kdv_orani != null ? +k.kdv_orani
+                 : (k.alis.kdv_orani != null ? +k.alis.kdv_orani : null);
+      let kiyas = null;                      // null ise karsilastirilamaz
+      if (zemin === 'maliyet') kiyas = taban;
+      else if (zemin === 'brut' && oran != null && oran >= 0)
+        kiyas = +(taban / (1 + oran/100)).toFixed(4);
+      return {
+        ts:new Date(k.alis.tarih+'T00:00').getTime(), tarih:k.alis.tarih,
+        fiyat:liste, miktar, carpan:+k.birim_carpani||1,
+        birim:k.birim_ad||u.birim, tutar, isk:+k.iskonto_orani||0,
+        firma:k.alis.tedarikci?.ad||'—', belge:k.alis.belge_no,
+        alisId:k.alis.id,                      // grafik ve satir buradan faturayi acar
+        kiyas, zemin, oran
+      };
+    }).sort((a,b)=>a.ts-b.ts);
+
+  /* Grafik KIYAS degerini cizer; `fiyat` (liste) alim dokumunde kalir. */
+  const nk = alim.filter(a=>a.kiyas>0).map(a=>({ ...a, fiyat:a.kiyas }));
+  const olcusuz = alim.filter(a=>!(a.kiyas>0) && (a.tutar>0 || a.fiyat>0));
   const ilk=nk.length?nk[0].fiyat:0, son=nk.length?nk[nk.length-1].fiyat:0;
   const fark=ilk>0?((son-ilk)/ilk*100):0;
   const toplamTutar=alim.reduce((a,x)=>a+x.tutar,0);
@@ -8530,16 +8639,33 @@ async function urunDetay(urunId){
         <div><div class="ud-et">STOK DEĞERİ</div><div class="ud-dg">${s?tl(s.stok_degeri):'—'}</div></div>
       </div>
 
+      ${/* ⚠ Y13 · BASLIK "FIYAT" DEGIL "MALIYET": cizilen sey artik
+            faturanin liste fiyati degil, maliyete giren tutar. Baslik
+            eski kalsaydi grafik dogru cizip yanlis ad tasiyacakti. */''}
       <div class="ud-bas">
-        <span class="ud-blk">BİRİM FİYAT GEÇMİŞİ</span>
+        <span class="ud-blk">BİRİM MALİYET GEÇMİŞİ</span>
         ${nk.length>1?`<span class="ud-trend ${fark>0.5?'ud-zam':(fark<-0.5?'ud-indi':'')}">
           ${fark>0.5?'▲':(fark<-0.5?'▼':'●')} ${fark>0?'+':''}${fark.toFixed(1).replace('.',',')}%</span>`:''}
       </div>
       ${nk.length
-        ? `<div class="ud-graf">${fiyatGrafigi(nk)}</div>
-           ${nk.some(p=>p.alisId)?`<div class="ipucu" style="margin:-8px 0 12px">
-             Bir noktaya dokun — o alımın faturası, belgesi ve önceki fiyatla farkı açılır.</div>`:''}`
-        : `<div class="ud-bos">Bu ürünün fiyat geçmişi yok — henüz fatura satırı girilmemiş.</div>`}
+        ? `<div class="ud-graf">${fiyatGrafigi(nk, olcusuz)}</div>
+           ${/* ⚠ EKRANDA NE DEGISTIGI YAZAR: hangi zemine gore cizildigi
+                 tek cumleyle soylenmezse kullanici yine hangi rakama
+                 baktigini bilemez. */''}
+           ${/* ⚠ KDV CUMLESI YALNIZ DENETIM YAPILABILDIYSE KURULUR:
+                 kardes sorgusu dustuyse zemini DOGRULAMADIK, "KDV
+                 cikarildi" demek dogrulanmamis bir iddia olurdu.
+                 Iskonto cumlesi her halukarda dogru — o `satir_tutar`in
+                 kendisinden geliyor, sorguya bagli degil. */''}
+           <div class="ipucu" style="margin:-8px 0 12px">
+             <b>Birim maliyet</b> — iskonto düşülmüş${kardesTop!=null
+               ? ', indirilecek KDV çıkarılmış' : ''}.
+             Üstteki BİRİM MALİYET ile aynı zemin; liste fiyatı alım dökümünde.${
+             olcusuz.length?`<br><span style="color:var(--uyari)">⚠ ${olcusuz.length} alım bu zemine
+               indirilemedi — alt çizgide gri kare, çizgiye ve yüzdeye katılmadı (sebebi için dokun).</span>`:''}${
+             nk.some(p=>p.alisId)?'<br>Bir noktaya dokun — o alımın faturası ve önceki fiyatla farkı açılır.':''}</div>`
+        : `<div class="ud-bos">Bu ürünün ${olcusuz.length?'karşılaştırılabilir ':''}maliyet geçmişi yok —
+             ${olcusuz.length?olcusuz.length+' alım var ama zemini belirlenemedi.':'henüz fatura satırı girilmemiş.'}</div>`}
       ${nk.length>1 && Math.abs(fark)>0.5
         ? `<div class="ud-bos" style="margin:-10px 0 16px">${esc(u.ad)} ${tl(ilk)} → ${tl(son)}
             (${nk[0].birim} başına). ${fark>0?'Zam':'İndirim'} ${Math.abs(fark).toFixed(1).replace('.',',')}%.</div>` : ''}
