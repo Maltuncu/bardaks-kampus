@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-47">
+<meta name="surum" content="2026-08-27-48">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -12084,8 +12084,10 @@ async function ayKapat(zorlaNeden){
     const el = document.getElementById('akDurum');
     if (el) el.innerHTML = akKontrolCiz(data.kontrol, donem);
     // Zorlama yalnız gerekçeyle
+    /* ⚠ Y20 · ONAY KUTUSU DUZ METIN: oraya HTML ya da nesne BASILAMAZ.
+         akMesaj olmadan nesne gonderirsek "[object Object]" cikar. */
     if (await onaySor(`${donem} KAPATILAMADI`,
-      engel.map(x => '• ' + x).join('\n')
+      engel.map(x => '• ' + akMesaj(x)).join('\n')
       + `\n\nBunları düzeltmeden kapatmak istiyorsan gerekçe yazman gerekiyor.\n`
       + `Gerekçe kayda geçer ve silinemez.\n\nZorlamak istiyor musun?`, 'Zorla kapat')){
       const neden = await nedenSor('Neden bu kontroller tamamlanmadan kapatıyorsun?', null, 10);
@@ -12109,17 +12111,79 @@ async function ayAc(){
   mesaj('akMsg','ok', `${donem} açıldı ✓`);
   vYonetim();
 }
+/* ===== Y20 · AY KAPANIS SATIRLARI TIKLANABILIR =====
+   KULLANICININ SORUSU (10 Eylul): "bu uyarilari tikladigimda neden
+   sorunlarin oldugu yerler acilmiyor, uyarinin anlami ne o zaman"
+   SEBEP OLCULDU: sunucu bu satirlari DUZ CUMLE gonderiyordu; satirin
+   TURU ekrana hic ulasmiyordu, o yuzden nereye goturecegi BILINEMIYORDU.
+   Unutulmus bir onclick DEGILDI.
+   ⚠ COZUM v126'nin AYNISI: sunucu yapi gonderir, ekran metin ayiklamaz.
+     Ayni iki-faz sirasi — ONCE bu dosya yayinlanir, SONRA migration.
+   ⚠ BU SURUM IKISINI DE ANLAR: satir duz metinse bugunku gibi yazilir,
+     nesneyse mesaji yazilir ve kodu varsa hedefe baglanir. Gecis
+     penceresinde eski sunucu duz cumle gonderiyor olacak. */
+const akMesaj = x => (x && typeof x === 'object') ? String(x.mesaj ?? '') : String(x ?? '');
+const akKod   = x => (x && typeof x === 'object') ? (x.kod || null) : null;
+/* ⚠ HEDEFLER OLCULDU, UYDURULMADI. Gecerli sekme adlari SEKMELER_TUM'den:
+     ozet · gunsonu · gider · borc · tedarikci · personel · talep · arac ·
+     vergi · belge · yonetim · stok
+   ⚠ UC SATIR AYNI EKRANDA: ay kapanis karti da banka mutabakat karti da
+     YONETIM ekraninda (vYonetim ikisini de ciziyor). Oraya "sekme ac"
+     demek hicbir sey yapmaz — o satirlar ilgili KARTA kaydirilir.
+   ⚠ sayim_yok'un HEDEFI YOK ve bu BILEREK: kullanici karari geregi
+     aylik sayim YAPILMAYACAK, yani gidip yapilacak bir is yok.
+     Gidecegi olmayan dugme YALAN SOYLER (dosyanin M3 kurali) — orada
+     dugme degil "—" cikar. */
+const AK_HEDEF = {
+  eksik_gun:        { git:"sekmeAc('gunsonu')",            etiket:'Gir' },
+  kasa_sayilmadi:   { git:"sekmeAc('gunsonu')",            etiket:'Gir' },
+  mutabakat_yok:    { git:"akKarta('bankaMutabakatKart')", etiket:'Aç' },
+  mutabakat_farkli: { git:"akKarta('bankaMutabakatKart')", etiket:'Aç' },
+  belge_eksik:      { git:"sekmeAc('belge')",              etiket:'Gör' },
+  acik_talep:       { git:"sekmeAc('talep')",              etiket:'Gör' }
+};
+/* Ayni ekrandaki karta kaydirir — dosyanin mevcut kalibi
+   (scrollIntoView block:'center', bkz. klavye ve dosya birakma).
+   ⚠ behavior:'smooth' DEGIL 'auto' — OLCUM ZORLADI. Olculdu: ayni oge
+     uzerinde smooth ile scrollY 0'da KALIYOR (2.5 sn beklendi), auto
+     ile 0 -> 2147 gidiyor. Sebep ortam (yumusak kaydirma animasyon
+     karesine bagli) ama sonuc su: SMOOTH'U DOGRULAYAMIYORUM. Dogrulanamaz
+     bir kaydirma, hicbir sey yapmayan bir satir riski demek — dosyanin
+     kendi kurali: gidecegi olmayan dugme YALAN SOYLER.
+   ⚠ Ayrica TUTARLI: oteki bes satir sekme degistiriyor, o da anlik. */
+function akKarta(id){
+  const e = document.getElementById(id);
+  if (e) e.scrollIntoView({ block:'center', behavior:'auto' });
+}
+const akSatir = (x) => {
+  const h = AK_HEDEF[akKod(x)];
+  return `<div class="uy-sr"${h ? ` onclick="${h.git}"` : ' style="cursor:default"'}>
+    <span class="uy-mt" style="flex:1">• ${esc(akMesaj(x))}</span>
+    <span class="k" style="flex:none">${h ? esc(h.etiket) + ' ›' : '—'}</span>
+  </div>`;
+};
+/* ⚠ GECIS PENCERESINDE CIKTI BIREBIR AYNI KALIR. Sunucu henuz kod
+     gondermiyorsa hicbir satirin hedefi olamaz; o zaman satir DUZENI
+     de degismez — bugunku madde listesi aynen cizilir.
+   OLCULDU: once her satira "—" koyup 44px'lik satira cevirmistim;
+     gecis penceresinde ciktı BIREBIR AYNI degildi (her satirin sonuna
+     "—" ekleniyordu). Kod gelmeden duzen de degismemeli.
+   ⚠ Kod GELDIGINDE hedefi olmayan satir (sayim_yok) "—" gosterir —
+     orada bu DOGRU: gidilecek yer gercekten yok. */
+const akListe = (arr) => arr.some(akKod)
+  ? arr.map(akSatir).join('')
+  : '<br>' + arr.map(x => '• ' + esc(akMesaj(x))).join('<br>');
 function akKontrolCiz(k, donem){
   if (!k) return '';
   const engel = k.engel || [], uyari = k.uyari || [];
   return `<div style="margin-top:10px">
     ${engel.length
-      ? `<div class="uyari-agir"><b>Kapanışı engelleyen ${engel.length} şey:</b><br>`
-        + engel.map(x=>'• '+esc(x)).join('<br>') + '</div>'
+      ? `<div class="uyari-agir"><b>Kapanışı engelleyen ${engel.length} şey:</b>`
+        + akListe(engel) + '</div>'
       : '<div class="bilgi-not">Zorunlu kontrollerin hepsi tamam.</div>'}
     ${uyari.length
-      ? `<div class="uyari-orta"><b>Kapatır ama eksik kalır:</b><br>`
-        + uyari.map(x=>'• '+esc(x)).join('<br>') + '</div>' : ''}
+      ? `<div class="uyari-orta"><b>Kapatır ama eksik kalır:</b>`
+        + akListe(uyari) + '</div>' : ''}
     <div class="ipucu">Bu ayın KDV'si (sunucu hesabı): <b>${tl(k.kdv_tahmini||0)}</b></div>
   </div>`;
 }
