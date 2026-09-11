@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-50">
+<meta name="surum" content="2026-08-27-52">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1394,8 +1394,14 @@ async function baslat(){
 }
 
 async function katalogYukle(){
+  /* ⚠ Y3 · `mal_alimi` v129 ile geldi. SIRA: MIGRATION ONCE, ISTEMCI
+       SONRA. Kolon yokken PostgREST bu sorguya hata doner, `k.data`
+       null olur ve `KATALOG.kategoriler` BOS diziye duser — yani
+       butun kategori secim listeleri (gider formu, arac masrafi,
+       odeme formu, toplu giris) bosalir. Ters sira GUVENLI DEGIL;
+       provada olculdu ("column mal_alimi does not exist"). */
   const [k, t, u] = await Promise.all([
-    sb.from('gider_kategori').select('id,ad').eq('aktif',true).eq('is_deleted',false).order('ad'),
+    sb.from('gider_kategori').select('id,ad,mal_alimi').eq('aktif',true).eq('is_deleted',false).order('ad'),
     sb.from('tedarikci').select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres').eq('aktif',true).eq('is_deleted',false).order('ad'),
     sb.from('urun').select('id,ad,birim,kod,paket_ici_adet').eq('aktif',true).eq('is_deleted',false).order('kod')
   ]);
@@ -6587,7 +6593,11 @@ function gdTemel(){
       <div class="kbaslik">Temel Gider (elektrik, su, tüp, internet...)</div>
       ${tarihSecici('gdTarih')}
       <label>Kategori</label>
-      <select id="gdKategori">${katlar.map(k=>`<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select>
+      <select id="gdKategori" onchange="gdKatDegisti()">${katlar.map(k=>`<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select>
+      ${/* ⚠ Y3 FAZ 1-c · Isaretli kategori secilince buraya yonlendirme
+            ciziliyor. Isaretsizde BOS kalir — yamasiz ekranla birebir
+            ayni yukseklik (olculdu). */''}
+      <div id="gdMalNot"></div>
       <label>Tutar (KDV dahil)</label><input type="text" inputmode="decimal" id="gdTutar" placeholder="0,00">
       <label>KDV Tutarı (belgede yazanı aynen yaz; yoksa boş bırak)</label>
       <input type="text" inputmode="decimal" id="gdKdvTutar" placeholder="0,00">
@@ -6608,7 +6618,53 @@ function gdTemel(){
     </div>`;
   paraBaglaHepsi(['gdTutar','gdKdvTutar']);
   gdVadeDoldur();
+  gdKatDegisti();        // ilk cizimde de secili kategoriye bakilir
   giderListe();
+}
+/* ===== Y3 FAZ 1-c · MAL ALIMI YONLENDIRMESI =====
+   KULLANICININ KURALI (kendi sozleri): "Bunu musteriye satiyor muyum,
+   ya da sattigim seyin icine giriyor mu?" Evet -> ALIS, hayir -> GIDER.
+ ⚠ ENGELLEMEZ. Kaydet calismaya devam eder; kullanici bilerek buraya
+   yazmak isteyebilir ve karar ONUN. Bu yuzden `uyari-agir` degil
+   `uyari-orta`: kapanabilir bir durum, alarm degil. Kategoriyi
+   degistirince ya da Mal alimina gecince SONER.
+ ⚠ GECMISI KURTARMAZ: `gider` tablosunda urun_id/miktar/birim_fiyat
+   YOK (olculdu). Bu satir yalnizca BUNDAN SONRASI icin; gecmis gider
+   kayitlari fiyat takibine sonradan baglanamaz ve metin bunu iddia
+   ETMIYOR.
+ ⚠ YALNIZ BU FORM: kategori secen baska uc yer daha var (arac masrafi
+   `agKategori`, odeme formundaki "diger" `…Kategori`, toplu giris
+   satiri). Gorev "Gider ekrani" dedi ve mal alimina gecis yalniz
+   buradan anlamli — otekiler BILEREK dokunulmadi. */
+function gdKatDegisti(){
+  const el = document.getElementById('gdMalNot'); if (!el) return;
+  const s = document.getElementById('gdKategori');
+  const k = (KATALOG.kategoriler||[]).find(x => x.id === (s ? s.value : null));
+  if (!k || !k.mal_alimi){ el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="uyari-orta" style="margin:8px 0 0">
+    <b>${esc(k.ad)}</b> mal alımı olarak işaretli — müşteriye sattığın ya da
+    sattığının içine giren bir şey. Buraya yazarsan <b>kaç kilo, kaça</b> aldığın
+    kaydolmaz; fiyatı sonra karşılaştıramazsın. Yine de kaydedebilirsin.
+    ${/* ⚠ `display:block`: satir ici birakilinca dugme cumlenin ORTASINA
+          oturuyor ve son kelimeler etrafinda kiriliyordu (ekrandan
+          olculdu). Kendi satirinda duruyor. */''}
+    <button class="btn2" style="display:block;margin-top:8px" onclick="gdMalAlimina()">Mal alımına geç ›</button>
+  </div>`;
+}
+/* ⚠ DUGME GERCEKTEN ORAYA GOTURUR — gidecegi olmayan dugme yalan
+     soyler (dosyanin M3 kurali). Hedef: Giderler > Fis > "Mal aldim".
+   ⚠ `gdBolumAc` kullanildi, ham atama DEGIL: formda dolu alan varsa
+     taslak sorusunu O soruyor. Kullanici "kal" derse bolum degismez
+     ve buradan da cikilir — yarim bir gecis birakilmaz.
+   ⚠ KAYDIRMA `auto`: Y20'de olculdu, `smooth` bu ortamda
+     DOGRULANAMIYOR; dogrulanamayan kaydirma "hicbir sey yapmayan
+     dugme" riskidir. */
+async function gdMalAlimina(){
+  await gdBolumAc('fis');
+  if (GIDER_BOLUM !== 'fis') return;          // kullanici vazgecti
+  gdFisModSec('mal');
+  const kart = document.getElementById('gdFisIcerik');
+  if (kart) kart.scrollIntoView({ block:'center', behavior:'auto' });
 }
 /* BL · Acik vadeler gider formuna. Olculdu: rpc_gider_kaydet'te p_vade yoktu,
    vadeyi otomatik kapatan tetik yok — kira odenince vade "gecti" kalmaya devam
@@ -8547,8 +8603,31 @@ async function urunDetay(urunId){
        · `alis_kdv` matrahinin VARLIGI da ayirac DEGIL: matrahsiz tek
          fatura olculdugunde kalemleri yine KDV HARIC cikti (ayni urunun
          ayni fiyati). O proxy ile dogru bir nokta BOZULACAKTI.
-     ZEMIN: MALIYETE GIREN BIRIM TUTAR = `satir_tutar / miktar`.
-       (a) iskonto DUSULMUS, (b) INDIRILECEK KDV cikarilmis.
+     ZEMIN: MALIYETE GIREN BIRIM TUTAR =
+       `satir_tutar / (miktar × birim_carpani)`.
+       (a) iskonto DUSULMUS, (b) INDIRILECEK KDV cikarilmis,
+       (c) STOK BIRIMI basina (adet), ALIM birimi (koli) basina DEGIL.
+     ⚠ Y39 · (c) BIR TUR SONRA EKLENDI, CANLI EKRANDAN YAKALANDI:
+       kutu "BIRIM MALIYET 8,54" derken grafigin y ekseni 642-724
+       araligindaydi — 682,80, yani KOLI basina. Ayni TABAN, farkli
+       BIRIM: 8,54 × 80 = 683,2. `miktar` ALIM birimini sayiyor;
+       `birim_carpani` bolmeye hic girmiyordu.
+       `v_stok_durum.ort_maliyet` = net_tutar / Σ(miktar × carpan),
+       yani STOK birimi basina. Grafik onunla ayni zemine ancak
+       carpan da bolunerek oturuyor.
+     ⚠ KOZMETIK DEGIL: tedarikci ayni fiyata 80 yerine 100 adet
+       koydugunda koli fiyati DUZ kalir, adet maliyeti %20 duser.
+       Grafigin yakalamasi gereken sey tam olarak budur.
+     ⚠ CARPAN 0 ya da YOKSA 1 SAYILIR — ve o nokta "zemini
+       bilinmiyor" isaretine DUSURULMEZ. Gerekce: `birim_carpani`
+       semada `numeric(12,3) NOT NULL DEFAULT 1` ve
+       `CHECK (birim_carpani > 0)`; yedekte NULL ya da <=0 olan
+       kalem SIFIR (olculdu). Yani 1'e dusmek bir TAHMIN degil,
+       semanin kendi varsayilanini okumak: "paket yok, 1 alim
+       birimi = 1 stok birimi". KDV ORANI BUNUN TERSI: o kolon
+       hem kalemde hem faturada NULL olabiliyor ve bilinmemesi
+       noktayi BASKA BIR OLCEGE dusuruyor (%20 sapma). Biri
+       bilinmeyen bir HAL, oteki bilinen bir VARSAYILAN. */
      ⚠ NEDEN "odenen" DEGIL: fatura alimlarinda KDV indiriliyor, yani
        maliyet degil; fis alimlarinda indirilmiyor, yani maliyet — ve
        `satir_tutar` ikisinde de tam olarak "maliyete giren" tutari
@@ -8592,10 +8671,14 @@ async function urunDetay(urunId){
   const alim=(kl.data||[]).map(k=>{
       const miktar = +k.miktar||0, tutar = +k.satir_tutar||0;
       const liste = +k.birim_fiyat||0;
-      /* ⚠ `v_urun_son_fiyat.net_birim_fiyat` ile AYNI geri cekilme:
-         miktar yoksa liste fiyati kullanilir. Yeni kural uydurulmadi. */
-      let taban = (miktar > 0 && k.satir_tutar != null)
-        ? +(tutar / miktar).toFixed(4) : liste;
+      const carpan = +k.birim_carpani > 0 ? +k.birim_carpani : 1;
+      const stokAdedi = miktar * carpan;          // Y39 · STOK birimi
+      /* ⚠ Geri cekilme de STOK birimine cevrilir: `birim_fiyat` ALIM
+         birimi basina (koli basina) bir rakam, carpana bolunmezse
+         oteki noktalarla ayni olcekte olmaz. */
+      let taban = (stokAdedi > 0 && k.satir_tutar != null)
+        ? +(tutar / stokAdedi).toFixed(4)
+        : +(liste / carpan).toFixed(4);
       const zemin = zeminBul(k.alis);
       /* ⚠ ORAN UYDURULMAZ: once kalemin orani, sonra faturanin orani.
          Ikisi de yoksa nokta CEVRILMEZ, ISARETLENIR. */
@@ -8607,7 +8690,7 @@ async function urunDetay(urunId){
         kiyas = +(taban / (1 + oran/100)).toFixed(4);
       return {
         ts:new Date(k.alis.tarih+'T00:00').getTime(), tarih:k.alis.tarih,
-        fiyat:liste, miktar, carpan:+k.birim_carpani||1,
+        fiyat:liste, miktar, carpan,
         birim:k.birim_ad||u.birim, tutar, isk:+k.iskonto_orani||0,
         firma:k.alis.tedarikci?.ad||'—', belge:k.alis.belge_no,
         alisId:k.alis.id,                      // grafik ve satir buradan faturayi acar
@@ -8615,8 +8698,14 @@ async function urunDetay(urunId){
       };
     }).sort((a,b)=>a.ts-b.ts);
 
-  /* Grafik KIYAS degerini cizer; `fiyat` (liste) alim dokumunde kalir. */
-  const nk = alim.filter(a=>a.kiyas>0).map(a=>({ ...a, fiyat:a.kiyas }));
+  /* Grafik KIYAS degerini cizer; `fiyat` (liste) alim dokumunde kalir.
+     ⚠ Y39 · BIRIM DE DEGISIR: `alim[].birim` ALIM birimi (koli) ve
+       alim dokumunde OYLE KALMALI — "2 koli × 1.138,00" dogru cumle.
+       Ama grafik artik STOK birimi basina ciziyor; ipucu ve alt
+       cumle "koli basina" deseydi ekran yalan soylerdi. Yalniz
+       grafigin kopyasinda urunun kendi birimi yazilir. */
+  const nk = alim.filter(a=>a.kiyas>0)
+                 .map(a=>({ ...a, fiyat:a.kiyas, birim:u.birim }));
   const olcusuz = alim.filter(a=>!(a.kiyas>0) && (a.tutar>0 || a.fiyat>0));
   const ilk=nk.length?nk[0].fiyat:0, son=nk.length?nk[nk.length-1].fiyat:0;
   const fark=ilk>0?((son-ilk)/ilk*100):0;
@@ -8657,10 +8746,15 @@ async function urunDetay(urunId){
                  cikarildi" demek dogrulanmamis bir iddia olurdu.
                  Iskonto cumlesi her halukarda dogru — o `satir_tutar`in
                  kendisinden geliyor, sorguya bagli degil. */''}
+           ${/* ⚠ Y39 · "Ustteki BIRIM MALIYET ile ayni zemin" cumlesi
+                 DUN YANLISTI (grafik koli basina, kutu adet basinaydi).
+                 Carpan bolene girdigi icin artik DOGRU — ve birimi de
+                 yaziyor ki iddia denetlenebilir olsun. */''}
            <div class="ipucu" style="margin:-8px 0 12px">
-             <b>Birim maliyet</b> — iskonto düşülmüş${kardesTop!=null
+             <b>${esc(u.birim)} başına birim maliyet</b> — iskonto düşülmüş${kardesTop!=null
                ? ', indirilecek KDV çıkarılmış' : ''}.
-             Üstteki BİRİM MALİYET ile aynı zemin; liste fiyatı alım dökümünde.${
+             Üstteki BİRİM MALİYET ile aynı zemin; faturanın kendi ${
+               alim.some(a=>a.carpan>1) ? 'koli/paket fiyatı' : 'birim fiyatı'} alım dökümünde.${
              olcusuz.length?`<br><span style="color:var(--uyari)">⚠ ${olcusuz.length} alım bu zemine
                indirilemedi — alt çizgide gri kare, çizgiye ve yüzdeye katılmadı (sebebi için dokun).</span>`:''}${
              nk.some(p=>p.alisId)?'<br>Bir noktaya dokun — o alımın faturası ve önceki fiyatla farkı açılır.':''}</div>`
@@ -10753,9 +10847,20 @@ async function vYonetim(){
            Liste + silme düğmesi buraya kondu. -->
       <div style="margin-top:14px">
         <div class="k" style="color:var(--soluk);margin-bottom:6px">MEVCUT KATEGORİLER</div>
+        ${/* ⚠ Y3 FAZ 1-b · ISARET KUTUSU MEVCUT SATIRIN ICINE KONDU,
+              yeni ekran acilmadi. Etiket kullanicinin KENDI KURALIYLA
+              ayni dilde: "musteriye satilan ya da icine giren".
+            ⚠ Kutu yalnizca bir ISARET: hicbir kaydi engellemiyor,
+              hicbir kisit getirmiyor. Gider ekraninda yonlendirme
+              gostermek icin okunuyor, o kadar. */''}
         ${(KATALOG.kategoriler||[]).map(k=>`
           <div class="liste-satir">
-            <div class="l-sol"><div class="b">${esc(k.ad)}</div></div>
+            <div class="l-sol"><div class="b">${esc(k.ad)}</div>
+              <label class="k" style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                <input type="checkbox" id="katMal_${k.id}" ${k.mal_alimi?'checked':''}
+                  onchange="kategoriMalAlimi('${k.id}', this.checked)"
+                  style="width:20px;height:20px;flex:none;margin:0;accent-color:var(--ana)">
+                Mal alımı — müşteriye satılan ya da içine giren</label></div>
             <div class="l-sag">
               <button class="bo-btn" id="katSil_${k.id}" style="color:var(--hata)"
                 onclick="kategoriSil('${k.id}','${esc(k.ad)}')">Sil</button>
@@ -12585,6 +12690,36 @@ async function tedarikciEkle(){
    istenmeyen kanal açmamak için beklenmişti.) Bkz. `kategoriSil`.
    ⚠ `gider_kategori`'de ad tekilliği HÂLÂ ÖLÇÜLMEDİ; aynı adla ikinci
    kategori açılabilir olabilir. Kaydedildi, kapsam dışı. */
+/* ⚠ Y3 FAZ 1-b · YENI RPC YAZILMADI: `kategoriEkle` bugun de ham
+     `.insert` kullaniyor ve `owner_all_gider_kategori` policy'si
+     owner'a ALL veriyor (`GRANT SELECT,INSERT,UPDATE ... TO
+     authenticated` duruyor). Ayni kanal.
+   ⚠ HATA DURUMUNDA KUTU GERI ALINIR: RLS owner disindakini durdurur;
+     isaretli gorunup kaydedilmemis bir kutu ekranin yalan soylemesi
+     olurdu. Hata evin kalibiyla `ynKatMsg`e yazilir.
+   ⚠ YENIDEN SORGU YOK: `KATALOG` yerinde guncelleniyor. `katalogYukle`
+     cagirmak butun katalogu bosuna tazelerdi; degisen tek sey bu
+     satirin bayragi.
+   ⚠ DENETIM IZI KENDILIGINDEN: `trg_audit_gider_kategori` her UPDATE'te
+     `audit_log`a satir yaziyor (provada olculdu: isaretleme oncesi 10,
+     sonrasi 11). Yani "bu kategoriyi kim ne zaman isaretledi" kayitli. */
+async function kategoriMalAlimi(id, isaretli){
+  const kut = document.getElementById('katMal_' + id);
+  if (kut) kut.disabled = true;
+  const { error } = await sb.from('gider_kategori')
+    .update({ mal_alimi: !!isaretli }).eq('id', id);
+  if (kut) kut.disabled = false;
+  if (error){
+    if (kut) kut.checked = !isaretli;
+    mesaj('ynKatMsg','hata', hataTr(error.message));
+    return;
+  }
+  const k = (KATALOG.kategoriler||[]).find(x => x.id === id);
+  if (k) k.mal_alimi = !!isaretli;
+  mesaj('ynKatMsg','ok', (k ? k.ad : 'Kategori') + (isaretli
+    ? ' artık mal alımı sayılıyor — gider ekranında yönlendirme çıkacak ✓'
+    : ' artık işletme gideri sayılıyor ✓'));
+}
 async function kategoriEkle(){
   const ad = document.getElementById('ynKatAd').value.trim();
   if (!ad){ mesaj('ynKatMsg','hata','Kategori adı boş.'); return; }
