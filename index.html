@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-55">
+<meta name="surum" content="2026-08-27-56">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -8750,6 +8750,13 @@ async function urunDetay(urunId){
   const nk = alim.filter(a=>a.kiyas>0)
                  .map(a=>({ ...a, fiyat:a.kiyas, birim:u.birim }));
   const olcusuz = alim.filter(a=>!(a.kiyas>0) && (a.tutar>0 || a.fiyat>0));
+  /* ⚠ Y37 · Her alim icin "kiyasi olan bir onceki alim". `alim` zaten
+     kronolojik sirali; zemini belirlenemeyen alimlar komsu SAYILMAZ,
+     tipki grafigin cizgisinde olduklari gibi. Cizim donguse ters
+     sirada dondugu icin bu harita ONCEDEN kurulur. */
+  const ONCEKI_KIYASLI = new Map();
+  { let son = null;
+    alim.forEach(a => { ONCEKI_KIYASLI.set(a, son); if (a.kiyas > 0) son = a; }); }
   const ilk=nk.length?nk[0].fiyat:0, son=nk.length?nk[nk.length-1].fiyat:0;
   const fark=ilk>0?((son-ilk)/ilk*100):0;
   const toplamTutar=alim.reduce((a,x)=>a+x.tutar,0);
@@ -8811,15 +8818,39 @@ async function urunDetay(urunId){
         <span class="ud-trend">${tl(toplamTutar)}</span></div>
       ${alim.length===0?`<div class="ud-bos">Alım kaydı yok.</div>`
         : alim.slice().reverse().map((a,i,dizi)=>{
-            const onceki=dizi[i+1];
-            const zam=onceki&&a.fiyat>onceki.fiyat+0.005, ind=onceki&&a.fiyat<onceki.fiyat-0.005;
+            /* ===== Y37 · KIYAS DA GRAFIKLE AYNI ZEMINDE =====
+               OLCULDU: satirin oku ve yuzdesi `a.fiyat`i kullaniyordu —
+               yani LISTE fiyatini, ALIM birimi basina, iskontodan ONCE.
+               Grafik ise Y13+Y39'dan beri `kiyas`i cizyor:
+               satir_tutar / (miktar × birim_carpani) — iskonto dusulmus,
+               indirilecek KDV cikarilmis, STOK birimi basina.
+               Sonuc: ayni pencerede grafik "0,0%" derken satir "+20,0%"
+               diyebiliyordu. Iki rakam da dogruydu, AYNI SORUYU
+               cevaplamiyorlardi.
+             ⚠ SATIRIN KENDI RAKAMLARINA DOKUNULMADI: miktar × birim
+               fiyat, satir tutari, iskonto notu, koli ici adet, belge no
+               — hepsi FATURANIN rakamlari ve oyle kaliyor. Degisen
+               YALNIZ kiyas.
+             ⚠ ONCEKI, "bir onceki SATIR" degil "kiyasi olan bir onceki
+               ALIM": arada zemini belirlenemeyen bir alim varsa o
+               atlanir. Grafigin cizgisi de aynisini yapiyor (olcusuz
+               noktalar cizgiye katilmiyor); iki yer ayni komsuyu
+               kullanmazsa yuzdeler yine ayrisirdi. */
+            const onc = a.kiyas > 0 ? ONCEKI_KIYASLI.get(a) : null;
+            const kiyasVar = !!(onc && onc.kiyas > 0);
+            const zam = kiyasVar && a.kiyas > onc.kiyas + 0.005;
+            const ind = kiyasVar && a.kiyas < onc.kiyas - 0.005;
             /* "Bu artis ne kardesim" sorusunun cevabi: onceki fiyat ve fark
                satirin uzerinde yazsin, faturayi acmadan gorunsun. */
-            const fark=onceki&&onceki.fiyat>0?((a.fiyat-onceki.fiyat)/onceki.fiyat*100):0;
+            const fark = kiyasVar ? ((a.kiyas - onc.kiyas)/onc.kiyas*100) : 0;
+            /* ⚠ GOSTERILEN RAKAM DA KIYAS: yuzde maliyetten hesaplanip
+               yanindaki tutar listeden kalirsa satir KENDI ICINDE
+               celisir. Birim de yazilir — ustteki "× liste fiyati"
+               ALIM birimi basina, bu ise STOK birimi basina. */
             const farkEt=(zam||ind)&&Math.abs(fark)>0.05
               ? `<div class="ud-alt" style="color:var(--${zam?'hata':'ok'});font-weight:800">
-                  önceki ${tl(onceki.fiyat)} → ${(fark>0?'+':'')+fark.toFixed(1).replace('.',',')}%
-                  (${(a.fiyat-onceki.fiyat>0?'+':'')+tl(a.fiyat-onceki.fiyat)})</div>` : '';
+                  önceki ${tl(onc.kiyas)}/${esc(u.birim)} → ${(fark>0?'+':'')+fark.toFixed(1).replace('.',',')}%
+                  (${(a.kiyas-onc.kiyas>0?'+':'')+tl(a.kiyas-onc.kiyas)})</div>` : '';
             const tik=a.alisId?` onclick="faturaDetay('${a.alisId}')" style="cursor:pointer"`:'';
             return `<div class="ud-satir"${tik}>
               <div class="ud-trh">${new Date(a.ts).toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
