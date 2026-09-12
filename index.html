@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-54">
+<meta name="surum" content="2026-08-27-55">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -3945,16 +3945,28 @@ function paraNotYaz(el, metin){
   n.textContent = metin || '';
   n.style.display = metin ? '' : 'none';
 }
-function paraYapistir(el, eksiVar){
+/* ⚠ Y14 · `bas` PARAMETRESI EKLENDI. Once sabit 2 ile cozup `paraCanli`
+     ile gruplayarak yaziyordu; MIKTAR alanlari (bas=3) icin ikisi de
+     yanlisti. Cagrilmadiginda 2'ye duser — PARA YOLU BIREBIR AYNI. */
+function paraYapistir(el, eksiVar, bas){
+  const n = bas || 2;
   const ham = el.value;
   const eksi = !!eksiVar && /^\s*[-−]/.test(ham);
-  const r = paraCoz(ham, 2, eksiVar);
+  const r = paraCoz(ham, n, eksiVar);
   const metin = r.ok ? String(r.metin || '0').replace(/^-/, '') : null;
   if (metin == null) return false;               // cozulemedi: yazma yoluna dus
-  const yeni = paraCanli((eksi ? '-' : '') + metin, eksiVar);
+  /* ⚠ MIKTAR/GRAM GRUPLANMAZ — yazma ve blur yollarindaki bas===3
+     istisnasinin aynisi. */
+  const yeni = n === 3 ? (eksi ? '-' : '') + metin
+                       : paraCanli((eksi ? '-' : '') + metin, eksiVar);
   el.value = yeni; el.__paraEski = yeni;
   try { el.setSelectionRange(yeni.length, yeni.length); } catch(err){}
-  paraNotYaz(el, PARA_BELIRSIZ.test(ham)
+  /* ⚠ MIKTARDA BELIRSIZLIK YALNIZ NOKTADA: uc ondalikli bir alanda
+       virgullu yazim TEK OKUNUSLUDUR, not yazmak gurultu olurdu.
+       Nokta ise gercekten iki anlamli — uydurma ornek: "1.234" hem
+       1,234 hem 1234 olabilir. Parada oyle degil (iki ondalik), o
+       yuzden orada PARA_BELIRSIZ oldugu gibi kalir. */
+  paraNotYaz(el, (PARA_BELIRSIZ.test(ham) && (n !== 3 || /\./.test(ham)))
     ? '"' + ham.trim() + '" -> ' + yeni + ' olarak okundu. Yanlışsa düzelt.'
     : '');
   return true;
@@ -4003,9 +4015,37 @@ function paraBagla(el, sonra, bas, eksiVar){
   el.__paraEski = el.value;
   /* ⚠ CP · bas===3 MİKTAR/GRAM: eski davranış (yalnız temizle, gruplama yok).
      Para alanında paraCanliUygula paraTemizle'nin işini de yapıyor
-     (geçersiz karakteri o da atıyor), üstüne imleci koruyor. */
+     (geçersiz karakteri o da atıyor), üstüne imleci koruyor.
+   ⚠ Y14 · MIKTAR ALANINDA IKI EKSIK OLCULDU (gercek alanda, gercek
+     olaylarla — saf fonksiyonla degil):
+       (1) YAPISTIRMA YOLU HIC CALISMIYORDU. `paraYapistirmaMi` /
+           `paraYapistir` `paraCanliUygula`nin icinde duruyor, bas===3
+           oraya HIC ugramiyordu. Sonuc: panodan noktali bir sayi
+           yapistiran kullanici onu ONDALIK olarak kaydediyordu ve
+           BELIRSIZLIK NOTU da cikmiyordu — nota giden tek yol o daldi.
+       (2) YAZILAN NOKTA VIRGULE CEVRILMIYORDU. Para alaninda
+           `e.data === '.'` aninda virgule donuyor; miktarda donmuyordu,
+           yani ekranda NOKTA gorunurken deger ONDALIK oluyordu. Ekran
+           kaydedilecek sayiyi YANLIS gosteriyordu.
+     ⚠ GRUPLAMA ZATEN YOKTU: `paraTemizle` ayrac koymuyor, `paraBicimle`
+       bas===3'te `paraCanli`yi atliyor. Olculdu — dort haneli tam
+       sayilar TUS TUS yazildiginda dogru kaydediliyordu. Yani sorun
+       "binlik ayraci konuyor" degil, NOKTANIN iki yolda da sessiz
+       kalmasiydi. */
   el.addEventListener('input', (e) => {
-    if (bas === 3) paraTemizle(el, eksiVar); else paraCanliUygula(el, e, eksiVar);
+    if (bas === 3){
+      if (!(paraYapistirmaMi(el, e) && paraYapistir(el, eksiVar, 3))){
+        /* Yazilan nokta ANINDA virgule — para yolundaki kuralin aynisi.
+           Yalniz BU tusta yazilan noktaya bakilir (e.data). */
+        const p = el.selectionStart == null ? el.value.length : el.selectionStart;
+        if (e && e.data === '.' && p > 0 && el.value[p-1] === '.'){
+          el.value = el.value.slice(0, p-1) + ',' + el.value.slice(p);
+          try { el.setSelectionRange(p, p); } catch(err){}
+        }
+        paraTemizle(el, eksiVar);
+        el.__paraEski = el.value;
+      }
+    } else paraCanliUygula(el, e, eksiVar);
     if(sonra) sonra();
   });
   el.addEventListener('blur',  () => { paraBicimle(el, bas, eksiVar); if(sonra) sonra(); });
