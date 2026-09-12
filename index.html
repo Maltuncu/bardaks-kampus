@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-53">
+<meta name="surum" content="2026-08-27-54">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -11981,9 +11981,15 @@ async function bmKayitliGoster(){
   el.dataset.jeton = jeton;
   el.innerHTML = '<div class="bilgi-not" style="margin:8px 0 10px">Yükleniyor...</div>';
   const [mt, gn] = await Promise.all([
+    /* ⚠ Y34 · `gerceklesen_tutar` ve `gerceklesen_not` v130 ile geldi.
+         SIRA: MIGRATION ONCE, ISTEMCI SONRA. Kolonlar yokken PostgREST
+         bu sorguya hata doner, `mt.data` null olur ve kart "kayitli
+         mutabakat okunamadi" durumuna duser — Y33 ile kazanilan
+         gorunum de kaybolur. Provada olculdu. */
     sb.from('banka_mutabakat')
       .select('id,donem,pdf_path,banka,isyeri_no,toplam_satis,komisyon,maxipuan,'
-            + 'okc_ucret,kesinti_toplam,net_hesaba_gecis,bekleyen_alacak,durum,created_at')
+            + 'okc_ucret,kesinti_toplam,net_hesaba_gecis,bekleyen_alacak,durum,created_at,'
+            + 'gerceklesen_tutar,gerceklesen_not')
       .eq('sube_id', AKTIF_SUBE).eq('donem', d).eq('is_deleted', false).maybeSingle(),
     sb.from('v_mutabakat_gun')
       .select('gun,sistem_tutar,banka_tutar,tutar_farki,sistem_adet,banka_adet,adet_girilmemis,durum')
@@ -12025,6 +12031,7 @@ async function bmKayitliGoster(){
     ${ozSatir('Kesinti toplamı', tl(m.kesinti_toplam||0))}
     ${ozSatir('Net hesaba geçen', tl(m.net_hesaba_gecis||0), true)}
     ${ozSatir('Gelecek aya sarkan alacak', tl(m.bekleyen_alacak||0))}
+    ${bmGerceklesenBlok(m)}
     ${/* ⚠ PDF BAGLANTISI YALNIZ DOSYA VARSA: Y35'ten once kaydedilen
           mutabakatlarda `pdf_path` NULL. Tiklaninca hicbir sey acmayan
           bir baglanti yalan soyler (dosyanin M3 kurali). */''}
@@ -12055,6 +12062,104 @@ async function bmKayitliGoster(){
                 <div class="l-sag" style="color:var(--hata);font-weight:800">${tl(fark)}</div>
               </div>`;
             }).join('')}`;
+  /* ⚠ Y34 · Tutar alani her cizimde YENIDEN baglanir: `bmKayitliGoster`
+     innerHTML yaziyor, eski dinleyici oge ile birlikte dusuyor. */
+  paraBagla(document.getElementById('bmGercek'));
+}
+/* ===== Y34 · "HESABA GECECEK PARA GECTI MI" · IKINCI YARI =====
+   KULLANICI KARARI (13 Eylul, kendi sozleri): "tutar onemli, hesaba
+   gececek para gecmis mi; islem sayisi onemli degil."
+   OLCULDU · SISTEM BUNU KENDI BASINA CEVAPLAYAMIYOR:
+     · `net_hesaba_gecis` bankanin VAAT ETTIGI tutar — POS ozetinden
+       okunup saklaniyor, Y33'ten beri ekranda. Soz verilen taraf hazir.
+     · Karsisina konacak GERCEKLESEN taraf YOK: banka HAREKETI tutan
+       hicbir tablo yok. `banka_bakiye` var ama kendi COMMENT'i "bakiye
+       FOTOGRAFI, muhasebe hareketi degil; toplanmaz" diyor — bakiye
+       fotografi "su POS odemesi yatti mi" sorusunu cevaplamaz.
+     · `gunluk_json` yalniz {gun, adet, tutar} tasiyor; ozet PDF'in
+       gunluk tablosunda "hesaba gecis tarihi" sutunu YOK.
+   COZUM: sistemin bilmedigini KULLANICI soyluyor; sistem saklayip
+   vaatle karsilastiriyor. Otomatik eslestirme DEGIL, iddia da etmiyor.
+ ⚠ BOSSA HICBIR SEY DEMEZ (gorevin d maddesi): ne kirmizi, ne rozet,
+   ne sayac. Kullanici bakmamayi SECEBILIR; bu bir eksiklik degil. Bu
+   oturumda kapanamayan alarmlar tek tek temizlendi
+   (Y10/Y11/Y19/Y23/Y24/Y27) — yenisi acilmiyor.
+ ⚠ NULL ile 0 AYRI (Y18'in kaydi): `paraCoz` bos girdide `metin:''`,
+   "0" girdisinde `metin:'0'` donuyor. Ayrim BU alandan okunuyor;
+   `deger` ikisinde de 0 oldugu icin ona bakmak yanlis olurdu.
+     NULL  -> hicbir sey yazilmaz
+     0,00  -> "hic para yatmamis" denir
+ ⚠ AY KILIDI: `trg_donem_kilidi_banka_mutabakat` UPDATE'te de calisiyor;
+   donemi KAPALI mutabakatin gerceklesen tutari yazilamaz, sunucu
+   AY_KAPALI firlatir. AYRI ON KONTROL EKLENMEDI — `vergiOdemeSil`de
+   ayni durum icin verilmis karar bu: "hataTr bunu zaten ceviriyor,
+   dogru mesaj kendiliginden cikar". */
+function bmGerceklesenBlok(m){
+  const dolu = m.gerceklesen_tutar != null;
+  const soz  = +m.net_hesaba_gecis || 0;
+  const ger  = dolu ? (+m.gerceklesen_tutar || 0) : null;
+  const fark = dolu ? +(ger - soz).toFixed(2) : null;
+  const tuttu = dolu && Math.abs(fark) < 0.005;
+  return `
+    <div class="yy-bas" style="margin-top:14px">GERÇEKTE HESABA GEÇEN</div>
+    ${/* ⚠ ACIKLAMA KISA TUTULDU: bu blok bos kaldiginda da her kartta
+          duruyor; uzun bir metin istege bagli bir alan icin fazla yer
+          kaplardi (olculdu). Iki gercek soyleniyor: sistem gormuyor,
+          bos birakmak serbest. */''}
+    <div class="bilgi-not" style="margin:0 0 8px">Hesap ekstrene bakıp yatan tutarı yaz —
+      sistem banka hareketini göremez. <b>Boş bırakabilirsin.</b></div>
+    <input type="text" inputmode="decimal" id="bmGercek" placeholder="0,00"
+      value="${dolu ? esc(tl(ger).replace(' TL','')) : ''}">
+    <input type="text" id="bmGercekNot" placeholder="İsteğe bağlı not — örn: iki taksitte yattı"
+      value="${esc(m.gerceklesen_not || '')}">
+    <button class="btn2" id="bmGercekKaydet"
+      onclick="bmGerceklesenKaydet('${m.id}')">Gerçekleşeni Kaydet</button>
+    <div class="hata-msg" id="bmGercekMsg"></div>
+    ${!dolu ? '' : tuttu
+      ? `<div class="bilgi-not" style="color:var(--ok);margin-top:8px">
+           <b>Tuttu ✓</b> — söz verilen ${tl(soz)} hesaba geçmiş.</div>`
+      : `<div class="uyari-orta" style="margin-top:8px">
+           ${ger === 0
+             ? `<b>Hiç para yatmamış.</b> Banka ${tl(soz)} geçeceğini yazmıştı.`
+             : `<b>${tl(Math.abs(fark))} ${fark < 0 ? 'EKSİK' : 'FAZLA'} yattı.</b>
+                Söz verilen ${tl(soz)} · hesaba geçen ${tl(ger)}`}
+           ${/* ⚠ ALARM DEGIL, KAPANABILIR: rakam duzeltilince ya da
+                 esitlenince bu satir SONER. */''}
+         </div>`}`;
+}
+/* ⚠ YENI RPC YAZILMADI: `owner_all_banka_mutabakat` policy'si owner'a
+     ALL veriyor ve `GRANT SELECT,INSERT,UPDATE ... TO authenticated`
+     duruyor — `kategoriMalAlimi` (Y3) ile ayni kanal.
+   ⚠ HATA DURUMUNDA YAZILAN KAYBOLMAZ: alan ekranda kalir, hata
+     `bmGercekMsg`e yazilir. Ay kapaliysa hataTr "Bu ay kapatilmis..."
+     der ve kullanici ne yapacagini bilir. */
+async function bmGerceklesenKaydet(id){
+  const btn = document.getElementById('bmGercekKaydet');
+  const inp = document.getElementById('bmGercek');
+  const nt  = document.getElementById('bmGercekNot');
+  if (!inp) return;
+  const p = paraOku(inp);
+  if (!p.ok){ mesaj('bmGercekMsg','hata','Geçersiz tutar — örnek: 1.234,56'); return; }
+  /* ⚠ BOS ile SIFIR: `metin` bos ise kullanici HICBIR SEY yazmadi. */
+  const deger = p.metin === '' ? null : p.deger;
+  if (deger != null && deger < 0){
+    mesaj('bmGercekMsg','hata','Hesaba geçen tutar eksi olamaz.'); return;
+  }
+  const eski = btn ? btn.textContent : null;
+  if (btn){ btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
+  const { error } = await sb.from('banka_mutabakat')
+    .update({ gerceklesen_tutar: deger,
+              gerceklesen_not: (nt && nt.value.trim()) || null })
+    .eq('id', id);
+  if (btn){ btn.disabled = false; btn.textContent = eski; }
+  if (error){ mesaj('bmGercekMsg','hata', hataTr(error.message)); return; }
+  /* ⚠ ONAY MESAJI YENIDEN CIZIMDEN SONRA YAZILIR — OLCULDU: once
+     yazilinca `bmKayitliGoster` blogu (ve icindeki `#bmGercekMsg`'i)
+     komple degistiriyor ve mesaj EKRANA HIC GELMIYORDU. Kullanici
+     kaydettigini goremezdi. */
+  await bmKayitliGoster();              // karsilastirma satiri tazelensin
+  mesaj('bmGercekMsg','ok', deger == null
+    ? 'Gerçekleşen tutar boşaltıldı ✓' : 'Gerçekleşen tutar kaydedildi ✓');
 }
 /* Banka/POS ekstresindeki sayı. Eskiden TÜM noktaları siliyordu:
    "1250.50" → 125050 (100 KAT hata). Ekstrede tek bir İngilizce biçimli sayı
