@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-52">
+<meta name="surum" content="2026-08-27-53">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -11931,12 +11931,130 @@ function bankaMutabakatKart(){
     <div class="kart">
       <div class="kbaslik">Banka POS Mutabakatı</div>
       <div class="bilgi-not" style="margin:0 0 8px">Bankanın aylık "Üye İşyeri Hesap Özeti" PDF'ini yükle — sistem toplam satış, komisyon, ÖKC ve net hesaba geçişi okuyup senin kart cironla karşılaştırır.</div>
-      <label>Dönem</label><input type="month" id="bmDonem" value="${bugun().slice(0,7)}">
+      <label>Dönem</label><input type="month" id="bmDonem" value="${bugun().slice(0,7)}"
+        onchange="bmKayitliGoster()">
+      ${/* ⚠ Y33 · KAYITLI MUTABAKAT BURAYA CIZILIR. Donem seciciden
+            HEMEN SONRA, cunku iceriginin kapisi o secici. Yukleme
+            formunun alanlarina DOKUNULMADI — bu tur GOSTERIM ekliyor,
+            giris yolunu degistirmiyor. */''}
+      <div id="bmKayitli"></div>
       <label>Banka PDF'i</label><input type="file" id="bmPdf" accept="application/pdf">
       <button class="btn" id="bmAnaliz" onclick="bankaPdfAnaliz()">PDF'i Analiz Et</button>
       <div class="hata-msg" id="bmMsg"></div>
       <div id="bmSonuc"></div>
     </div>`;
+  bmKayitliGoster();
+}
+/* ===== Y33 · KAYDEDILEN MUTABAKAT GORUNSUN =====
+   KULLANICI (13 Eylul): "temmuzu yuklemistik ya, hani silindi mi...
+   sisteme yukledigim POS ekstresi nerde". Silinmemisti — GOSTERILMIYORDU.
+   OLCULDU: `bankaMutabakatKart` her cagrildiginda SABIT HTML basiyordu;
+   icinde tek bir `sb.from` ya da `await` YOKTU. `banka_mutabakat`
+   istemcide TEK yerde okunuyordu, o da kayit akisindaki "bu donem daha
+   once kaydedilmis mi" kontrolu. `v_mutabakat_gun` HIC okunmuyordu.
+   Kayittan hemen sonra cikan "N gunde fark var" yazisi sayfa
+   tazelenince kayboluyordu. Ay kapanisindaki engel satiri (v128)
+   kullaniciyi bu karta indiriyor ama kart BOSTU — dogru odaya goturup
+   bos oda gosteriyorduk.
+ ⚠ YENI VERI YOK: iki sorgu da mevcut nesneleri okuyor. DB nesnesi,
+   migration ve yazma YOK.
+ ⚠ SUBE SUZGECI DUZ ESITLIK: `SUBE_SUZGEC` haritasinda
+   `['v_mutabakat_gun', false]` — bu gorunum genel (sube_id NULL) satir
+   URETMIYOR, `or=(...is.null)` kalibi buraya UYMAZ.
+ ⚠ MUTABAKAT YOKSA GUN LISTESI CIZILMEZ — TUZAK OLCULDU: gorunum
+   `gun_sonu` ile `banka_mutabakat` arasinda FULL JOIN yapiyor. O donemin
+   kaydi yokken banka tarafi bos kalir ve HER gun sonu gunu
+   'sistemde var bankada yok' olarak doner; `durum <> 'tamam'` suzgeci
+   bunlarin hepsini gecirirdi. Mutabakat kaydedilmemis bir donemde
+   "su kadar gun tutmuyor" demek duz yalan olurdu.
+ ⚠ ISLEM ADEDI ONE CIKMAZ (kullanici karari, 13 Eylul: "tutar onemli,
+   islem sayisi onemli degil"): adet satirin IKINCIL yerinde duruyor,
+   analiz panelindeki kirmizi "N ISLEM" rozeti buraya KOPYALANMADI.
+   Bilgi SILINMEDI — bir keresinde gercek farki bulan ipucu oydu. */
+async function bmKayitliGoster(){
+  const el = document.getElementById('bmKayitli'); if (!el) return;
+  const d = (document.getElementById('bmDonem') || {}).value || bugun().slice(0,7);
+  /* ⚠ YARIS KORUMASI: donem hizli degistirilirse eski cevap yenisinin
+     uzerine yazabilirdi. Her cagri kendi jetonunu birakir; cevap
+     dondugunde jeton degismisse cizim YAPILMAZ. */
+  const jeton = String(Date.now()) + ':' + Math.random();
+  el.dataset.jeton = jeton;
+  el.innerHTML = '<div class="bilgi-not" style="margin:8px 0 10px">Yükleniyor...</div>';
+  const [mt, gn] = await Promise.all([
+    sb.from('banka_mutabakat')
+      .select('id,donem,pdf_path,banka,isyeri_no,toplam_satis,komisyon,maxipuan,'
+            + 'okc_ucret,kesinti_toplam,net_hesaba_gecis,bekleyen_alacak,durum,created_at')
+      .eq('sube_id', AKTIF_SUBE).eq('donem', d).eq('is_deleted', false).maybeSingle(),
+    sb.from('v_mutabakat_gun')
+      .select('gun,sistem_tutar,banka_tutar,tutar_farki,sistem_adet,banka_adet,adet_girilmemis,durum')
+      .eq('sube_id', AKTIF_SUBE).eq('donem', d).neq('durum', 'tamam').order('gun')
+  ]);
+  if (el.dataset.jeton !== jeton) return;          // daha yeni bir istek var
+  if (mt.error){
+    el.innerHTML = `<div class="uyari-orta" style="margin:8px 0 10px">Kayıtlı mutabakat
+      okunamadı: ${esc(hataTr(mt.error.message))}</div>`;
+    return;
+  }
+  const m = mt.data;
+  if (!m){
+    el.innerHTML = `<div class="bilgi-not" style="margin:8px 0 10px">
+      <b>${esc(ayAdi(d))}</b> için mutabakat kaydedilmemiş — aşağıdan bankanın
+      ekstresini yükleyip analiz edebilirsin.</div>`;
+    return;
+  }
+  const gunler = (gn && !gn.error) ? (gn.data || []) : [];
+  const gunDustu = !!(gn && gn.error);
+  const uyumlu = m.durum === 'uyumlu';
+  el.innerHTML = `
+    <div class="uyari-${uyumlu ? 'orta' : 'agir'}" style="margin:8px 0 10px">
+      <b>${esc(ayAdi(d))} mutabakatı kayıtlı${uyumlu ? ' — bütün günler tutuyor ✓'
+        : ' — fark var'}</b>
+      <span class="k" style="display:block;margin-top:4px">${
+        new Date(m.created_at).toLocaleString('tr-TR')} tarihinde kaydedildi${
+        m.banka ? ' · ' + esc(m.banka) : ''}${m.isyeri_no ? ' · üye işyeri ' + esc(m.isyeri_no) : ''}</span>
+    </div>
+    ${/* ⚠ ETIKETLER ANALIZ PANELIYLE BIREBIR AYNI: kaydedilmis kayit ile
+          yeni analiz ayni kelimeleri kullansin, kullanici iki ayri sey
+          bakiyormus gibi olmasin. Tek fark VURGU: burada
+          "Net hesaba gecen" one cikiyor — kullanicinin kendi olcutu
+          (13 Eylul): "tutar onemli, hesaba gececek para gecmis mi". */''}
+    ${ozSatir('Bankanın toplam satışı', tl(m.toplam_satis||0))}
+    ${ozSatir('Komisyon', tl(m.komisyon||0))}
+    ${ozSatir('Maxipuan katkı payı', tl(m.maxipuan||0))}
+    ${ozSatir('POS/ÖKC cihaz ücreti', tl(m.okc_ucret||0))}
+    ${ozSatir('Kesinti toplamı', tl(m.kesinti_toplam||0))}
+    ${ozSatir('Net hesaba geçen', tl(m.net_hesaba_gecis||0), true)}
+    ${ozSatir('Gelecek aya sarkan alacak', tl(m.bekleyen_alacak||0))}
+    ${/* ⚠ PDF BAGLANTISI YALNIZ DOSYA VARSA: Y35'ten once kaydedilen
+          mutabakatlarda `pdf_path` NULL. Tiklaninca hicbir sey acmayan
+          bir baglanti yalan soyler (dosyanin M3 kurali). */''}
+    ${m.pdf_path
+      ? `<div style="margin-top:10px">${belgeBtn(m.pdf_path, 'Yüklenen ekstreyi aç',
+           'POS ekstresi ' + ayAdi(d))}</div>`
+      : `<div class="ipucu" style="margin-top:10px">Bu mutabakat kaydedildiğinde ekstre
+           dosyası saklanmıyordu — rakamlar duruyor, PDF yok.</div>`}
+    <div class="yy-bas" style="margin-top:14px">TUTMAYAN GÜNLER</div>
+    ${gunDustu
+      ? `<div class="bilgi-not">Gün listesi okunamadı — özet yukarıda duruyor.</div>`
+      : gunler.length === 0
+        ? `<div class="bilgi-not">Bütün günler tutuyor — banka ile sistem arasında fark yok.</div>`
+        : `<div class="ipucu" style="margin:0 0 6px">Bir güne dokun — o günün gün sonu kaydı,
+             kasa kırılımı ve Z raporu açılır.</div>`
+          + gunler.map(x => {
+              const trh = d + '-' + String(x.gun).padStart(2,'0');
+              const fark = +x.tutar_farki || 0;
+              return `<div class="liste-satir" style="cursor:pointer"
+                  onclick="gunDetay('${trh}')" title="O günün gün sonu kaydını ve Z raporunu aç">
+                <div class="l-sol">
+                  <div class="b">${String(x.gun).padStart(2,'0')}.${d.slice(5)}</div>
+                  <div class="k">sistem ${x.sistem_tutar==null?'—':tl(x.sistem_tutar)}
+                    · banka ${x.banka_tutar==null?'—':tl(x.banka_tutar)}${
+                    x.sistem_adet!=null && x.banka_adet!=null
+                      ? ' · adet ' + x.sistem_adet + '/' + x.banka_adet : ''} ›</div>
+                </div>
+                <div class="l-sag" style="color:var(--hata);font-weight:800">${tl(fark)}</div>
+              </div>`;
+            }).join('')}`;
 }
 /* Banka/POS ekstresindeki sayı. Eskiden TÜM noktaları siliyordu:
    "1250.50" → 125050 (100 KAT hata). Ekstrede tek bir İngilizce biçimli sayı
