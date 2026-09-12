@@ -8608,16 +8608,19 @@ async function urunDetay(urunId){
        (a) iskonto DUSULMUS, (b) INDIRILECEK KDV cikarilmis,
        (c) STOK BIRIMI basina (adet), ALIM birimi (koli) basina DEGIL.
      ⚠ Y39 · (c) BIR TUR SONRA EKLENDI, CANLI EKRANDAN YAKALANDI:
-       kutu "BIRIM MALIYET 8,54" derken grafigin y ekseni 642-724
-       araligindaydi — 682,80, yani KOLI basina. Ayni TABAN, farkli
-       BIRIM: 8,54 × 80 = 683,2. `miktar` ALIM birimini sayiyor;
+       ustteki kutu ADET basina birim maliyeti gosterirken grafigin
+       y ekseni KOLI tutarindaydi. Iki rakam ayni TABANA oturuyordu
+       (iskonto disi, indirilecek KDV disi) ama ayni BIRIME
+       oturmuyordu; aralarindaki oran tam olarak koli ici adet
+       kadardi. Sebep: `miktar` ALIM birimini sayiyor ve
        `birim_carpani` bolmeye hic girmiyordu.
        `v_stok_durum.ort_maliyet` = net_tutar / Σ(miktar × carpan),
        yani STOK birimi basina. Grafik onunla ayni zemine ancak
        carpan da bolunerek oturuyor.
-     ⚠ KOZMETIK DEGIL: tedarikci ayni fiyata 80 yerine 100 adet
-       koydugunda koli fiyati DUZ kalir, adet maliyeti %20 duser.
-       Grafigin yakalamasi gereken sey tam olarak budur.
+     ⚠ KOZMETIK DEGIL: tedarikci ayni fiyata koli icine DAHA COK adet
+       koydugunda koli basina fiyat DUZ kalir ama adet maliyeti
+       DUSER — eski grafik bu dususu HIC gostermezdi. Grafigin
+       yakalamasi gereken sey tam olarak budur.
      ⚠ CARPAN 0 ya da YOKSA 1 SAYILIR — ve o nokta "zemini
        bilinmiyor" isaretine DUSURULMEZ. Gerekce: `birim_carpani`
        semada `numeric(12,3) NOT NULL DEFAULT 1` ve
@@ -8700,7 +8703,7 @@ async function urunDetay(urunId){
 
   /* Grafik KIYAS degerini cizer; `fiyat` (liste) alim dokumunde kalir.
      ⚠ Y39 · BIRIM DE DEGISIR: `alim[].birim` ALIM birimi (koli) ve
-       alim dokumunde OYLE KALMALI — "2 koli × 1.138,00" dogru cumle.
+       alim dokumunde OYLE KALMALI — "2 koli × 1.234,56" dogru cumle.
        Ama grafik artik STOK birimi basina ciziyor; ipucu ve alt
        cumle "koli basina" deseydi ekran yalan soylerdi. Yalniz
        grafigin kopyasinda urunun kendi birimi yazilir. */
