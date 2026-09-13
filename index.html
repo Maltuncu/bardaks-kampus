@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-58">
+<meta name="surum" content="2026-08-27-59">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5072,7 +5072,29 @@ async function gunSonuListe(){
       ? `<div class="uyari-orta">${eksikGunler.length} gün girilmemiş: ${eksikGunler.join(', ')}</div>`
       : ''}
     <div class="bilgi-not" style="margin:0 0 10px">
-      <b>${gunler.length}</b> gün girildi · Kasada sayılan toplamı <b>${tl(tZDisi)}</b>${eksikGunler.length?'':' · düne kadar eksik gün yok'}${
+      <b>${gunler.length}</b> gün girildi · Kasada sayılan toplamı <b>${tl(tZDisi)}</b>${
+      /* ⚠ Y25 · "EKSIK GUN YOK" BOS AYDA BOS BIR CUMLEYDI.
+           Sistemden ONCEKI bir ayda ya da ayin 1'inde hicbir gun
+           BEKLENMEZ; eksik listesi de bos cikar ve cumle
+           "0 gün girildi · düne kadar eksik gün yok" oluyordu.
+           Iki iddia da dogruydu, ama yan yana gelince ay TAM
+           sanilir — halbuki oraya bakilacak bir sey YOKTU.
+           Y23'te serit icin ayni yanlis olculup kapatilmisti
+           (yanlis yesil, yanlis kirmizidan kotudur: biri bosuna
+           telaslandirir, oteki bosuna RAHATLATIR); ayni yanlis
+           bu satirda duruyordu.
+         ⚠ YENI HESAP YOK: Y23'un `ayinGunBekleniyorMu`si aynen
+           kullanildi, `ilkGunSonuTarihi(ilkGunSonu)` da zaten
+           yukarida `eksikGunler` icin hesaplanmis durumda — ek
+           sorgu YOK.
+         ⚠ TEK CUMLE, IKI SEBEP: ay tamamen sistem oncesi de olsa,
+           ayin 1'inde de olsa soylenecek sey ayni — beklenen gun
+           yok. Ikisini ayirmak bilgi EKLEMEZ.
+         ⚠ RENK YOK: bu bir UYARI degil, bilgi. `bilgi-not` kaldi. */
+      eksikGunler.length ? ''
+        : ayinGunBekleniyorMu(ay, ilkGunSonuTarihi(ilkGunSonu))
+          ? ' · düne kadar eksik gün yok'
+          : ' · bu ayda beklenen gün yok'}${
       /* ⚠ ADIM 15 · KAPATILAN GUN SESSIZ DUSMEZ. Artik "eksik"
          sayilmiyor; sayilmadigi da YAZIYOR, yoksa kullanici listede
          gormeyip "kayboldu" sanar. */
@@ -8333,34 +8355,56 @@ async function vStok(){
                dolu bir sayi bulur. */
             const sonOdenen = (f && +f.son_net_fiyat > 0)
               ? +f.son_net_fiyat : (f ? f.son_fiyat : null);
-            /* ⚠ ROZET LISTE ZEMININDE KALDI — CELISKI OLCULDU ve
-                 ETIKETLENDI. `degisim_yuzde` ile `onceki_fiyat` gorunumde
-                 `birim_fiyat`tan, yani LISTE fiyatindan hesaplaniyor
-                 (v131 bunlara BILEREK dokunmadi; gorev `son_fiyat`
-                 kolonunun korunmasini istedi).
-                 Basilan rakam artik ODENEN oldugu icin ikisi ayni satirda
-                 CELISEBILIYOR. Fiksturle uretildi: liste yukselmis ama
+            /* ⚠ Y41 · ROZET ARTIK BASILAN RAKAMLA AYNI ZEMINDE.
+                 Y40 turunda su celiski OLCULMUSTU: `degisim_yuzde` ile
+                 `onceki_fiyat` gorunumde LISTE fiyatindan hesaplaniyordu,
+                 satirda basilan rakam ise ODENEN idi. Liste yukselmis ama
                  iskonto sayesinde odenen dusmusken satir
-                 "Son alış <dusuk> ... ▲ %20 (önce <yuksek>)" diyordu —
-                 okuyan haklı olarak "90, 100'den kucuk, ok neden yukari"
-                 diye sorar.
-               ⚠ COZUM: BILGI SAKLANMADI, ETIKETLENDI. Iki zemin ayni
-                 satirdaysa yuzdenin basina "liste" yazilir ve yaniltici
-                 olan "(önce X)" parantezi DUSER — cunku o X, basilan
-                 rakamla ayni zeminde degil.
-               ⚠ ISKONTOSUZ SATIRDA (odenen = liste) METIN BIREBIR ESKISI:
-                 iki zemin cakistigi icin etiketlemeye gerek yok ve
-                 yaygin hal budur. */
-            const ayniZemin = !f || +f.son_net_fiyat <= 0
-                              || Math.abs(+f.son_net_fiyat - +f.son_fiyat) < 0.005;
+                 "Son alış <dusuk> ... ▲ %<artis> (önce <yuksek>)" diyordu —
+                 okuyan haklı olarak "basilan sayi kuculmus, ok neden
+                 yukari" diye sorar.
+                 O tur bilgi SAKLANMAMIS, ETIKETLENMISTI (yuzdenin basina
+                 "liste", yaniltici parantez duser). Bu bir DURDURUCUYDU.
+               ⚠ GERCEK COZUM v133'TE: gorunum `onceki_net_fiyat` kolonunu
+                 kazandi ve `degisim_yuzde` NET/NET hesaplaniyor. Iki zemin
+                 artik AYNI oldugu icin etiket de istisna da GEREKSIZ —
+                 satir tekrar sade: "▲ %X (önce Y)".
+               ⚠ SIRA: v133 UYGULANMADAN bu surum yayinlanirsa
+                 `onceki_net_fiyat` HIC GELMEZ; migration ONCE gider.
+               ⚠ O HALDE NE OLUR — OLCULDU, VARSAYILMADI: korumasiz
+                 hal parantezi bos BIRAKMIYOR, `tl(undefined)` ile
+                 "(önce 0,00 TL)" BASIYOR. Uydurma rakam, bu dosyanin
+                 acikca yasakladigi sey.
+               ⚠ ILK DENENEN GERI CEKILME YANLISTI, OLCUM GOSTERDI:
+                 `onceki_fiyat`a (liste) dusmek denendi; yuzde ile
+                 parantez birbiriyle uyuyor ama BASILAN "Son alış"
+                 rakami Y40'tan beri NET oldugu icin satir yine
+                 "Son alış <dusuk> ▲ %<artis> (önce <yuksek>)" oluyor
+                 — yani Y40 celiskisi, bu kez ETIKETSIZ. Daha kotu.
+               ⚠ SECILEN: kolon yoksa ROZET HIC CIKMAZ. Uydurma rakam
+                 da yok, celiski de yok; satir "Son alış X/birim ·
+                 tarih · firma"ya duser — degisim olmayan urunlerde
+                 zaten gorunen sekil. BILGI GECICI OLARAK EKSILIR,
+                 ama YANLIS BILGI VERILMEZ. Bu pencere yalnizca v133
+                 uygulanmadan yayin yapilirsa acilir; dogru sira
+                 migration ONCE.
+               ⚠ AYNI KAPI IKINCI UCU DA TUTUYOR: rozet ancak
+                 `son_net_fiyat` DOLU iken cikar. Cunku o bossa
+                 basilan rakam yukarida LISTEYE dusuyor (Y38 geri
+                 cekilmesi) ve rozet yine baska zemine bakmis olurdu —
+                 fiksturle uretildi: "Son alış 100,00 ... ▼ %20
+                 (önce 100,00)". Gorunumun WHERE'i `birim_fiyat > 0`
+                 suzdugu icin bu hal PRATIKTE OLUSMUYOR (provada her
+                 satirda dolu olculdu), ama kural baska dosyada duran
+                 bir WHERE'e degil, BURAYA yazili olsun. */
             const sonSatir = !(owner && f) ? '' :
               `<b>Son alış ${tl(sonOdenen)}</b>/${esc(f.birim||'')}`
               + ` · ${new Date(f.son_tarih+'T00:00').toLocaleDateString('tr-TR')}`
               + ` · ${esc(f.son_firma||'')}`
-              + (zam ? ` <span style="color:${+f.degisim_yuzde>0?'var(--hata)':'var(--ok)'};font-weight:800">`
-                       + `${ayniZemin?'':'liste '}${+f.degisim_yuzde>0?'▲':'▼'} %${Math.abs(+f.degisim_yuzde)}</span>`
-                       + (ayniZemin
-                          ? ` <span style="color:var(--soluk)">(önce ${tl(f.onceki_fiyat)})</span>` : '') : '');
+              + (zam && f.onceki_net_fiyat != null && +f.son_net_fiyat > 0
+                     ? ` <span style="color:${+f.degisim_yuzde>0?'var(--hata)':'var(--ok)'};font-weight:800">`
+                       + `${+f.degisim_yuzde>0?'▲':'▼'} %${Math.abs(+f.degisim_yuzde)}</span>`
+                       + ` <span style="color:var(--soluk)">(önce ${tl(f.onceki_net_fiyat)})</span>` : '');
             /* ==========================================================
                ⚠ SADELESTIRME · URUN SATIRI DORT SATIRDAN IKIYE
                ==========================================================
