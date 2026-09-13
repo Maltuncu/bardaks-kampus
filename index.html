@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-56">
+<meta name="surum" content="2026-08-27-57">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -8294,13 +8294,54 @@ async function vStok(){
             /* ⚠ Bastaki <br> KALKTI: ustteki parca artik BOS olabiliyor
                (seviye tanimsizsa) ve satir bos bir satirla basliyordu.
                Birlestirme asagida, filter(Boolean).join('<br>') ile. */
+            /* ===== Y40 · "SON ALIS" ODENENI GOSTERIR =====
+               OLCULDU: burada `son_fiyat` basiliyordu — yani `birim_fiyat`,
+               LISTE fiyati, iskontodan ONCE. Y13 (grafik) ve Y37 (alim
+               dokumu) ayni hastaligi zaten kapatmisti; ucuncu yer burasi.
+               `son_net_fiyat` gercekten odeneni tasiyor (satir_tutar /
+               miktar) — v131'e kadar iskontoyu IKI KEZ dusuyordu, o
+               yuzden bu tur v131 UYGULANDIKTAN SONRA yayinlanir.
+             ⚠ BIRIM DEGISMIYOR: gorunumun `birim` kolonu da `birim_ad`,
+               yani ALIM birimi (koli/paket). Etiket "/koli" yazmaya
+               devam eder. Urun detayindaki grafik STOK birimi basina
+               calisiyor (Y39) — ikisi ayni sayi DEGIL, orani koli ici
+               adet kadar. Bu bilerek boyle: burasi "tedarikci karsinda
+               konusulan" rakam.
+             ⚠ GERI CEKILME: `son_net_fiyat` yoksa ya da 0 ise BUGUNKU
+               davranisa (liste fiyati) dusulur. Uydurma rakam basilmaz,
+               satir da sessizce bosaltilmaz. Gorunum zaten
+               `birim_fiyat > 0` suzuyor, yani geri cekilme her zaman
+               dolu bir sayi bulur. */
+            const sonOdenen = (f && +f.son_net_fiyat > 0)
+              ? +f.son_net_fiyat : (f ? f.son_fiyat : null);
+            /* ⚠ ROZET LISTE ZEMININDE KALDI — CELISKI OLCULDU ve
+                 ETIKETLENDI. `degisim_yuzde` ile `onceki_fiyat` gorunumde
+                 `birim_fiyat`tan, yani LISTE fiyatindan hesaplaniyor
+                 (v131 bunlara BILEREK dokunmadi; gorev `son_fiyat`
+                 kolonunun korunmasini istedi).
+                 Basilan rakam artik ODENEN oldugu icin ikisi ayni satirda
+                 CELISEBILIYOR. Fiksturle uretildi: liste yukselmis ama
+                 iskonto sayesinde odenen dusmusken satir
+                 "Son alış <dusuk> ... ▲ %20 (önce <yuksek>)" diyordu —
+                 okuyan haklı olarak "90, 100'den kucuk, ok neden yukari"
+                 diye sorar.
+               ⚠ COZUM: BILGI SAKLANMADI, ETIKETLENDI. Iki zemin ayni
+                 satirdaysa yuzdenin basina "liste" yazilir ve yaniltici
+                 olan "(önce X)" parantezi DUSER — cunku o X, basilan
+                 rakamla ayni zeminde degil.
+               ⚠ ISKONTOSUZ SATIRDA (odenen = liste) METIN BIREBIR ESKISI:
+                 iki zemin cakistigi icin etiketlemeye gerek yok ve
+                 yaygin hal budur. */
+            const ayniZemin = !f || +f.son_net_fiyat <= 0
+                              || Math.abs(+f.son_net_fiyat - +f.son_fiyat) < 0.005;
             const sonSatir = !(owner && f) ? '' :
-              `<b>Son alış ${tl(f.son_fiyat)}</b>/${esc(f.birim||'')}`
+              `<b>Son alış ${tl(sonOdenen)}</b>/${esc(f.birim||'')}`
               + ` · ${new Date(f.son_tarih+'T00:00').toLocaleDateString('tr-TR')}`
               + ` · ${esc(f.son_firma||'')}`
               + (zam ? ` <span style="color:${+f.degisim_yuzde>0?'var(--hata)':'var(--ok)'};font-weight:800">`
-                       + `${+f.degisim_yuzde>0?'▲':'▼'} %${Math.abs(+f.degisim_yuzde)}</span>`
-                       + ` <span style="color:var(--soluk)">(önce ${tl(f.onceki_fiyat)})</span>` : '');
+                       + `${ayniZemin?'':'liste '}${+f.degisim_yuzde>0?'▲':'▼'} %${Math.abs(+f.degisim_yuzde)}</span>`
+                       + (ayniZemin
+                          ? ` <span style="color:var(--soluk)">(önce ${tl(f.onceki_fiyat)})</span>` : '') : '');
             /* ==========================================================
                ⚠ SADELESTIRME · URUN SATIRI DORT SATIRDAN IKIYE
                ==========================================================
