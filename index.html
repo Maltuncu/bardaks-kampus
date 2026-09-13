@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-57">
+<meta name="surum" content="2026-08-27-58">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -7014,7 +7014,20 @@ async function giderKaydet(mod){
     p_aciklama: document.getElementById('gdAciklama').value.trim()||null,
     p_tutar: tutar, p_kdv_orani: null, p_kdv_tutar: kdvT, p_foto: foto,
     p_kasadan: document.getElementById('gdKasadan').checked,
-    p_tedarikci: null, p_vade: vadeId
+    p_tedarikci: null, p_vade: vadeId,
+    /* ===== Y18 · "KDV BILINMIYOR" HALI =====
+       OLCULDU: bes ayri yol `p_kdv_orani: null` gonderiyor ve sunucu
+       `coalesce(p_kdv_tutar,0)` yaziyor. Oran da yok, tutar da 0 —
+       yani "KDV YOK" ile "KDV BILINMIYOR" veritabaninda AYNI SEYDI.
+     ⚠ YENI DESEN ICAT EDILMEDI: dosyada zaten `okunamadiIsaretle` /
+       `okunamadiMi` var ve belge okuyucusu KDV'yi cikaramadiginda
+       `gdKdvTutar`i ZATEN isaretliyor (11919). `okunamadiMi` de
+       "hala bos VE okuyucu bulamamis" demek — kullanici bir sey
+       yazdigi anda (0 dahil) bayrak DUSUYOR. Yani (a) ve (c)
+       maddeleri tek cagriyla karsilaniyor.
+     ⚠ HICBIR HESABA GIRMEZ: bu bayrak `kdv_tutar`i, `gider_net`i, ay
+       karini ve KDV ozetini ETKILEMEZ — yalnizca gorunurluk. */
+    p_kdv_bilinmiyor: okunamadiMi('gdKdvTutar')
   },'gdKaydet','gdMsg','Kaydedildi ✓');
   if (data && data.ok){ ekranTaslakSil();   // ADIM 17 · basarida taslak DUSER
     ['gdTutar','gdKdvTutar','gdAciklama'].forEach(i=>document.getElementById(i).value=''); document.getElementById('gdFoto').value=''; document.getElementById('gdKasadan').checked=false;
@@ -7037,8 +7050,14 @@ async function giderListe(){
     ${list.length===0
       ? bosDurum('belge','Gider kaydı yok','Elektrik, su, tüp gibi düzenli giderleri "Temel", ufak alımları "Fiş" bölümünden gir.')
       : list.map(g=>srSatir({
+          /* ⚠ Y18 · "KDV bilinmiyor" rozeti `belgesiz` ile AYNI kalip:
+               ikisi de "bu kayitta eksik bir sey var" diyor, yenisi
+               icat edilmedi. Bayrak false iken HICBIR SEY cikmaz —
+               eski kayitlarin hepsi false oldugu icin liste yamasizla
+               birebir kalir. */
           ad: esc(g.gider_kategori?.ad||'—') + (g.kasadan?' <span class="rozet rz-uyari">kasadan</span>':'')
-              + (g.foto_path?'':' <span class="rozet rz-uyari">belgesiz</span>'),
+              + (g.foto_path?'':' <span class="rozet rz-uyari">belgesiz</span>')
+              + (g.kdv_bilinmiyor?' <span class="rozet rz-uyari">KDV bilinmiyor</span>':''),
           alt: new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')
                + (g.aciklama?' · '+esc(g.aciklama):''),
           tutar: tl(g.tutar),
