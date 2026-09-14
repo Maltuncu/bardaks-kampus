@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-32">
+<meta name="surum" content="borc-2026-08-27-33">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -466,6 +466,9 @@ body.klavye-acik #sekmeBar{display:none}
 .rz-eksik{background:#FBEAE7;color:var(--hata)}
 .rz-yesil{background:#E7F0E9;color:var(--ok)}
 .rz-sari{background:#FBF3E4;color:#8A6316}
+/* Y16 · NOTR rozet: "bilinmiyor" bir UYARI DEGIL. Kirmizi/sari
+   kullanilamaz (hukum verirdi), gri "—" ise hicbir sey soylemiyordu. */
+.rz-notr{background:var(--gri);color:var(--soluk)}
 /* v100 · iptal edilmis odeme: RENK TEK BASINA anlam tasimasin —
    ustu cizili + METIN etiketi birlikte. */
 .iptalli td{text-decoration:line-through}
@@ -2039,7 +2042,7 @@ async function bantVerisi(){
   const buAyKart = { sahis:0, ltd:0, toplam:0, gunYok:0, donemYok:0, pasif:0, gecikmis:0,
     /* ⚠ gecikmis SAYAC olarak KALDI (mevcut cagiran satir bozulmasin)
        ama artik yalniz GERCEK gecikmeleri sayiyor. Uc liste ayri. */
-    gecikenler:[], devredenler:[], asgariYok:[] };
+    gecikenler:[], devredenler:[], asgariYok:[], odemeBilgisiYok:[] };
   {
     const M = bugun().slice(0,7), gunBugun = Number(bugun().slice(8,10));
     for (const k of kart.kartlar){
@@ -2080,8 +2083,30 @@ async function bantVerisi(){
       if (donemVadesi(k, d) < bugun()){
         const asgari = (d.asgari_tutar === null || d.asgari_tutar === undefined)
                        ? null : kr(d.asgari_tutar);
-        const odenen = kr(d.donem_odemesi || 0);
-        if (asgari === null){
+        /* ⚠ Y16 · `|| 0` KALDIRILDI — BILINMEYENI SIFIR SAYIYORDU.
+             `donem_odemesi` NULL = "odeme bilgisi GIRILMEMIS" (gorunum
+             bunu `odeme_turu='girilmedi'` diye de soyluyor). `|| 0` onu
+             "0 TL odendi" BEYANINA cevirip `0 < asgari` uzerinden
+             GECIKMIS ateşliyordu.
+           ⚠ OLCULDU — AYNI VERI, IKI EKRAN, ZIT HUKUM:
+             ayni ekstre icin borc.html "gecikmis 2 kart" derken
+             index.html Ozet takvimi 1 diyordu; aradaki fark tam olarak
+             odeme bilgisi girilmemis kart. Sahibin sisteme guveni
+             buradan gider — hangisinin dogru oldugu hicbir yerde
+             yazmiyordu.
+           ⚠ HANGI TARAF DUZELDI ve NEDEN: index.html'inki BILEREK
+             konmus, dokumante ve TAM kural (v121/BA): "BILINMEYEN,
+             GECIKMIS DEGILDIR"; ayrica orada ayri sayilir (`gecGi`) ve
+             ekranda "N kartin odeme bilgisi girilmemis — alarma
+             sayilmadi" diye YAZAR. Yani susmuyor, AYIRIYOR.
+             Buradaki `|| 0` o karardan once yazilmis ve guncellenmemis.
+             Duzelen taraf BURASI; index.html'e DOKUNULMADI.
+           ⚠ SESSIZLIGE DUSMUYOR: asgari NULL dalindaki kalibin AYNISI
+             kullanildi — ayri kova, ayri cumle, "ayirt edilemiyor". */
+        const odenen = d.donem_odemesi == null ? null : kr(d.donem_odemesi);
+        if (odenen === null){
+          buAyKart.odemeBilgisiYok.push({ ad: k.ad, banka: k.banka, kalan });
+        } else if (asgari === null){
           buAyKart.asgariYok.push({ ad: k.ad, banka: k.banka, kalan });
         } else if (odenen < asgari){
           buAyKart.gecikmis++;
@@ -2963,6 +2988,22 @@ async function vTakvim(){
       + bk.asgariYok.length + ' kartta gecikme olup olmadığı ayırt edilemiyor: '
       + bk.asgariYok.map(x => x.ad + ' ' + tk(x.kalan)).join(' · ')
       + '. Ekstredeki asgari tutarı girersen ayrılır.'));
+  /* 4 · Y16 · ODEME BILGISI GIRILMEMIS — gecikmis SAYILMIYOR.
+     ⚠ Bu satir olmadan duzeltmenin kendisi SESSIZ BIR KAYIP olurdu:
+       kart alarmdan cikardi ve yerine hicbir sey yazilmazdi. Alarmdan
+       cikarmak ile GORMEZDEN GELMEK ayni sey degil (dosyanin v72
+       kurali); asgariYok dalinda da tam boyle yapilmis.
+     ⚠ CUMLE index.html'inkiyle AYNI SEYI soyler ("alarma sayilmadi"):
+       iki ekranin ayni veriye ayni hukmu vermesi bu turun amaci.
+     ⚠ "Odenmedi" DEMEZ — bilmiyoruz. Bugun "0 odedim" kaydedilemiyor
+       (ko_tutar_chk: tutar > 0), yani bu hal kullanicinin beyani DEGIL,
+       beyanin YOKLUGU. Kaydedilebilir hale getirmek ayri is (PLAN Y16-b). */
+  if (bk.odemeBilgisiYok.length)
+    c.appendChild(el('div','bilgi', 'Ödeme bilgisi girilmemiş '
+      + bk.odemeBilgisiYok.length + ' kartta gecikme olup olmadığı ayırt edilemiyor '
+      + '— alarma sayılmadı: '
+      + bk.odemeBilgisiYok.map(x => x.ad + ' ' + tk(x.kalan)).join(' · ')
+      + '. Ekstreye yapılan ödemeyi girersen ayrılır.'));
 
   /* ⚠ BT · takvim artik UC kaynak cizer; "taksit yok" tek basina bos
      ekran sebebi degil. Ucü de bossa bos durum. */
@@ -7957,8 +7998,17 @@ async function kartDetayAc(kartId, duzenlenenId){
         /* ⚠ BILINMEYEN deger de 'girilmedi' gibi ele alinir: eski bir
            satirda ya da eski gorunumde odeme_turu YOKSA BOS ROZET ciziliyordu
            (olculdu). Adsiz rozet, icerigi olmayan bir BEYANDIR. */
+        /* ⚠ Y16 · 'girilmedi' ARTIK HARITADA. Once haritada yoktu ve
+             `!RZ` daliyla gri "—" ciziliyordu; oysa "—" HICBIR SEY
+             SOYLEMEZ. Gorunum bu hali BILIYOR (odeme_turu='girilmedi'),
+             tablo ise bilmiyormus gibi duruyordu — ozetin GECIKMIS
+             dedigi ekstre, ayni ekranin tablosunda sessizdi. Olculdu.
+           ⚠ ADSIZ ROZET YASAGI DURUYOR: yukaridaki yorumun derdi
+             ICERIKSIZ rozetti. Buraya ADI OLAN notr bir rozet konuyor;
+             odeme_turu HIC YOKSA (eski satir/eski gorunum) yine "—". */
         const RZ = { tam:['rz-yesil','TAM'], kismi:['rz-sari','KISMİ'],
-                     eksik:['rz-eksik','ASGARİNİN ALTINDA'], odenmedi:['rz-eksik','ÖDENMEDİ'] }[d.odeme_turu];
+                     eksik:['rz-eksik','ASGARİNİN ALTINDA'], odenmedi:['rz-eksik','ÖDENMEDİ'],
+                     girilmedi:['rz-notr','ÖDEME GİRİLMEMİŞ'] }[d.odeme_turu];
         if (!RZ) dh2.appendChild(el('span','gri','—'));
         else dh2.appendChild(el('span','rozet ' + RZ[0], RZ[1]));
         tr.appendChild(dh2);
