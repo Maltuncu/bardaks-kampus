@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-59">
+<meta name="surum" content="2026-08-27-61">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -341,6 +341,11 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 #ustBar .kapsam .ks{color:var(--soluk);white-space:nowrap}
 #ustBar .kapsam .ks.eksik{color:var(--uyari)}
 #ustBar .kapsam .ks.tam{color:var(--ok)}
+/* ADIM 2 · kapsam secici. Serit zaten flex/wrap — ayri satir ACMIYOR.
+   Dokunma hedefi 32px: seritteki yazi boyu kucuk ama bu bir DUGME. */
+#ustBar .kapsam .ks-sec{font:inherit;font-size:12px;color:var(--ana);
+  background:var(--acik);border:1px solid var(--cizgi);border-radius:8px;
+  padding:4px 6px;min-height:32px;max-width:190px}
 #cikisBtn{background:var(--acik);color:var(--ana);padding:7px 12px;font-size:12.5px}
 /* ============ UYGULAMA KABUĞU ============
    Telefonda 8 sekme 496px yer kaplıyordu; 375px ekranda son ikisi (Yapılacaklar, Yönetim)
@@ -423,6 +428,14 @@ main{padding:14px;max-width:640px;margin:0 auto}
 .liste-satir:last-child{border-bottom:none}
 .l-sol .b{font-weight:700}.l-sol .k{font-size:12px;color:var(--soluk)}
 .l-sag{text-align:right;font-weight:800;white-space:nowrap}
+/* ADIM 2b · sube etiketi ve alt toplam vurgusu */
+.st-blok{background:var(--gri);border-radius:10px;padding:8px 12px;margin:10px 0}
+.st-blok .st-baslik{font-size:10.5px;font-weight:800;letter-spacing:.4px;color:var(--soluk);margin-bottom:2px}
+.st-blok .liste-satir{padding:6px 0}
+.st-blok .liste-satir:last-child{border-bottom:none}
+.sube-et{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:20px;
+  background:var(--acik);color:var(--ana);white-space:nowrap;margin-left:2px}
+.liste-satir.ls-vurgu{border-bottom:none;border-top:2px solid var(--cizgi);font-weight:800}
 .ozet-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 @media(min-width:900px){ .ozet-grid{grid-template-columns:repeat(4,1fr)} }
 .ozet-kut{background:var(--kart);border:1.5px solid var(--cizgi);border-radius:14px;padding:14px;
@@ -677,6 +690,23 @@ const SUBE_SUZGEC = new Map([
 /* 'profil' bilerek HARİTADA DEĞİL: açılışta AKTIF_SUBE yokken kendisi
    sorgulanıyor (id ile, RLS koruyor). Süzgeç oraya konsaydı giriş kırılırdı.
    Onun da sube_id'si NOT NULL değil — aynı şema açığı, aynı açık soru. */
+/* ==================================================================
+   ADIM 2 · TOPLAM KIPI — "bilinmiyor" ile "hepsi" AYNI DEGER DEGILDIR
+   ==================================================================
+   ⚠ TOPLAM'i `AKTIF_SUBE = null` ile yapmak KOLAY ve YANLIS olurdu:
+     asagidaki kapi (688) BILEREK kondu — acilis sirasi bozulursa
+     yanlis subenin verisi sessizce okunmasin diye. null'i "hepsi"
+     saymak o kapiyi OLDURUR ve gercek bir acilis hatasi SESSIZ KALIR.
+   Bu yuzden TOPLAM AYRI bir deger: taninabilir bir nobetci.
+     null            -> BILINMIYOR  -> HALA HATA ATAR
+     '<uuid>'        -> tek sube
+     KAPSAM_TOPLAM   -> hepsi       -> suzgec UYGULANMAZ
+   ⚠ Nobetci uuid DEGIL ve olamaz: yanlislikla sunucuya giderse
+     "invalid input syntax for type uuid" ile GURULTULU duser, sessizce
+     bir subeye eslesmez. Uydurma bir "hepsi uuid'si" ICAT EDILMEDI. */
+const KAPSAM_TOPLAM = 'TOPLAM';
+const toplamKipi = () => AKTIF_SUBE === KAPSAM_TOPLAM;
+
 (function subeSuzgeciKur(){
   const _from = sb.from.bind(sb);
   sb.from = function(tablo){
@@ -688,10 +718,45 @@ const SUBE_SUZGEC = new Map([
       if (!AKTIF_SUBE)
         throw new Error('Şube bilinmeden "'+tablo+'" okunamaz. (Açılış sırası bozuk.)');
       const q = _select(...a);
+      /* ⚠ TOPLAM: sube esitligi UYGULANMAZ, iki sube birden gelir.
+         `genel` tablolarda zaten `sube_id IS NULL` satirlari da
+         geliyordu; TOPLAM'da ikisi de suzgecsiz. */
+      if (toplamKipi()) return q;
       return genel ? q.or('sube_id.eq.'+AKTIF_SUBE+',sube_id.is.null')
                    : q.eq('sube_id', AKTIF_SUBE);
     };
-    return qb;   // insert/update/delete zinciri DOKUNULMADAN geçer
+    /* ⚠ YAZMA YASAGI VERI KATMANINDA — EKRANDA DEGIL.
+       Onceki hali "insert/update/delete zinciri DOKUNULMADAN gecer"
+       diyordu; TOPLAM'da bu, hangi subeye yazildigi BELIRSIZ bir
+       kayit demek olurdu. Dugmeyi gizlemek tek basina yetki degildir
+       (bu dosyanin kendi kurali) — kapi buraya da kondu.
+       ⚠ YALNIZ SUBEYE BAGLI tablolar kapatiliyor: hedefi belirsiz olan
+         yazma bunlar. Sube boyutu olmayan yazmalar (ornegin cek/vade
+         durumu) bu belirsizligi tasimiyor ve ADIM 3'un konusu. */
+    ['insert','update','delete','upsert'].forEach(m => {
+      if (typeof qb[m] !== 'function') return;
+      const _m = qb[m].bind(qb);
+      qb[m] = function(...a){
+        if (toplamKipi())
+          throw new Error('TOPLAM görünümündeyken "'+tablo+'" tablosuna yazılamaz — '
+            + 'hangi şubeye yazılacağı belli değil. Önce bir şube seç.');
+        return _m(...a);
+      };
+    });
+    return qb;
+  };
+  /* ⚠ RPC de kapatiliyor — ama HEPSI degil, `p_sube` TASIYAN cagrilar.
+     Olculdu: `rapor_kapisi(NULL,...)` sunucuda RAPOR_SUBE_YOK ile
+     PATLIYOR (sessiz degil, iyi), ama `fn_ay_raporu_ic(donem, NULL)`
+     sarmalayicisiz cagrilirsa SESSIZCE ciro=0 donuyor. Yani sunucuya
+     "sube yok" gondermek her yerde gurultulu DEGIL. Kapi istemcide de
+     dursun ve sebebi ADIYLA soylensin. */
+  const _rpc = sb.rpc.bind(sb);
+  sb.rpc = function(ad, p, ...rest){
+    if (toplamKipi() && p && Object.prototype.hasOwnProperty.call(p, 'p_sube'))
+      throw new Error('"'+ad+'" TOPLAM görünümünde çalıştırılamaz: '
+        + 'şubeye özel bir işlem. Önce bir şube seç.');
+    return _rpc(ad, p, ...rest);
   };
 })();
 let PROFIL = null;   // {id, ad, rol, sube_id}
@@ -718,7 +783,16 @@ function kapsamSeridiCiz(){
   const el = document.getElementById('kapsamSerit'); if (!el) return;
   const t = OZ_TAMLIK;
   const p = [];
-  p.push({ s:'ks', m: SUBE_AD || 'şube okunamadı' });
+  /* ⚠ ADIM 2 · SECICI VARSA SUBE ADI YAZI OLARAK TEKRARLANMAZ.
+     Ilk olcumde serit hem "Bardaks KTÜ" yazisini hem ayni adi gosteren
+     seciciyi tasiyordu — ayni bilgi iki kez, ustelik serit ikinci
+     satira tasiyordu ("ekran birikmesi" kurali). Secici zaten hangi
+     kapsamda oldugunu SOYLUYOR ve ustelik degistirilebilir.
+     ⚠ Secici YOKSA (personel, ya da liste okunamadi) yazi KALIR —
+       "şube okunamadı" dali dahil; sessiz bos serit "tek sube var"
+       izlenimi verirdi. */
+  const seciciCikar = !!(PROFIL && PROFIL.rol === 'owner' && SUBELER.length);
+  if (!seciciCikar) p.push({ s:'ks', m: SUBE_AD || 'şube okunamadı' });
   if (!t) p.push({ s:'ks', m:'veri: —' });
   else if (t.bilinmiyor) p.push({ s:'ks eksik', m:'veri tamlığı bilinmiyor' });
   else {
@@ -782,6 +856,30 @@ function kapsamSeridiCiz(){
   }
   p.push({ s:'ks', m: t ? ayAdi(t.ay) : ayAdi(OZ_AY || bugun().slice(0,7)) });
   el.innerHTML = p.map(x => '<span class="' + x.s + '">' + esc(x.m) + '</span>').join('');
+  /* ⚠ ADIM 2 · SUBE SECICI — YALNIZ OWNER.
+     IKI KATMAN: burada dugme hic cizilmiyor, `subeDegistir` ayrica rol
+     kapisi tasiyor. Ekran gizlemek TEK BASINA YETKI DEGILDIR (bu
+     dosyanin kendi kurali) — personel konsoldan cagirsa da duser ve
+     verisi RLS'ten de gelmez.
+     ⚠ Tek sube varken secici yine de cizilir: TOPLAM ile o sube ayri
+       kapsamlardir ve ikincisi acildiginda dugmenin "birden belirmesi"
+       degil, hep orada olmasi dogru. */
+  if (seciciCikar){
+    const sec = document.createElement('select');
+    sec.id = 'kapsamSec';
+    sec.className = 'ks-sec';
+    sec.setAttribute('aria-label','Kapsam seç');
+    const ekle = (deger, ad) => { const o = document.createElement('option');
+      o.value = deger; o.textContent = ad;
+      if (deger === AKTIF_SUBE) o.selected = true; sec.appendChild(o); };
+    ekle(KAPSAM_TOPLAM, 'TOPLAM · tüm şubeler');
+    SUBELER.forEach(s => ekle(s.id, s.ad));
+    sec.onchange = () => {
+      try { subeDegistir(sec.value); }
+      catch(e){ sec.value = AKTIF_SUBE; bildir(e.message, 'hata'); }
+    };
+    el.appendChild(sec);
+  }
   el.hidden = false;
 }
 
@@ -804,9 +902,30 @@ function subeDegistir(id){
   if (PROFIL.rol !== 'owner')
     throw new Error('Şube değiştirmek yalnız owner yetkisidir (rol: '+PROFIL.rol+').');
   if (!id) throw new Error('Şube değiştirilemez: şube kimliği boş.');
+  /* ⚠ ADIM 2 · TOPLAM da gecerli bir hedef, ama TANIMLI bir hedef:
+     bilinen subelerden biri ya da KAPSAM_TOPLAM. Rastgele bir dize
+     gecirilirse sessizce kabul edilmez — sube listesi yuklendiyse
+     dogrulanir. Liste yoksa (acilis) eski davranis korunur. */
+  if (id !== KAPSAM_TOPLAM && SUBELER.length && !SUBELER.some(s => s.id === id))
+    throw new Error('Şube değiştirilemez: tanınmayan şube kimliği.');
   if (id === AKTIF_SUBE) return;
   AKTIF_SUBE = id;
+  SUBE_AD = id === KAPSAM_TOPLAM ? 'TOPLAM · tüm şubeler'
+          : (SUBELER.find(s => s.id === id) || {}).ad || SUBE_AD;
+  kapsamSeridiCiz();
   if (AKTIF_SEKME) sekmeAc(AKTIF_SEKME);   // yarı eski yarı yeni ekran olmasın
+}
+/* Owner'in gecebilecegi subeler. Personelde BOS kalir — seciciyi hic
+   gormez ve `subeDegistir` zaten rol kapisinda duser (IKI KATMAN). */
+let SUBELER = [];
+async function subeleriYukle(){
+  if (!PROFIL || PROFIL.rol !== 'owner'){ SUBELER = []; return; }
+  try{
+    /* 'sube' SUBE_SUZGEC haritasinda DEGIL; owner icin RLS zaten
+       hepsini aciyor (owner_all_sube). */
+    const r = await sb.from('sube').select('id,ad,aktif').order('ad');
+    SUBELER = (r.data || []).filter(s => s.aktif !== false);
+  }catch(e){ SUBELER = []; }
 }
 /* YETKILER — hangi ekranı görebiliyorum/yazabiliyorum.
    Kaynak: rol_yetki tablosu. AYNI TABLOYU RLS de okuyor (yetki_var fonksiyonu).
@@ -945,14 +1064,87 @@ function kbaslik(etiket, ad, sag){
     <div class="kb-ad">${esc(ad)}</div></div>${sag||''}</div>`;
 }
 /* Kayıt satırı: ad + alt bilgi + sağda tutar. tikla varsa ok işareti ve 44px dokunma alanı. */
+/* ==================================================================
+   ADIM 2b · TOPLAM'DA SATIR HANGI SUBEDEN — ISARET
+   ==================================================================
+   ⚠ KENDI KURALIMLA CELISIYORDUM: `stok/tedarikci/personel/arac`i
+     "ekranda SUBE SUTUNU YOK, satirlar ayirt edilemez" diye kapatmistim.
+     Ayni sey acik biraktigim dort ekran icin de gecerliydi — olay
+     listesini TOPLAMAK anlamli, ama LISTEYI ayirt etmeden basmak degil.
+     Olculdu: `vGider` govdesinde `sube` kelimesi HIC GECMIYORDU.
+   ⚠ YALNIZ TOPLAM'DA cikar. Tek sube seciliyken hangi subede oldugunu
+     zaten biliyorsun; orada isaret GURULTU olur ve satir eski haliyle
+     BIREBIR kalir (olculdu).
+   ⚠ YENI SUTUN ACILMADI (375px): isaret alt satirin sonuna eklenen
+     kompakt bir etiket. Satir zaten tarih/tutar/aciklama tasiyor.
+   ⚠ AD gosterilir, KIMLIK degil: `SUBELER` zaten yuklu.
+     Ad bulunamazsa kimlik BASILMAZ, "şube ?" yazar — ekrana uuid
+     dokmek kullaniciya hicbir sey anlatmaz. */
+const subeAdiVer = (id) => {
+  if (!id) return null;
+  const s = (typeof SUBELER !== 'undefined' ? SUBELER : []).find(x => x.id === id);
+  return s ? s.ad : null;
+};
+const subeEtiketi = (id) => {
+  if (!toplamKipi()) return '';
+  return ` <span class="sube-et">${esc(subeAdiVer(id) || 'şube ?')}</span>`;
+};
 function srSatir(o){
   // o.ara verilirse satır aranabilir olur (data-ara). Arama kutusu bu alanda süzer.
+  /* o.sube verilirse TOPLAM'da satirin sonunda sube etiketi cikar. */
+  const alt = (o.alt || '') + (o.sube !== undefined ? subeEtiketi(o.sube) : '');
   return `<div class="sr${o.tikla?' sr-ac':''}"${o.tikla?` onclick="${o.tikla}"`:''}${
     o.ara?` data-ara="${esc(String(o.ara).toLocaleLowerCase('tr'))}"`:''}>
-    <div><div class="sr-ad">${o.ad}</div>${o.alt?`<div class="sr-alt">${o.alt}</div>`:''}</div>
+    <div><div class="sr-ad">${o.ad}</div>${alt?`<div class="sr-alt">${alt}</div>`:''}</div>
     <div class="sr-tut">${o.tutar||''}${o.tutarAlt?`<span class="k">${o.tutarAlt}</span>`:''}${
       o.eylem?`<div style="margin-top:4px">${o.eylem}</div>`:''}</div></div>`;
 }
+/* ==================================================================
+   ADIM 2b · SUBE BASINA ALT TOPLAM — yalniz TOPLAM'da
+   ==================================================================
+   Sahibin asil sorusu "hangi sube ne harcadi"; tek birlesik toplam
+   bunu CEVAPLAMIYOR.
+   ⚠ EKRANDA CIZILEN AYNI SATIRLARDAN hesaplanir, AYRI BIR SORGUDAN
+     DEGIL. Iki kaynak bir gun ayrisir ve hangisinin dogru oldugu
+     anlasilmaz — bu dosyada yasandi (mukerrer Ltd rakami, D3).
+     Bu yuzden fonksiyon satir DIZISINI aliyor; kendi sorgusu YOK.
+   ⚠ ALT TOPLAMLARIN TOPLAMI genel toplama esit olmali. Esit degilse
+     SUSMUYOR: satirin kendisi "tutmuyor" diye uyariyor. Sessiz bir
+     tutarsizlik, gorunen bir tutarsizliktan kotudur.
+   ⚠ Subesi OKUNAMAYAN satir varsa AYRI satirda gosterilir, bir subenin
+     icine SAYILMAZ — yanlis subeye yazmaktansa "bilinmiyor" demek.
+   @param satirlar dizi · @param tutarAl (x)=>sayi · @param subeAl (x)=>id */
+function subeAltToplamBlogu(satirlar, tutarAl, subeAl){
+  if (!toplamKipi()) return '';
+  const m = new Map();
+  let genel = 0;
+  for (const x of satirlar){
+    const t = +tutarAl(x) || 0;
+    genel += t;
+    const id = subeAl(x) || '__yok__';
+    m.set(id, (m.get(id) || 0) + t);
+  }
+  if (!m.size) return '';
+  const sirali = [...m.entries()].sort((a,b) => b[1] - a[1]);
+  const satirCiz = (ad, tutar, sinif) =>
+    `<div class="liste-satir${sinif?' '+sinif:''}"><div class="l-sol"><span class="b">${esc(ad)}</span></div>`
+    + `<div class="l-sag">${tl(tutar)}</div></div>`;
+  const altToplam = sirali.reduce((a,[,v]) => a + v, 0);
+  /* Kurus farki bile susturulmaz — esitlik SAYIYLA kuruluyor. */
+  const tutuyor = Math.abs(altToplam - genel) < 0.005;
+  /* ⚠ `kart` SARMALAYICISI YOK: bu blok cagrildigi yerlerde zaten bir
+     `kart` icine giriyor; ikinci bir kart ic ice kutu demek olurdu. */
+  return `<div class="st-blok">`
+    + `<div class="st-baslik">ŞUBE BAŞINA</div>`
+    + sirali.map(([id, v]) => satirCiz(
+        id === '__yok__' ? 'şubesi okunamadı' : (subeAdiVer(id) || 'şube ?'), v)).join('')
+    + satirCiz('TOPLAM', genel, 'ls-vurgu')
+    + (tutuyor ? '' :
+        `<div class="uyari-agir">Şube toplamları genel toplamı tutmuyor `
+        + `(${tl(altToplam)} ≠ ${tl(genel)}). Rakamlara güvenme, bildir.</div>`)
+    + `</div>`;
+}
+
 /* ARAMA — uygulamada hiçbir yerde arama yoktu; 30 ürün arasında kaydırmak
    tedarikçi karşındayken çalışmaz. srSatir'ın data-ara alanında süzer. */
 function stokFiltre(q){
@@ -1375,6 +1567,7 @@ async function baslat(){
     const sn = await sb.from('sube').select('ad').eq('id', p.sube_id).maybeSingle();
     SUBE_AD = (sn.data && sn.data.ad) || null;
   }catch(e){ SUBE_AD = null; }
+  await subeleriYukle();     // ADIM 2 · secici icin; personelde bos doner
   kapsamSeridiCiz();
   await yetkileriYukle();
   document.getElementById('girisEkran').classList.add('gizli');
@@ -1777,6 +1970,56 @@ async function sekmeAc(id, gecmisten){
   const d = document.getElementById('sk_daha');
   if (d) d.classList.toggle('aktif', sekmeGizliMi(id));
   window.scrollTo(0,0);
+  /* ==================================================================
+     ADIM 2 · TOPLAM KIPINDE HANGI EKRAN ACIK
+     ==================================================================
+     ⚠ LISTE VARSAYIMLA DEGIL OLCUMLE KURULDU. Iki ayri sebep kapatiyor:
+       (1) TEK SATIR VARSAYIMI — ekran subeye bagli bir tablodan
+           `maybeSingle()` okuyor ya da donen diziden [0]'i aliyor.
+           TOPLAM'da iki sube iki satir demek: ya PostgREST hata verir
+           ya da SESSIZCE tek subenin rakami gosterilir. Ikincisi bu
+           turlarda defalarca yakalanan sinif.
+           OLCULDU: `vOzet` hem `gun_sonu ... maybeSingle()` (3277) hem
+           `v_aylik_ozet` dizisini tek satir gibi kullaniyor (3279).
+       (2) VARLIK BASINA SATIR — ayni urun/tedarikci/personel/arac iki
+           subede iki satir doner ve ekranda SUBE SUTUNU YOK; satirlar
+           birbirinden ayirt edilemez. "Iki kez gorunen urun" yanlis
+           degil ama OKUNAMAZ.
+       (3) SUBEYE OZEL ISLEM (kural c): gun sonu girisi, ay kapatma.
+     ⚠ ACIK OLANLAR OLAY LISTESI: satirlar tekil kayitlar, toplam da
+       satirlarin toplami — iki subeyi toplamak ANLAMLI ve dogru.
+     ⚠ KAPALI EKRAN SESSIZCE KAYBOLMAZ: sekme yerinde kalir, icerik
+       yerine NEDEN kapali oldugu ve ne yapilacagi yazar
+       ("engellemiyor" ile "olmamis gibi davranmak" ayri seyler). */
+  const TOPLAM_ACIK = { gider:1, belge:1, talep:1, vergi:1 };
+  const TOPLAM_KAPALI_SEBEP = {
+    ozet:      'Özet, bir döneme ait TEK satır okuyacak şekilde yazılmış '
+             + '(ölçüldü). İki şube birden geldiğinde sessizce yalnız birinin '
+             + 'rakamını gösterirdi — yanlış rakam, hiç rakam göstermemekten kötüdür.',
+    gunsonu:   'Gün sonu bir şubenin o günkü kaydıdır; hangi şubeye yazılacağı '
+             + 'belli olmadan girilemez.',
+    stok:      'Stok ürün başına tutuluyor ve aynı ürün iki şubede iki ayrı '
+             + 'satır. Bu ekranda şube sütunu yok, satırlar birbirinden '
+             + 'ayırt edilemezdi.',
+    tedarikci: 'Tedarikçi bakiyesi şube başına tutuluyor; aynı tedarikçi iki '
+             + 'kez görünür ve hangi şubeye ait olduğu yazmaz.',
+    personel:  'Personel ve maaş kayıtları şubeye bağlı; iki şubenin listesi '
+             + 'şube sütunu olmadan karışırdı.',
+    arac:      'Araçlar şubeye bağlı; iki şubenin listesi şube sütunu olmadan '
+             + 'karışırdı.',
+    yonetim:   'Ay kapatma/açma ve sistem işlemleri tek bir şube üzerinde '
+             + 'çalışır (sunucu da şubesiz çağrıyı RAPOR_SUBE_YOK ile reddediyor — ölçüldü).'
+  };
+  if (toplamKipi() && !TOPLAM_ACIK[id]){
+    const el = document.getElementById('icerik');
+    if (el) el.innerHTML = '<div class="kart">'
+      + kbaslik('', 'TOPLAM görünümünde bu ekran kapalı', '')
+      + '<div class="bilgi" style="margin:10px 0">'
+      + esc(TOPLAM_KAPALI_SEBEP[id] || 'Bu ekran şubeye özel çalışıyor.')
+      + '</div><div class="kucuk">Yukarıdaki kapsam seçicisinden bir şube seç — '
+      + 'ekran o şubenin verisiyle açılır.</div></div>';
+    return;
+  }
   const f = ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
               personel:vPersonel, talep:vTalep, arac:vArac, vergi:vVergi, belge:vBelge, yonetim:vYonetim})[id];
   // Ekran çizerken hata olursa "Yükleniyor..." sonsuza kadar ekranda kalıyordu ve kimse
@@ -5213,9 +5456,9 @@ async function kasadanDetay(ay){
   const sonGun=new Date(+ay.slice(0,4), +ay.slice(5,7), 0).getDate();
   const bas=ay+'-01', son=ay+'-'+String(sonGun).padStart(2,'0');
   const [gd, td] = await Promise.all([
-    sb.from('gider').select('tarih,tutar,aciklama,gider_kategori(ad)')
+    sb.from('gider').select('tarih,tutar,aciklama,sube_id,gider_kategori(ad)')
       .eq('is_deleted',false).eq('kasadan',true).gte('tarih',bas).lte('tarih',son),
-    sb.from('tedarikci_odeme').select('tarih,tutar,aciklama,tedarikci(ad)')
+    sb.from('tedarikci_odeme').select('tarih,tutar,aciklama,sube_id,tedarikci(ad)')
       .eq('is_deleted',false).eq('yontem','nakit').gte('tarih',bas).lte('tarih',son)
   ]);
   const bas_=(sag)=>`<div class="ud-ust"><div style="flex:1;min-width:0">
@@ -5226,10 +5469,10 @@ async function kasadanDetay(ay){
       ${esc(hataTr((gd.error||td.error).message))}</div></div>`; return;
   }
   const kayitlar=[
-    ...(gd.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar,
+    ...(gd.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar, sube_id:x.sube_id,
       ne: esc(x.aciklama || x.gider_kategori?.ad || 'Gider'),
       tur: esc(x.gider_kategori?.ad || 'Gider') })),
-    ...(td.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar,
+    ...(td.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar, sube_id:x.sube_id,
       ne: esc(x.tedarikci?.ad || 'Tedarikçi') + (x.aciklama?' — '+esc(x.aciklama):''),
       tur: 'Tedarikçi ödemesi' }))
   ].sort((a,b)=> a.tarih<b.tarih?1:a.tarih>b.tarih?-1:0);
@@ -5241,6 +5484,7 @@ async function kasadanDetay(ay){
       <div><div class="ud-et">TOPLAM</div><div class="ud-dg" style="color:var(--uyari)">${tl(toplam)}</div></div>
       <div><div class="ud-et">KAYIT</div><div class="ud-dg">${kayitlar.length}</div></div>
     </div>
+    ${subeAltToplamBlogu(kayitlar, x=>x.tutar, x=>x.sube_id)}
     ${kayitlar.length===0
       ? '<div class="ud-bos">Bu ay kasadan nakit ödeme yapılmamış.</div>'
       : kayitlar.map(x=>{
@@ -5250,7 +5494,7 @@ async function kasadanDetay(ay){
             <div class="ud-trh">${d.toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}
               <span style="display:block;font-size:10px;font-weight:700">${GUNAD[d.getDay()].slice(0,3)}</span></div>
             <div><div style="font-weight:800;font-size:13px">${x.ne}</div>
-              <div class="ud-alt">${x.tur}</div></div>
+              <div class="ud-alt">${x.tur}${subeEtiketi(x.sube_id)}</div></div>
             <div class="ud-tut">${tl(x.tutar)}</div>
           </div>`;
         }).join('')}
@@ -5521,9 +5765,9 @@ async function gdOdeme(){
   tedarikciOdemeFormuBagla('od');
   taksitTakvimi();
   const [gd, td] = await Promise.all([
-    sb.from('gider').select('tarih,tutar,aciklama,kasadan,gider_kategori(ad)')
+    sb.from('gider').select('tarih,tutar,aciklama,kasadan,sube_id,gider_kategori(ad)')
       .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
-    sb.from('tedarikci_odeme').select('tarih,tutar,yontem,cek_no,cek_vade,aciklama,tedarikci(ad)')
+    sb.from('tedarikci_odeme').select('tarih,tutar,yontem,cek_no,cek_vade,aciklama,sube_id,tedarikci(ad)')
       .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
   ]);
   const el = document.getElementById('gdOdemeListe'); if(!el) return;
@@ -5533,7 +5777,7 @@ async function gdOdeme(){
   }
   const YONTEM = {kart:'Kart', nakit:'Nakit', havale:'Havale/EFT', cek:'Çek'};
   const kayitlar = [
-    ...(gd.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar,
+    ...(gd.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar, sube_id:x.sube_id,
       kime: esc(x.gider_kategori?.ad || 'Gider'),
       nasil: x.kasadan ? 'Kasadan nakit' : 'Gider',
       not: esc(x.aciklama||''), kasadan: !!x.kasadan, tur:'gider' })),
@@ -5542,7 +5786,7 @@ async function gdOdeme(){
       nasil: YONTEM[x.yontem] || esc(x.yontem||'—'),
       not: x.cek_no ? 'Çek '+esc(x.cek_no)+(x.cek_vade?' · vade '+new Date(x.cek_vade+'T00:00').toLocaleDateString('tr-TR'):'')
                     : esc(x.aciklama||''),
-      kasadan: x.yontem==='nakit', tur:'tedarikci' }))
+      kasadan: x.yontem==='nakit', tur:'tedarikci', sube_id:x.sube_id }))
   ].sort((a,b)=> a.tarih < b.tarih ? 1 : a.tarih > b.tarih ? -1 : 0);
 
   const toplam = kayitlar.reduce((a,x)=>a+x.tutar,0);
@@ -5566,7 +5810,9 @@ async function gdOdeme(){
       ${ozSatir('TOPLAM', tl(toplam), true)}
       <div class="ud-bas" style="margin-top:16px"><span class="ud-blk">DÖKÜM</span>
         <span class="ud-trend">${ayAdi(ay)}</span></div>
+      ${subeAltToplamBlogu(kayitlar, x=>x.tutar, x=>x.sube_id)}
       ${kayitlar.map(x=>srSatir({
+          sube: x.sube_id,
           ad: x.kime + (x.kasadan?' <span class="rozet rz-uyari">kasadan</span>':''),
           alt: new Date(x.tarih+'T00:00').toLocaleDateString('tr-TR') + ' · ' + x.nasil
                + (x.not ? ' · ' + x.not : ''),
@@ -7069,9 +7315,12 @@ async function giderListe(){
     ${kbaslik(PROFIL.rol==='personel'?'SON 7 GÜN':'SON KAYITLAR', 'Giderler',
        buAy.length?`<div class="kb-sag">${tl(ayToplam)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${ayAdi(ay)}</span></div>`:'')}
     ${kasadanToplam>0?`<div class="ipucu">Bu ayın <b>${tl(kasadanToplam)}</b> tutarı kasadan nakit ödendi — gün sonu sayımında eksik çıkar, gerçek ciroya geri eklenir.</div>`:''}
+    ${/* ⚠ ADIM 2b · ALT TOPLAM CIZILEN AYNI `list`TEN — ayri sorgu YOK. */''}
+    ${subeAltToplamBlogu(list, g=>+g.tutar, g=>g.sube_id)}
     ${list.length===0
       ? bosDurum('belge','Gider kaydı yok','Elektrik, su, tüp gibi düzenli giderleri "Temel", ufak alımları "Fiş" bölümünden gir.')
       : list.map(g=>srSatir({
+          sube: g.sube_id,
           /* ⚠ Y18 · "KDV bilinmiyor" rozeti `belgesiz` ile AYNI kalip:
                ikisi de "bu kayitta eksik bir sey var" diyor, yenisi
                icat edilmedi. Bayrak false iken HICBIR SEY cikmaz —
@@ -8217,6 +8466,7 @@ async function alisListe(){
         ? '<span style="color:var(--ok);font-weight:800">Ödendi</span>'
         : `<span style="color:${vadeGecti?'var(--hata)':'var(--uyari)'};font-weight:800">${vadeGecti?'VADESİ GEÇTİ':'Ödenmedi'}</span>${a.vade_tarihi?' · vade '+new Date(a.vade_tarihi+'T00:00').toLocaleDateString('tr-TR'):''}`;
       return srSatir({
+        sube: a.sube_id,
         tikla: `faturaDetay('${a.id}')`,
         ad: `${esc(a.tedarikci?.ad||'—')}`,
         alt: `${t} · ${a.tur!=='fatura'?esc(a.tur==='bilgi_fisi'?'bedelsiz mal gelişi':a.tur)+' · ':''}${esc(a.belge_no||'belge no yok')}`
@@ -9486,7 +9736,7 @@ async function odemeListe(){
   const el = document.getElementById('odemeListe'); if(!el) return;
   const ay = bugun().slice(0,7);
   const { data, error } = await sb.from('tedarikci_odeme')
-    .select('tarih,tutar,yontem,cek_no,cek_vade,aciklama,tedarikci(ad)')
+    .select('tarih,tutar,yontem,cek_no,cek_vade,aciklama,sube_id,tedarikci(ad)')
     .eq('is_deleted',false).order('tarih',{ascending:false}).limit(60);
   if (error){ el.innerHTML = `<div class="uyari-agir">Ödemeler yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
   const list = data||[];
@@ -10110,7 +10360,7 @@ async function talepListe(){
     return `<div class="sr">
       <div>
         <div class="sr-ad" style="${t.durum!=='acik'?'text-decoration:line-through;color:var(--soluk);font-weight:700':''}">${esc(t.mesaj)}</div>
-        <div class="sr-alt">${esc(t.olusturan?.ad||'—')} · ${g===0?'bugün':g+' gündür'}
+        <div class="sr-alt">${esc(t.olusturan?.ad||'—')} · ${g===0?'bugün':g+' gündür'}${subeEtiketi(t.sube_id)}
           ${eski?'<span class="rozet rz-hata" style="margin-left:4px">UNUTULDU</span>':''}
           ${t.durum!=='acik'?`<br><span style="color:var(--ok);font-weight:800">✓ ${esc(t.cozen?.ad||'')} yaptı${t.cozum_tarihi?' · '+new Date(t.cozum_tarihi).toLocaleDateString('tr-TR'):''}</span>`:''}</div>
       </div>
@@ -10583,7 +10833,7 @@ function bgCiz(el, ay){
               <div class="b">${esc(x.baslik || BG_TUR_AD[x.tur] || '—')}
                 ${x.yol ? '' : '<span class="rozet rz-hata">BELGE YOK</span>'}</div>
               <div class="k">${esc(BG_TUR_AD[x.tur]||x.tur)} · ${new Date(x.tarih+'T00:00').toLocaleDateString('tr-TR')}${
-                +x.tutar ? ' · ' + tl(x.tutar) : ''}</div>
+                +x.tutar ? ' · ' + tl(x.tutar) : ''}${subeEtiketi(x.sube_id)}</div>
             </div>
             <div class="l-sag">${x.yol
               ? belgeBtn(x.yol, 'Aç', esc(x.baslik||''))
@@ -10745,6 +10995,7 @@ async function vVergi(){
       ${Object.entries(tur).sort((a,b)=>b[1]-a[1])
           .map(([t,v])=>ozSatir(esc(vergiAd(t)), tl(v))).join('')}
       ${ozSatir(yil+' TOPLAM', tl(yilToplam), true)}
+      ${subeAltToplamBlogu(buYil, x=>+x.tutar, x=>x.sube_id)}
       <div class="bilgi-not" style="margin-top:10px">
         Bu ödemeler <b>kâra düşmez</b> — kâr üzerinden alınan yüklerdir.
         Aracın MTV'si burada değil, <b>Araç</b> sekmesinde: o işletme gideri, kârdan düşüyor.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-33">
+<meta name="surum" content="borc-2026-08-27-34">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -8857,12 +8857,43 @@ async function donemOnizle(kart, liste, kaydet, duz){
       tutar: (r.odemeKurus/100).toFixed(2),
       giren_id: PROFIL ? PROFIL.id : null });
     if (o.error) odemeHatasi = hataTr(o.error.message);
-  } else if (r.odemeKurus === 0 && r.odemeTarih != null)
-    /* ⚠ OLCULEN BOSLUK: "0 odedim" artik KAYDEDILEMIYOR. Olay tablosunun
-       kisiti tutar > 0; sifir tutarli olay YOK. Eskiden bu bilgi
-       donem_odemesi = 0,00 ile tutuluyordu ve gorunum onu 'odenmedi'
-       diye gosteriyordu (v107). Sessizce yutulmuyor — soyleniyor. */
-    odemeSifir = true;
+  } else if (r.odemeKurus === 0 && r.odemeTarih != null){
+    /* ⚠ Y16(b) · "BAKTIM, HIC ODEMEDIM" ARTIK KAYDEDILIYOR.
+         ONCESI: bu dal yalnizca bayrak kaldirip "yazilamadi" diyordu.
+         Bilgi kayboluyordu: gercekten odenmemis ekstre, ekranda
+         "odeme girilmemis" gorunuyordu (Y16 celiskisinin kaynagi).
+       ⚠ YENI KOLON GEREKMEDI — VERITABANI BUNU ZATEN IFADE EDEBILIYOR,
+         kapta olculdu:
+           kisit  kd_donem_odemesi_chk: (NULL OR >= 0)  -> SIFIRA IZIN VAR
+           v107 kolon yorumu: "NULL = girilmedi, 0 = hic odenmedi"
+           gorunum CASE'i: 0 -> 'odenmedi'
+         Yani eksik olan tek sey ISTEMCIDE YAZMA YOLUYDU; v123'te
+         odemeler olaya donunce kaldirilmisti.
+       ⚠ v123'UN KARARI TERSINE CEVRILMIYOR, DARALTILARAK KULLANILIYOR:
+         skalere YALNIZ 0, YALNIZ acik bir "hic odemedim" beyani olarak
+         ve YALNIZ BURADA — yeni acilan, HIC OLAYI OLMAYAN donemde —
+         yaziliyor. Tutar yazan tek yer hala kart_odeme olaylari.
+       ⚠ `donem_odemesi_tarih` YAZILMIYOR: odenmemis bir ekstrenin odeme
+         tarihi yoktur. Kullanicinin girdigi gun "baktigi gun"dur, kayit
+         alani degil. Ikinci kopru sutununa yazmak gereksiz genisleme.
+       ⚠ BU YOLDA GOLGELENME IMKANSIZ: donem SU AN acildi, kart_odeme'de
+         hicbir satiri yok, dolayisiyla v134'un EXISTS kapisi false ve
+         skaler okunuyor. (Mevcut bir donemde durum farkli — asagidaki
+         dogrulama tam bu yuzden var.) */
+    const z = await sb.from('kart_donem')
+      .update({ donem_odemesi: 0 }).eq('id', yeniD.id);
+    if (z.error) odemeHatasi = hataTr(z.error.message);
+    else {
+      /* ⚠ IDDIA ETME, OKU. Yazdiktan sonra GORUNUMUN ne dedigi okunuyor;
+         `odeme_turu` 'odenmedi' donmediyse beyan TUTULMAMIS demektir ve
+         kullaniciya dogrusu soylenir. Ayni kalip odemeYapAc'ta zaten var
+         (toplam istemcide hesaplanmaz, gorunumden okunur). */
+      const chk = await sb.from('v_kart_donem')
+        .select('odeme_turu').eq('donem_id', yeniD.id).maybeSingle();
+      odemeSifir = (chk.data && chk.data.odeme_turu === 'odenmedi') ? 'tutuldu'
+                 : (chk.error || !chk.data) ? 'okunamadi' : 'tutulmadi';
+    }
+  }
   /* ⚠ ONCE tazele SONRA mesaj: ters sirada kartDetayAc #kartMsg'i yeniden
      kurup mesaji siliyor ve kayit sessizce gecmis gibi gorunuyordu. */
   await kartDetayAc(kart.id);
@@ -8874,10 +8905,22 @@ async function donemOnizle(kart, liste, kaydet, duz){
     mesaj('kartMsg','hata', r.donem + ' KAYDEDİLDİ ama ÖDEME KAYDEDİLMEDİ: '
       + odemeHatasi + ' Ödemeyi ayın "Ödeme yap" düğmesiyle yeniden gir — '
       + 'ekstre satırını tekrar kaydetme.');
-  else if (odemeSifir)
-    mesaj('kartMsg','uyari', r.donem + ' kaydedildi. ÖDEME YAZILMADI: "0,00" '
-      + 'ödeme satırı olarak tutulamıyor (satır tutarı sıfırdan büyük olmalı). '
-      + 'Ekstre "ödeme girilmemiş" görünecek. Ödeme yapınca "Ödeme yap" ile ekle.');
+  /* ⚠ Y16(b) · UC AYRI SONUC, UC AYRI CUMLE. Eskiden tek cumle vardi ve
+     "yazilamadi" diyordu; artik yaziliyor, ama YAZILDIGI VARSAYILMIYOR —
+     gorunumden okunan sonuc ne ise o soyleniyor. */
+  else if (odemeSifir === 'tutuldu')
+    mesaj('kartMsg','ok', r.donem + ' kaydedildi. Bu ekstre için '
+      + 'HİÇ ÖDEME YAPILMADI olarak işaretlendi — listede "ÖDENMEDİ" '
+      + 'görünecek ve gecikme sayımına girecek. Sonradan ödersen '
+      + '"Ödeme yap" ile ekle, işaret kendiliğinden düşer.');
+  else if (odemeSifir === 'tutulmadi')
+    mesaj('kartMsg','uyari', r.donem + ' kaydedildi ama "hiç ödemedim" '
+      + 'işareti TUTULMADI: bu dönemin ödeme geçmişi var. Ekstre '
+      + '"ödeme girilmemiş" görünecek.');
+  else if (odemeSifir === 'okunamadi')
+    mesaj('kartMsg','uyari', r.donem + ' kaydedildi ve "hiç ödemedim" '
+      + 'yazıldı, ama sonucu okuyamadım. Listede "ÖDENMEDİ" yazıyorsa '
+      + 'tutmuştur — yazmıyorsa tekrar dene.');
   else if (oranTutarKarismis)
     mesaj('kartMsg','uyari', r.donem + ' kaydedildi — AMA KONTROL ET: ' + OT_METIN
       + ' Düzeltmek için ayın "Düzenle" düğmesini kullan.');
