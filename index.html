@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-64">
+<meta name="surum" content="2026-08-27-65">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -347,6 +347,32 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
   background:var(--acik);border:1px solid var(--cizgi);border-radius:8px;
   padding:4px 6px;min-height:32px;max-width:190px}
 #cikisBtn{background:var(--acik);color:var(--ana);padding:7px 12px;font-size:12.5px}
+/* ============ ADIM 03 · ACILIS KAPISI ============
+   Dort kapi: BORC · <sube> · <sube> · TOPLAM. Kapsam SECICISI seritten
+   KALKTI — ayni karari iki ayri yoldan verdirmek 'ekran birikmesi'
+   kuralina takiliyordu. Icerideyken seridin yerinde GERI dugmesi
+   durur: hem nerede oldugunu YAZAR hem kapiya dondurur. */
+#acilisKapi{display:flex;flex-direction:column;gap:11px;padding:4px 0 8px}
+#acilisKapi .kapi-bas{font-size:13px;color:var(--soluk);line-height:1.5;margin:2px 0}
+.kapi{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:var(--kart);border:1px solid var(--cizgi);border-left:4px solid var(--soluk);
+  border-radius:12px;padding:14px 12px 14px 14px;cursor:pointer;font:inherit;color:inherit;
+  min-height:64px}
+.kapi:active{transform:translateY(1px)}
+.kapi .kapi-sol{flex:1;min-width:0}
+.kapi .kapi-ad{font-size:17px;font-weight:800;letter-spacing:.01em;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kapi .kapi-dur{font-size:12.5px;color:var(--soluk);margin-top:3px;line-height:1.35}
+.kapi .kapi-ok{color:var(--soluk);font-size:19px;flex-shrink:0}
+.kapi-borc{border-left-color:var(--hata)}
+.kapi-sube{border-left-color:var(--ana)}
+.kapi-top{border-left-color:var(--metin);background:var(--acik)}
+/* Geri dugmesi kapsam seridinin ICINDE — #ustBar zaten sticky, ikinci
+   bir yapisik katman acilmadi (ADIM 15'in gerekcesi aynen gecerli). */
+#ustBar .kapsam .ks-geri{font:inherit;font-size:12px;font-weight:700;color:var(--ana);
+  background:var(--acik);border:1px solid var(--cizgi);border-radius:8px;
+  padding:4px 9px;min-height:32px;max-width:190px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 /* ============ UYGULAMA KABUĞU ============
    Telefonda 8 sekme 496px yer kaplıyordu; 375px ekranda son ikisi (Yapılacaklar, Yönetim)
    ekran dışında kalıyordu. Artık: mobilde 4 sekme + Daha, masaüstünde sol menü. */
@@ -813,7 +839,15 @@ function kapsamSeridiCiz(){
      ⚠ Secici YOKSA (personel, ya da liste okunamadi) yazi KALIR —
        "şube okunamadı" dali dahil; sessiz bos serit "tek sube var"
        izlenimi verirdi. */
-  const seciciCikar = !!(PROFIL && PROFIL.rol === 'owner' && SUBELER.length);
+  /* ⚠ ADIM 03 · SECICI KALKTI, YERINE GERI DUGMESI GELDI. Ayni karari
+     (hangi kapsamdayim) iki ayri yoldan verdirmek 'ekran birikmesi'
+     kuralina takiliyordu; ustelik kucuk bir acilir liste 'hangi
+     subedeyim'i kacirmayi kolaylastiriyordu. Geri dugmesi HEM adi
+     YAZIYOR HEM kapiya donduruyor.
+     ⚠ KOSUL ARTIK SUBELER.length'E BAGLI DEGIL: liste okunamasa bile
+       sahibin kapiya donus yolu kalmali. Ad YAZISI ise yalniz kapisi
+       OLMAYANDA (personel) kalir — yoksa ad iki kez yazilirdi. */
+  const seciciCikar = !!(PROFIL && PROFIL.rol === 'owner');
   if (!seciciCikar) p.push({ s:'ks', m: SUBE_AD || 'şube okunamadı' });
   if (!t) p.push({ s:'ks', m:'veri: —' });
   else if (t.bilinmiyor) p.push({ s:'ks eksik', m:'veri tamlığı bilinmiyor' });
@@ -887,22 +921,164 @@ function kapsamSeridiCiz(){
        kapsamlardir ve ikincisi acildiginda dugmenin "birden belirmesi"
        degil, hep orada olmasi dogru. */
   if (seciciCikar){
-    const sec = document.createElement('select');
-    sec.id = 'kapsamSec';
-    sec.className = 'ks-sec';
-    sec.setAttribute('aria-label','Kapsam seç');
-    const ekle = (deger, ad) => { const o = document.createElement('option');
-      o.value = deger; o.textContent = ad;
-      if (deger === AKTIF_SUBE) o.selected = true; sec.appendChild(o); };
-    ekle(KAPSAM_TOPLAM, 'TOPLAM · tüm şubeler');
-    SUBELER.forEach(s => ekle(s.id, s.ad));
-    sec.onchange = () => {
-      try { subeDegistir(sec.value); }
-      catch(e){ sec.value = AKTIF_SUBE; bildir(e.message, 'hata'); }
-    };
-    el.appendChild(sec);
+    const b = document.createElement('button');
+    b.type = 'button'; b.id = 'kapiGeri'; b.className = 'ks-geri';
+    b.setAttribute('aria-label','Açılış kapısına dön');
+    b.textContent = '‹ ' + (AKTIF_SUBE === KAPSAM_TOPLAM ? 'TOPLAM' : (SUBE_AD || 'şube ?'));
+    b.onclick = () => kapiyaDon();
+    el.appendChild(b);
   }
-  el.hidden = false;
+  /* ⚠ SERIDIN GORUNURLUGU TEK YERDEN: kapi acikken serit YOK (kapsam
+     henuz secilmedi), kapali iken VAR. Iki ayri yerden yonetilseydi
+     biri otekini gunun birinde yalanlardi. */
+  el.hidden = KAPI_ACIK;
+  el.classList.toggle('gizli', KAPI_ACIK);
+}
+
+/* ==================================================================
+   ADIM 03 · ACILIS KAPISI
+   ==================================================================
+   Uygulama artik dogrudan bir subenin icine dusmuyor: sahip once
+   BORC · <sube> · <sube> · TOPLAM kapilarini goruyor.
+   ⚠ PERSONELDE KAPI HIC CIZILMEZ. Onun tek subesi var, borcu ve
+     TOPLAM'i gormuyor — yani sececek bir sey yok. Sectirmeyen ekran
+     yer kaplayan bir yalandir; personel eskisi gibi dogrudan iceri
+     girer ve akisi HIC DEGISMEZ.
+   ⚠ KAPIDA SEKME CUBUGU DA GIZLENIR. Aksi halde kullanici kapiyi
+     atlayip bir sekmeye dokunabilir ve SECMEDIGI bir kapsamda
+     (varsayilan olarak kendi subesi) calismaya baslardi — kapinin
+     butun anlami bu secimin BILEREK yapilmasi.
+   ⚠ KAPIDA RAKAM YOK, BILEREK. Tasarimin kendisi 'kapida hangi rakam
+     dursun' sorusunu ACIK BIRAKTI, brief de 'acilis ekrani yeni bir
+     sorgu yolu acmamali' diyor. Sube basina ciro/eksik gun okumak ya
+     subeSuzgeciKur sarmalayicisini delmeyi ya da kapiyi TOPLAM
+     kapsamina zorlamayi gerektirirdi; ikisi de bu turun sinirini asar.
+     Kutular bugun ELDE OLANI soyluyor: nereye goturdugunu, neyin
+     adresi oldugunu ve kac yazarkasasi bulundugunu. */
+let KAPI_ACIK = false;
+/* Kapi yalniz SAHIBE cizilir. SUBELER bos kalsa bile (liste okunamadi)
+   kapi cizilir: BORC ve TOPLAM hala ayri hedeflerdir ve kullanici en
+   azindan kendi subesine girebilir. */
+const kapiVarMi = () => !!(PROFIL && PROFIL.rol === 'owner');
+
+function kapiKutu(anahtar, sinif, ad, aciklama){
+  return '<button type="button" class="kapi ' + sinif + '" data-kapi="' + esc(anahtar) + '"'
+    + ' onclick="kapidanGir(this.dataset.kapi)">'
+    + '<span class="kapi-sol"><span class="kapi-ad">' + esc(ad) + '</span>'
+    + '<span class="kapi-dur">' + aciklama + '</span></span>'
+    + '<span class="kapi-ok" aria-hidden="true">›</span></button>';
+}
+
+function acilisKapisiCiz(){
+  const el = document.getElementById('icerik'); if (!el) return;
+  const kasaSoz = (n) => kasaAdediCoz(n) === 1 ? 'tek yazarkasa' : kasaAdediCoz(n) + ' yazarkasa';
+  const subeler = SUBELER.length ? SUBELER
+    : (AKTIF_SUBE && AKTIF_SUBE !== KAPSAM_TOPLAM
+        ? [{ id:AKTIF_SUBE, ad:SUBE_AD || 'şube ?', kasa_adedi:SUBE_KASA }] : []);
+  el.innerHTML = '<div id="acilisKapi">'
+    + '<div class="kapi-bas">Nereye bakmak istiyorsun?</div>'
+    /* ⚠ BORC AYRI DOSYADA (borc.html). sekmeAc('borc') o yonlendirmeyi
+       zaten yapiyor — kapi YENI bir yol acmiyor, var olani cagiriyor. */
+    + kapiKutu('borc', 'kapi-borc', 'BORÇ',
+        'Kart, kredi, çek, maden ve şahıs borçları — ayrı defter')
+    + subeler.map(x => kapiKutu(x.id, 'kapi-sube', x.ad,
+        'Gün sonu, gider, stok · ' + kasaSoz(x.kasa_adedi))).join('')
+    /* ⚠ TOPLAM YALNIZ BIR TOPLAMA EKRANI DEGIL: vergi tek sahis
+       sirketine cikiyor, yuklenen belgeler de ortak. Ikisi de subeye
+       BOLUNMUYOR ve zaten TOPLAM_ACIK icinde. Kutu bunu soyluyor.
+       ⚠ 'Iki sube' YAZILMIYOR: sayi listeden geliyor. Sabit bir sayi
+         Y52'nin (sabit KTU etiketi) ayni sinifi olurdu. */
+    + kapiKutu(KAPSAM_TOPLAM, 'kapi-top', 'TOPLAM',
+        (subeler.length || 'tüm') + ' şube birlikte · <b>vergi ve belgeler burada</b>')
+    + '</div>';
+  KAPI_ACIK = true;
+  AKTIF_SEKME = null;
+  /* ⚠ `.gizli` SINIFI, `hidden` OZELLIGI DEGIL: ikisinin de kendi
+     display kurali var ve `[hidden]`i eziyor (olculdu — kapida ekranda
+     duruyorlardi). `hidden` yine de kuruluyor: erisim agaci ile
+     goruntu ayrismasin. */
+  const cubuk = document.getElementById('sekmeBar');
+  if (cubuk){ cubuk.hidden = true; cubuk.classList.add('gizli'); }
+  const serit = document.getElementById('kapsamSerit');
+  if (serit){ serit.hidden = true; serit.classList.add('gizli'); }
+  document.querySelectorAll('#sekmeBar button, #dahaKutu button')
+    .forEach(b => b.classList.remove('aktif'));
+  window.scrollTo(0, 0);
+}
+
+/* Kapiya donus. sekmeAc ile AYNI form koruma kapisini kullanir — yarim
+   kalan uzun bir gider girisi uyarisiz yok olmasin. */
+async function kapiyaDon(){
+  if (!kapiVarMi()) return;
+  if (!KAPI_ACIK){
+    const dolu = doluAlanlar();
+    if (dolu.length){
+      const c = await formCikisSor(dolu.length, ekranTaslakTutuluyorMu());
+      if (c === 'kal') return;
+      if (c === 'sakla') ekranTaslakYaz();
+    }
+  }
+  formTemiz();
+  acilisKapisiCiz();
+  if (!history.state || history.state.sekme !== 'kapi')
+    history.pushState({ sekme:'kapi' }, '', '#kapi');
+}
+
+/* Kapidan iceri. ⚠ IKI IS AYRI: KAPSAM DEGISTIRME ve GEZINME.
+   subeDegistir icinde erken donus var (id === AKTIF_SUBE ise hicbir sey
+   yapmaz, ekran da acilmaz). Gezinmeyi ona birakirsak KTU'dayken
+   kapidan KTU'ye girmek HICBIR SEY YAPMAZDI — kullanici kapida
+   kalirdi. Bu yuzden kapsam degisimi KOSULLU, ekran acilisi KOSULSUZ.
+   ⚠ KAPSAM HER ZAMAN subeDegistir UZERINDEN. Dogrudan AKTIF_SUBE'ye
+     yazsaydik SUBE_AD ve SUBE_KASA bayat kalirdi; tek kasali sube yine
+     iki kasa gosterirdi — Y47 aynen geri gelirdi. */
+async function kapidanGir(hedef){
+  if (hedef === 'borc'){ sekmeAc('borc'); return; }   /* borc.html · var olan yol */
+  KAPI_ACIK = false;
+  const cubuk = document.getElementById('sekmeBar');
+  if (cubuk){ cubuk.hidden = false; cubuk.classList.remove('gizli'); }
+  if (hedef !== AKTIF_SUBE){
+    try { subeDegistir(hedef, true); }   /* true: ekrani O acmasin, biz aciyoruz */
+    catch(e){ bildir(e.message, 'hata'); acilisKapisiCiz(); return; }
+  }
+  kapsamSeridiCiz();
+  /* ⚠ GECMIS ADIMI ELDE YAZILIYOR — OLCULDU, ILK HALI KAPIYI SILIYORDU.
+     sekmeAc, AKTIF_SEKME null iken replaceState kullaniyor ('ilk ekran'
+     kalibi). Kapi ekrani AKTIF_SEKME'yi null biraktigi icin kapidan
+     giriste bu dal calisiyor ve kapi adimini EZIYORDU: tarayicinin GERI
+     tusu kapiya degil, uygulamanin DISINA cikariyordu (olculdu: adres
+     bosaliyor, kapi cizilmiyor).
+     Simdi kapi adimi yerinde sabitlenip giris AYRI bir adim olarak
+     PUSH ediliyor; sekmeAc'a gecmisten=true gecilerek gecmisi ikinci
+     kez yazmasi engelleniyor. */
+  /* ⚠ SUBEYE GIRINCE ILK GORULEN OZET (ve grafigi) — tasarimin karari.
+     Son bakilan sekme DEGIL: kapidan giris bir BASLANGICTIR.
+     ⚠ TOPLAM'DA OZET KAPALI (olculdu: TOPLAM_ACIK icinde yok, ve oyle
+       KALMALI — iki sube birden geldiginde tek satir okuyan kod sessizce
+       yalniz birinin rakamini gosterirdi). Ilk halinde TOPLAM kapisindan
+       girince kullanici dogrudan 'bu ekran kapali' yazisina dusuyordu:
+       kapi, kapali bir kapiya aciliyordu. Artik TOPLAM'da GERCEKTEN acik
+       olan ilk ekran aciliyor (sira sekme listesinin kendi sirasi). */
+  const hedefEkran = toplamKipi() ? (toplamdaIlkEkran() || 'ozet') : 'ozet';
+  history.replaceState({ sekme:'kapi' }, '', '#kapi');
+  history.pushState({ sekme:hedefEkran }, '', '#' + hedefEkran);
+  await sekmeAc(hedefEkran, true);
+}
+
+/* Acilista nereye gidilecek — TEK YER. Giris yolu da buradan gecsin ki
+   karar iki ayri yerde tutulmasin. */
+async function acilistaNereyeGit(){
+  const liste = sekmeListesi();
+  if (!liste.length){ document.getElementById('icerik').innerHTML =
+    '<div class="uyari-agir">Hiçbir ekran yetkiniz yok. Yöneticiyle görüşün.</div>'; return; }
+  /* ⚠ ADRESTEKI #<id> KAPIYI ATLAR. borc.html geri donerken
+     index.html#gider gonderiyor; kullaniciyi kapiya dusurmek onu
+     biraktigi yere degil BASA atmak olurdu. Hash KULLANICI GIRDISIDIR:
+     yalniz GORUNEN bir sekme kabul edilir, gerisi sessizce kapiya. */
+  const istenen = decodeURIComponent((location.hash || '').slice(1));
+  if (liste.some(t => t.id === istenen)){ await sekmeAc(istenen); return; }
+  if (kapiVarMi()){ await kapiyaDon(); return; }
+  await sekmeAc(liste[0].id);
 }
 
 /* AKTIF_SUBE — "şu an hangi şubeye bakıyorum".
@@ -920,7 +1096,11 @@ let AKTIF_SUBE = null;
 /* Şube değiştirme. Owner dışındaki roller için YASAK ve sessiz değil:
    deneme gürültülü düşer. Veri yarı eski yarı yeni kalmasın diye aktif
    ekran baştan çizilir. */
-function subeDegistir(id){
+/* ⚠ ADIM 03 · ekraniAcma: kapsami degistir ama EKRANI ACMA. Kapidan
+   giriste ekrani kapidanGir aciyor (her zaman Ozet). Bu bayrak
+   olmasaydi once son sekme, sonra Ozet cizilirdi — ic ice iki asenkron
+   cizim ve ilki bosuna. Bayraksiz cagiranlarin davranisi DEGISMEZ. */
+function subeDegistir(id, ekraniAcma){
   if (!PROFIL) throw new Error('Şube değiştirilemez: oturum yüklenmedi.');
   if (PROFIL.rol !== 'owner')
     throw new Error('Şube değiştirmek yalnız owner yetkisidir (rol: '+PROFIL.rol+').');
@@ -940,7 +1120,7 @@ function subeDegistir(id){
   if (id !== KAPSAM_TOPLAM)
     SUBE_KASA = kasaAdediCoz((SUBELER.find(s => s.id === id) || {}).kasa_adedi);
   kapsamSeridiCiz();
-  if (AKTIF_SEKME) sekmeAc(AKTIF_SEKME);   // yarı eski yarı yeni ekran olmasın
+  if (AKTIF_SEKME && !ekraniAcma) sekmeAc(AKTIF_SEKME);   // yarı eski yarı yeni ekran olmasın
 }
 /* Owner'in gecebilecegi subeler. Personelde BOS kalir — seciciyi hic
    gormez ve `subeDegistir` zaten rol kapisinda duser (IKI KATMAN). */
@@ -1611,11 +1791,10 @@ async function baslat(){
      böyle geri gönderiyor, kullanıcı ana sayfaya düşmüş hissetmesin.
      Hash KULLANICI GİRDİSİDİR: yalnız sekmeListesi()'nde GÖRÜNEN id kabul
      edilir; yetkisiz ya da olmayan id sessizce ilk sekmeye düşer. */
-  const liste = sekmeListesi();
-  if (!liste.length){ document.getElementById('icerik').innerHTML =
-    '<div class="uyari-agir">Hiçbir ekran yetkiniz yok. Yöneticiyle görüşün.</div>'; return; }
-  const istenen = decodeURIComponent((location.hash || '').slice(1));
-  sekmeAc(liste.some(t => t.id === istenen) ? istenen : liste[0].id);
+  /* ⚠ ADIM 03 · KARAR TEK YERDE: acilistaNereyeGit. Hash kontrolu de
+     yetki kontrolu de oraya tasindi; iki kopya kalsaydi biri gunun
+     birinde otekinden ayrisirdi. */
+  await acilistaNereyeGit();
 }
 
 async function katalogYukle(){
@@ -1968,10 +2147,41 @@ addEventListener('popstate', (e) => {
   /* 1) Acik modal ONCE kapanir, sekme DEGISMEZ; konum geri konur. */
   if (acikModalKapat()){ history.pushState(history.state, '', location.hash); return; }
   const id = (e.state && e.state.sekme) || (location.hash || '').slice(1);
+  /* ⚠ ADIM 03 · KAPI DA BIR GECMIS ADIMI. Geri tusu, girdigin subeden
+     KAPIYA dondurur; yoksa kullanici uygulamadan BUSBUTUN cikardi. */
+  if (id === 'kapi'){ if (kapiVarMi() && !KAPI_ACIK) acilisKapisiCiz(); return; }
   if (!id || id === AKTIF_SEKME) return;
   if (!sekmeListesi().some(s => s.id === id)) return;   // bilinmeyen id: dokunma
   sekmeAc(id, true);                                     // gecmisten geldi: PUSH YOK
 });
+
+/* ⚠ ADIM 03 · MODUL DUZEYINDE. Eskiden ikisi de sekmeAc icinde YEREL
+   const idi; kapidan TOPLAM'a girerken 'hangi ekran TOPLAM'da acik'
+   sorusunu disaridan soracak yer yoktu. Kopyalamak yerine tasindi —
+   iki liste gunun birinde birbirinden ayrisirdi. */
+const TOPLAM_ACIK = { gider:1, belge:1, talep:1, vergi:1 };
+const TOPLAM_KAPALI_SEBEP = {
+  ozet:      'Özet, bir döneme ait TEK satır okuyacak şekilde yazılmış '
+           + '(ölçüldü). İki şube birden geldiğinde sessizce yalnız birinin '
+           + 'rakamını gösterirdi — yanlış rakam, hiç rakam göstermemekten kötüdür.',
+  gunsonu:   'Gün sonu bir şubenin o günkü kaydıdır; hangi şubeye yazılacağı '
+           + 'belirsiz olurdu.',
+  stok:      'Stok şubeye bağlı; iki şubenin aynı ürünü iki satır olarak gelir '
+           + 've ekranda şube sütunu yok.',
+  tedarikci: 'Tedarikçi ve cari hareketler şubeye bağlı; iki şubenin listesi '
+           + 'şube sütunu olmadan karışırdı.',
+  personel:  'Personel ve maaş kayıtları şubeye bağlı; iki şubenin listesi '
+           + 'şube sütunu olmadan karışırdı.',
+  arac:      'Araçlar şubeye bağlı; iki şubenin listesi şube sütunu olmadan '
+           + 'karışırdı.',
+  yonetim:   'Ay kapatma/açma ve sistem işlemleri tek bir şube üzerinde '
+           + 'çalışır (sunucu da şubesiz çağrıyı RAPOR_SUBE_YOK ile reddediyor — ölçüldü).'
+};
+/* TOPLAM'da GERCEKTEN acik olan ilk ekran. Sira uydurulmuyor: sekme
+   listesinin KENDI sirasi. Boylece TOPLAM_ACIK degisirse burasi da
+   kendiliginden dogru kalir. */
+const toplamdaIlkEkran = () =>
+  (sekmeListesi().find(t => TOPLAM_ACIK[t.id]) || {}).id || null;
 
 async function sekmeAc(id, gecmisten){
   /* ⚠ ADIM 17 (B) · UYGULAMA ICI CIKIS. Eski hal: duz confirm, tek
@@ -2023,33 +2233,18 @@ async function sekmeAc(id, gecmisten){
      ⚠ KAPALI EKRAN SESSIZCE KAYBOLMAZ: sekme yerinde kalir, icerik
        yerine NEDEN kapali oldugu ve ne yapilacagi yazar
        ("engellemiyor" ile "olmamis gibi davranmak" ayri seyler). */
-  const TOPLAM_ACIK = { gider:1, belge:1, talep:1, vergi:1 };
-  const TOPLAM_KAPALI_SEBEP = {
-    ozet:      'Özet, bir döneme ait TEK satır okuyacak şekilde yazılmış '
-             + '(ölçüldü). İki şube birden geldiğinde sessizce yalnız birinin '
-             + 'rakamını gösterirdi — yanlış rakam, hiç rakam göstermemekten kötüdür.',
-    gunsonu:   'Gün sonu bir şubenin o günkü kaydıdır; hangi şubeye yazılacağı '
-             + 'belli olmadan girilemez.',
-    stok:      'Stok ürün başına tutuluyor ve aynı ürün iki şubede iki ayrı '
-             + 'satır. Bu ekranda şube sütunu yok, satırlar birbirinden '
-             + 'ayırt edilemezdi.',
-    tedarikci: 'Tedarikçi bakiyesi şube başına tutuluyor; aynı tedarikçi iki '
-             + 'kez görünür ve hangi şubeye ait olduğu yazmaz.',
-    personel:  'Personel ve maaş kayıtları şubeye bağlı; iki şubenin listesi '
-             + 'şube sütunu olmadan karışırdı.',
-    arac:      'Araçlar şubeye bağlı; iki şubenin listesi şube sütunu olmadan '
-             + 'karışırdı.',
-    yonetim:   'Ay kapatma/açma ve sistem işlemleri tek bir şube üzerinde '
-             + 'çalışır (sunucu da şubesiz çağrıyı RAPOR_SUBE_YOK ile reddediyor — ölçüldü).'
-  };
   if (toplamKipi() && !TOPLAM_ACIK[id]){
     const el = document.getElementById('icerik');
     if (el) el.innerHTML = '<div class="kart">'
       + kbaslik('', 'TOPLAM görünümünde bu ekran kapalı', '')
       + '<div class="bilgi" style="margin:10px 0">'
       + esc(TOPLAM_KAPALI_SEBEP[id] || 'Bu ekran şubeye özel çalışıyor.')
-      + '</div><div class="kucuk">Yukarıdaki kapsam seçicisinden bir şube seç — '
-      + 'ekran o şubenin verisiyle açılır.</div></div>';
+      /* ⚠ ADIM 03 · METIN GUNCELLENDI. Eskiden 'yukarıdaki kapsam
+         seçicisinden bir şube seç' diyordu; SECICI KALKTI ve metin
+         olmayan bir dugmeyi isaret eder olmustu. Calismayan bir yonerge,
+         hic yonerge olmamasindan kotudur. */
+      + '</div><div class="kucuk">Üstteki <b>&#8249; TOPLAM</b> düğmesiyle açılışa dön, '
+      + 'bir şube seç — ekran o şubenin verisiyle açılır.</div></div>';
     return;
   }
   const f = ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
@@ -3126,6 +3321,35 @@ async function odemelerBlogu(hedefId, ctx){
   /* Erisim: borc.html kutuErisim kalibi (bfErisim). Kart-2 ve kart-5 KART
      GOVDESI olarak dugme YAPILMADI — kendi ic dugmelerini tasiyorlar, govde
      tiklamasi ic tiklamayla catisirdi. Ic satirlar zaten erisilebilir. */
+  /* =================================================================
+     Y50 · GRAFIK ILK EKRANDA · SIRA: BU AY -> GRAFIK -> DÜN -> 7 GÜN
+     =================================================================
+     ⚠ OLCULDU (yamasiz -64, 375x812, gercek DOM): grafik sayfa
+       basindan 874px asagida basliyordu, ekran 812. Ust kenari bile
+       ilk ekranda YOKTU ve varligini ima eden hicbir isaret yoktu.
+       Kusur GIZLENME degil MESAFE — bu yuzden olcut PIKSEL.
+     ⚠ BU KUSURUN IKINCI TURU: CL turu grafigi katlamanin arkasindan
+       cikardi ama BESINCI KARTA koydu. Gorunurluk kapisi kalkti,
+       mesafe kapisi kaldi ve OLCULMEDIGI icin kapandi sanildi.
+     ⚠ SIRA DOM'DA DEGISIYOR, CSS order OZELLIGI ILE DEGIL: order
+       yalniz goruntuyu tasir, ekran okuyucu ve SEKME SIRASI sablondaki
+       eski sirada kalirdi — goren ile duyan farkli ekran gorurdu.
+     ⚠ SABLON DOKUNULMADI: kartlarin govdesi, id'leri, olay baglari ve
+       erisim etiketleri ayni. Tasinan sey yalniz KARDES SIRASI.
+     ⚠ NE PAHASINA: ÖNÜMÜZDEKİ 7 GÜN karti asagi indi. Sube icindeyken
+       once O SUBENIN hikayesi duruyor; odeme takvimi subeye degil
+       isletmeye ait (tasarim onu TOPLAM'in isi sayiyor). Bilerek
+       verilmis bir takas.
+     ⚠ BANKA UYARISI EN USTTE KALIR: varsa ona GORE konumlaniyor. */
+  (() => {
+    const SIRA = ['bfAy', 'bfCiro', 'bfDun', 'odemelerKart'];
+    let once = el.querySelector(':scope > .uyari-orta.kb-sr');
+    SIRA.forEach(id => {
+      const k = document.getElementById(id); if (!k) return;
+      if (once) once.after(k); else el.prepend(k);
+      once = k;
+    });
+  })();
   bfErisim(document.getElementById('bfDun'), 'Dün gün sonu, aç');
   bfErisim(document.getElementById('bfAy'), 'Ay raporu, aç');
   bfErisim(document.getElementById('bfBorc'), 'Borç ekranı, aç');
