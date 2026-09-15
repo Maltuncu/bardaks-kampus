@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-63">
+<meta name="surum" content="2026-08-27-64">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -911,9 +911,10 @@ function kapsamSeridiCiz(){
    eşitliğini atlar). Okumaları AKTIF_SUBE'ye çivilemek o yeteneği
    istemci tarafında öldürürdü. Çivi yerine değişken.
 
-   Bugün tek şube var; değer PROFIL.sube_id'den geliyor ve DEĞİŞMİYOR.
-   Yani davranış birebir aynı. Şube seçici düğmesi bilerek YOK — tek
-   şubeyken gösterilecek bir seçim yok. */
+   ⚠ Bu yorum ADIM 2'ye kadar "bugün tek şube var, şube seçici bilerek
+   YOK" diyordu; ARTIK DOGRU DEGIL. Iki sube var, owner icin secici
+   baslikta duruyor ve AKTIF_SUBE gercekten degisiyor. Yanlis kalan
+   bir yorum, hic olmayan bir yorumdan kotudur. */
 let AKTIF_SUBE = null;
 
 /* Şube değiştirme. Owner dışındaki roller için YASAK ve sessiz değil:
@@ -3023,7 +3024,21 @@ async function odemelerBlogu(hedefId, ctx){
       ${L.length ? '' : bosDurum('liste','30 gün içinde ödeme yok','Kredi, kart ekstresi, vergi vadesi ve kart taksiti burada birleşir.')}
     </div>
     <div class="kart" id="bfAy" style="cursor:pointer" onclick="ayRaporuAc('${ctx.donem}')">
-      ${kbaslik('BU AY', dg + ' · KTÜ', `<div class="kb-sag" style="text-align:right"><span class="k">rapor ›</span>${
+      ${/* ⚠ Y52 · SABIT "KTÜ" KALKTI. Olculdu (-63): owner Samsun
+            kapsamina gecince kartin ICI Samsun'un rakamlarini
+            gosteriyor (OZ_O sube suzgecinden geciyor) ama USTUNDE
+            "KTÜ" yaziyordu — mali veriyi yanlis subeye atfetmek.
+            ⚠ KAYNAK SECIMI OLCULDU: bu kart owner'a OZEL
+            (`odemelerBlogu` owner degilse HIC cizmiyor, cagiran da
+            ayrica kapali), yani `SUBELER` yuklu ve `subeAdiVer`
+            calisir. Yine de iki agi var: `SUBELER` yuklenemezse
+            (catch) ya da profilin subesi pasif olup listeden
+            suzulduyse `subeAdiVer` null doner; `SUBE_AD` girişte
+            sube satirindan DOGRUDAN okunur ve 'aktif' suzgecine
+            takilmaz. Ikisi de yoksa kimlik BASILMAZ, "şube ?" yazar —
+            ekrana uuid dokmek kullaniciya hicbir sey anlatmaz
+            (`subeEtiketi` ile ayni ev kurali). */''}
+      ${kbaslik('BU AY', dg + ' · ' + (subeAdiVer(AKTIF_SUBE) || SUBE_AD || 'şube ?'), `<div class="kb-sag" style="text-align:right"><span class="k">rapor ›</span>${
         ek.buAy ? `<button class="btn2 kb-bt" id="bfEkb" aria-expanded="false" aria-controls="bfEkk"
           style="display:block;margin:6px 0 0 auto" data-t="ayın dökümü"
           onclick="event.stopPropagation();bdAc(this,'bfEk')">ayın dökümü</button>` : ''}</div>`)}
@@ -4414,6 +4429,19 @@ function okunamadiMi(id){
   const e = document.getElementById(id);
   return !!e && e.dataset.okunamadi === '1' && !String(e.value || '').trim();
 }
+/* ⚠ Y48 · Z NO BIR KIMLIK, PARA DEGIL.
+   Yazarkasa fisi Z sira numarasini binlik ayracli basabiliyor (1.070);
+   gercek numara 1070'tir. Ondalik ayraci virgule cevirmek PARA icin
+   dogru, KIMLIK icin yanlis: numarayi BOZAR.
+   ⚠ TAHMIN ETMEZ. Yalnizca dizgenin TAMAMI binlik ayracli tam sayi
+     kalibindaysa ayrac kaldirilir (1.070 / 1.070.001). Baska her sey
+     — harf, tire, basta sifir, tek nokta iceren baska bir sey —
+     OLDUGU GIBI kalir. Kimligi "duzeltmeye" kalkmak, onu
+     bicimlendirmek kadar yanlis olur. */
+const zNoCoz = (v) => {
+  const s = String(v == null ? '' : v).trim();
+  return /^\d{1,3}(\.\d{3})+$/.test(s) ? s.replace(/\./g, '') : s;
+};
 /* ===== Z RAPORU OKUMA — sistem doldurur, PERSONEL DOĞRULAR ===== */
 async function zRaporuOku(k){
   const inp = document.getElementById('gsZFoto_'+k);
@@ -4454,14 +4482,20 @@ async function zRaporuOku(k){
 
     const v = s.veri || {};
     const dolduruldu = [];
-    const koy = (id, deger, etiket) => {
+    /* ⚠ Y48 · AYRIM ALAN BAZINDA. `koy` UC alani birden dolduruyordu
+       ve ucune de PARA kurali uyguluyordu: `String(deger).replace('.', ',')`.
+       Kart/nakit icin dogru, Z NO icin YANLIS — Z No bir KIMLIK.
+       Olculdu (-63): fiste 1.070 yazan Z, ekrana `1,070` olarak
+       giriyordu. Para kuralina DOKUNULMADI; yalniz kimlik alani
+       `kimlik` bayragiyla ayrildi. */
+    const koy = (id, deger, etiket, kimlik) => {
       if (deger === null || deger === undefined || deger === '') return;
       const e = document.getElementById(id); if(!e) return;
-      e.value = String(deger).replace('.', ',');
+      e.value = kimlik ? zNoCoz(deger) : String(deger).replace('.', ',');
       e.dispatchEvent(new Event('input', { bubbles:true }));
       e.classList.add('oku-dolu'); dolduruldu.push(etiket);
     };
-    koy('gsZNo_'+k,   v.z_no,          'Z No');
+    koy('gsZNo_'+k,   v.z_no,          'Z No', true);
     koy('gsKart_'+k,  v.kart_toplam,   'Kart');
     koy('gsNakit_'+k, v.nakit_toplam,  'Nakit');
 
@@ -4849,7 +4883,14 @@ function kasaHesapla(){
   });
   // Aynı kasada aynı Z No iki kez girilmiş mi (arıza gününde kopyala-yapıştır hatası)
   KASA_NO().forEach(n=>{
-    const nolar = ZLISTE[n].map(s=>(document.getElementById('gsZNo_'+n+'_'+s)?.value||'').trim()).filter(Boolean);
+    /* ⚠ Y48 IKINCI ETKI · KAPI HAM METIN KARSILASTIRIYORDU ve bu yuzden
+       KORDU. Olculdu (-63): okuyucunun yazdigi `1,070` ile elle
+       yazilan `1070` FARKLI dizgeler; ayni Z iki kez girilmis
+       oldugu halde uyari CIKMIYOR ve Kaydet ACIK kaliyordu.
+       Artik karsilastirma `zNoCoz` ile bicimden bagimsiz.
+       ⚠ KAYDEDILEN DEGER DEGISMEZ: normallestirme yalniz
+         KARSILASTIRMA icin; alanin kendi degerine dokunulmuyor. */
+    const nolar = ZLISTE[n].map(s=>zNoCoz((document.getElementById('gsZNo_'+n+'_'+s)?.value||''))).filter(Boolean);
     if (new Set(nolar).size !== nolar.length) mukerrer.push('KASA '+n+' — aynı Z No iki kez girilmiş');
   });
   const pz=paraOku(document.getElementById('gsKasa'));
@@ -9005,7 +9046,17 @@ function ayRaporuYazdir(){
   const w = window.open('', '_blank');
   if (!w){ bildir('Tarayıcı yeni sekmeyi engelledi — açılır pencere iznini ver.', 'hata'); return; }
   w.document.write('<!doctype html><html lang="tr"><head><meta charset="utf-8">'
-    + '<title>Bardaks KTÜ — Ay Raporu</title>'
+    /* ⚠ Y52b · AYNI SINIF, AYNI TURDA OLCULDU: rapor govdesi
+       `fn_ay_raporu_html(p_donem, p_sube: AKTIF_SUBE)` ile SUBEYE
+       GORE geliyor, ama yazdirilan belgenin basligi her subede
+       "Bardaks KTÜ" diyordu. Baslik tarayicinin yazdirma ust
+       bilgisine ve PDF'in varsayilan dosya adina giriyor: yanlis
+       subeye ait bir mali belge uretiliyordu.
+       ⚠ Rapor GOVDESINDE hicbir sube adi YOK (kapta olculdu:
+         fonksiyon tanimda 'sube ad'/'Bardaks' eslesmesi sifir) —
+         gorunur bir sube satiri eklemek AYRI bir karar, defterde. */
+    + '<title>' + esc((subeAdiVer(AKTIF_SUBE) || SUBE_AD || 'Şube ?')
+                      + ' — Ay Raporu') + '</title>'
     + '<style>body{margin:24px;background:#fff}@media print{body{margin:0}}</style>'
     + '</head><body>' + ic.innerHTML + '</body></html>');
   w.document.close();
