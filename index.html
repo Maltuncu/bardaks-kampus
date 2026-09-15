@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-62">
+<meta name="surum" content="2026-08-27-63">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -49,7 +49,7 @@
 .yy-acik{background:var(--ok);color:#fff;border-color:var(--ok)}
 :root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;--kagit:#FFFEF8;--metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
 /* ===== Gün Sonu — iki kasa (Mission Control) ===== */
-.kasa-grid{display:grid;grid-template-columns:1fr 1px 1fr;margin:12px 0}
+.kasa-grid{display:grid;grid-template-columns:1fr;margin:12px 0}  /* sutunlar JS ile kasa adedince */
 .kasa-panel{min-width:0}
 .kasa-panel.sol{padding-right:18px}
 .kasa-panel.sag{padding-left:18px}
@@ -763,6 +763,28 @@ let PROFIL = null;   // {id, ad, rol, sube_id}
 let SUBE_AD = null;  // ADIM 15 · kapsam seridi icin; 'sube' haritada DEGIL (kendi id'siyle okunur)
 
 /* ==================================================================
+   Y47 · KAC YAZARKASA — TEK KAYNAK
+   ==================================================================
+   ⚠ OLCULEN KUSUR: "her subede iki kasa" varsayimi UC katmanda
+     civiliydi ve Samsun (tek kasa) gun sonu HIC kaydedemiyordu.
+     Sunucu KASA_ADET_HATASI veriyordu, ama kullanici onu bile
+     GORMUYORDU: istemci kapisi daha once dusuyor ve "KASA 2 — Z No,
+     Z fotografi" diyordu (olculdu, RPC'ye hic gidilmiyordu).
+   ⚠ TEK KAYNAK: ekranda ve kayit yolunda gecen her `[1,2]` artik
+     `KASA_NO()`dan geliyor. Bir tanesi kacarsa ekran ile kayit yolu
+     FARKLI sey sanar — bu dosyanin defalarca yandigi sinif.
+   ⚠ BILINMIYORSA 2: kolon okunamazsa ya da eski bir sunucu cevabinda
+     alan yoksa bugunku davranis AYNEN surer. Sessiz bir "1" varsaymak
+     iki kasali subede ikinci kasayi ekrandan SILERDI. */
+let SUBE_KASA = 2;
+const kasaAdediCoz = (v) => {
+  const n = Number(v);
+  return (Number.isFinite(n) && n >= 1 && n <= 9) ? Math.floor(n) : 2;
+};
+const subeKasaAdedi = () => SUBE_KASA;
+const KASA_NO = () => Array.from({ length: SUBE_KASA }, (_, i) => i + 1);
+
+/* ==================================================================
    ADIM 15 · KAPSAM SERIDI — hangi sube · veri tam mi · hangi donem
    ==================================================================
    Sahibin ekraninda hangi subede oldugu ve verinin tam olup olmadigi
@@ -912,6 +934,10 @@ function subeDegistir(id){
   AKTIF_SUBE = id;
   SUBE_AD = id === KAPSAM_TOPLAM ? 'TOPLAM · tüm şubeler'
           : (SUBELER.find(s => s.id === id) || {}).ad || SUBE_AD;
+  /* ⚠ Y47 · KAPSAM DEGISINCE KASA ADEDI DE DEGISIR. Guncellenmezse
+     owner Samsun'a gecince ekran hala iki kasa gosterirdi. */
+  if (id !== KAPSAM_TOPLAM)
+    SUBE_KASA = kasaAdediCoz((SUBELER.find(s => s.id === id) || {}).kasa_adedi);
   kapsamSeridiCiz();
   if (AKTIF_SEKME) sekmeAc(AKTIF_SEKME);   // yarı eski yarı yeni ekran olmasın
 }
@@ -923,7 +949,7 @@ async function subeleriYukle(){
   try{
     /* 'sube' SUBE_SUZGEC haritasinda DEGIL; owner icin RLS zaten
        hepsini aciyor (owner_all_sube). */
-    const r = await sb.from('sube').select('id,ad,aktif').order('ad');
+    const r = await sb.from('sube').select('id,ad,aktif,kasa_adedi').order('ad');
     SUBELER = (r.data || []).filter(s => s.aktif !== false);
   }catch(e){ SUBELER = []; }
 }
@@ -1564,8 +1590,13 @@ async function baslat(){
      ⚠ Serit adi okuyamazsa GIZLENMEZ, "şube okunamadı" yazar; sessiz
        bos serit "tek sube var" izlenimi verirdi. */
   try{
-    const sn = await sb.from('sube').select('ad').eq('id', p.sube_id).maybeSingle();
+    /* ⚠ Y47 · `kasa_adedi` DE BURADAN. `SUBELER` yalniz owner'a yukleniyor
+       (ADIM 2), yani kasa adedini oradan okumak PERSONELDE calismazdi ve
+       tek kasali subenin personeli yine iki kasa gormeye devam ederdi.
+       Bu sorgu HERKES icin kosuyor; ek sorgu YOK, yalniz bir kolon. */
+    const sn = await sb.from('sube').select('ad,kasa_adedi').eq('id', p.sube_id).maybeSingle();
     SUBE_AD = (sn.data && sn.data.ad) || null;
+    SUBE_KASA = kasaAdediCoz(sn.data && sn.data.kasa_adedi);
   }catch(e){ SUBE_AD = null; }
   await subeleriYukle();     // ADIM 2 · secici icin; personelde bos doner
   kapsamSeridiCiz();
@@ -2320,15 +2351,20 @@ function hataTrIc(m){
   if (m.includes('ux_alis_belge') || m.includes('duplicate key')) return 'Bu belge numarası bu firma için zaten girilmiş — mükerrer fatura engellendi.';
   if (m.includes('SADECE_KENDI')) return 'Sadece kendi girdiğiniz kaydı düzeltebilirsiniz.';
   if (m.includes('SURE_GECTI')) return 'Düzeltme süresi (12 saat) geçmiş — yöneticiye başvurun.';
-  if (m.includes('KASA_ADET_HATASI')) return 'İki kasa da girilmelidir (tam olarak 2 kasa).';
-  if (m.includes('KASA_NO_HATASI')) return 'Kasa numaraları 1 ve 2 olmalı ve tekrar etmemeli.';
+  if (m.includes('KASA_ADET_HATASI')) return subeKasaAdedi() === 1
+    ? 'Bu şubenin tek yazarkasası girilmelidir.'
+    : `Bu şubenin ${subeKasaAdedi()} yazarkasasının hepsi girilmelidir.`;
+  if (m.includes('KASA_NO_HATASI')) return `Kasa numaraları 1-${subeKasaAdedi()} arasında olmalı ve tekrar etmemeli.`;
   if (m.includes('KASA_TIP_HATASI')) return 'Kasa verisi biçimi hatalı — sayfayı yenileyip tekrar deneyin.';
+  /* ⚠ Y47 · sunucu sube kaydinda kasa adedi bulamazsa. Kullanici bunu
+     kendi duzeltemez; yoneticiye yonlendiriliyor. */
+  if (m.includes('KASA_ADEDI_BILINMIYOR')) return 'Bu şube için yazarkasa adedi tanımlı değil — yöneticiye bildirin.';
   if (m.includes('KASA_Z_NO_ZORUNLU')) return 'Her kasa için Z No zorunludur.';
   if (m.includes('KASA_Z_FOTO_ZORUNLU')) return 'Her kasa için Z raporu fotoğrafı zorunludur.';
   if (m.includes('KASA_SLIP_FOTO_ZORUNLU')) return 'POS slip fotoğrafı zorunlu değil — sayfayı yenileyin.';
   if (m.includes('KASA_SIRA_TEKRAR'))       return 'Aynı kasada aynı Z sırası iki kez gönderildi.';
   if (m.includes('KASA_SIRA_HATASI'))       return 'Geçersiz Z sırası (1-9 arası olmalı).';
-  if (m.includes('KASA_EKSIK'))             return 'Her iki kasadan da en az bir Z raporu girilmelidir.';
+  if (m.includes('KASA_EKSIK'))             return `${subeKasaAdedi()===1?'Kasadan':'Her kasadan'} en az bir Z raporu girilmelidir.`;
   if (m.includes('KASA_NEGATIF_TUTAR')) return 'Kasa tutarları negatif olamaz.';
   if (m.includes('TOPLAM_SIFIR')) return 'Toplam 0 olamaz — kart/nakit girin.';
   if (m.includes('KDV_TUTARSIZ')) return 'KDV dökümü günün cirosuyla tutarsız — "KÜM. TOPLAM" satırını girmiş olabilirsiniz.';
@@ -3956,8 +3992,12 @@ function surumYenile(){
    Bir kasa aynı gün BİRDEN FAZLA Z basabilir (cihaz arızası).
    Her Z = kendi bloğu: kendi Z No'su, tutarı, KDV'si, fotoğrafı.
    Blok anahtarı: "kasa_sıra" → 1_1, 1_2, 2_1 ...                          */
+/* ⚠ Y47 · ZLISTE artik SUBENIN kasa adedine gore kuruluyor.
+   Sabit {1,2} kalsaydi tek kasali subede olmayan KASA 2 icin de
+   Z blogu acilir ve kayit yolu onu da gondermeye calisirdi. */
 let ZLISTE = { 1:[1], 2:[1] };                     // her kasada hangi Z sıraları açık
-function zAnahtarlar(){ return [1,2].flatMap(n => ZLISTE[n].map(s => ({ n, s, k:n+'_'+s }))); }
+const zListeKur = () => { const z = {}; KASA_NO().forEach(n => z[n] = [1]); return z; };
+function zAnahtarlar(){ return KASA_NO().flatMap(n => (ZLISTE[n]||[]).map(s => ({ n, s, k:n+'_'+s }))); }
 
 let KDV_SAYAC = 0;
 function kdvSatirEkle(k, oran, satis, kdv, sabit){
@@ -4481,7 +4521,7 @@ async function gunSonuDuzenle(id){
   const kd = (data.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
   // Kayıtta bir kasadan kaç Z varsa o kadar blok aç
   const zl = {};
-  [1,2].forEach(n=>{
+  KASA_NO().forEach(n=>{
     const sr = ks.filter(x=>x.kasa_no===n).map(x=>x.sira||1).sort((a,b)=>a-b);
     zl[n] = sr.length ? sr : [1];
   });
@@ -4492,7 +4532,7 @@ async function gunSonuDuzenle(id){
   tar.value = data.tarih; tar.disabled = true;
   document.getElementById('gsKasa').value = (data.kasa_nakit ?? '');
   document.getElementById('gsNot').value  = data.notlar || '';
-  [1,2].forEach(n=>zl[n].forEach(s=>{
+  KASA_NO().forEach(n=>(zl[n]||[]).forEach(s=>{
     const key = n+'_'+s;
     const k = ks.find(x=>x.kasa_no===n && (x.sira||1)===s);
     DUZENLE.foto[key] = { z:(k&&k.z_foto_path)||null, s:(k&&k.pos_slip_foto_path)||null };
@@ -4567,9 +4607,12 @@ function zBlokHtml(n, s){
 }
 function kasaPanelHtml(n){
   return `
-    <div class="kasa-panel ${n===1?'sol aktif':'sag'}" id="kasaPanel${n}">
+    ${/* ⚠ Y47 · DOLGU KOMSUYA GORE: tek panelde ic bosluk yok, ortadaki
+          panellerde iki yanda. Sabit sol/sag kalsaydi tek kasali subede
+          panel sagdan bosluklu, ucuncu kasa yanlis dolgulu cizilirdi. */''}
+    <div class="kasa-panel${KASA_NO().length<2?'' : n===1?' sol' : n===KASA_NO().length?' sag':' sol sag'}${n===1?' aktif':''}" id="kasaPanel${n}">
       <div class="kp-bas"><span class="kp-ad">Kasa ${n}</span><span class="kp-drm bos" id="kpDrm${n}">○ Başlanmadı</span></div>
-      <div id="gsZBloklar${n}">${ZLISTE[n].map(s=>zBlokHtml(n,s)).join('')}</div>
+      <div id="gsZBloklar${n}">${(ZLISTE[n]||[1]).map(s=>zBlokHtml(n,s)).join('')}</div>
       <button type="button" class="btn2 z-ekle" onclick="zBlokEkle(${n})">+ Bu kasa bugün 2. Z bastıysa ekle</button>
       <div class="kp-ara"><span>Kasa ${n} toplamı</span><b id="gsAra${n}">0,00 ₺</b></div>
       <div class="kp-ara"><span>Kasa ${n} KDV</span><b id="gsKdv${n}">0,00 ₺</b></div>
@@ -4642,7 +4685,7 @@ function zBlokKur(n, s){
   paraBagla(document.getElementById('gsNakit_'+k), kasaHesapla);
 }
 function kasaSec(n){
-  [1,2].forEach(i=>{
+  KASA_NO().forEach(i=>{
     const p=document.getElementById('kasaPanel'+i), b=document.getElementById('ksBtn'+i);
     if(p) p.classList.toggle('aktif', i===n);
     if(b) b.classList.toggle('aktif', i===n);
@@ -4650,6 +4693,19 @@ function kasaSec(n){
 }
 function zDurum(n, s){
   const k = n+'_'+s;
+  /* ⚠ Y47 · OLMAYAN KASA ICIN EKSIK ISTENMEZ.
+     Olculdu: dokunulmamis KASA 2 her zaman iki eksik uretiyordu
+     ('Z No' ve 'Z fotografi'), cunku bu iki satir asagidaki 
+     kontrolunden GECMIYOR. Tek kasali subede o kasa HIC YOK; yok
+     olan bir seyin eksigi olmaz. Ekran zaten o kasayi cizmiyor, ama
+     kapi BURADA da duruyor — cizim ile dogrulama ayrisirsa kayit
+     yolu yine tikanirdi. */
+  /* ⚠ SEKIL kasaDurum'un TOPLADIGI alanlarla birebir: `kart/nakit/ara/
+     kdv` yoksa toplamlar NaN olur. Ilk yazimda bunlar atlanmisti. */
+  if (n > subeKasaAdedi())
+    return { k, n, s, zno:'', kart:0, nakit:0, ara:0, kdv:0,
+             kadet:null, iadet:null, itutar:null,
+             eksik:[], gecersiz:[], bekleyen:[], bos:true };
   const zno=(document.getElementById('gsZNo_'+k)?.value||'').trim();
   const pk=paraOku(document.getElementById('gsKart_'+k));
   const pn=paraOku(document.getElementById('gsNakit_'+k));
@@ -4726,7 +4782,12 @@ function zDurum(n, s){
            eksik, gecersiz, bekleyen, bos, gecerli: pk.ok && pn.ok && pit.ok };
 }
 function kasaDurum(n){
-  const bloklar = ZLISTE[n].map(s=>zDurum(n,s));
+  /* ⚠ Y47 · ZLISTE o kasayi tasimiyorsa BOS blok — cokmek yerine
+     "o kasa yok" demek. Cagiranlar KASA_NO() kullaniyor, ama eski bir
+     taslak ya da kacan bir cagri buraya yine de gelebilir. */
+  const bloklar = (ZLISTE[n] || []).map(s=>zDurum(n,s));
+  if (!bloklar.length) return { bloklar:[], kart:0, nakit:0, ara:0, kdv:0,
+    eksik:[], gecersiz:[], bekleyen:[], bos:true };
   return {
     bloklar,
     kart : +bloklar.reduce((a,b)=>a+b.kart ,0).toFixed(2),
@@ -4752,7 +4813,7 @@ function kasaHesapla(){
   /* ADIM 14 B · dort ayri hal, dort ayri liste — hepsi kaydi engeller
      (bekleyen HARIC), ama ekranda AYRI cumleyle anlatilir. */
   const eksikler=[], gecersizler=[], mukerrer=[], bekleyenler=[];
-  [1,2].forEach(n=>{
+  KASA_NO().forEach(n=>{
     const d=kasaDurum(n); tk+=d.kart; tn+=d.nakit; tkdv+=d.kdv;
     d.bloklar.forEach(b=>{
       /* ⚠ ADIM 14 · EKSIK ALAN TOPLAMA GIRMEZ. Eskiden bos nakit 0
@@ -4787,7 +4848,7 @@ function kasaHesapla(){
     d.bekleyen.forEach(e=>bekleyenler.push('KASA '+n+' — '+e));
   });
   // Aynı kasada aynı Z No iki kez girilmiş mi (arıza gününde kopyala-yapıştır hatası)
-  [1,2].forEach(n=>{
+  KASA_NO().forEach(n=>{
     const nolar = ZLISTE[n].map(s=>(document.getElementById('gsZNo_'+n+'_'+s)?.value||'').trim()).filter(Boolean);
     if (new Set(nolar).size !== nolar.length) mukerrer.push('KASA '+n+' — aynı Z No iki kez girilmiş');
   });
@@ -4845,13 +4906,13 @@ function taslakYaz(){
      taslak onun uzerine binerdi. */
   if (DUZENLE || !AKTIF_SUBE || !document.getElementById('gsKaydet')) return;
   const b = {}; let foto = 0;
-  [1,2].forEach(n => ZLISTE[n].forEach(s => {
+  KASA_NO().forEach(n => (ZLISTE[n]||[]).forEach(s => {
     b[n+'_'+s] = zBlokTopla(n, s);                     // mevcut yardimci, aynen
     const f = document.getElementById('gsZFoto_'+n+'_'+s);
     if (f && f.files && f.files[0]) foto++;            // ⚠ DOSYA DEGIL, yalniz SAYI
   }));
   try{ localStorage.setItem(taslakAnahtar(), JSON.stringify({
-    zaman: Date.now(), zliste: { 1:ZLISTE[1].slice(), 2:ZLISTE[2].slice() },
+    zaman: Date.now(), zliste: Object.fromEntries(KASA_NO().map(n => [n, (ZLISTE[n]||[1]).slice()])),
     kasa: document.getElementById('gsKasa').value, not: document.getElementById('gsNot').value,
     bloklar: b, foto })); }catch(e){}
 }
@@ -4938,7 +4999,10 @@ function taslakSeridi(){
   const yer = document.getElementById('gsTaslakBar'); if (!yer) return;
   yer.innerHTML = '';
   const t = DUZENLE ? null : taslakOku();
-  if (!t || !kasaDurum(1).bos || !kasaDurum(2).bos) return;   // yalniz form BOSSA sorulur
+  /* ⚠ Y47 · KASA_NO() — eskiden kasaDurum(1) ve kasaDurum(2) AYRI AYRI
+     yaziliydi;  taramasi bunu GOREMEDI ve tek kasali subede
+     ZLISTE[2] tanimsiz oldugu icin ekran COKTU. Olcum yakaladi. */
+  if (!t || KASA_NO().some(n => !kasaDurum(n).bos)) return;   // yalniz form BOSSA sorulur
   const z = new Date(t.zaman);
   const g = new Date(document.getElementById('gsTarih').value + 'T00:00').toLocaleDateString('tr-TR');
   yer.innerHTML = `<div class="kart" style="border-color:var(--uyari)">
@@ -4950,10 +5014,11 @@ function taslakSeridi(){
 }
 function taslakGeriYukle(){
   const t = taslakOku(); if (!t) return;
-  [1,2].forEach(n => { while (ZLISTE[n].length < ((t.zliste && t.zliste[n]) || [1]).length) zBlokEkle(n); });
+  KASA_NO().forEach(n => { ZLISTE[n] = ZLISTE[n] || [1];
+    while (ZLISTE[n].length < ((t.zliste && t.zliste[n]) || [1]).length) zBlokEkle(n); });
   document.getElementById('gsKasa').value = t.kasa || '';
   document.getElementById('gsNot').value  = t.not  || '';
-  [1,2].forEach(n => ZLISTE[n].forEach(s => {
+  KASA_NO().forEach(n => (ZLISTE[n]||[]).forEach(s => {
     const v = t.bloklar && t.bloklar[n+'_'+s]; if (!v) return;
     zBlokDoldur(n, s, v);
     /* ⚠ zBlokDoldur bu ucunu YAZMIYOR (mevcut davranis — degistirmedim,
@@ -4976,7 +5041,10 @@ document.addEventListener('change', taslakTetik, true);        // dosya alani 'i
 
 async function vGunSonu(zListe){
   // Düzenlemede kayıttaki Z sayısıyla kurulur; normalde her kasada tek Z ile başlar
-  ZLISTE = zListe ? { 1:zListe[1].slice(), 2:zListe[2].slice() } : { 1:[1], 2:[1] };
+  /* ⚠ Taslakta olmayan kasa icin bos dizi degil [1] kurulur; taslak
+     baska bir subeden gelmis olabilir. */
+  ZLISTE = zListe ? Object.fromEntries(KASA_NO().map(n => [n, (zListe[n] || [1]).slice()]))
+                  : zListeKur();
   const el = document.getElementById('icerik');
   el.innerHTML = `
     <h2 class="bolum">Gün Sonu Girişi</h2>
@@ -4986,13 +5054,23 @@ async function vGunSonu(zListe){
       ${tarihSecici('gsTarih', dunTarih())}
       <div class="ipucu" style="margin:4px 0 8px">Tarih <b>dün</b> ile açılır — gün sonu bitmiş gün için girilir.
         Aynı gece kapatıyorsan bugünü seç.</div>
-      <div class="bilgi-not" style="margin:0 0 8px">İki yazarkasa da girilir. Her Z raporu için <b>Z No + Z fotoğrafı zorunludur</b>.
+      ${/* ⚠ Y47 · METIN SUBEYE GORE. "İki yazarkasa da girilir" tek
+            kasali subede YANLIS bir sey soyluyordu ve kullaniciyi
+            olmayan bir kasayi doldurmaya calistiriyordu. */''}
+      <div class="bilgi-not" style="margin:0 0 8px">${subeKasaAdedi() === 1
+        ? 'Bu şubede <b>tek yazarkasa</b> var.'
+        : subeKasaAdedi() + ' yazarkasanın hepsi girilir.'} Her Z raporu için <b>Z No + Z fotoğrafı zorunludur</b>.
         Bir kasa o gün <b>ikinci bir Z bastıysa</b> (cihaz arızası) panelden ekle — ikisi de ayrı kaydedilir.</div>
-      <div class="kasa-sekme" id="kasaSekme">
-        <button type="button" class="ks-btn aktif" id="ksBtn1" onclick="kasaSec(1)"><div class="ks-ad">KASA 1 <span id="ksDrm1">○</span></div><div class="ks-tut" id="ksTut1">0,00 ₺</div></button>
-        <button type="button" class="ks-btn" id="ksBtn2" onclick="kasaSec(2)"><div class="ks-ad">KASA 2 <span id="ksDrm2">○</span></div><div class="ks-tut" id="ksTut2">0,00 ₺</div></button>
-      </div>
-      <div class="kasa-grid">${kasaPanelHtml(1)}<div class="kasa-ayirici"></div>${kasaPanelHtml(2)}</div>
+      ${/* ⚠ Y47 · SEKME CUBUGU TEK KASADA HIC CIZILMIYOR. Tek basina
+            duran bir "KASA 1" sekmesi secilecek bir sey sunmuyor;
+            sectirmeyen sekme ekranda yer kaplayan bir yalandir.
+            Iki+ kasada sekmeler eskisi gibi, kasa adedince. */''}
+      ${subeKasaAdedi() < 2 ? '' : `<div class="kasa-sekme" id="kasaSekme">
+        ${KASA_NO().map(n => `<button type="button" class="ks-btn${n===1?' aktif':''}" id="ksBtn${n}" onclick="kasaSec(${n})"><div class="ks-ad">KASA ${n} <span id="ksDrm${n}">○</span></div><div class="ks-tut" id="ksTut${n}">0,00 ₺</div></button>`).join('')}
+      </div>`}
+      ${/* ⚠ Y47 · PANEL SAYISI da kasa adedince; ayirici yalniz ARAYA. */''}
+      <div class="kasa-grid" style="grid-template-columns:${KASA_NO().map(()=>'1fr').join(' 1px ')}">${KASA_NO().map(n => kasaPanelHtml(n))
+        .join('<div class="kasa-ayirici"></div>')}</div>
       ${/* ⚠ TEK RAKAM TEK AD (ADIM 07-B): gun_sonu.kasa_nakit'in adi her
             yerde "Kasada sayılan". "Z dışı" terimi KALIYOR ama yalniz
             FARKA (kasada sayilan − Z nakiti) yapisir. Yalniz etiket
@@ -5019,7 +5097,7 @@ async function vGunSonu(zListe){
     ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : '<div id="gsSonKayit"></div>'}`;
   if (PROFIL.rol==='personel') personelSonKayit();
   else if (PROFIL.rol==='owner') gunSonuListe();
-  [1,2].forEach(n=>ZLISTE[n].forEach(s=>zBlokKur(n,s)));
+  KASA_NO().forEach(n=>(ZLISTE[n]||[]).forEach(s=>zBlokKur(n,s)));
   paraBagla(document.getElementById('gsKasa'), kasaHesapla);
   kasaHesapla();
   taslakEskileriAt(); taslakSeridi();          // T · 7 gun kurali + "taslak var mi" seridi
@@ -5068,7 +5146,7 @@ async function fotoTemizle(yollar){
 }
 async function gunSonuKaydet(){
   const kasalar = [];
-  for (const n of [1,2]){
+  for (const n of KASA_NO()){
     const d = kasaDurum(n);
     /* ⚠ ADIM 14 B · GECERSIZ DE ENGEL, metin sozlukten. Kapinin
        KENDISI degismedi: eskiden 'gecersiz' girdileri de d.eksik
@@ -5093,7 +5171,7 @@ async function gunSonuKaydet(){
   // KDV artık KASA BAZLI: her kasanın kendi Z vergi dökümü
   const kdv = kasalar.flatMap(k=>k.kdv);
   const kdvToplamTutar = +(kdv.reduce((a,x)=>a+x.kdv_tutar,0)).toFixed(2);
-  if (toplam === 0){ mesaj('gsMsg','hata','İki kasanın toplamı 0 — kayıt yapılamaz.'); return; }
+  if (toplam === 0){ mesaj('gsMsg','hata', (subeKasaAdedi()===1 ? 'Kasa toplamı 0' : 'Kasaların toplamı 0') + ' — kayıt yapılamaz.'); return; }
   for (const k of kasalar){
     const et = `KASA ${k.n}${ZLISTE[k.n].length>1?' / '+k.s+'. Z':''}`;
     if (k.kdv.length === 0 && (k.kart + k.nakit) > 0 &&
@@ -5207,7 +5285,15 @@ async function gunSonuKaydet(){
     const duzenlemeydi = !!DUZENLE;
     DUZENLE = null;
     vGunSonu();
-    mesaj('gsMsg','ok', duzenlemeydi ? 'Değişiklikler kaydedildi ✓' : 'Gün sonu kaydedildi ✓ (2 kasa)');
+    /* ⚠ Y47 · "(2 kasa)" SABITTI. Olculdu: tek kasali subede bir kasa
+       gonderilip kayit gectiginde ekran yine "(2 kasa)" diyordu —
+       kullaniciya kaydetmedigi bir kasa kaydedilmis gibi gorunuyordu.
+       Sayi artik GONDERILEN yuktan, sube ayarindan bile degil.
+       ⚠ `kasalar.length` DEGIL: o Z BLOGU sayisi. Bir kasa o gun ikinci
+         Z bastiysa iki satir olur ve tek kasali sube "2 kasa" derdi.
+         Sayilan sey TEKIL kasa numarasi. */
+    mesaj('gsMsg','ok', duzenlemeydi ? 'Değişiklikler kaydedildi ✓'
+      : `Gün sonu kaydedildi ✓ (${new Set(kasalar.map(k=>k.n)).size} kasa)`);
   } else {
     btn.textContent = eskiBtnMetin;
     // Ağ belirsizse kayıt gitmiş OLABİLİR -> fotoğrafları SİLME. Kesin hatada temizle.
@@ -5365,10 +5451,15 @@ async function gunSonuListe(){
             const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
             if(!kd.length) return '<br><span style="color:var(--uyari)">⚠ KDV girilmemiş</span>';
             const t=kd.reduce((a,x)=>a+ +x.kdv_tutar,0);
-            const par=[1,2].map(no=>{const s=kd.filter(x=>x.kasa_no===no).reduce((a,x)=>a+ +x.kdv_tutar,0);
+            /* ⚠ Y47 · KASA NOLARI KAYDIN KENDISINDEN, subenin bugunku
+               kasa adedinden DEGIL. Bu bir GECMIS kayit listesi: sube
+               sonradan tek kasaya dusmus olsa bile o gun iki kasa
+               calismis olabilir ve KASA_NO() onu GIZLERDI. */
+            const noLar=[...new Set([...kd,...ks].map(x=>+x.kasa_no))].sort((p,q)=>p-q);
+            const par=noLar.map(no=>{const s=kd.filter(x=>x.kasa_no===no).reduce((a,x)=>a+ +x.kdv_tutar,0);
               return s>0?`K${no} ${tl(s)}`:null;}).filter(Boolean).join(' + ');
             // Satışı olup KDV'si girilmemiş kasa: beyan eksik kalır, ayrıca uyar
-            const acik=[1,2].filter(no=>{
+            const acik=noLar.filter(no=>{
               const sat=ks.filter(k=>k.kasa_no===no).reduce((a,k)=>a+ +k.toplam,0);
               const kdv=kd.filter(x=>x.kasa_no===no).reduce((a,x)=>a+ +x.kdv_tutar,0);
               return sat>0 && kdv===0; });
