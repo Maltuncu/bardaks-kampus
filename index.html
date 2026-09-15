@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-61">
+<meta name="surum" content="2026-08-27-62">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5823,6 +5823,97 @@ async function gdOdeme(){
         eksik çıkar. Diğerleri kart, havale veya çekle ödendi.
       </div>`;
 }
+/* ==================================================================
+   ADIM 4 · TRANSFER · ONIZLEME ve KAYIT
+   ==================================================================
+   ⚠ TEK HESAP: `trHesapla()` hem onizlemeyi hem kaydi besler.
+     Onizlemede gosterilen tutar, RPC'ye giden miktarin AYNISIDIR —
+     ikinci bir hesap yok. Iki kaynak bir gun ayrisir ve hangisinin
+     dogru oldugu anlasilmaz (sube alt toplamlarinda da ayni kural).
+   ⚠ MALIYETI EKRAN BELIRLEMEZ: onizleme `ort_maliyet`i GOSTERIR,
+     ama kaydedilen deger SUNUCUDA olculur (rpc icinde v_stok_durum'dan
+     okunur). Ekranin defteri belirlemesi olurdu.
+   ⚠ BIRIM YAZILMAZ, GOSTERILIR: urun secilince `urun.birim` etikete
+     dusuyor. Alim birimi cevrimi (birim_carpani) YOK — transfer stok
+     biriminde, `ort_maliyet` de stok birimi basina; ayni zemin. */
+function trHesapla(){
+  const u = document.getElementById('trUrun');
+  const s = u && u.selectedOptions[0];
+  if (!s || !s.value) return null;
+  const mal = s.dataset.maliyet === '' ? null : +s.dataset.maliyet;
+  /* ⚠ `paraCoz` bu dosyada `{ok, deger, metin}` donduruyor — `kurus`
+     DEGIL. Ilk yazimda `p.kurus` okundu, `undefined/1000 = NaN` oldu ve
+     `tl(NaN)` sessizce "0,00 TL" bastı: onizleme kutusu dort kilo mali
+     0,00 diye gosteriyordu. Olcum yakaladi. */
+  const p = paraCoz(document.getElementById('trMiktar').value, 3);
+  const miktar = p.ok ? +p.deger : NaN;
+  if (!p.ok || !(miktar > 0))
+    return { urun:s.value, birim:s.dataset.birim, maliyet:mal, hata:p.hata||'Miktar gir.' };
+  return { urun:s.value, birim:s.dataset.birim, maliyet:mal, miktar,
+           mevcut:+s.dataset.mevcut,
+           tutar: mal == null ? null : Math.round(miktar * mal * 100) / 100,
+           hedef: document.getElementById('trHedef').value };
+}
+function trOnizle(){
+  const o = document.getElementById('trOnizleme');
+  const btn = document.getElementById('trKaydet');
+  const u = document.getElementById('trUrun');
+  const s = u && u.selectedOptions[0];
+  document.getElementById('trBirim').textContent = (s && s.value) ? '· ' + s.dataset.birim : '';
+  const r = trHesapla();
+  if (!r || r.hata || r.tutar == null){
+    o.innerHTML = r && r.maliyet == null && r.urun
+      ? '<div class="uyari-agir">Bu ürünün bu şubede maliyeti hesaplanamıyor '
+        + '(alış kaydı yok). Transfer kaydedilemez.</div>' : '';
+    btn.disabled = true; return;
+  }
+  const kaynakAd = SUBE_AD || 'bu şube';
+  const hedefAd = (SUBELER.find(x=>x.id===r.hedef)||{}).ad || 'öteki şube';
+  /* ⚠ UC SATIR, UCU DE AYNI `r.tutar`DAN. Sirket toplami TANIM GEREGI
+     sifir; ayri hesaplanmiyor, "-X + X" yaziliyor. */
+  o.innerHTML = `<div class="st-blok">
+    <div class="st-baslik">KAYDEDİLECEK</div>
+    <div class="liste-satir"><div class="l-sol"><span class="b">${esc(kaynakAd)}</span></div>
+      <div class="l-sag" style="color:var(--hata)">− ${tl(r.tutar)}</div></div>
+    <div class="liste-satir"><div class="l-sol"><span class="b">${esc(hedefAd)}</span></div>
+      <div class="l-sag" style="color:var(--ok)">+ ${tl(r.tutar)}</div></div>
+    <div class="liste-satir ls-vurgu"><div class="l-sol"><span class="b">Şirket toplamı</span></div>
+      <div class="l-sag">${tl(0)}</div></div>
+    <div class="kucuk" style="margin-top:6px">Para şirketten çıkmıyor, şubeler arasında yer
+      değiştiriyor. Fatura kesilmiyor, KDV'ye girmiyor.</div>
+    <div class="kucuk">${r.miktar.toLocaleString('tr-TR',{maximumFractionDigits:3})} ${esc(r.birim)}
+      × ${tl(r.maliyet)} birim maliyet</div>
+  </div>`
+  /* ⚠ YETERSIZ STOKTA ENGELLEMIYOR, SOYLUYOR — sebebi OLCULDU:
+     `stok_hareket`te bugun yalniz 'alis' satirlari var (tuketim 0,
+     sayim 0). Yani `mevcut` "eldeki mal" degil "toplam alim".
+     Bilinen yanlis bir sayiyla DOGRU kaydi engellemek en kotusu. */
+  + (r.miktar > r.mevcut ? `<div class="uyari-orta">Görünen stok
+      ${r.mevcut.toLocaleString('tr-TR',{maximumFractionDigits:3})} ${esc(r.birim)} —
+      göndermek istediğinden az. Yine de kaydedebilirsin: tüketim ve sayım girilmediği için
+      bu rakam gerçeği yansıtmıyor olabilir.</div>` : '');
+  btn.disabled = false;
+}
+async function trKaydet(){
+  const r = trHesapla();
+  if (!r || r.hata || r.tutar == null){ mesaj('trMsg','hata', (r&&r.hata)||'Eksik bilgi.'); return; }
+  const btn = document.getElementById('trKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  const { data, error } = await sb.rpc('rpc_stok_transfer_kaydet', {
+    p_idem: idem(), p_kaynak: AKTIF_SUBE, p_hedef: r.hedef, p_urun: r.urun,
+    p_tarih: document.getElementById('trTarih').value,
+    p_miktar: r.miktar, p_not: document.getElementById('trNot').value.trim() || null });
+  btn.disabled = false; btn.textContent = 'Transferi Kaydet';
+  if (error){ hataYaz('trMsg','Transfer kaydedilemedi.', error); return; }
+  const hedefAd = (SUBELER.find(x=>x.id===r.hedef)||{}).ad || 'öteki şube';
+  await vStok();
+  /* ⚠ Sunucunun DONDURDUGU tutar yaziliyor, ekranin hesapladigi degil. */
+  mesaj('trMsg','ok', (data && data.tutar != null ? tl(data.tutar) : tl(r.tutar))
+    + ' tutarında mal ' + hedefAd + ' şubesine aktarıldı. '
+    + 'Şirket toplamı değişmedi — fatura kesilmedi, KDV\'ye girmedi.'
+    + (data && data.uyari ? ' ⚠ ' + data.uyari : ''));
+}
+
 /* ===== AY SONU MUTABAKATI =====
    Personel ay boyunca faturaları tek tek girer. Ay sonunda portaldan inen zip buraya
    bırakılır: sistem her PDF'i okuyup belge numarasından eşleştirir.
@@ -8681,6 +8772,46 @@ async function vStok(){
             });
           }).join('')}
     </div>
+
+    ${/* ==========================================================
+         ADIM 4 · SUBELER ARASI TRANSFER
+         ==========================================================
+         ⚠ YALNIZ OWNER ve YALNIZ IKI+ SUBE VARSA. Tek subeyken
+           gonderilecek yer yok; dugme gurultu olur.
+         ⚠ TOPLAM kipinde CIKMAZ: kaynak sube belli degil. Zaten
+           `stok` sekmesi TOPLAM'da kapali (ADIM 2b), ama kosul
+           burada da duruyor — ekran gizlemek tek basina yetki
+           degildir, RPC de personeli kendi subesine cividiyor.
+         ⚠ MAL SATILMIYOR, YER DEGISTIRIYOR: ayni tuzel kisilik.
+           Fatura yok, cari yok, KDV yok. */''}
+    ${(owner && typeof SUBELER !== 'undefined' && SUBELER.length > 1 && !toplamKipi()) ? `
+    <div class="kart">
+      ${kbaslik('ŞUBELER ARASI', 'Transfer', `<button class="btn2" onclick="katlaAc('trKutu',this)">Aç</button>`)}
+      <div id="trKutu" style="display:none">
+        <div class="ipucu">Mal <b>satılmıyor</b>, şubeler arasında yer değiştiriyor.
+          Fatura kesilmiyor, KDV'ye girmiyor — para şirketten çıkmıyor.</div>
+        <label>Ürün</label>
+        <select id="trUrun" onchange="trOnizle()">
+          <option value="">— ürün seç —</option>
+          ${(stok||[]).map(s=>`<option value="${s.urun_id}" data-birim="${esc(s.birim||'adet')}"
+              data-maliyet="${s.ort_maliyet==null?'':s.ort_maliyet}"
+              data-mevcut="${s.mevcut}">${esc(s.kod?s.kod+' · ':'')}${esc(s.ad)}</option>`).join('')}
+        </select>
+        <label>Nereye</label>
+        <select id="trHedef" onchange="trOnizle()">
+          ${SUBELER.filter(x=>x.id!==AKTIF_SUBE).map(x=>`<option value="${x.id}">${esc(x.ad)}</option>`).join('')}
+        </select>
+        <label>Miktar <span class="k" id="trBirim"></span></label>
+        <input type="text" id="trMiktar" inputmode="decimal" placeholder="0,000">
+        <label>Tarih</label>
+        <input type="date" id="trTarih" value="${bugun()}">
+        <label>Not (isteğe bağlı)</label>
+        <input type="text" id="trNot" placeholder="örn: sezon başı gönderim">
+        <div id="trOnizleme"></div>
+        <button class="btn" id="trKaydet" onclick="trKaydet()" disabled>Transferi Kaydet</button>
+        <div class="hata-msg" id="trMsg"></div>
+      </div>
+    </div>` : ''}
 
     <div class="kart">
       ${kbaslik('AY SONU', 'Sayım', `<button class="btn2" onclick="katlaAc('sayimKutu',this)">Aç</button>`)}
