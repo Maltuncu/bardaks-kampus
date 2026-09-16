@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-66">
+<meta name="surum" content="2026-08-27-67">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4775,6 +4775,53 @@ async function zRaporuOku(k){
     koy('gsZNo_'+k,   v.z_no,          'Z No', true);
     koy('gsKart_'+k,  v.kart_toplam,   'Kart');
     koy('gsNakit_'+k, v.nakit_toplam,  'Nakit');
+    /* ================================================================
+       Y49 · NAKIT SATIRI BASILMAMIS Z'DE NAKIT SIFIRDIR
+       ================================================================
+       KULLANICI KARARI (aynen): "NAKİT YOKSA Z RAPORUNDA NAKİT SIFIRDIR,
+       UYARIYA GEREK YOK, NE OKUYORSA O."
+       OLCULDU (-66): tum odemesi kartla yapilmis bir Z'de (odeme dokumunde
+       yalniz K.KARTI ve TOPLAM, NAKIT satiri YOK) okuyucu nakit'i null
+       donduruyor, koy() sessizce donuyor, alan BOS kaliyor, ekran "Nakit
+       tutarı: OKUNAMADI — elle yaz" diyor ve KAYDET KAPALI. Personel her
+       gun elle 0 yaziyordu.
+       ⚠ OKUYUCU (A) 'SATIR YOK' ILE (B) 'OKUNAMADI'YI AYIRAN BIR ALAN
+         TASIMIYOR — kaynaktan okundu (supabase/functions/z-raporu-oku,
+         surum 10). Talimat ikisine de ayni seyi soyluyor: "okuyamadigin
+         alani null yap" + "emin olmadigin her alani okunamayan listesine
+         ekle". Yani tek yapisal isaret okunamayan[]: okuyucu nakit icin
+         EMIN OLMADIGINI orada soyluyorsa 0 YAZILMAZ — orada nakit
+         gercekten bilinmiyor ve sessiz 0 gunun cirosunu eksik yazar.
+         Bu ayrim bir DIL MODELININ yargisina dayaniyor, kurala degil:
+         model tum-kart bir fiste de nakit'i okunamayan'a koyarsa uyari
+         SURER (olculdu, A' kalibi). Kesin cozum sunucuda — defterde onerildi.
+       ⚠ UC ON KOSUL, UCU DE 'NE OKUYORSA O'NUN KAPSAMI — TAHMIN DEGIL:
+         · kart_toplam SAYI olmali: okuyucu odeme bolumunu OKUMUS olmali.
+           Fotograf hic okunamadiysa (hepsi null) 0 yazmak okunmamis bir
+           fise rakam uydurmak olurdu.
+         · belge_turu pos_slip ya da belirsiz OLMAMALI: kural Z RAPORU icin.
+         · alan BOS olmali: personelin daha once yazdigi degerin ustune
+           yazilmaz (koy() de null'da ustune yazmiyordu).
+       ⚠ 'uyari' METNI KARARA KATILMIYOR: serbest metni yorumlamak tahmin
+         kurmak olurdu. Ekranda eskisi gibi gosteriliyor.
+       ⚠ KAYIT KAPISINA DOKUNULMADI (zDurum): alan elle bosaltilirsa kayit
+         yine durur. Degisen yalniz okuyucunun sonucunu YORUMLAMAK.
+       ⚠ GUVENLIK AGI · SINIRI OLCULDU: yanlis bir 0, kayittan SONRA gun
+         sonu listesinde "Z dışı nakit" olarak buyuk gorunur — ama YALNIZ
+         kasa sayildiysa. Giris ekranindaki kutu fark HESAPLAMIYOR, yalniz
+         kasada sayilani gosteriyor. */
+    {
+      const bosDeger = (x) => x === null || x === undefined || x === '';
+      /* Turkce buyuk I tuzagi: 'NAKİT'.toLowerCase() 'nakit' degil. Dort
+         i bicimi tek bicime indirilip aranir (NAKİT · NAKIT · nakıt · nakit_toplam). */
+      const nakitBildirildi = (Array.isArray(v.okunamayan) ? v.okunamayan : [])
+        .some(x => String(x).replace(/[İIı]/g, 'i').toLowerCase().includes('nakit'));
+      const kartOkundu = typeof v.kart_toplam === 'number' && isFinite(v.kart_toplam);
+      const zRaporu = v.belge_turu !== 'pos_slip' && v.belge_turu !== 'belirsiz';
+      const alanBos = !String((document.getElementById('gsNakit_'+k) || {}).value || '').trim();
+      if (bosDeger(v.nakit_toplam) && !nakitBildirildi && kartOkundu && zRaporu && alanBos)
+        koy('gsNakit_'+k, 0, 'Nakit');
+    }
 
     // KDV satırları: fişteki TOPKDV esas (sistem hesabı ezilmez)
     const kap = document.getElementById('kdvSatirlari_'+k);
@@ -5076,7 +5123,17 @@ function zDurum(n, s){
   if(!pit.ok) gecersiz.push(on+'Fiş iptal tutarı');
   if(!zfVar) eksik.push(on+'Z fotoğrafı');
   /* Blok baslamissa tutarlar ZORUNLU. Bilinmiyorsa 0 yazilmaz —
-     okunamadigi soylenir ve elle yazilir. */
+     okunamadigi soylenir ve elle yazilir.
+     ⚠ Y49 · BU KURAL DARALDI, KALKMADI (kullanici karari, 16 Eylul):
+       "NAKİT YOKSA Z RAPORUNDA NAKİT SIFIRDIR, UYARIYA GEREK YOK."
+       Eski gerekce hala dogru: nakit GERCEKTEN bilinmiyorsa 0 yazmak
+       gunun cirosunu sessizce eksik kaydeder (ADIM 14'te olculmustu).
+       Degisen, 'bilinmiyor'un TANIMI: nakit SATIRI BASILMAMIS bir Z'de
+       nakit bilinmiyor degil, SIFIRDIR — bu bir is kurali ve kullanicinin
+       karari. O durumda 0'i okuyucu sonucunu yorumlayan zRaporuOku
+       yaziyor; BU KAPI AYNEN DURUYOR: alan bos kalirsa (okuyucu nakit'i
+       okunamadi diye bildirdiyse ya da personel alani elle sildiyse)
+       kayit yine durur. */
   if(!bos && pk.ok && !kartHam)  eksik.push(on+'Kart tutarı');
   if(!bos && pn.ok && !nakitHam) eksik.push(on+'Nakit tutarı');
   /* ⚠ KDV 'bekleyen', 'eksik' DEGIL: gunSonuKaydet KDV bos ekrani icin
