@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-67">
+<meta name="surum" content="2026-08-27-68">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2599,7 +2599,13 @@ function hataTrIc(m){
   if (m.includes('ux_tedarikci_ad')) return 'Bu isimde bir firma zaten kayıtlı. Aynı isimde ikinci firma açılamaz — ayırt edici bir ek yaz (örn. şube ya da semt).';
   if (m.includes('ux_alis_belge') || m.includes('duplicate key')) return 'Bu belge numarası bu firma için zaten girilmiş — mükerrer fatura engellendi.';
   if (m.includes('SADECE_KENDI')) return 'Sadece kendi girdiğiniz kaydı düzeltebilirsiniz.';
-  if (m.includes('SURE_GECTI')) return 'Düzeltme süresi (12 saat) geçmiş — yöneticiye başvurun.';
+  /* ⚠ SURE 3 GUN, 12 SAAT DEGIL — OLCULDU. SURE_GECTI'yi zincirde YALNIZ
+     rpc_gun_sonu_guncelle ve rpc_gun_sonu_sil firlatiyor, ikisi de
+     interval '3 days' (canli yedek + bekleyen v137 ayni); personelin okuma
+     politikasi yetki_sel_gun_sonu da '3 days'. Sunucuda 12 saatlik bir
+     kural HIC yok. Ayni ekrandaki personelSonKayit zaten '3 gün' diyordu;
+     '12 saat' personeli dunun hatasini duzeltemeyecegine inandiriyordu. */
+  if (m.includes('SURE_GECTI')) return 'Düzeltme süresi (3 gün) geçmiş — yöneticiye başvurun.';
   if (m.includes('KASA_ADET_HATASI')) return subeKasaAdedi() === 1
     ? 'Bu şubenin tek yazarkasası girilmelidir.'
     : `Bu şubenin ${subeKasaAdedi()} yazarkasasının hepsi girilmelidir.`;
@@ -5467,7 +5473,7 @@ async function vGunSonu(zListe){
       <div class="gs-eksik" id="gsEksik"></div>
       <button class="btn" id="gsKaydet" onclick="gunSonuKaydet()">Gün Sonunu Kaydet</button>
       <div class="hata-msg" id="gsMsg"></div>
-      <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.':'Yanlış girersen 12 saat içinde aşağıdan silip yeniden girebilirsin.'}</div>
+      <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.':'Yanlış girersen 3 gün içinde aşağıdan silip yeniden girebilirsin.'}</div>
     </div>
     ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : '<div id="gsSonKayit"></div>'}`;
   if (PROFIL.rol==='personel') personelSonKayit();
@@ -5520,6 +5526,19 @@ async function fotoTemizle(yollar){
   return kalan;
 }
 async function gunSonuKaydet(){
+  /* ⚠ ONAY IPTALI SESSIZDI — OLCULDU. Bu fonksiyonda BES confirm() var
+     (KDV dokumu bos · KDV kontrolu · kasada sayilan girilmedi · kasada
+     0,00 TL mi · son ozet). Hangisinde Iptal'e basilsa kayit HICBIR MESAJ
+     VERMEDEN duruyordu: gsMsg gorunmez ve bos, RPC'ye gidilmiyor.
+     Kullanici bunu 'kayit olmuyor' diye yasiyordu.
+     ⚠ YALNIZ SESSIZLIK KIRILDI: onaylarin metni, sirasi ve akisi AYNI;
+       iptalde eskisi gibi 'return', yalniz oncesinde bir mesaj.
+     ⚠ BAYAT MESAJ TEMIZLENIR: iptalden sonra tekrar basilip her onay
+       gecilirse bu mesaj kayit SIRASINDA ekranda kalmasin diye son
+       onaydan hemen sonra kaldirilir — YALNIZ hala bu mesajsa; baska
+       bir mesaja dokunulmaz. */
+  const IPTAL_MESAJI = 'Kayıt yapılmadı — İptal\'e basıldı. Bilgiler formda duruyor; tekrar Kaydet\'e basabilirsin.';
+  const onayIptal = () => mesaj('gsMsg', 'uyari', IPTAL_MESAJI);
   const kasalar = [];
   for (const n of KASA_NO()){
     const d = kasaDurum(n);
@@ -5550,7 +5569,7 @@ async function gunSonuKaydet(){
   for (const k of kasalar){
     const et = `KASA ${k.n}${ZLISTE[k.n].length>1?' / '+k.s+'. Z':''}`;
     if (k.kdv.length === 0 && (k.kart + k.nakit) > 0 &&
-        !confirm(`${et} için KDV dökümü BOŞ. O Z raporundaki VERGİ DÖKÜMÜ girilmedi — beyana giden KDV eksik kalır. Yine de kaydedilsin mi?`)) return;
+        !confirm(`${et} için KDV dökümü BOŞ. O Z raporundaki VERGİ DÖKÜMÜ girilmedi — beyana giden KDV eksik kalır. Yine de kaydedilsin mi?`)) { onayIptal(); return; }
   }
   // AKIL KONTROLLERİ (KÜM. TOPLAM tuzağı + KDV tutarlılığı)
   const kdvSatisToplami = kdv.reduce((a,x)=>a+x.satis_toplam,0);
@@ -5561,7 +5580,7 @@ async function gunSonuKaydet(){
   for (const x of kdv){
     const beklenen = x.satis_toplam - x.satis_toplam/(1 + x.oran/100);
     if (x.satis_toplam > 0 && Math.abs(x.kdv_tutar - beklenen) > Math.max(5, beklenen*0.15) &&
-        !confirm(`KDV kontrolü: %${x.oran} için ${tl(x.satis_toplam)} satışın KDV'si yaklaşık ${tl(beklenen)} olmalı, siz ${tl(x.kdv_tutar)} girdiniz.\nZ kağıdındaki TOPKDV satırıyla karşılaştırın. Yine de kaydedilsin mi?`)) return;
+        !confirm(`KDV kontrolü: %${x.oran} için ${tl(x.satis_toplam)} satışın KDV'si yaklaşık ${tl(beklenen)} olmalı, siz ${tl(x.kdv_tutar)} girdiniz.\nZ kağıdındaki TOPKDV satırıyla karşılaştırın. Yine de kaydedilsin mi?`)) { onayIptal(); return; }
   }
   const pKasa = paraOku(document.getElementById('gsKasa'));
   if (!pKasa.ok){ mesaj('gsMsg','hata','Kasada sayılan alanı geçersiz — örnek: 4400 veya 4400,50'); return; }
@@ -5581,18 +5600,20 @@ async function gunSonuKaydet(){
   const kasaBos = !document.getElementById('gsKasa').value.trim();
   const kasaGonder = kasaBos ? null : kasa;
   if (kasaBos &&
-      !confirm('Kasada sayılan girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) return;
+      !confirm('Kasada sayılan girilmedi (kasa sayımı yapılmadı mı?). Boş kaydedilirse o günün gerçek nakit takibi eksik kalır. Yine de kaydedilsin mi?')) { onayIptal(); return; }
   /* ⚠ TEK SORU, BIR KEZ: yanlis cevap veri kaybettiriyor. */
   if (!kasaBos && kasa === 0 &&
       !confirm('Kasada 0,00 TL mi vardı?\n\n'
              + 'EVET → "saydım, kasa boştu" olarak kaydedilir; o günün nakdi raporda kalır.\n'
-             + 'HAYIR → kayıt durur. Saymadıysan bu alanı BOŞ bırak.')) return;
+             + 'HAYIR → kayıt durur. Saymadıysan bu alanı BOŞ bırak.')) { onayIptal(); return; }
   const ozet = kasalar.map(k=>{
     const kv = k.kdv.reduce((a,x)=>a+x.kdv_tutar,0);
     const et = `Kasa ${k.n}${ZLISTE[k.n].length>1?' ('+k.s+'. Z)':''}`;
     return `${et} — Z ${k.zno}: ${tl(k.kart+k.nakit)}   KDV ${tl(kv)}`;
   }).join('\n');
-  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nKasada sayılan: ${tl(kasa)}\n(gün sonunda kasadan sayılan para)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) return;
+  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nKasada sayılan: ${tl(kasa)}\n(gün sonunda kasadan sayılan para)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) { onayIptal(); return; }
+  { const m = document.getElementById('gsMsg');
+    if (m && m.textContent === IPTAL_MESAJI){ m.textContent = ''; m.style.display = 'none'; } }
 
   const btn = document.getElementById('gsKaydet');
   const eskiBtnMetin = DUZENLE ? 'Değişiklikleri Kaydet' : 'Gün Sonunu Kaydet';
