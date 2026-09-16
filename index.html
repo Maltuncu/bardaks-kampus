@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-65">
+<meta name="surum" content="2026-08-27-66">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -421,8 +421,22 @@ main{padding:14px;max-width:640px;margin:0 auto}
 
 /* MASAÜSTÜ — sol menü, geniş içerik, detay sağdan açılır */
 @media(min-width:900px){
-  #sekmeBar{top:0;bottom:0;left:0;right:auto;width:214px;flex-direction:column;
-    border-top:none;border-right:1.5px solid var(--cizgi);padding:70px 0 0}
+  /* ⚠ SOL MENU BASLIGIN ALTINDAN BASLAR — SABIT SAYIYLA DEGIL.
+     OLCULDU: eskiden 'top:0' + 'padding-top:70px' vardi. Baslik 93px
+     (-65) ya da 108px (-64, kapsam secicisiyle) — 70 hicbirinde yetmiyor.
+     Baslik z-index 60, menu 50: baslik menunun ust kismini ORTUYOR ve ilk
+     sekme 'Özet'in ust yarisi TIKLANAMIYORDU (bes noktali orneklemde
+     -65'te 3/5, -64'te 1/5 isabet).
+     ⚠ YERINE 108 YAZMAK AYNI HATAYI TEKRARLAMAK OLURDU: basligin boyu
+       sube adina, rozetlere, rol satirina, geri dugmesinin varligina gore
+       degisiyor. Deger basligin GERCEK yuksekliginden turetiliyor
+       (--ustbar-boy, ustBarBoyuYaz). 70px yalniz JS hic calismadiysa
+       devreye giren yedek — bugunku davranistan KOTU degil.
+     ⚠ KUTU TASINDI, DOLGU DEGIL: 'top' baslik boyu, 'padding-top' kucuk
+       bir nefes. Dolguyla cozseydik menunun KUTUSU yine basligin altinda
+       kalirdi (denetcinin olcutu kutu ortusmesi: 93 → 0 olmali). */
+  #sekmeBar{top:var(--ustbar-boy, 70px);bottom:0;left:0;right:auto;width:214px;flex-direction:column;
+    border-top:none;border-right:1.5px solid var(--cizgi);padding:8px 0 0}
   #sekmeBar button{flex:none;flex-direction:row;justify-content:flex-start;gap:13px;
     padding:0 18px;min-height:46px;font-size:13.5px;border-top:none;
     border-left:3px solid transparent;text-align:left}
@@ -827,6 +841,36 @@ const KASA_NO = () => Array.from({ length: SUBE_KASA }, (_, i) => i + 1);
      olmayan bir ayrimi ekrana yazmak olurdu. Sonradan "unutulmus"
      diye eklenmesin diye gerekce burada duruyor.
    ⚠ SUBE SECICI DEGIL, YALNIZ YAZI: secici ADIM 03'un isi. */
+/* ==================================================================
+   MASAUSTU SOL MENU · BASLIK BOYU → --ustbar-boy
+   ==================================================================
+   Sol menu (>=900px) basligin ALTINDAN baslamali. Baslik boyu SABIT
+   DEGIL — sube adi, rozetler, rol satiri, geri dugmesi, kapida seridin
+   hic olmamasi hepsi degistiriyor. Sabit bir sayi bugun duzelir, yarin
+   bozulur.
+   ⚠ TAZELEME ICIN ResizeObserver: baslik NEDEN buyurse buyusun (yeniden
+     cizim, yazi tipinin gec yuklenmesi, yakinlastirma, pencere boyu)
+     gozlemci tetiklenir. Cagri noktalarini tek tek hatirlamaya
+     dayanmiyor — hatirlanmayan bir nokta tam bu kusuru geri getirirdi.
+   ⚠ kapsamSeridiCiz ICINDEN DE CAGRILIYOR: gozlemci asenkron (bir sonraki
+     cizim karesinde) calisiyor; ayni karede biri menuyu olcerse eski
+     degeri gormesin. Ayni fonksiyon, ikinci bir DOGRULUK KAYNAGI degil.
+   ⚠ YUKARI YUVARLANIR: 92.5px'lik bir baslikta 92 yazilsaydi yarim piksel
+     yine ortusurdu. */
+function ustBarBoyuYaz(){
+  const ust = document.getElementById('ustBar'); if (!ust) return;
+  const h = Math.ceil(ust.getBoundingClientRect().height);
+  /* Uygulama gizliyken (giris ekrani) boy 0 olur; o an yazilmaz ki menu
+     acildiginda 0'dan baslamasin. Gozlemci gorunur olunca zaten tetiklenir. */
+  if (h > 0) document.documentElement.style.setProperty('--ustbar-boy', h + 'px');
+}
+(function ustBarGozle(){
+  const ust = document.getElementById('ustBar'); if (!ust) return;
+  if (typeof ResizeObserver === 'function') new ResizeObserver(ustBarBoyuYaz).observe(ust);
+  addEventListener('resize', ustBarBoyuYaz);
+  ustBarBoyuYaz();
+})();
+
 function kapsamSeridiCiz(){
   const el = document.getElementById('kapsamSerit'); if (!el) return;
   const t = OZ_TAMLIK;
@@ -933,6 +977,7 @@ function kapsamSeridiCiz(){
      biri otekini gunun birinde yalanlardi. */
   el.hidden = KAPI_ACIK;
   el.classList.toggle('gizli', KAPI_ACIK);
+  ustBarBoyuYaz();   /* serit boyu degismis olabilir — ayni karede tazele */
 }
 
 /* ==================================================================
@@ -1001,6 +1046,14 @@ function acilisKapisiCiz(){
   if (cubuk){ cubuk.hidden = true; cubuk.classList.add('gizli'); }
   const serit = document.getElementById('kapsamSerit');
   if (serit){ serit.hidden = true; serit.classList.add('gizli'); }
+  /* ⚠ SENKRON TAZELEME. Kapida serit yok ve baslik kisaliyor (olculdu:
+     93 → 59). ResizeObserver bunu yakalar AMA YALNIZ SAYFA CIZILIRKEN:
+     sekme arka plandayken (visibilityState hidden) gozlemci HIC
+     tetiklenmiyor — olculdu, baslik 133'e uzadigi halde degisken 93'te
+     kaldi, sayfa gorunur olunca 133 oldu. Menu kapida gizli oldugu icin
+     bayat deger GORUNMEZ; yine de degisken her an dogru olsun diye
+     kapsamSeridiCiz'deki gibi burada da ayni karede yaziliyor. */
+  ustBarBoyuYaz();
   document.querySelectorAll('#sekmeBar button, #dahaKutu button')
     .forEach(b => b.classList.remove('aktif'));
   window.scrollTo(0, 0);
