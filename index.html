@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-73">
+<meta name="surum" content="2026-08-27-74">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -46,7 +46,11 @@
 .yy-bas{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--soluk);margin:10px 0 4px}
 .yy-rol{display:flex;flex-wrap:wrap;gap:6px}
 .yy-rol .yy-aktif{background:var(--ana);color:#fff;border-color:var(--ana)}
-.yy-acik{background:var(--ok);color:#fff;border-color:var(--ok)}
+/* ⚠ Y69 · `.btn2` ile birlikte yazilir: `.btn2` BU KURALDAN SONRA tanimli
+   (satir ~300) ve ayni ozgullukte oldugu icin acik dugmenin yesilini eziyordu —
+   Acik ile Kapali ayni gorunuyordu (Y61 bulgusu 5, olculdu). Iki sinifli secici
+   ozgullugu yukseltir; sira artik onemsiz. Kullanildigi her yer `.btn2`. */
+.btn2.yy-acik{background:var(--ok);color:#fff;border-color:var(--ok)}
 /* Y61 · kisiye ozel maas anahtari ve Y63 kapsam notlari */
 .yy-not{margin:0 0 8px}
 .yy-maas{display:block;font-size:11px;color:var(--soluk);margin-top:4px;line-height:1.35}
@@ -4955,6 +4959,14 @@ function kdvSatirEkle(k, oran, satis, kdv, sabit){
   if (kdv) vEl0.dataset.elle = '1';                    // hazır değerle geldiyse elle sayılır
   paraBagla(document.getElementById('kdvT_'+n), ()=>{ hesapla(); kasaHesapla(); });
   paraBagla(vEl0, kasaHesapla);
+  /* ⚠ Y69 · HAZIR GELEN TUTAR FISTEKI BICIMDE GORUNUR. Okuyucunun ve kayittan
+       gelen degerler buraya HAM sayi olarak giriyordu ve ekranda "1234.56" gibi
+       duruyordu (olculdu, ekran goruntusu); ayni fisin ustundeki Kart/Nakit
+       alanlari `koy()` sayesinde virgullu yaziliyordu — ayni ekranda iki bicim.
+     ⚠ YENI BICIM TANIMI YOK: alandan cikinca (blur) calisan `paraBicimle`nin
+       AYNISI cagriliyor; okuma (`paraOku`/`kdvOku`) her iki bicimi de coziyor. */
+  paraBicimle(document.getElementById('kdvT_'+n));
+  paraBicimle(vEl0);
   const oranEl = document.getElementById('kdvO_'+n);
   if (oranEl.tagName === 'SELECT') oranEl.addEventListener('change', hesapla);
 }
@@ -5487,9 +5499,22 @@ async function zRaporuOku(k){
       const zToplamKurus = sayiMi(v.net_satis) ? Math.round(v.net_satis * 100)
         : (kdvOkunan.length && kdvOkunan.every(x => x && sayiMi(x.satis_toplam)))
           ? kdvOkunan.reduce((t, x) => t + Math.round(x.satis_toplam * 100), 0) : null;
-      const tumuKart = kartOkundu && zToplamKurus !== null
-        && Math.abs(zToplamKurus - Math.round(v.kart_toplam * 100)) <= 1;
-      if (bosDeger(v.nakit_toplam) && kartOkundu && zRaporu && alanBos && (!nakitBildirildi || tumuKart)){
+      const kartKurus = kartOkundu ? Math.round(v.kart_toplam * 100) : null;
+      const tumuKart = kartKurus !== null && zToplamKurus !== null
+        && Math.abs(zToplamKurus - kartKurus) <= 1;
+      /* ⚠ Y69 · SON KAPI · Z TOPLAMI KARTTAN BUYUKSE HICBIR YOL 0 YAZMAZ.
+           Y68 yalniz "okunamayan'da nakit VARSA" dalini aritmetige bagladi; ESKI Y49
+           yolu (okuyucu nakit'i HIC bildirmemis) toplama BAKMIYORDU ve olculdu:
+           toplam > kart iken de 0 yaziyor, Kaydet aciliyor. O gunun nakit cirosu
+           sessizce 0 kaydedilebilirdi. Fark artik nakde ATANMAZ: alan bos kalir,
+           uyari surer, personel elle yazar. Aradaki tutar nakit OLMAYABILIR — baska
+           odeme turu olabilir (yemek karti sorusu hala acik).
+         ⚠ Z toplami BILINMIYORSA (net_satis yok ve kdv satirlari eksik) kapi
+           calismaz: Y68'deki davranis aynen surer. Karttan KUCUK toplamda da karar
+           verilmez — o hal celiskili bir okumadir, ayri madde.
+         ⚠ Kayit kapisi (zDurum) yine degismedi. */
+      const nakdeYerVar = kartKurus !== null && zToplamKurus !== null && (zToplamKurus - kartKurus) > 1;
+      if (bosDeger(v.nakit_toplam) && kartOkundu && zRaporu && alanBos && !nakdeYerVar && (!nakitBildirildi || tumuKart)){
         koy('gsNakit_'+k, 0, 'Nakit');
         nakitAritmetikle = nakitBildirildi;
       }
