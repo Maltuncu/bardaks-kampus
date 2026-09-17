@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-71">
+<meta name="surum" content="2026-08-27-72">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -52,6 +52,13 @@
 .yy-maas{display:block;font-size:11px;color:var(--soluk);margin-top:4px;line-height:1.35}
 .yy-maas-btn{margin-top:6px;padding:5px 10px;display:inline-flex;flex-direction:column;align-items:flex-start;line-height:1.2;text-align:left}
 .yy-maas-et{font-size:10.5px;font-weight:700}
+/* Y65 eki · ROLLER tablosundaki "Maaşlar" satirinda kisi basina anahtar.
+   Satirin tek sutunu var: .sr'nin bos "auto" sutunu + 12px bosluk anahtari diger
+   satirlarin dugmelerinden 12px iceride birakiyordu (375px'te olculdu). */
+#yyPersonelSatiri{grid-template-columns:1fr}
+.yy-maas-kisi{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+.yy-maas-kisi .yy-maas-btn{margin-top:0;flex-shrink:0}
+.yy-maas-ad{font-size:13px;font-weight:700;color:var(--metin);min-width:0;overflow-wrap:break-word}
 :root{--ana:#2456A0;--ana-koyu:#183F78;--acik:#EBF0FA;--gri:#FAF4E3;--kart:#FFFEF8;--kagit:#FFFEF8;--metin:#1F3354;--soluk:#8189A0;--hata:#B3402F;--uyari:#C77B2B;--ok:#2E7D4F;--cizgi:#E7DEC8}
 /* ===== Gün Sonu — iki kasa (Mission Control) ===== */
 .kasa-grid{display:grid;grid-template-columns:1fr;margin:12px 0}  /* sutunlar JS ile kasa adedince */
@@ -3576,9 +3583,12 @@ async function bankaBakiyeKaydet(){
 }
 async function kararBlogu(gunSonuVar, donem){
   const el = document.getElementById('kararBlok'); if (!el) return;
-  /* BF · owner'da bu satir kart-5 "Bugün düzelt" icinde; personelde yerinde. */
-  let ic = (gunSonuVar || PROFIL.rol === 'owner') ? '' : `<div class="uyari-agir kb-sr">Bugünün gün sonu girilmedi`
-    + `<button class="btn2 kb-bt" onclick="sekmeAc('gunsonu')">Gir</button></div>`;
+  /* BF · owner'da bu satir kart-5 "Bugün düzelt" icinde.
+     ⚠ Y65 · PERSONELDEN KALKTI. Personel gun sonunu yalniz KENDI girdigi ve son
+       3 gunde olusturulmus satirlardan gorur (RLS). OLCULDU: bugunu sahip ya da
+       baska personel girince bu satir "Bugünün gün sonu girilmedi" diyordu —
+       girilmis gunu girilmemis gosteriyordu. Dogrusunu soylemek yeni yetki ister. */
+  let ic = '';
   /* BB · Kredi-7gün satırları buradan KALDIRILDI: aynı taksit artık
      odemelerBlogu'nun tek listesinde (takvim haftası + 30 gün, dört
      kaynak). İki yerde tutulsaydı aynı taksit ekranda iki kez görünürdü.
@@ -3857,12 +3867,16 @@ function ozAyDegistir(fark){
      kasa haritalari AYNI kusuru uretir. Bolmek cagiranin isi. */
 const sayimKismiMi = s => !!s && +s.toplam_urun > 0 && +s.sayilan_urun < +s.toplam_urun;
 function subeOzetHesabi(ay, v){
-  /* v63 · Bu iki görünüm dönem+şube başına TEK satır döndürür. */
-  const k = (v.kdv||[])[0], o = (v.ozet||[])[0];
-  // Ayın gerçek cirosu/Z dışı nakdi artık v_aylik_ozet'te hesaplanıyor (gercek_ciro,
-  // z_disi_nakit). Burada yalnız BUGÜNÜN kasa çıkışı gerekiyor — günlük kutu için.
+  /* v63 · Görünüm dönem+şube başına TEK satır döndürür.
+     ⚠ Y65 · ARTIK OKUNMAYAN CIKTILAR SILINDI: k (v_kdv_ay satiri), kasadanBugun,
+       sayimlar/sayimHata/sayimKismi DISARI verilmiyor. -71'de onlari YALNIZ personel
+       yolunun AY KARI blogu ve BUGUN kutusu okuyordu; ikisi de kalkti. Sayim
+       degerleri asagida tamlik icin HALA hesaplaniyor. vOzet ve vOzetToplam
+       bugun yalniz o, GC ve tamlik okuyor. */
+  const o = (v.ozet||[])[0];
+  // Ayın gerçek cirosu/Z dışı nakdi v_aylik_ozet'te hesaplanıyor (gercek_ciro, z_disi_nakit).
+  // Kasa çıkışları yalnız grafiğin günlük haritasına giriyor.
   const kasaCikislari = [...(v.kasadan||[]), ...(v.nakitOdeme||[])];
-  const kasadanBugun = kasaCikislari.filter(x=>x.tarih===bugun()).reduce((a,x)=>a+ +x.tutar,0);
   // Grafik, başlıktaki toplam ve ortalama çizgisi hep bu tek seriden okunur
   // v62 · Grafik artık özet ile AYNI tanımı kullanıyor. Haritalar gün
   // bazında; ay toplamı v_aylik_ozet'ten gelir ve ikisi artık uyuşur.
@@ -3905,7 +3919,7 @@ function subeOzetHesabi(ay, v){
                    gerekce kapsamSeridiCiz'de, olcumuyle. */
                 gunBekleniyor: ayinGunBekleniyorMu(ay, OZ_ILK_GUN),
                 sayimYok: !!(o && !o.stok_bazli), sayimKismi, kayitVar: !!o };
-  return { o, k, kasadanBugun, GC, sayimlar, sayimHata, sayimKismi, tamlik };
+  return { o, GC, tamlik };
 }
 
 async function vOzet(){
@@ -3977,13 +3991,17 @@ async function vOzet(){
      TASINDI — TOPLAM ozeti ayni hesabi her sube icin ayri calistirsin diye.
      Bu ekranin girdisi ve ciktisi DEGISMEDI (-68 ile birebir olculdu). */
   const H = subeOzetHesabi(ay, {
-    ozet: ozet.data, kdv: kdv.data, gunler: ayGunler.data,
+    ozet: ozet.data, gunler: ayGunler.data,
     kasadan: ayKasadan.data, nakitOdeme: ayNakitOdeme.data, owner: ayOwner.data,
     kapali: ayKapali.data, kapaliHata: !!ayKapali.error,
     sayim: aySayim?.data, sayimHata: !!aySayim?.error, ilkGunSonu });
-  const { o, k, kasadanBugun, GC, sayimlar, sayimHata, sayimKismi } = H;
-  const kismiMi = sayimKismiMi;
-  OZ_TAMLIK = H.tamlik;
+  const { o, GC } = H;
+  /* ⚠ Y65 · PERSONELDE TAMLIK (eksik gun, sayim) SERIDE GOSTERILMEZ: serit Ozet
+       kapaliyken ne diyorsa onu der ("veri: —"). OLCULDU: personelin tamligi yalniz
+       KENDI girdigi ve son 3 gunde olusturulmus gun sonlarindan kuruluyor; serit
+       sahiple AYNI SAYIDA eksik gun yazarken FARKLI gunleri eksik sayiyordu —
+       birini baska personel girmisti. Sahipte degisiklik yok. */
+  OZ_TAMLIK = PROFIL.rol === 'owner' ? H.tamlik : null;
   kapsamSeridiCiz();
   const acikTalep = talep.data||[];
   if (acikTalep.length > 0){
@@ -3993,38 +4011,55 @@ async function vOzet(){
   // Para kaybettiren uyarı (fatura/çek/vade) ile işleyiş uyarısı ayrı ağırlıkta gösterilir
   // (UY_AGIR / UY_ETIKET / UY_HEDEF / uyariSatir modül kapsamında — bkz. BQ)
   const sirali = [...u].sort((a,b)=>(UY_AGIR[b.tip]||0)-(UY_AGIR[a.tip]||0));
-  const agirSayi = u.filter(x=>UY_AGIR[x.tip]).length;
 
   /* ---- BQ · ALTI BLOK · İÇERİK burada, YERİ role göre ----
      Blokların gövdesi (kart kabuğu HARİÇ) bir kez kuruluyor. Personel eski
      yerinde kart kabuğuyla görür; owner'da odemelerBlogu bunları BU AY ve
      BUGÜN DÜZELT kartlarının içine koyar. Tek gövde, iki yerleşim. */
   const sahip = PROFIL.rol === 'owner';
+  /* ⚠ Y65 · PERSONELDE GRAFIK KALIR (Y50), CEVRESINDEKI RAKAMLAR KALKAR.
+       OLCULDU (kap, gercek RLS; ayni sube-ay sahibin ve personelin verisiyle):
+       baslik toplami ve kayitli gun, lejanttaki kart/nakit toplamlari, KDV notu,
+       kasa acigi ve sayilmayan gun sayilari sahibinkinden FARKLI. Grafik de kismi
+       (baskasinin girdigi ya da 3 gunden eski gun "girilmemis" gorunuyor) — Y50
+       geregi KALDI, raporlandi.
+     ⚠ SAHIPTE CIKTI AYNI: kosullar sahipte eski metni ve yapiyi birebir uretir
+       (metin+yapi imzasi 375 ve 1440'ta olculdu). */
   const blokCiro = !GC.kayitliGun ? '' : `
-      ${kbaslik('GÜNLÜK GERÇEK CİRO', ayAdi(ay),
+      ${kbaslik('GÜNLÜK GERÇEK CİRO', ayAdi(ay), !sahip ? '' :
         `<div class="kb-sag">${tl(GC.toplamGercek)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${GC.kayitliGun} kayıtlı gün</span></div>`)}
       <div class="gc-ust">
-        <span><i style="background:#4F86D6"></i>Kart <b>${tl(GC.toplamKart)}</b></span>
-        <span><i style="background:#E08A3C"></i>Nakit <b>${tl(GC.toplamNakit)}</b></span>
+        <span><i style="background:#4F86D6"></i>Kart${sahip ? ` <b>${tl(GC.toplamKart)}</b>` : ''}</span>
+        <span><i style="background:#E08A3C"></i>Nakit${sahip ? ` <b>${tl(GC.toplamNakit)}</b>` : ''}</span>
       </div>
-      <div class="ipucu" style="margin:0 0 8px">
+      ${!sahip ? '' : `<div class="ipucu" style="margin:0 0 8px">
         Kart bankaya gider. <b>Toplam nakit ${tl(GC.toplamNakit)}</b> — kasaya elle yazdığın tutar.
         Bunun <b>${tl(GC.toplamKdvNakit)}</b>'i Z raporunda; ${ayAdi(ay)} KDV'si
         o rakamdan hesaplanıp gelecek ay ödenecek.
-      </div>
+      </div>`}
       ${ciroGrafigi(GC)}
       <div class="ipucu" style="margin-top:6px">Bir güne dokun — o günün gün sonu kaydı açılır.</div>
-      ${GC.kasaAcigiGun ? `<div class="uyari-agir">${GC.kasaAcigiGun} günde kasada Z raporunun
+      ${sahip && GC.kasaAcigiGun ? `<div class="uyari-agir">${GC.kasaAcigiGun} günde kasada Z raporunun
         dediğinden AZ para sayılmış. Bu Z dışı satış değil <b>kasa açığı</b> — grafikte koyu
         kırmızı sütun. O günlere dokunup kontrol et.</div>` : ''}
-      ${GC.kasaSayilmayanGun ? `<div class="uyari-orta">${GC.kasaSayilmayanGun} günde kasa
+      ${sahip && GC.kasaSayilmayanGun ? `<div class="uyari-orta">${GC.kasaSayilmayanGun} günde kasa
         sayılmamış — o günlerin Z dışı nakdi bilinmiyor, toplama dahil edilmedi.</div>` : ''}`;
 
+  /* ⚠ Y65 · PERSONEL UYARI KARTI YALNIZ SAHIBINKIYLE AYNI CIKAN TURLER.
+       OLCULDU (kap, gercek RLS): YAPILACAK ve STOK satirlari sahibinkiyle ESIT.
+       EKSIK GUN personelin gorebildigi gun sonlarindan kuruluyor ve baskasinin
+       girdigi gunu "Gün sonu girilmedi" diye yaziyordu; FATURA, VADE ve CEK
+       sahibin verisinden (personelde ya hic yok ya da 7 gunluk kesitten).
+       Sayi ve ACIL etiketi de AYNI suzulmus listeden — sahibin listesine dokunulmadi.
+       Bu kart yalniz personelde ciziliyor. */
+  const UY_PERSONEL_TAM = new Set(['talep', 'stok']);
+  const uyariPersonel = sirali.filter(x => UY_PERSONEL_TAM.has(x.tip));
+  const agirPersonel = uyariPersonel.filter(x => UY_AGIR[x.tip]).length;
   const blokUyari = `
-      ${kbaslik(agirSayi?'ACİL '+agirSayi:'', 'Uyarılar', `<div class="kb-sag">${u.length}</div>`)}
-      ${u.length===0
-        ? bosDurum('uyari','Bekleyen uyarı yok','Vadesi geçen fatura, biten stok veya eksik gün olduğunda burada görürsün.')
-        : sirali.map(uyariSatir).join('')}`;
+      ${kbaslik(agirPersonel?'ACİL '+agirPersonel:'', 'Uyarılar', `<div class="kb-sag">${uyariPersonel.length}</div>`)}
+      ${uyariPersonel.length===0
+        ? bosDurum('uyari','Bekleyen uyarı yok','Biten stok ya da bekleyen yapılacak olduğunda burada görürsün.')
+        : uyariPersonel.map(uyariSatir).join('')}`;
 
   const blokAyRaporu = !o ? '' : `
       ${kbaslik('AY RAPORU', ayAdi(ay),
@@ -4083,7 +4118,9 @@ async function vOzet(){
        olculuyor; karar verilince desen ASAGIDAKI TEK SATIRDA genisler.
      ⚠ FORMULE DOKUNULMUYOR: ay_kari v_aylik_ozet'ten geldigi gibi
        kaliyor, isletme kari ONDAN TURETILIYOR (ay_kari + finansman).
-       Boylece uc satir tanim geregi birbirini tutar. */
+       Boylece uc satir tanim geregi birbirini tutar.
+     ⚠ Y65 · O ISLETME KARI SATIRI blokKar ile birlikte SILINDI; iki desen bugun
+       yalniz sahibin sonuc tablosundaki BRUT faiz/yatirim notunu besliyor. */
   const FIN_DESEN = /faiz/i;
   /* ⚠ BIR KERELIK YATIRIM · ayni mekanizma, ikinci desen.
      "demirba" koku hem "demirbaş" hem "demirbas" yazimini yakalar —
@@ -4091,17 +4128,6 @@ async function vOzet(){
      alimlari gider olarak yaziyor ve tek seferlik bir cikis o ayin
      isletme sonucunu bozuyor. */
   const YATIRIM_DESEN = /demirba|ekipman|makine|mobilya|yatirim/i;
-  /* ⚠ GERI EKLENEN RAKAM **NET** OLMAK ZORUNDA — BU TURUN ASIL ISI.
-     ay_kari gider_net'ten turuyor; gider_net'in TANIMI (taban ·
-     v_kdv_indirilebilir_ay): gider_toplam − Σ kdv_tutar (yalniz
-     kdv_indirilebilir_kayit olanlar). Asagidaki satir o tanimin
-     AYNISI — ikinci bir tanim yazilmadi.
-     Ham tutar geri eklenseydi isletme kari KDV kadar fazla cikardi:
-     1.234,56'lik bir alimin 234,56'si KDV ise geri eklenecek olan
-     1.000,00'dir. Kredi faizinde KDV olmadigi icin bu satir orada
-     hicbir seyi degistirmez — sifir cikarir. */
-  const giderNet = (x) => (Number(x.tutar) || 0)
-    - (x.kdv_indirilebilir_kayit ? (Number(x.kdv_tutar) || 0) : 0);
   /* ⚠ TURKCE HARF: JS'te 'ı' ile 'i', 'İ' ile 'i' AYRI karakterdir ve
      regex'in /i bayragi bunlari eslestirmez — olculdu:
        /yatirim/i.test('Yatırım')  -> false
@@ -4117,7 +4143,7 @@ async function vOzet(){
      ⚠ `desenAd` ARTIK MODUL KAPSAMINDA (esc'in yanında): Belgeler
        aramasi da ayni normallestirmeye ihtiyac duyunca buradaki yerel
        tanim KALDIRILDI, kopyalanmadi. Davranis birebir ayni. */
-  const kategoriTopla = (sec, tutarAl = giderNet) => {
+  const kategoriTopla = (sec, tutarAl) => {
     const d = (ayGider && ayGider.data) || [];
     const m = new Map();
     for (const x of d){
@@ -4129,182 +4155,23 @@ async function vOzet(){
       .sort((a,b) => b.tutar - a.tutar);
     return { tutar: kalemler.reduce((a,k) => a + k.tutar, 0), kalemler };
   };
-  const FIN = kategoriTopla(ad => FIN_DESEN.test(ad));
-  /* ⚠ IKI DESENE BIRDEN UYAN KATEGORI CIFT DUSULMESIN: finansman
-     onceliklidir, yatirim tarafi onu disarida birakir. */
-  const YATIRIM = kategoriTopla(ad => YATIRIM_DESEN.test(ad) && !FIN_DESEN.test(ad));
   /* ⚠ Y62 · SONUC TABLOSU ICIN BRUT. Tablonun "Diğer giderler" satiri KDV
        DAHIL (gider_toplam); altindaki faiz/yatirim notu da AYNI tabanda
        olmali — net rakam brut satirin altina yazilirsa satiri tutmaz.
-       Desen ve kategori secimi yukaridakinin AYNISI, yalniz tutar brut. */
+     ⚠ IKI DESENE BIRDEN UYAN KATEGORI CIFT DUSULMESIN: finansman
+       onceliklidir, yatirim tarafi onu disarida birakir.
+     ⚠ Y65 · NET KARSILIKLAR (FIN, YATIRIM, giderNet, ayrimBaslik) SILINDI:
+       yalniz AY KARI blogu (blokKar) okuyordu ve o blok silindi. */
   const brut = (x) => Number(x.tutar) || 0;
   const FIN_BRUT = kategoriTopla(ad => FIN_DESEN.test(ad), brut).tutar;
   const YATIRIM_BRUT = kategoriTopla(ad => YATIRIM_DESEN.test(ad) && !FIN_DESEN.test(ad), brut).tutar;
-  const ayrimBaslik = 'İŞLETME KÂRI ('
-    + (FIN.tutar > 0 && YATIRIM.tutar > 0 ? 'finansman ve yatırım hariç'
-      : YATIRIM.tutar > 0 ? 'yatırım hariç' : 'finansman hariç') + ')';
 
-  /* ===== ADIM 13 FAZ 2 (C) · KISMI SAYIM KESIN KAR IZLENIMI VERMESIN =====
-     OLCULDU (yamasiz -41, fikstur 30 urun): 12/30 sayilmis ay ile 30/30
-     sayilmis ay BIREBIR AYNI metni veriyordu — "Depo sayimina dayali" ve
-     "Maliyet depo sayimindan geliyor: aldigin degil TUKETTIGIN mal".
-     Blok kismi sayimi HIC soylemiyordu; kayit anindaki "Saymadigin N urun"
-     uyarisi da onay penceresinde kalip kayboluyordu.
-
-     ⚠ stok_bazli'nin ANLAMI DEGISTIRILMEDI — yalniz OKUNDU. Olculdu
-       (taban govdesi, v_aylik_ozet):
-         stok_bazli   = (kapanis_stok IS NOT NULL) AND (acilis_stok IS NOT NULL)
-         kapanis_stok = O DONEMIN sayim.toplam_deger'i
-         acilis_stok  = BIR ONCEKI donemin sayim.toplam_deger'i
-         sayimlar CTE'si yalniz is_deleted'e bakiyor
-       Yani stok_bazli "sayim var mi" DEGIL, ACILIS+KAPANIS IKILISI'dir ve
-       sayilan_urun / toplam_urun'e HIC bakmaz: 30 urunun 1'i sayilmis bir
-       sayim da onu true yapar. Fikstur bunu tasiyor — onceki ayin sayimi
-       silinince stok_bazli GERCEKTEN false oluyor (olculdu).
-     ⚠ "EN AZ" YAZILMIYOR (ADIM 15'ten farki): eksik gun kari ASAGI ceker,
-       yon bellidir. Kismi sayimda yon BELIRSIZ — saymadigin urun sistemde
-       fazla da gorunuyor olabilir eksik de. Onek kapisi tamlikOnek'te.
-     ⚠ Kapsam hesabi YUKARIDA, OZ_TAMLIK'in yaninda (tek kaynak);
-       burada yalniz CUMLE kuruluyor. */
-  /* ⚠ ORTAK KUYRUK BIR KEZ: iki sayim da kismiyse "kalanı sistemdeki
-       miktarla değerlendi" IKI KEZ yaziliyordu (olculdu: kutu 159px).
-       Parca yalniz RAKAMI tasiyor, kuyruk asagida bir kez ekleniyor. */
-  const kismiCumle = (etiket, s) => !kismiMi(s) ? ''
-    /* ⚠ "12'si" DEGIL "12 tanesi": Turkcede sayiya gelen iyelik eki son
-         rakama gore degisiyor (12'si ama 30'u, 40'i, 3'u). On tabanli ek
-         tablosu yazmak yerine eki DEGISMEYEN kelimeye tasidim. */
-    : etiket + ' <b>' + s.toplam_urun + ' üründen ' + s.sayilan_urun + ' tanesi</b>';
-  const kismiler = !sayimKismi ? [] : [
-    kismiCumle(ayKisa(ay) + ' sayımında', sayimlar[ay]),
-    kismiCumle('açılış (' + ayKisa(ayOnceki(ay)) + ') sayımında', sayimlar[ayOnceki(ay)])
-  ].filter(Boolean);
-  /* ⚠ Parca cumlenin BASINA da ORTASINA da gelebiliyor: yalniz kapanis
-     kismiyse "Ağustos ..." (zaten buyuk), yalniz acilis kismiysa
-     "açılış ..." cumle basina duser. Bas harf burada duzeltilir —
-     iki ayri metin yazmaya gerek yok. ⚠ toLocaleUpperCase('tr'): ev
-     kurali, i/I tuzagi bu kelimelerde yok ama desen bozulmasin. */
-  if (kismiler.length)
-    kismiler[0] = kismiler[0].charAt(0).toLocaleUpperCase('tr') + kismiler[0].slice(1);
-
-  const blokKar = !o ? '' : `
-      ${kbaslik('AY KÂRI', ayAdi(ay), '<div class="kb-sag" style="color:'+(+o.ay_kari<0?'var(--hata)':'var(--ok)')+'">'+tl(o.ay_kari)+'</div>')}
-      ${/* ⚠ Y11 · KAPANAMAYAN ALARM YERINE ACIKLAMA.
-             KULLANICI KARARI (PLAN.md): aylik sayim YAPILMAYACAK, sayim
-             yilda bir — temmuzda. Yani stok_bazli KALICI olarak false ve
-             eski kirmizi kutu HER AY, SONSUZA KADAR calacakti; yanindaki
-             gercek uyariyi da goturuyordu.
-             OLCULDU (yamasiz -42, stok_bazli=false): ayni gercek Ay Kari
-             blogunda UC yerde yaziliyordu (ipucu + kirmizi kutu + alt
-             not), rozet ve seritle birlikte BES gorunur yer.
-             ⚠ UC SEY DE BU TEK CUMLEDE: mekanizma (yalniz o ay satin
-               alinan mal maliyet sayiliyor) · YON ("kar olduğundan
-               YÜKSEK") — bu bugun YALNIZ kirmizi kutuda vardi, kutuyla
-               birlikte kaybolsaydi BILGI KAYBI olurdu · NE ZAMAN
-               olculecegi (temmuzdaki yillik sayim), boylece cumle dirdir
-               degil aciklama oluyor.
-             ⚠ YAPILAMAYACAK IS CAGRISI ("Sayım kartından gir") KALKTI:
-               kullanici o isi yapmamaya KARAR VERDI. */''}
-      <div class="ipucu">${o.stok_bazli
-        ? 'Depo sayımına dayalı: maliyet = açılış deposu + ay içi alış − kapanış deposu. Depodan kullanılan mal da maliyete giriyor.'
-        : 'Fatura bazlı: yalnız o ay <b>satın alınan</b> mal maliyet sayılıyor. Depodan kullanılan mal maliyete girmiyor, o yüzden kâr olduğundan <b>yüksek</b> görünüyor — aylık sayım yapılmıyor, gerçek maliyet <b>temmuzdaki yıllık sayımda</b> karşılaştırılacak.'}
-        Her kalem <b>KDV hariç</b> — indirilecek KDV maliyet değildir.</div>
-      ${ozSatir('Net satış (KDV hariç)', tl(o.net_satis_kdv_haric))}
-      ${o.stok_bazli
-        ? ozSatir('Açılış deposu', tl(o.acilis_stok))
-          + ozSatir('Ay içi alış (KDV hariç)', '+'+tl(o.alis_net))
-          + ozSatir('Kapanış deposu', '−'+tl(o.kapanis_stok))
-          + ozSatir('Satılan malın maliyeti', '−'+tl(o.smm))
-        : ozSatir('Mal alışları (KDV hariç)', '−'+tl(o.alis_net))}
-      ${ozSatir('Giderler (KDV hariç)', '−'+tl(o.gider_net))}
-      ${ozSatir('Personel', '−'+tl(o.personel_toplam))}
-      ${ozSatir('Beyana giden kâr', tl(o.ay_kari))}
-      ${+o.z_disi_nakit>0 ? ozSatir('Z dışı nakit (ay)', '+'+tl(o.z_disi_nakit)) : ''}
-      ${ozSatir('GERÇEK AY KÂRI', tl(o.gercek_ay_kari), true)}
-      ${/* ⚠ AYRIM **gercek_ay_kari** UZERINE KURULUR, ay_kari uzerine DEGIL.
-             ay_kari BEYAN rakamidir; Z disi kasa nakdini icermez. Kafenin
-             gercekten kazandigi para gercek_ay_kari (= ay_kari + z_disi_nakit).
-             Yanlis tabana oturdugunda blok kendi icinde kapanmiyordu.
-           ⚠ YER: ustteki beyan zinciri (Net satis -> Beyana giden kar ->
-             Z disi -> GERCEK AY KARI) OLDUGU GIBI kalir; bu blok onun
-             ALTINDA, kendi icinde kapanan AYRI bir hesaptir. Son satiri
-             ustteki GERCEK AY KARI ile ayni rakami verir — okuyan iki
-             blogun birbirini tuttugunu gorur. */''}
-      ${(FIN.tutar > 0 || YATIRIM.tutar > 0) ? `
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--cizgi);
-          font-weight:900;font-size:13.5px">Kafenin kendisi ne kazandı?</div>
-        ${ozSatir(ayrimBaslik, tl(+o.gercek_ay_kari + FIN.tutar + YATIRIM.tutar), true)}
-        ${FIN.tutar > 0 ? ozSatir('Finansman maliyeti', '−'+tl(FIN.tutar)) : ''}
-        ${YATIRIM.tutar > 0 ? ozSatir('Bir kerelik yatırım', '−'+tl(YATIRIM.tutar)) : ''}
-        ${ozSatir('GERÇEK AY KÂRI', tl(o.gercek_ay_kari), true)}
-        ${FIN.tutar > 0 ? `<div class="ipucu" style="margin-top:4px">Kredi faizi <b>işletmenin kazancı</b>
-          değil, <b>finansman tercihinin</b> maliyeti. Kafenin para kazanıp
-          kazanmadığına bakarken <b>İŞLETME KÂRI</b> satırına bak; bu ay giderin
-          <b>%${Math.round(FIN.tutar / Math.max(1, +o.gider_net) * 100)}</b>'ı finansman.
-          ${FIN.kalemler.map(k => esc(k.ad) + ' ' + tl(k.tutar)).join(' · ')}</div>` : ''}
-        ${YATIRIM.tutar > 0 ? `<div class="ipucu" style="margin-top:4px">Bir kerelik ekipman
-          alımı işletmenin <b>kazanma gücünü</b> ölçmez — bu ay bir kez çıktı, her ay
-          çıkmıyor. Kafenin durumuna bakarken <b>İŞLETME KÂRI</b> satırına bak.
-          ${YATIRIM.kalemler.map(k => esc(k.ad) + ' ' + tl(k.tutar)).join(' · ')}
-          <b>(KDV hariç)</b></div>` : ''}` : ''}
-      ${k?ozSatir('Ödenecek KDV (ayrı)', tl(k.odenecek_kdv_tahmini)):''}
-      ${+o.iptal_tutar ? `<div class="ipucu" style="margin-top:10px">
-        <b>Bilgi · hesaba girmez:</b> bu ay ${tl(o.iptal_tutar)} tutarında fiş iptal edildi.
-        İptal edilen fiş Z toplamına <b>hiç girmiyor</b>, yani yukarıdaki rakamlar
-        zaten onsuz. Buraya sadece bilinsin diye yazılıyor.
-      </div>` : ''}
-      ${/* ⚠ Y11 · HER AY CALAN KIRMIZI KUTU KALKTI, ICINDEKI KAPANABILIR
-             UYARI KALDI. Ikisi ayni kutuda duruyordu ve biri sonemedigi
-             icin oteki de goze carpmiyordu.
-             KALAN HAL GERCEK VE KAPANABILIR: bu ayin sayimi VAR ama
-             acilisi YOK. Kullanici onceki ayin sayimini girince soner —
-             yani hala bir is var. Yillik sayim kararindan etkilenmiyor:
-             temmuzda sayim girilince bir sonraki ay bu hale duser. */''}
-      ${!o.stok_bazli && o.kapanis_stok != null && o.acilis_stok == null
-        ? `<div class="uyari-agir" style="margin-top:10px">
-        Bu ayın sayımı var, <b>açılışı yok</b> — kâr hesabı için ikisi de gerekiyor.
-        Önceki ayın sayımı girilince bu ayın kârı ölçülmüş olur.</div>` : ''}
-      ${/* ⚠ ADIM 13 FAZ 2 · KISMI SAYIM. stok_bazli TRUE ama sayim eksik
-             kalemli ise cikar; stok_bazli FALSE iken hic cikmaz (o hali
-             ustteki tek cumle anlatiyor).
-           ⚠ Y11 GUNCELLEMESI: eskiden bu kutunun "kardesi" stok_bazli
-             false'taki kirmizi kutuydu. O kutu kalkti; kardeslik artik
-             ustteki ipucu cumlesiyle — ayni sorunun iki derecesi, ayni
-             blokta ("ekran birikmesi" kurali). */''}
-      ${/* ⚠ "kalanı sistemdeki miktarla değerlendi" EVIN KENDI CUMLESI —
-             syTopla ayni isi ayni sozlerle anlatiyor, yeni dil uydurulmadi.
-           ⚠ NE YAPILACAGI YAZILMADI: kismi sayimda yapilacak is BELLI
-             (eksik urunleri say) ama bu bir SAYIM ekrani cagrisi degil,
-             kayit anindaki onay penceresi zaten "Saymadığın N ürün"
-             diyor. Ucuncu kopya yer yiyip yeni bir sey soylemiyordu
-             (ADIM 15'te olculen "ekran birikmesi"). */''}
-      ${kismiler.length ? `<div class="uyari-orta" style="margin-top:10px">
-        <b>Tam ölçüm değil.</b> ${kismiler.join(', ')} elle sayıldı;
-        kalanı sistemdeki miktarla değerlendi. Saymadığın ürün sistemde fazla da
-        görünüyor olabilir eksik de — kârın hangi yöne kaydığı <b>bilinmiyor</b>.</div>` : ''}
-      ${sayimHata && o.stok_bazli ? `<div class="uyari-orta" style="margin-top:10px">
-        Sayım kapsamı <b>okunamadı</b> — kaç ürünün elle sayıldığı bilinmiyor,
-        bu rakamın tam ölçüm olup olmadığı da bilinmiyor.</div>` : ''}
-      ${+(o.kapsam_disi_nakit||0) !== 0 ? `<div class="uyari-orta" style="margin-top:10px">
-        Kasası sayılmayan güne düşen ${tl(Math.abs(+o.kapsam_disi_nakit))} nakit hareketi
-        <b>gerçek ciroya katılmadı</b> — o gün kasada ne olduğu bilinmiyor,
-        uydurulmuyor. O günün kasasını girin, rakam kendiliğinden yerine otursun.
-      </div>` : ''}
-      ${+o.kasa_sayilmayan_gun > 0 ? `<div class="uyari-orta" style="margin-top:10px">
-        ${o.kasa_sayilmayan_gun} gün kasa sayılmamış — o günlerin Z dışı nakdi bilinmiyor,
-        gerçek kâr bundan yüksek olabilir.</div>` : ''}
-      ${/* ⚠ Y11 · BU NOTUN "stok_bazli false" DALI YUKARIDAKI ipucu ILE
-             BIRLESTI (ayni gercegin ucuncu kopyasiydi). Notun kendi isi —
-             beyan kari ile gercek kar AYRI RAKAMDIR — duruyor; o iki
-             halde de gecerli ve baska hicbir yerde yazmiyor.
-             stok_bazli TRUE dali da duruyor: orada maliyetin NEREDEN
-             geldigini soyluyor, ustteki ipucu ise FORMULU veriyor. */''}
-      <div class="bilgi-not" style="margin-top:10px">
-        <b>Beyana giden kâr</b> yalnız Z raporundaki ciroyu esas alır. <b>Gerçek kâr</b> kasada
-        sayılan ama Z'ye girmeyen nakdi de ekler — ikisi ayrı rakamdır, karıştırma.${
-        o.stok_bazli
-          ? '<br>Maliyet depo sayımından geliyor: aldığın değil, <b>tükettiğin</b> mal maliyet sayılıyor. Depodan kullandığın mal da hesaba giriyor.'
-          : ''}
-      </div>`;
+  /* ⚠ Y65 · AY KÂRI BLOGU (blokKar) SILINDI — hicbir yolda kullanilmiyordu.
+       Sahipte Y62'den beri yerini SONUC TABLOSU aldi; personelde kismi veriyle
+       sahibinkinden FARKLI rakam gosteriyordu (olculdu). Kismi sayim cumlesi
+       (kismiCumle, kismiler) ve net finansman ayrimi yalniz bu blogu
+       besliyordu, onlar da gitti. Eski gerekceler (Y11, ADIM 13 FAZ 2, DL)
+       git gecmisinde: index -71. */
 
   /* Owner'da bloklar BU AY / BUGÜN DÜZELT kartına gider — kart kabuğu yerine
      ince ayraç. Kart içinde kart, iki çerçeve demek olurdu. */
@@ -4328,8 +4195,8 @@ async function vOzet(){
        ve OZ_EK hic kurulmuyor (sahip degilse null). */
   /* ⚠ Y62 · AY KÂRI (blokKar) SAHIPTE ARTIK YOK: yerini grafigin altindaki
        SONUC TABLOSU aldi — ayni kar iki yerde olmaz (denetci kurali).
-       blokKar KODU DURUYOR: personel yolu (asagida) onu hala ciziyor ve
-       o yol bu turda OLCULDU, DEGISTIRILMEDI. */
+     ⚠ Y65 · blokKar SILINDI: personel yolundan da kalkti (kismi veri), baska
+       kullanan yoktu. blokNakit DURUYOR: sahibin BU AY dokumunde (asagida). */
   OZ_EK = !sahip ? null : {
     donem: ay,
     ciro: blokCiro,
@@ -4345,49 +4212,24 @@ async function vOzet(){
       <div><div class="ay-ad">${ayAdi(ay)}</div>
         <div class="ay-alt">${ay===bugun().slice(0,7)
           ? 'bu ay · '+new Date().toLocaleDateString('tr-TR')
-          : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
+          : /* Y65 · personelde gecmis ayin kayitli gun sayisi kismi veriden — yazilmaz */
+            !sahip ? '' : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
       <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
     </div>
     <div id="kararBlok"></div>
-    ${PROFIL.rol === 'owner' ? '' : `<div class="ozet-grid">
-      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">BUGÜN</div>
-        <div class="d">${g?tl(g.toplam):'—'}</div>
-        <div class="aciklama">${g?(()=>{const ks=g.kasa_nakit===null?null:+g.kasa_nakit; return ks!==null?('Gerçek '+tl(+g.kart_toplam+ks+kasadanBugun)+'<br>Z dışı nakit +'+tl(ks+kasadanBugun-g.nakit_toplam)):('Kart '+tl(g.kart_toplam)+'<br>Nakit '+tl(g.nakit_toplam));})():'Gün sonu girilmedi'}</div></div>
-      <div class="ozet-kut ac" onclick="sekmeAc('gunsonu')"><div class="e">AY CİROSU (GERÇEK)</div>
-        <div class="d">${o?tamlikOnek('ciro')+tl(o.gercek_ciro):'—'}</div>
-        <div class="aciklama">${o?o.gun_sayisi+' gün kayıtlı':'Kayıt yok'}${
-          /* ⚠ ADIM 15 · eksik gun kutunun KENDI aciklamasinda yazar —
-             uyari listesine bakmak zorunda kalmadan gorunsun. */
-          OZ_TAMLIK && OZ_TAMLIK.eksikGunler.length
-            ? '<br><b style="color:var(--uyari)">'+OZ_TAMLIK.eksikGunler.length+' gün eksik</b>' : ''
-        }${o&&+o.z_disi_nakit>0?'<br>Z raporu '+tl(o.ciro):''}</div></div>
-      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
-        <div class="e">NAKİT ÇIKIŞI</div>
-        <div class="d" style="color:var(--hata)">${o?tl(o.nakit_cikisi):'—'}</div>
-        <div class="aciklama">bu ay elden çıkan<br>${o&&+o.odenmeyen_alis>0?'+ '+tl(o.odenmeyen_alis)+' bekliyor':'ödenmemiş alış yok'}</div></div>
-      <div class="ozet-kut ac" onclick="document.getElementById('ayDokum').scrollIntoView({behavior:'smooth',block:'start'})">
-        <div class="e">AY KÂRI (GERÇEK)</div>
-        <div class="d" style="color:${o&&+o.gercek_ay_kari<0?'var(--hata)':'var(--ok)'}">${o?tamlikOnek('kar')+tl(o.gercek_ay_kari):'—'}</div>
-        ${/* ⚠ SADELESTIRME · "sayım yok — tahmin" BURADAN KALKTI: hemen
-              ASAGISINDAKI AY KARI blogu ayni seyi daha aciklayici
-              soyluyor (personel ekraninda ikisi ust uste duruyordu,
-              olculdu). Eksik GUN notu DURUYOR — onun baska yeri yok.
-            ⚠ Y11 GUNCELLEMESI: o gun isaret edilen "kirmizi kutu"ydu;
-              kutu kalkti, yerine ayni blokta tek aciklama cumlesi
-              geldi. Bu satirin gerekcesi degismedi. */''}
-        <div class="aciklama">${
-          OZ_TAMLIK && OZ_TAMLIK.eksikGunler.length
-            ? '<b style="color:var(--uyari)">'+OZ_TAMLIK.eksikGunler.length+' gün eksik</b><br>' : ''
-        }${o&&+o.z_disi_nakit>0?'Z dışı nakit (ay) '+tl(o.z_disi_nakit)+' dahil<br>beyana giden '+tl(o.ay_kari):'dökümü gör'}</div></div>
-    </div>`}
+    ${/* ⚠ Y65 · PERSONEL KUTULARI (BUGÜN · AY CİROSU · NAKİT ÇIKIŞI · AY KÂRI) KALKTI.
+           OLCULDU (kap, gercek RLS; ayni sube-ay sahibin verisiyle ve personelinkiyle):
+           personel gun sonunu yalniz KENDI girdigi ve son 3 gunde olusturulmus
+           satirlardan, gider/alis/odemeyi son 7 gunden goruyor; sahip hareketi,
+           maas, sayim ve v_kdv_ay hic gelmiyor. Dort kutunun degeri ve aciklamasi
+           sahibinkinden FARKLI (BUGÜN: bugunu baskasi girince "Gün sonu girilmedi").
+           Dogru rakami gostermek yeni yetki ister — kullanici karari; acilmadi.
+           Sahipte bu blok zaten bostu. */''}
 
     ${sahip ? '' : `
     ${blokCiro ? `<div class="kart">${blokCiro}</div>` : ''}
 
-    <div class="kart">${blokUyari}</div>
-
-    ${blokNakit ? `<div class="kart" id="ayDokum">${blokNakit}</div>
-    <div class="kart">${blokKar}</div>` : ''}`}`;
+    <div class="kart">${blokUyari}</div>`}`;
   /* ⚠ OZ_EK, kararBlogu'ndan ÖNCE dolmuş olmalı — odemelerBlogu onu okuyup
      blokları BU AY / BUGÜN DÜZELT kartına yerleştiriyor.
      ⚠ ownerHareketYukle ve ohTutar bağlaması BURADAN ALINDI: kasa köprüsü
@@ -4923,7 +4765,7 @@ async function vOzetToplam(){
     if (oz.length > 1 || kd.length > 1)
       console.warn('TOPLAM · ' + s.ad + ' için dönemde birden fazla özet/KDV satırı.');
     const H = subeOzetHesabi(ay, {
-      ozet: oz, kdv: kd, gunler: bol(ayGunler, s.id),
+      ozet: oz, gunler: bol(ayGunler, s.id),
       kasadan: bol(ayKasadan, s.id), nakitOdeme: bol(ayNakitOdeme, s.id), owner: bol(ayOwner, s.id),
       kapali: bol(ayKapali, s.id), kapaliHata: !!ayKapali.error,
       sayim: bol(aySayim, s.id), sayimHata: !!(aySayim && aySayim.error), ilkGunSonu: ilkler[i] });
@@ -12584,7 +12426,7 @@ function yetkiCiz(){
     + `<div class="yy-bas" style="margin-top:14px">ROLLER</div>
        <div class="bilgi-not yy-not" id="yyRolNotu"><b>Rol yetkileri TÜM şubelerde geçerlidir.</b> Burada bir ekranı açınca,
          hangi şubede olursan ol, o roldeki <b>herkese</b> açılır — diğer şubelerdekiler dahil. Şube seçimi bunları değiştirmez.
-         Maaş (Personel) ekranı rol yetkisiyle açılmaz: yukarıdaki kişiye özel anahtarla açılır.</div>
+         Maaş (Personel) ekranı rol yetkisiyle açılmaz: aşağıdaki <b>Maaşlar (Personel ekranı)</b> satırında ya da yukarıdaki KİŞİLER listesinde, <b>kişiye özel</b> anahtarla açılır.</div>
        <div class="yy-rol">${YY_ROLLER.map(r => `
          <button class="btn2${r.kod===YY_SECILI?' yy-aktif':''}" onclick="YY_SECILI='${r.kod}';yetkiCiz()">
            ${esc(r.ad)}${rolSayi[r.kod]?' ('+rolSayi[r.kod]+')':''}
@@ -12601,12 +12443,25 @@ function yetkiCiz(){
          : SEKMELER_TUM.map(t => {
              /* ⚠ Y61 · Personel ekrani icin rol izni ARTIK HICBIR SEY ACMAZ (sekmeListesi).
                   Calisan bir dugme birakmak yalan soylerdi ("gidecegi olmayan dugme",
-                  M3 kurali); yerine nerede acildigi yazar. */
-             if (t.id === 'personel') return `<div class="sr" id="yyPersonelSatiri">
-               <div><div class="sr-ad">${esc(t.ad)}</div>
-                 <div class="sr-alt">rol izniyle açılmaz — kişiye özel</div></div>
-               <div style="min-width:150px;text-align:right"><span class="yy-maas">KİŞİLER listesinde<br>"Maaş girebilir" anahtarı</span></div>
+                  M3 kurali).
+                ⚠ Y65 EKI · ANAHTAR BU SATIRDA DA. Kullanici burada "KİŞİLER listesinde
+                  anahtar" yazisini gordu ve anahtari BULAMADI: kisi listesi sube
+                  suzgecinde, KTU kapsamindayken Samsun sorumlusu listede yok.
+                  "Personel" hem rol hem ekran adi — satir ekran hakkinda, rol
+                  hakkinda okunuyordu; adi "Maaşlar (Personel ekranı)".
+                  AKTIF SUBEDEKI Personel rolundeki HER KISI: ad + AYNI anahtar
+                  (kisiMaasAnahtari · ayni RPC · ayni onay). KISILER'deki anahtar
+                  KALDI; basilinca yetkiYukle ikisini birlikte yeniden cizer. */
+             if (t.id === 'personel'){
+               const maasKisileri = YY_KISILER.filter(k => k.rol === 'personel');
+               return `<div class="sr" id="yyPersonelSatiri">
+               <div><div class="sr-ad">Maaşlar (Personel ekranı)</div>
+                 <div class="sr-alt">rol izniyle açılmaz — kişiye özel anahtar</div>
+                 ${maasKisileri.length
+                   ? maasKisileri.map(k => `<div class="yy-maas-kisi"><span class="yy-maas-ad">${esc(k.ad||'—')}${k.aktif?'':' <span class="rozet rz-gri">pasif</span>'}</span>${kisiMaasAnahtari(k)}</div>`).join('')
+                   : '<div class="yy-maas">Bu şubede Personel rolünde kimse yok. Kişi hangi şubedeyse o şubeye geçip buradan aç.</div>'}</div>
              </div>`;
+             }
              const y = YY_MATRIS[sec.kod]?.[t.id] || {gorebilir:false, yazabilir:false};
              return `<div class="sr">
                <div><div class="sr-ad">${esc(t.ad)}</div>
