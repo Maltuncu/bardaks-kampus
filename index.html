@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-68">
+<meta name="surum" content="2026-08-27-69">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -565,6 +565,21 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
 .ay-gez button{flex:none;width:44px;height:44px;border-radius:11px;background:var(--acik);
   color:var(--ana);font-size:22px;font-weight:900;line-height:1}
 .ay-gez button:disabled{background:transparent;color:var(--cizgi);cursor:default}
+/* ============ TOPLAM OZET ============
+   Subeler ALT ALTA — genis ekranda da (kullanici karari: yan yana istenmedi).
+   Bolum basliklari ucu de ayni nesne: renk seridi + ad + alt satir. */
+#ozToplam .tp-sube{margin-top:18px}
+.tp-bolum{display:flex;align-items:center;gap:10px;margin:4px 2px 10px}
+.tp-serit{width:4px;align-self:stretch;min-height:32px;border-radius:2px;flex:none}
+.tp-bas{flex:1;min-width:0}
+.tp-ad{font-weight:900;font-size:15px;letter-spacing:.2px;line-height:1.2;color:var(--metin)}
+.tp-ne{font-size:12px;color:var(--soluk);line-height:1.35}
+.tp-gir{flex:none;min-height:36px;padding:6px 12px;font-size:12.5px}
+.tp-toplam{background:var(--acik)}
+.tp-pay{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:10px 0 6px;background:var(--cizgi)}
+.tp-pay span{display:block;height:100%}
+.tp-pay-et{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:var(--soluk)}
+.tp-pay-et i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
 .foto-onizle{max-width:80px;max-height:80px;border-radius:8px;border:1px solid var(--cizgi);margin-top:6px}
 
 /* DM · yapistirmada secilen yorum GORUNUR yazilir */
@@ -1106,12 +1121,10 @@ async function kapidanGir(hedef){
      kez yazmasi engelleniyor. */
   /* ⚠ SUBEYE GIRINCE ILK GORULEN OZET (ve grafigi) — tasarimin karari.
      Son bakilan sekme DEGIL: kapidan giris bir BASLANGICTIR.
-     ⚠ TOPLAM'DA OZET KAPALI (olculdu: TOPLAM_ACIK icinde yok, ve oyle
-       KALMALI — iki sube birden geldiginde tek satir okuyan kod sessizce
-       yalniz birinin rakamini gosterirdi). Ilk halinde TOPLAM kapisindan
-       girince kullanici dogrudan 'bu ekran kapali' yazisina dusuyordu:
-       kapi, kapali bir kapiya aciliyordu. Artik TOPLAM'da GERCEKTEN acik
-       olan ilk ekran aciliyor (sira sekme listesinin kendi sirasi). */
+     ⚠ TOPLAM: TOPLAM'da GERCEKTEN acik olan ilk ekran acilir (sira sekme
+       listesinin kendi sirasi). Ilk halinde Ozet TOPLAM'da kapaliydi ve
+       kapi kullaniciyi 'bu ekran kapali' yazisina dusuruyordu. TOPLAM
+       OZET ile Ozet de acildi (vOzetToplam) — bu satir artik Ozet'i acar. */
   const hedefEkran = toplamKipi() ? (toplamdaIlkEkran() || 'ozet') : 'ozet';
   history.replaceState({ sekme:'kapi' }, '', '#kapi');
   history.pushState({ sekme:hedefEkran }, '', '#' + hedefEkran);
@@ -1183,7 +1196,9 @@ async function subeleriYukle(){
   try{
     /* 'sube' SUBE_SUZGEC haritasinda DEGIL; owner icin RLS zaten
        hepsini aciyor (owner_all_sube). */
-    const r = await sb.from('sube').select('id,ad,aktif,kasa_adedi').order('ad');
+    /* ⚠ created_at: TOPLAM ozetinde sube RENGI ve blok SIRASI acilis sirasina
+       gore — ADA gore degil. Liste sirasi (kapi kutulari) DEGISMEDI: ada gore. */
+    const r = await sb.from('sube').select('id,ad,aktif,kasa_adedi,created_at').order('ad');
     SUBELER = (r.data || []).filter(s => s.aktif !== false);
   }catch(e){ SUBELER = []; }
 }
@@ -2212,11 +2227,16 @@ addEventListener('popstate', (e) => {
    const idi; kapidan TOPLAM'a girerken 'hangi ekran TOPLAM'da acik'
    sorusunu disaridan soracak yer yoktu. Kopyalamak yerine tasindi —
    iki liste gunun birinde birbirinden ayrisirdi. */
-const TOPLAM_ACIK = { gider:1, belge:1, talep:1, vergi:1 };
+/* ⚠ TOPLAM OZET · 'ozet' ACILDI. Kapatma sebebi (tek satir okuyan kod)
+   ORTADAN KALKMADI — vOzet hala tek sube icin. TOPLAM'da Ozet ARTIK
+   vOzetToplam ile ciziliyor: veri subeye bolunur, hesap her sube icin
+   ayri calisir (gerekce ve olcum vOzetToplam'in basinda). */
+const TOPLAM_ACIK = { ozet:1, gider:1, belge:1, talep:1, vergi:1 };
 const TOPLAM_KAPALI_SEBEP = {
-  ozet:      'Özet, bir döneme ait TEK satır okuyacak şekilde yazılmış '
-           + '(ölçüldü). İki şube birden geldiğinde sessizce yalnız birinin '
-           + 'rakamını gösterirdi — yanlış rakam, hiç rakam göstermemekten kötüdür.',
+  /* ozet: KALDIRILDI — Ozet TOPLAM'da artik ACIK (vOzetToplam). Eski
+     gerekce vOzet icin hala dogru: 'bir doneme ait TEK satir okuyacak
+     sekilde yazilmis; iki sube birden geldiginde sessizce yalniz birinin
+     rakamini gosterirdi'. Bu yuzden TOPLAM'da vOzet DEGIL, ayri yol calisir. */
   gunsonu:   'Gün sonu bir şubenin o günkü kaydıdır; hangi şubeye yazılacağı '
            + 'belirsiz olurdu.',
   stok:      'Stok şubeye bağlı; iki şubenin aynı ürünü iki satır olarak gelir '
@@ -2300,7 +2320,7 @@ async function sekmeAc(id, gecmisten){
       + 'bir şube seç — ekran o şubenin verisiyle açılır.</div></div>';
     return;
   }
-  const f = ({ozet:vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
+  const f = ({ozet: toplamKipi() ? vOzetToplam : vOzet, gunsonu:vGunSonu, gider:vGider, stok:vStok, tedarikci:vTedarikci,
               personel:vPersonel, talep:vTalep, arac:vArac, vergi:vVergi, belge:vBelge, yonetim:vYonetim})[id];
   // Ekran çizerken hata olursa "Yükleniyor..." sonsuza kadar ekranda kalıyordu ve kimse
   // sebebini göremiyordu. Artık hata görünür ve tekrar denenebilir.
@@ -3740,8 +3760,74 @@ function ozAyDegistir(fark){
   t.setMonth(t.getMonth()+fark);
   const yeni = t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0');
   if (yeni > bugun().slice(0,7)) return;          // geleceğe gitme
-  OZ_AY = yeni; vOzet();
+  /* ⚠ TOPLAM'da ay degisince TOPLAM cizicisi — vOzet DEGIL (tek sube). */
+  OZ_AY = yeni; (toplamKipi() ? vOzetToplam : vOzet)();
 }
+/* ==================================================================
+   SUBE OZET HESABI — TEK TANIM (vOzet ve vOzetToplam AYNI fonksiyonu cagirir)
+   ==================================================================
+   ⚠ NEDEN BURADA: bu satirlar eskiden vOzet'in ICINDE acik yaziliydi.
+     TOPLAM ozeti AYNI hesabi HER SUBE ICIN AYRI calistirmak zorunda —
+     karisik satirlari gunlukCiro'ya vermek bir subenin gununu SESSIZCE
+     dusuruyordu (olculdu, asagida). Hesabi kopyalamak iki tanim demekti;
+     bu yuzden govde AYNEN buraya TASINDI, vOzet de buradan okuyor.
+     Tek fark: girdiler sorgu sonucu yerine duz satir dizisi olarak geliyor.
+   ⚠ GIRDI TEK SUBENIN satirlari olmali. Fonksiyon sube bilmez; karisik
+     satir verilirse gunlukCiro'nun `.find(tarih)`i ve tarih-anahtarli
+     kasa haritalari AYNI kusuru uretir. Bolmek cagiranin isi. */
+const sayimKismiMi = s => !!s && +s.toplam_urun > 0 && +s.sayilan_urun < +s.toplam_urun;
+function subeOzetHesabi(ay, v){
+  /* v63 · Bu iki görünüm dönem+şube başına TEK satır döndürür. */
+  const k = (v.kdv||[])[0], o = (v.ozet||[])[0];
+  // Ayın gerçek cirosu/Z dışı nakdi artık v_aylik_ozet'te hesaplanıyor (gercek_ciro,
+  // z_disi_nakit). Burada yalnız BUGÜNÜN kasa çıkışı gerekiyor — günlük kutu için.
+  const kasaCikislari = [...(v.kasadan||[]), ...(v.nakitOdeme||[])];
+  const kasadanBugun = kasaCikislari.filter(x=>x.tarih===bugun()).reduce((a,x)=>a+ +x.tutar,0);
+  // Grafik, başlıktaki toplam ve ortalama çizgisi hep bu tek seriden okunur
+  // v62 · Grafik artık özet ile AYNI tanımı kullanıyor. Haritalar gün
+  // bazında; ay toplamı v_aylik_ozet'ten gelir ve ikisi artık uyuşur.
+  const kasaCikisMap = {};
+  kasaCikislari.forEach(x=>{ kasaCikisMap[x.tarih] = (kasaCikisMap[x.tarih]||0) + (+x.tutar); });
+  const sahipNakitMap = {};
+  (v.owner||[]).forEach(x=>{
+    const isaret = x.yon === 'koyus' ? 1 : -1;
+    sahipNakitMap[x.tarih] = (sahipNakitMap[x.tarih]||0) + isaret * (+x.tutar);
+  });
+  const GC = gunlukCiro(v.gunler||[], ay, kasaCikisMap, sahipNakitMap);
+  /* ⚠ ADIM 15 · TEK TANIM: gun sonu listesiyle AYNI fonksiyon.
+     ⚠ kapali_gun SORGUSU DUSERSE TAM SAYILMAZ. Bos dizi vermek
+       "kapali gun yok" demektir ve kapatilan gunu eksik gosterirdi —
+       yani sessiz yanlis. Hata varsa tamlik BILINMIYOR isaretlenir. */
+  const kapaliHata = !!v.kapaliHata;
+  const OZ_ILK_GUN = ilkGunSonuTarihi(v.ilkGunSonu);
+  const OZ_EKSIK = kapaliHata ? [] : ayinEksikGunleri(
+    ay, tarihKumesi(v.gunler), tarihKumesi(v.kapali), OZ_ILK_GUN);
+  /* ===== ADIM 13 FAZ 2 (C) · SAYIM KAPSAMI · TEK KAYNAK =====
+     Serit, rozet, "en az" oneki ve Ay Kari blogu AYNI iki degeri okur;
+     ayri ayri hesaplasalardi ekranin bir yani "sayim var" derken
+     otekisi "tam olcum degil" derdi.
+     ⚠ SORGU DUSERSE SESSIZ KALINMAZ: bos dizi "sayim tam" demektir ve
+       ekran olmayan bir kesinligi iddia ederdi (ADIM 15'teki kapaliHata
+       dersi). Hata varsa KAPSAM BILINMIYOR. */
+  const sayimHata = !!v.sayimHata;
+  const sayimlar = {};
+  (v.sayim || []).forEach(s => { sayimlar[s.donem] = s; });
+  const kismiMi = sayimKismiMi;
+  /* Kar IKI sayima birden dayaniyor: kapanis BU ayin, acilis BIR ONCEKI
+     ayin sayimi (olculdu, v_aylik_ozet). Biri kismiyse olcum tam degil. */
+  const sayimKismi = !!(o && o.stok_bazli) && !sayimHata
+    && (kismiMi(sayimlar[ay]) || kismiMi(sayimlar[ayOnceki(ay)]));
+  /* kart-3 (odemelerBlogu) ve kart-5 ayni tamlik bilgisini okur —
+     ikisi ayri hesaplarsa ayrisir. Serit de buradan besleniyor. */
+  const tamlik = { ay, eksikGunler: OZ_EKSIK, bilinmiyor: kapaliHata,
+                /* Y23 · serit "tam" diyebilmek icin en az bir gun
+                   beklenmis olmali. kayitVar ile AYNI SEY DEGIL —
+                   gerekce kapsamSeridiCiz'de, olcumuyle. */
+                gunBekleniyor: ayinGunBekleniyorMu(ay, OZ_ILK_GUN),
+                sayimYok: !!(o && !o.stok_bazli), sayimKismi, kayitVar: !!o };
+  return { o, k, kasadanBugun, GC, sayimlar, sayimHata, sayimKismi, tamlik };
+}
+
 async function vOzet(){
   const el = document.getElementById('icerik');
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
@@ -3805,53 +3891,19 @@ async function vOzet(){
      yok. Süzgeç artık tek çıkış noktasında; burada satır sayısı da denetleniyor. */
   if ((ozet.data||[]).length > 1 || (kdv.data||[]).length > 1)
     console.warn('Özet/KDV birden fazla satır döndürdü — şube süzgeci beklendiği gibi çalışmıyor.');
-  const g = gs.data, k = (kdv.data||[])[0], o = (ozet.data||[])[0], u = uyari.data||[];
-  // Ayın gerçek cirosu/Z dışı nakdi artık v_aylik_ozet'te hesaplanıyor (gercek_ciro,
-  // z_disi_nakit). Burada yalnız BUGÜNÜN kasa çıkışı gerekiyor — günlük kutu için.
-  const kasaCikislari = [...(ayKasadan.data||[]), ...(ayNakitOdeme.data||[])];
-  const kasadanBugun = kasaCikislari.filter(x=>x.tarih===bugun()).reduce((a,x)=>a+ +x.tutar,0);
-  // Grafik, başlıktaki toplam ve ortalama çizgisi hep bu tek seriden okunur
-  // v62 · Grafik artık özet ile AYNI tanımı kullanıyor. Haritalar gün
-  // bazında; ay toplamı v_aylik_ozet'ten gelir ve ikisi artık uyuşur.
-  const kasaCikisMap = {};
-  kasaCikislari.forEach(x=>{ kasaCikisMap[x.tarih] = (kasaCikisMap[x.tarih]||0) + (+x.tutar); });
-  const sahipNakitMap = {};
-  (ayOwner.data||[]).forEach(x=>{
-    const isaret = x.yon === 'koyus' ? 1 : -1;
-    sahipNakitMap[x.tarih] = (sahipNakitMap[x.tarih]||0) + isaret * (+x.tutar);
-  });
-  const GC = gunlukCiro(ayGunler.data||[], ay, kasaCikisMap, sahipNakitMap);
-  /* ⚠ ADIM 15 · TEK TANIM: gun sonu listesiyle AYNI fonksiyon.
-     ⚠ kapali_gun SORGUSU DUSERSE TAM SAYILMAZ. Bos dizi vermek
-       "kapali gun yok" demektir ve kapatilan gunu eksik gosterirdi —
-       yani sessiz yanlis. Hata varsa tamlik BILINMIYOR isaretlenir. */
-  const kapaliHata = !!ayKapali.error;
-  const OZ_ILK_GUN = ilkGunSonuTarihi(ilkGunSonu);
-  const OZ_EKSIK = kapaliHata ? [] : ayinEksikGunleri(
-    ay, tarihKumesi(ayGunler.data), tarihKumesi(ayKapali.data), OZ_ILK_GUN);
-  /* ===== ADIM 13 FAZ 2 (C) · SAYIM KAPSAMI · TEK KAYNAK =====
-     Serit, rozet, "en az" oneki ve Ay Kari blogu AYNI iki degeri okur;
-     ayri ayri hesaplasalardi ekranin bir yani "sayim var" derken
-     otekisi "tam olcum degil" derdi.
-     ⚠ SORGU DUSERSE SESSIZ KALINMAZ: bos dizi "sayim tam" demektir ve
-       ekran olmayan bir kesinligi iddia ederdi (ADIM 15'teki kapaliHata
-       dersi). Hata varsa KAPSAM BILINMIYOR. */
-  const sayimHata = !!aySayim?.error;
-  const sayimlar = {};
-  (aySayim?.data || []).forEach(s => { sayimlar[s.donem] = s; });
-  const kismiMi = s => !!s && +s.toplam_urun > 0 && +s.sayilan_urun < +s.toplam_urun;
-  /* Kar IKI sayima birden dayaniyor: kapanis BU ayin, acilis BIR ONCEKI
-     ayin sayimi (olculdu, v_aylik_ozet). Biri kismiyse olcum tam degil. */
-  const sayimKismi = !!(o && o.stok_bazli) && !sayimHata
-    && (kismiMi(sayimlar[ay]) || kismiMi(sayimlar[ayOnceki(ay)]));
-  /* kart-3 (odemelerBlogu) ve kart-5 ayni tamlik bilgisini okur —
-     ikisi ayri hesaplarsa ayrisir. Serit de buradan besleniyor. */
-  OZ_TAMLIK = { ay, eksikGunler: OZ_EKSIK, bilinmiyor: kapaliHata,
-                /* Y23 · serit "tam" diyebilmek icin en az bir gun
-                   beklenmis olmali. kayitVar ile AYNI SEY DEGIL —
-                   gerekce kapsamSeridiCiz'de, olcumuyle. */
-                gunBekleniyor: ayinGunBekleniyorMu(ay, OZ_ILK_GUN),
-                sayimYok: !!(o && !o.stok_bazli), sayimKismi, kayitVar: !!o };
+  const g = gs.data, u = uyari.data||[];
+  /* ⚠ TOPLAM OZET · HESAP PAYLASILIYOR. Buradaki kasa haritalari, gunlukCiro,
+     eksik gun, sayim kapsami ve tamlik satirlari subeOzetHesabi'na AYNEN
+     TASINDI — TOPLAM ozeti ayni hesabi her sube icin ayri calistirsin diye.
+     Bu ekranin girdisi ve ciktisi DEGISMEDI (-68 ile birebir olculdu). */
+  const H = subeOzetHesabi(ay, {
+    ozet: ozet.data, kdv: kdv.data, gunler: ayGunler.data,
+    kasadan: ayKasadan.data, nakitOdeme: ayNakitOdeme.data, owner: ayOwner.data,
+    kapali: ayKapali.data, kapaliHata: !!ayKapali.error,
+    sayim: aySayim?.data, sayimHata: !!aySayim?.error, ilkGunSonu });
+  const { o, k, kasadanBugun, GC, sayimlar, sayimHata, sayimKismi } = H;
+  const kismiMi = sayimKismiMi;
+  OZ_TAMLIK = H.tamlik;
   kapsamSeridiCiz();
   const acikTalep = talep.data||[];
   if (acikTalep.length > 0){
@@ -4254,6 +4306,296 @@ async function vOzet(){
   const sk = sessionStorage.getItem('ozScroll');
   if (sk){ OZ_SCROLL = +sk; sessionStorage.removeItem('ozScroll'); }
   if (OZ_SCROLL) window.scrollTo(0, OZ_SCROLL);   // rAF gizli sekmede atesLENMIYOR (olculdu)
+}
+
+/* ==================================================================
+   TOPLAM OZET — once subeler birlikte, sonra her sube kendi blogunda
+   ==================================================================
+   Onaylanan ornek ekran aynen: ustte TOPLAM (bu ay · pay cubugu · birlesik
+   gunluk ciro · ortak KDV), altinda HER SUBE icin bir blok (bu ay · kendi
+   grafigi · rozetler · "Şubeye gir ›"). Sube sayisi kadar blok; iki sabit degil.
+   ⚠ NEDEN AYRI BIR CIZIM YOLU: Ozet TOPLAM'da KAPALIYDI, cunku vOzet bir
+     doneme ait TEK satir okuyor. OLCULDU: ayni varsayim gunluk grafikte de
+     var ve daha sinsi — gunlukCiro her gun icin `.find(tarih)` ile TEK satir
+     aliyor, kasa haritalari yalniz TARIHLE anahtarli. Suzgecsiz veriyle
+     14.09'da KTU'nun satiri alindi, Samsun'un gunu DUSTU ve Samsun'un kasa
+     gideri KTU'nun o gunune KARISTI; `ilkGunSonuSorgusu` (limit 1) KTU'nun
+     ilk gununu Samsun'a verdi, Samsun'a 1 yerine 11 gun eksik yazildi.
+     "Suzgeci kaldir, ekrani ac" kapatilan hatanin gun bazinda tekrari olurdu.
+   ⚠ DOGRU YOL: veri sube kimligiyle cekilir, SUBEYE BOLUNUR, subeOzetHesabi
+     (gunlukCiro, ayinEksikGunleri...) HER SUBE ICIN AYRI ve DEGISMEDEN
+     calisir. Birlesik seri SUBE SONUCLARI gun gun toplanarak kurulur.
+   ⚠ vOzet / kararBlogu / odemelerBlogu'na TOPLAM kosulu KONMADI.
+   ⚠ YENI MALI HESAP YOK: bloklardaki her rakam, o subenin Ozet'inde zaten
+     gosterilen rakamin KENDISI; ustteki her rakam bloklarin TOPLAMI.
+   ⚠ PARA KURUS CINSINDEN TAM SAYIYLA toplanir — ondalikli JS sayilarini art
+     arda toplamak "ust = bloklarin toplami" esitligini kurusta bozabilirdi.
+   ⚠ Borc kartlari (7 gun, borc siniflari, bugun duzelt, dun) BILEREK YOK:
+     onlar sahibin borcu ya da tek subenin gunu; subeye girince gorunuyor. */
+
+/* Sube renkleri ACILIS SIRASINA gore (created_at) — ADA gore DEGIL.
+   1. lacivert · 2. mor · sonrakiler grafigin dort anlam rengiyle (kart mavi
+   #4F86D6 · nakit yesil #2F8F6B · Z disi turuncu #E08A3C · acik kirmizi
+   #B3402F) carpismayacak sekilde secildi. */
+const SUBE_PALET = ['#2456A0', '#9B6BB8', '#5E6B7D', '#8A5A2B', '#3F4E8C'];
+const kurus = (x) => Math.round((Number(x) || 0) * 100);
+const kurusTl = (k) => tl(k / 100);
+const subelerAcilisSirasi = () => [...SUBELER].sort((a, b) =>
+  String(a.created_at || '').localeCompare(String(b.created_at || ''))
+  || String(a.id).localeCompare(String(b.id)));
+/* tamlikOnek / tamlikRozet kuresel OZ_TAMLIK'i okuyor ve SUBE OZET'INDE
+   kullaniliyor — degistirilmedi. Blok, subenin tamligiyla AYNI fonksiyonu
+   cagirsin diye deger EZILMEDEN gecici konup geri aliniyor (senkron). */
+const tamlikIle = (t, fn) => { const eski = OZ_TAMLIK; OZ_TAMLIK = t;
+  try { return fn(); } finally { OZ_TAMLIK = eski; } };
+/* "Şubeye gir ›" KAPI YOLUNDAN gider (subeDegistir → SUBE_KASA; Y47).
+   Sayfa once basa alinir: sekmeAc Ozet'ten cikarken kaydirma konumunu
+   saklayip sube Ozet'ine uyguluyor — TOPLAM'in dibinden girilince sube
+   ekrani da dipte acilirdi. */
+function toplamdanGir(id){ window.scrollTo(0, 0); kapidanGir(id); }
+
+function toplamCiroGrafigi(S){
+  if (!S.length) return { svg:'', kayitliGun:0 };
+  const gunSayisi = S[0].H.GC.gunSayisi;
+  const GUNAD = ['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+  const gunler = [];
+  let kayitliGun = 0, toplamK = 0;
+  for (let d = 1; d <= gunSayisi; d++){
+    const parca = S.map(x => ({ x, g: x.H.GC.seri[d-1] }));
+    const g0 = parca[0].g;
+    const kayitli = parca.filter(p => p.g && p.g.durum !== 'eksik' && p.g.durum !== 'gelecek');
+    /* ⚠ O GUN = SUBELERIN O GUNU, kurus cinsinden. Kaydi olmayan sube 0. */
+    const gunK = kayitli.reduce((a, p) => a + kurus(p.g.gercek), 0);
+    if (kayitli.length){ kayitliGun++; toplamK += gunK; }
+    gunler.push({ gun: d, hafta: g0.hafta, gelecek: g0.gelecek, parca, kayitli, gunK });
+  }
+  if (!kayitliGun) return { svg:'', kayitliGun:0 };
+  const G=340, Y=152, sol=40, sag=6, ust=14, alt=30;
+  const iw=G-sol-sag, ih=Y-ust-alt;
+  const ham = Math.max(...gunler.map(x => Math.max(0, x.gunK) / 100), 1);
+  const bas = Math.pow(10, Math.floor(Math.log10(ham)));
+  const tavan = Math.ceil(ham/(bas/2))*(bas/2);
+  const gen = iw/gunSayisi, kal = Math.max(gen-2.2, 1.6);
+  const kisa = n => n>=1000 ? (n/1000).toFixed(n>=10000?0:1).replace('.',',')+'b' : String(Math.round(n));
+  const yOf = val => ust+ih-(val/tavan)*ih;
+  const ACIK = '#B3402F';
+  let kilavuz = '';
+  [0, 0.5, 1].forEach(o => {
+    const val = tavan*o, y = yOf(val);
+    kilavuz += '<line x1="'+sol+'" y1="'+y.toFixed(1)+'" x2="'+(sol+iw)+'" y2="'+y.toFixed(1)
+      + '" stroke="var(--cizgi)" stroke-width="1"'+(o?' stroke-dasharray="2 4"':'')+'/>'
+      + '<text x="'+(sol-6)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-size="9.5" font-weight="700" fill="#8189A0">'+kisa(val)+'</text>';
+  });
+  let sut = '', hedef = '';
+  gunler.forEach(g => {
+    const x = sol+(g.gun-0.5)*gen-kal/2, tb = ust+ih;
+    if (g.gelecek){
+      sut += '<rect x="'+x.toFixed(1)+'" y="'+(tb-6).toFixed(1)+'" width="'+kal.toFixed(1)
+        + '" height="6" fill="none" stroke="#C9BFA6" stroke-width="1" stroke-dasharray="2 2" opacity=".8"/>';
+    } else if (!g.kayitli.length){
+      sut += '<rect x="'+x.toFixed(1)+'" y="'+(tb-9).toFixed(1)+'" width="'+kal.toFixed(1)
+        + '" height="9" fill="'+ACIK+'" opacity=".16"/>';
+    } else {
+      /* Alttan uste ACILIS SIRASIYLA: her sube kendi renginde. */
+      let y = tb;
+      g.parca.forEach(p => {
+        if (!p.g || p.g.durum === 'eksik' || p.g.durum === 'gelecek') return;
+        const v = Math.max(0, kurus(p.g.gercek)) / 100;
+        if (!(v > 0)) return;
+        const h = Math.max((v/tavan)*ih, 0.8);
+        y -= h;
+        sut += '<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+kal.toFixed(1)
+          + '" height="'+h.toFixed(1)+'" fill="'+p.x.renk+'"/>';
+      });
+    }
+    const aciklama = g.gelecek ? 'gelecek gün'
+      : g.parca.map(p => esc(p.x.s.ad) + ' '
+          + ((p.g && p.g.durum !== 'eksik' && p.g.durum !== 'gelecek') ? kurusTl(kurus(p.g.gercek)) : 'girilmemiş'))
+          .join(' · ') + (g.kayitli.length ? ' · toplam ' + kurusTl(g.gunK) : '');
+    /* ⚠ TIKLAMA YOK: sube grafigindeki gc-tik gunDetay'i acar ve gunDetay
+       AKTIF_SUBE ile sorgular — TOPLAM'da o sorgu yanlis sube okurdu. */
+    hedef += '<rect x="'+(sol+(g.gun-1)*gen).toFixed(1)+'" y="'+ust+'" width="'+gen.toFixed(1)
+      + '" height="'+ih+'" fill="transparent"><title>'+g.gun+' '+GUNAD[g.hafta]+' — '+aciklama+'</title></rect>';
+  });
+  let etiket = '';
+  for (let d = 1; d <= gunSayisi; d += 7)
+    etiket += '<text x="'+(sol+(d-0.5)*gen).toFixed(1)+'" y="'+(Y-16)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="#8189A0">'+d+'</text>';
+  /* Ortalama cizgisi yalniz GORSEL referans — rakam yazilmiyor (ornek ekran). */
+  const oy = yOf(toplamK / 100 / kayitliGun);
+  /* Lejant araligi: ilk halinde harf basina 4.3 birim tahmin edildi ve
+     ortalama yazisi son sube adina YAPISTI (ekran goruntusunde goruldu).
+     Aralik genisletildi, ortalama kesik CIZGIYLE gosteriliyor. */
+  let lejant = '', lx = 0;
+  S.forEach(x => {
+    lejant += '<rect x="'+lx+'" y="-7" width="7" height="7" fill="'+x.renk+'"/>'
+      + '<text x="'+(lx+10)+'" y="-1" font-size="8.5" font-weight="700" fill="#8189A0">'+esc(x.s.ad)+'</text>';
+    lx += 22 + String(x.s.ad).length*4.9;
+  });
+  lejant += '<line x1="'+lx+'" y1="-3.5" x2="'+(lx+12)+'" y2="-3.5" stroke="var(--metin)" stroke-width="1.1" stroke-dasharray="3 2" opacity=".6"/>'
+    + '<text x="'+(lx+16)+'" y="-1" font-size="8.5" font-weight="700" fill="#8189A0">kayıtlı gün ortalaması</text>';
+  const svg = '<div class="grafik-sar"><svg viewBox="0 0 '+G+' '+Y+'" role="img" aria-label="Günlük gerçek ciro: şubeler üst üste">'
+    + kilavuz + sut + hedef
+    + '<line x1="'+sol+'" y1="'+oy.toFixed(1)+'" x2="'+(sol+iw)+'" y2="'+oy.toFixed(1)
+    + '" stroke="var(--metin)" stroke-width="1.1" stroke-dasharray="5 3" opacity=".6"/>'
+    + etiket + '<g transform="translate('+sol+','+(Y-1)+')">'+lejant+'</g></svg></div>';
+  return { svg, kayitliGun };
+}
+
+async function vOzetToplam(){
+  const el = document.getElementById('icerik');
+  /* ⚠ ROL KAPISI BURADA DA: TOPLAM kapsami zaten yalniz sahibe acik
+     (subeDegistir + kapi). Ekrana baska yoldan gelinirse bos doner. */
+  if (!PROFIL || PROFIL.rol !== 'owner' || !toplamKipi()){ el.innerHTML = ''; return; }
+  el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
+  const ay = OZ_AY || bugun().slice(0,7);
+  OZ_AY = ay;
+  const subeler = subelerAcilisSirasi();
+  /* ⚠ SORGULAR vOzet'inkilerin AYNISI + `sube_id`. Suzgec TOPLAM'da
+     kalkiyor (subeSuzgeciKur), satirlar asagida SUBEYE BOLUNUYOR. Hicbiri
+     genel satir uretmiyor (SUBE_SUZGEC haritasinda hepsi false) — yani
+     subesiz satir her subeye eklenip toplamda cift sayilmaz.
+     ⚠ ILK GUN SUBE BASINA AYRI: ilkGunSonuSorgusu limit 1; tek sorgu tum
+       subelerin en eskisini dondurur. */
+  const [kdv, ozet, ayGunler, ayKasadan, ayNakitOdeme, ayOwner, ayKapali, aySayim, ...ilkler] = await Promise.all([
+    sb.from('v_kdv_ay').select('*').eq('donem', ay),
+    sb.from('v_aylik_ozet').select('*').eq('donem', ay),
+    sb.from('gun_sonu').select('sube_id,tarih,toplam,kart_toplam,nakit_toplam,kasa_nakit').gte('tarih', ay+'-01').lte('tarih', aySon(ay)).eq('is_deleted', false),
+    sb.from('gider').select('sube_id,tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    sb.from('tedarikci_odeme').select('sube_id,tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    sb.from('owner_hareket').select('sube_id,tarih,yon,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    sb.from('kapali_gun').select('sube_id,tarih').eq('is_deleted',false).gte('tarih', ay+'-01').lte('tarih', aySon(ay)),
+    sb.from('sayim').select('sube_id,donem,sayilan_urun,toplam_urun').in('donem', [ayOnceki(ay), ay]).eq('is_deleted', false),
+    ...subeler.map(s => ilkGunSonuSorgusu().eq('sube_id', s.id))
+  ]);
+  const kritikHata = ilkHata(kdv, ozet, ayGunler, ayKasadan, ayNakitOdeme, ayOwner);
+  if (kritikHata){ el.innerHTML = '<h2 class="bolum">Özet</h2>' + hataKutusu(kritikHata, 'vOzetToplam()'); return; }
+
+  const bol = (r, id) => ((r && r.data) || []).filter(x => x.sube_id === id);
+  const S = subeler.map((s, i) => {
+    const oz = bol(ozet, s.id), kd = bol(kdv, s.id);
+    if (oz.length > 1 || kd.length > 1)
+      console.warn('TOPLAM · ' + s.ad + ' için dönemde birden fazla özet/KDV satırı.');
+    const H = subeOzetHesabi(ay, {
+      ozet: oz, kdv: kd, gunler: bol(ayGunler, s.id),
+      kasadan: bol(ayKasadan, s.id), nakitOdeme: bol(ayNakitOdeme, s.id), owner: bol(ayOwner, s.id),
+      kapali: bol(ayKapali, s.id), kapaliHata: !!ayKapali.error,
+      sayim: bol(aySayim, s.id), sayimHata: !!(aySayim && aySayim.error), ilkGunSonu: ilkler[i] });
+    return { s, renk: SUBE_PALET[i % SUBE_PALET.length], H };
+  });
+
+  /* ---- UST: bloklarin kurus kurus toplami ---- */
+  const kayitli = S.filter(x => x.H.o);
+  const topK = (alan) => kayitli.reduce((a, x) => a + kurus(x.H.o[alan]), 0);
+  const ciroK = topK('gercek_ciro'), cikisK = topK('nakit_cikisi'), karK = topK('gercek_ay_kari');
+  /* "en az" oneki: toplam ancak HER sube ya tam ya "en az" ise ve en az biri
+     "en az" ise alt sinirdir. Bir sube belirsizse (veri tamligi bilinmiyor,
+     ya da kar icin sayim yok/kismi) toplam icin de iddia kurulmaz. Karari
+     subenin KENDI tamlikOnek'i veriyor — yeni kural yazilmadi. */
+  const ustOnek = (hangi) => {
+    const d = S.map(x => { const t = x.H.tamlik;
+      if (!t || t.bilinmiyor) return 'belirsiz';
+      if (!t.eksikGunler.length) return 'tam';
+      return tamlikIle(t, () => tamlikOnek(hangi)) ? 'enaz' : 'belirsiz'; });
+    return (!d.includes('belirsiz') && d.includes('enaz')) ? 'en az ' : '';
+  };
+  /* Pay cubugu: GENISLIK icin negatif pay sifir sayilir (goruntu); toplam 0
+     ise bolme yapilmaz. Yuzde RAKAMI yazilmiyor — ornek ekran oyle. */
+  const payTaban = S.reduce((a, x) => a + Math.max(0, kurus(x.H.o && x.H.o.gercek_ciro)), 0);
+  const payCubugu = payTaban > 0
+    ? S.map(x => '<span data-sube="'+esc(x.s.id)+'" style="width:'
+        + (Math.max(0, kurus(x.H.o && x.H.o.gercek_ciro)) / payTaban * 100).toFixed(3)
+        + '%;background:'+x.renk+'"></span>').join('')
+    : '';
+  const payEt = S.map(x => '<span><i style="background:'+x.renk+'"></i>'+esc(x.s.ad)+'</span>').join('');
+  const ustKart = '<div class="kart tp-toplam" id="tpUst">'
+    + kbaslik('BU AY', ayAdi(ay) + ' · ' + S.length + ' şube birlikte', '')
+    + (kayitli.length
+        ? '<div class="bilgi-not" style="margin-top:0">gerçek ciro <b>' + ustOnek('ciro') + kurusTl(ciroK)
+          + '</b> · nakit çıkışı <b>' + kurusTl(cikisK) + '</b> · kâr <b>' + ustOnek('kar') + kurusTl(karK) + '</b></div>'
+        : '<div class="bilgi-not" style="margin-top:0">Bu ay için kayıt yok.</div>')
+    + (payTaban > 0
+        ? '<div class="tp-pay" id="tpPay" role="img" aria-label="Şubelerin gerçek ciroya payı">' + payCubugu + '</div>'
+        : '<div class="tp-pay" id="tpPay"></div><div class="ipucu" style="margin:0 0 6px">Bu ay ciro yok — pay gösterilemiyor.</div>')
+    + '<div class="tp-pay-et">' + payEt + '</div>'
+    + '<div class="ipucu" style="margin:8px 0 0">Her rakam = aşağıdaki şube rakamlarının toplamı.</div>'
+    + '</div>';
+
+  /* ---- BIRLESIK GUNLUK CIRO ---- */
+  const BG = toplamCiroGrafigi(S);
+  const gercekK = S.reduce((a, x) => a + kurus(x.H.GC.toplamGercek), 0);
+  const birlesik = !BG.kayitliGun ? '' : '<div class="kart" id="tpBirlesik">'
+    + kbaslik('GÜNLÜK GERÇEK CİRO', S.length + ' şube üst üste',
+        '<div class="kb-sag">' + kurusTl(gercekK)
+        + '<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">'
+        + BG.kayitliGun + ' günde kayıt</span></div>')
+    + BG.svg + '</div>';
+
+  /* ---- ORTAK KDV ----
+     ⚠ ISARETIYLE TOPLANIR. v_kdv_ay.odenecek_kdv_tahmini = satis KDV'si −
+       indirilecek, sube+donem basina ve SIFIRDA KESILMIYOR: bir subede EKSI
+       olabilir. Sifira kesip sonra toplamak ortak vergiyi FAZLA gosterirdi.
+     ⚠ Yalniz sube Ozet'inde bugun zaten gosterilen rakam: "Ödenecek KDV".
+       Sube kirilimi da yaziliyor — isaret gorunsun, toplam anlasilsin. */
+  const kdvVar = S.filter(x => x.H.k);
+  const kdvK = kdvVar.reduce((a, x) => a + kurus(x.H.k.odenecek_kdv_tahmini), 0);
+  const vergi = !kdvVar.length ? '' : '<div class="kart" id="tpVergi">'
+    + kbaslik('ORTAK', 'Ödenecek KDV', '<div class="kb-sag">' + kurusTl(kdvK) + '</div>')
+    + '<div class="ipucu" style="margin:0">Tek şahıs şirketine çıkıyor — şubeye bölünmez. '
+    + kdvVar.map(x => esc(x.s.ad) + ' ' + kurusTl(kurus(x.H.k.odenecek_kdv_tahmini))).join(' · ') + '</div>'
+    + '</div>';
+
+  /* ---- SUBE BLOKLARI (acilis sirasiyla, sube sayisi kadar) ---- */
+  const blok = (x) => {
+    const { s, renk, H } = x, o = H.o, GC = H.GC;
+    const kasa = kasaAdediCoz(s.kasa_adedi);
+    const ne = (kasa === 1 ? 'tek yazarkasa' : kasa + ' yazarkasa') + ' · ' + GC.kayitliGun + ' kayıtlı gün';
+    /* Sube Ozet'indeki BU AY kartinin AYNI cumlesi, AYNI oneki, AYNI rozeti. */
+    const buAy = o
+      ? '<div class="bilgi-not" style="margin-top:0">gerçek ciro <b>' + tamlikIle(H.tamlik, () => tamlikOnek('ciro')) + tl(o.gercek_ciro)
+        + '</b> · nakit çıkışı <b>' + tl(o.nakit_cikisi)
+        + '</b> · kâr <b>' + tamlikIle(H.tamlik, () => tamlikOnek('kar')) + tl(o.gercek_ay_kari) + '</b>'
+        + tamlikIle(H.tamlik, () => tamlikRozet()) + '</div>'
+      : '<div class="bilgi-not" style="margin-top:0">Bu ay için kayıt yok.</div>';
+    /* Subenin KENDI grafigi: ayni fonksiyon, ayni renk anlamlari, KENDI olcegi
+       ve eksen degerleri. Tiklama sokuluyor (gunDetay AKTIF_SUBE ile sorgular). */
+    const grafik = !GC.kayitliGun ? '' : '<div class="kart tp-grafik">'
+      + kbaslik('GÜNLÜK GERÇEK CİRO', s.ad,
+          '<div class="kb-sag">' + tl(GC.toplamGercek)
+          + '<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">'
+          + GC.kayitliGun + ' kayıtlı gün</span></div>')
+      + ciroGrafigi(GC).split(' class="gc-tik"').join('')
+      + (GC.kasaAcigiGun ? '<div class="uyari-agir">' + GC.kasaAcigiGun + ' günde kasada Z raporunun'
+          + ' dediğinden AZ para sayılmış. Bu Z dışı satış değil <b>kasa açığı</b> — grafikte koyu'
+          + ' kırmızı sütun.</div>' : '')
+      + (GC.kasaSayilmayanGun ? '<div class="uyari-orta">' + GC.kasaSayilmayanGun + ' günde kasa'
+          + ' sayılmamış — o günlerin Z dışı nakdi bilinmiyor, toplama dahil edilmedi.</div>' : '')
+      + '</div>';
+    return '<section class="tp-sube" data-sube="' + esc(s.id) + '">'
+      + '<div class="tp-bolum"><span class="tp-serit" style="background:' + renk + '"></span>'
+      + '<div class="tp-bas"><div class="tp-ad">' + esc(s.ad) + '</div><div class="tp-ne">' + esc(ne) + '</div></div>'
+      + '<button type="button" class="btn2 tp-gir" onclick="toplamdanGir(this.closest(\'[data-sube]\').dataset.sube)">Şubeye gir ›</button></div>'
+      + '<div class="kart tp-buay">' + kbaslik('BU AY', ayAdi(ay) + ' · ' + s.ad, '') + buAy + '</div>'
+      + grafik + '</section>';
+  };
+
+  el.innerHTML = '<div class="ay-gez">'
+    + '<button onclick="ozAyDegistir(-1)" aria-label="Önceki ay">‹</button>'
+    + '<div><div class="ay-ad">' + ayAdi(ay) + '</div><div class="ay-alt">'
+    + (ay === bugun().slice(0,7) ? 'bu ay · ' + new Date().toLocaleDateString('tr-TR') : S.length + ' şube')
+    + '</div></div>'
+    + '<button onclick="ozAyDegistir(1)" ' + (ay >= bugun().slice(0,7) ? 'disabled' : '') + ' aria-label="Sonraki ay">›</button>'
+    + '</div>'
+    + '<section id="ozToplam">'
+    + '<div class="tp-bolum"><span class="tp-serit" style="background:var(--metin)"></span>'
+    + '<div class="tp-bas"><div class="tp-ad">' + S.length + ' ŞUBE BİRLİKTE</div>'
+    + '<div class="tp-ne">' + S.map(x => esc(x.s.ad)).join(' + ') + ' toplanarak</div></div></div>'
+    + ustKart + birlesik + vergi
+    + S.map(blok).join('')
+    + '</section>';
+  /* Serit tek bir subenin tamligini gostermesin: TOPLAM'da tamlik subelerin
+     bloklarinda. (-68'de de TOPLAM'da serit "veri: —" diyordu.) */
+  OZ_TAMLIK = null;
+  kapsamSeridiCiz();
 }
 
 /* ===== SÜRÜM KONTROLÜ — telefon eski sürümde kalmasın =====
