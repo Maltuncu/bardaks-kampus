@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-72">
+<meta name="surum" content="2026-08-27-73">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5442,17 +5442,57 @@ async function zRaporuOku(k){
          sonu listesinde "Z dışı nakit" olarak buyuk gorunur — ama YALNIZ
          kasa sayildiysa. Giris ekranindaki kutu fark HESAPLAMIYOR, yalniz
          kasada sayilani gosteriyor. */
+    /* ================================================================
+       Y68 · TUM-KART Z YINE KAYDEDILEMEDI — 0 KARARI ARITMETIGE BAGLANDI
+       ================================================================
+       OLAY (17 Eylul, -72): odeme dokumunde yalniz K.KARTI olan, NAKIT satiri
+       basilmamis bir Z. Model nakit'i okunamayan[]'a KOYDU — kendi uyari metni
+       satir olmadigini soyledigi halde. Yukaridaki notun ongordugu A' kalibi:
+       0 yazilmadi, alan bos, zDurum 'Nakit tutarı' eksik, KAYDET KAPALI.
+       Fikstur olayi -72'de birebir uretti (tmp/y68-fikstur.js, a_olay).
+       ⚠ KARAR ARTIK MODELIN YARGISINA DEGIL AYNI OKUMANIN ARITMETIGINE BAGLI.
+         Asagidakilerin HEPSI tutarsa okunamayan[] ne derse desin nakit = 0:
+           · kart_toplam SAYI
+           · Z toplami BILINIYOR: net_satis SAYI; yoksa kdv[] satirlarinin
+             satis_toplam toplami. Satirlardan BIRI bile sayi degilse toplam
+             BILINMIYOR sayilir: eksik satirla toplanan tutar kart'a tesadufen
+             esit cikabilir.
+           · |Z toplami − kart| ≤ 0,01 — KURUS tam sayisiyla karsilastirilir,
+             float toplam tek kurusluk esigi kaydirmasin.
+           · belge Z raporu (pos_slip / belirsiz DEGIL)
+           · nakit alani BOS (elle yazilanin ustune yazilmaz)
+         Toplam kart'a esitse nakde yer kalmaz: 0 tahmin degil, fisin kendi
+         rakamlarinin sonucu.
+       ⚠ DOKUNULMAYANLAR:
+         · toplam > kart ve nakit okunmamis → uyari surer, elle yazilir. Fark
+           nakit OLMAYABILIR (baska odeme turu; yemek karti sorusu acik).
+         · toplam < kart → karar verilmez.
+         · Y49 yolu (okunamayan'da nakit YOKKEN 0) AYNEN duruyor. O yol toplama
+           BAKMIYOR — olculdu: toplam > kart iken de 0 yaziyor (ayri madde).
+         · zDurum kayit kapisi: alan elle bosaltilirsa kayit yine durur.
+       ⚠ MESAJ: bu yoldan 0 yazilinca okuyucunun nakit bildirimi OKUNAMADI
+         cumlesinden DUSER (asagida, `eksik` suzgeci); uyari metni parantezde kalir. */
+    let nakitAritmetikle = false;
+    /* Turkce buyuk I tuzagi: 'NAKİT'.toLowerCase() 'nakit' degil. Dort
+       i bicimi tek bicime indirilip aranir (NAKİT · NAKIT · nakıt · nakit_toplam). */
+    const nakitAdiMi = (x) => String(x).replace(/[İIı]/g, 'i').toLowerCase().includes('nakit');
     {
       const bosDeger = (x) => x === null || x === undefined || x === '';
-      /* Turkce buyuk I tuzagi: 'NAKİT'.toLowerCase() 'nakit' degil. Dort
-         i bicimi tek bicime indirilip aranir (NAKİT · NAKIT · nakıt · nakit_toplam). */
-      const nakitBildirildi = (Array.isArray(v.okunamayan) ? v.okunamayan : [])
-        .some(x => String(x).replace(/[İIı]/g, 'i').toLowerCase().includes('nakit'));
-      const kartOkundu = typeof v.kart_toplam === 'number' && isFinite(v.kart_toplam);
+      const sayiMi = (x) => typeof x === 'number' && isFinite(x);
+      const nakitBildirildi = (Array.isArray(v.okunamayan) ? v.okunamayan : []).some(nakitAdiMi);
+      const kartOkundu = sayiMi(v.kart_toplam);
       const zRaporu = v.belge_turu !== 'pos_slip' && v.belge_turu !== 'belirsiz';
       const alanBos = !String((document.getElementById('gsNakit_'+k) || {}).value || '').trim();
-      if (bosDeger(v.nakit_toplam) && !nakitBildirildi && kartOkundu && zRaporu && alanBos)
+      const kdvOkunan = Array.isArray(v.kdv) ? v.kdv : [];
+      const zToplamKurus = sayiMi(v.net_satis) ? Math.round(v.net_satis * 100)
+        : (kdvOkunan.length && kdvOkunan.every(x => x && sayiMi(x.satis_toplam)))
+          ? kdvOkunan.reduce((t, x) => t + Math.round(x.satis_toplam * 100), 0) : null;
+      const tumuKart = kartOkundu && zToplamKurus !== null
+        && Math.abs(zToplamKurus - Math.round(v.kart_toplam * 100)) <= 1;
+      if (bosDeger(v.nakit_toplam) && kartOkundu && zRaporu && alanBos && (!nakitBildirildi || tumuKart)){
         koy('gsNakit_'+k, 0, 'Nakit');
+        nakitAritmetikle = nakitBildirildi;
+      }
     }
 
     // KDV satırları: fişteki TOPKDV esas (sistem hesabı ezilmez)
@@ -5464,7 +5504,10 @@ async function zRaporuOku(k){
     }
     kasaHesapla();
 
-    const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
+    /* ⚠ Y68 · 0 aritmetikle yazildiysa okuyucunun nakit bildirimi DUSER: alan
+       dolu, eksik degil. Okuyucunun diger bildirimleri aynen kalir. */
+    const eksik = (Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [])
+      .filter(x => !(nakitAritmetikle && nakitAdiMi(x)));
     /* ⚠ ADIM 14 · OKUYUCUNUN DOLDURAMADIGI ALAN ADIYLA YAZILIR ve
        durum YESIL VERILMEZ. Eskiden yalniz `dolduruldu.length`e
        bakiliyordu: nakit okunamamis bir Z'de satir yine yesil
