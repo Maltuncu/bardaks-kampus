@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-74">
+<meta name="surum" content="2026-08-27-76">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1995,7 +1995,17 @@ const MOBIL_GORUNUR = 4;
      degisince KALIR (anahtar yalniz Personel rolunde ACILIR, kapatmak serbest); yalniz
      bayraga bakmak, rolu Mutfak'a cevrilmis kisiye bos ekran + "yetkiniz yok" gosteriyordu (olculdu). */
 const maasEkraniAcik = () => PROFIL?.rol === 'owner' || (PROFIL?.rol === 'personel' && PROFIL?.maas_yetkisi === true);
-function sekmeListesi(){ return SEKMELER_TUM.filter(t => (t.id === 'personel' ? maasEkraniAcik() : gorebilir(t.id)) && (t.id !== 'borc' || PROFIL?.rol === 'owner')); }
+/* ⚠ Y67 · SUBE VERISI YETKISI (v142 · profil.sube_verisi_yetkisi) — maas anahtarinin kalibi.
+   Kullanici karari: "SADECE SAMSUN İLE İLGİLİ HER ŞEYİ GÖRSÜN." Bayrakli kisi KENDI subesinin
+   gun sonlarini, gider/alis/odeme listelerini ve Ozet'teki sube rakamlarini SAHIBIN GORDUGU
+   degerlerle gorur. Rakamlar sunucudan (rpc_sube_ozet) gelir; ham satirlari RLS acar.
+   ⚠ BU SATIR YALNIZ GORUNURLUK: sunucu ayni kapiyi RLS ve RPC ile AYRICA zorluyor.
+   ⚠ ROL KOSULU SUNUCUDAN: politika ve RPC 'personel' rolu VE bayrak istiyor (maas kalibi). */
+const subeVerisiAcik = () => PROFIL?.rol === 'personel' && PROFIL?.sube_verisi_yetkisi === true;
+function sekmeListesi(){ return SEKMELER_TUM.filter(t =>
+  (t.id === 'personel' ? maasEkraniAcik()
+   : t.id === 'ozet' ? (gorebilir('ozet') || subeVerisiAcik())     /* Y67 · kisiye ozel anahtar da acar */
+   : gorebilir(t.id)) && (t.id !== 'borc' || PROFIL?.rol === 'owner')); }
 function sekmeTasiyor(){ return sekmeListesi().length > 5; }
 function sekmeGizliMi(id){
   return sekmeTasiyor() && sekmeListesi().findIndex(s=>s.id===id) >= MOBIL_GORUNUR;
@@ -3632,7 +3642,18 @@ function tarihSecici(id, deger){
      ay sonu KDV beyanını beslemek (Temmuz'un Z nakdi → 28 Ağustos'ta ödenecek KDV).
    Kasa sayılmamışsa nakit BİLİNMEZ (uydurulmaz). Sayılan Z'dekinden azsa bu
    KASA AÇIĞIDIR — ayrı işaretlenir, sıfıra kırpılıp gizlenmez. */
+/* ⚠ Y67 · HESAP KURUS TAM SAYISIYLA. Girdiler (gun sonu satirlari ve gun basina kasa
+     cikisi/sahip hareketi haritalari) kurusa yuvarlanir, ara islemler TAM SAYI, cikti
+     yine TL (kurus/100). SEBEP OLCULDU: ondalik toplamda Z disi nakdi TAM SIFIR olan
+     gunlerde isaret kayabiliyor — 20.000 sentetik gunun ucte birinde sonuc eksi bir
+     kirinti cikiyor ve gun "kasa acigi" yaniyordu, ekranda "-0,00 TL" yaziyordu.
+     Ayrica ayni gunun rakami satir satir mi yoksa gun basina toplanmis mi geldigine
+     gore degisebiliyordu; bayrakli personel yolu toplamlari SUNUCUDAN aliyor, ikisinin
+     BIREBIR ayni cikmasi bu yuzden kurus tam sayisina bagli.
+   ⚠ HARITALAR ARTIK KURUS: kasaCikis ve sahipNakit degerleri subeOzetHesabi'nda
+     kurusa yuvarlanarak toplaniyor (tek cagri yeri). */
 function gunlukCiro(gunler, ayStr, kasaCikis, sahipNakit){
+  const kr = v => Math.round((Number(v) || 0) * 100);
   const yil=+ayStr.slice(0,4), ayNo=+ayStr.slice(5,7);
   const gunSayisi=new Date(yil, ayNo, 0).getDate();
   const seri=[];
@@ -3645,37 +3666,42 @@ function gunlukCiro(gunler, ayStr, kasaCikis, sahipNakit){
               gelecek: ts>bugunS, bugun: ts===bugunS };
     if(!k){ g.durum = g.gelecek ? 'gelecek' : 'eksik'; seri.push(g); continue; }
     kayitli++;
-    g.resmi=+k.toplam||0;
-    g.kart=+k.kart_toplam||0;
-    g.nakit=+k.nakit_toplam||0;
+    const resmiK = kr(k.toplam), kartK = kr(k.kart_toplam), zNakitK = kr(k.nakit_toplam);
+    let nakitToplamK = null, zDisiK = null, gercekK;
+    g.resmi=resmiK/100;
+    g.kart=kartK/100;
+    g.nakit=zNakitK/100;
     if(k.kasa_nakit===null || k.kasa_nakit===undefined){
-      g.durum='kasa_sayilmadi'; g.nakitToplam=null; g.zDisi=null; g.gercek=g.resmi; bilinmeyen++;
+      g.durum='kasa_sayilmadi'; g.nakitToplam=null; g.zDisi=null; gercekK=resmiK; g.gercek=g.resmi; bilinmeyen++;
     }else{
       // v62 · Kasaya GİREN nakit = sayılan + o gün kasadan ödenen.
       // Sahibin koyduğu/çektiği para satış değil, düşülür (SQL zaten öyle
       // yapıyordu; JS yapmıyordu — iki taraf tek tanıma bağlandı).
-      const cikan  = (kasaCikis && kasaCikis[ts]) || 0;
-      const sahip  = (sahipNakit && sahipNakit[ts]) || 0;
-      g.nakitToplam = +k.kasa_nakit + cikan;
-      g.zDisi = g.nakitToplam - g.nakit - sahip;
-      g.gercek = g.kart + g.nakitToplam - sahip;
+      const cikanK = (kasaCikis && kasaCikis[ts]) || 0;      // KURUS
+      const sahipK = (sahipNakit && sahipNakit[ts]) || 0;    // KURUS
+      nakitToplamK = kr(k.kasa_nakit) + cikanK;
+      zDisiK = nakitToplamK - zNakitK - sahipK;
+      gercekK = kartK + nakitToplamK - sahipK;
+      g.nakitToplam = nakitToplamK/100;
+      g.zDisi = zDisiK/100;
+      g.gercek = gercekK/100;
       // KASA AÇIĞI eşiği: artık kasadan ödenen düşülmüş DEĞİL, dahil.
       // Eski hâlde meşru bir ödeme günü yapay olarak "açık" işaretleniyordu.
-      g.durum = g.zDisi<0 ? 'kasa_acigi' : 'tam';
-      if(g.zDisi<0) acikGun++;
+      g.durum = zDisiK<0 ? 'kasa_acigi' : 'tam';
+      if(zDisiK<0) acikGun++;
     }
-    tResmi+=g.resmi; tKart+=g.kart; tKdvNakit+=g.nakit;
-    tNakit+=(g.nakitToplam||0); tZDisi+=(g.zDisi||0); tGercek+=g.gercek;
+    tResmi+=resmiK; tKart+=kartK; tKdvNakit+=zNakitK;
+    tNakit+=(nakitToplamK||0); tZDisi+=(zDisiK||0); tGercek+=gercekK;
     seri.push(g);
   }
   return { seri, gunSayisi,
-           toplamKart:tKart,          // karttan gelen
-           toplamNakit:tNakit,        // elle girilen nakit — BİZİM nakdimiz
-           toplamKdvNakit:tKdvNakit,  // bunun KDV'ye dahil olan kısmı (Z raporundan)
-           toplamZDisi:tZDisi,        // KDV'ye girmeyen kısım = toplamNakit − toplamKdvNakit
-           toplamResmi:tResmi,        // Z toplamı (kart + KDV'ye dahil nakit)
-           toplamGercek:tGercek,      // kart + elle girilen nakit
-           kayitliGun:kayitli, ortalama: kayitli? tGercek/kayitli : 0,
+           toplamKart:tKart/100,          // karttan gelen
+           toplamNakit:tNakit/100,        // elle girilen nakit — BİZİM nakdimiz
+           toplamKdvNakit:tKdvNakit/100,  // bunun KDV'ye dahil olan kısmı (Z raporundan)
+           toplamZDisi:tZDisi/100,        // KDV'ye girmeyen kısım = toplamNakit − toplamKdvNakit
+           toplamResmi:tResmi/100,        // Z toplamı (kart + KDV'ye dahil nakit)
+           toplamGercek:tGercek/100,      // kart + elle girilen nakit
+           kayitliGun:kayitli, ortalama: kayitli? (tGercek/kayitli)/100 : 0,
            kasaAcigiGun:acikGun, kasaSayilmayanGun:bilinmeyen };
 }
 function ciroGrafigi(v){
@@ -3884,12 +3910,15 @@ function subeOzetHesabi(ay, v){
   // Grafik, başlıktaki toplam ve ortalama çizgisi hep bu tek seriden okunur
   // v62 · Grafik artık özet ile AYNI tanımı kullanıyor. Haritalar gün
   // bazında; ay toplamı v_aylik_ozet'ten gelir ve ikisi artık uyuşur.
+  /* ⚠ Y67 · HARITALAR KURUS TAM SAYISI (gunlukCiro artik kurusla hesapliyor). Satir satir
+       float toplama, tam sifir Z disi gunlerde isaret kaydiriyordu; ayni gunun rakami
+       sunucudan gun basina toplanmis gelince de farkli cikabiliyordu. */
   const kasaCikisMap = {};
-  kasaCikislari.forEach(x=>{ kasaCikisMap[x.tarih] = (kasaCikisMap[x.tarih]||0) + (+x.tutar); });
+  kasaCikislari.forEach(x=>{ kasaCikisMap[x.tarih] = (kasaCikisMap[x.tarih]||0) + Math.round((+x.tutar||0)*100); });
   const sahipNakitMap = {};
   (v.owner||[]).forEach(x=>{
     const isaret = x.yon === 'koyus' ? 1 : -1;
-    sahipNakitMap[x.tarih] = (sahipNakitMap[x.tarih]||0) + isaret * (+x.tutar);
+    sahipNakitMap[x.tarih] = (sahipNakitMap[x.tarih]||0) + isaret * Math.round((+x.tutar||0)*100);
   });
   const GC = gunlukCiro(v.gunler||[], ay, kasaCikisMap, sahipNakitMap);
   /* ⚠ ADIM 15 · TEK TANIM: gun sonu listesiyle AYNI fonksiyon.
@@ -3926,7 +3955,22 @@ function subeOzetHesabi(ay, v){
   return { o, GC, tamlik };
 }
 
+/* ⚠ Y65 · PERSONEL UYARI KARTI YALNIZ SAHIBINKIYLE AYNI CIKAN TURLER (gerekce vOzet'te).
+   ⚠ Y67 · TEK TANIM: hem personel yolu hem sube verisi yetkili yol bunu cagiriyor. */
+function personelUyariBlogu(sirali){
+  const UY_PERSONEL_TAM = new Set(['talep', 'stok']);
+  const uyariPersonel = sirali.filter(x => UY_PERSONEL_TAM.has(x.tip));
+  const agirPersonel = uyariPersonel.filter(x => UY_AGIR[x.tip]).length;
+  return `
+      ${kbaslik(agirPersonel?'ACİL '+agirPersonel:'', 'Uyarılar', `<div class="kb-sag">${uyariPersonel.length}</div>`)}
+      ${uyariPersonel.length===0
+        ? bosDurum('uyari','Bekleyen uyarı yok','Biten stok ya da bekleyen yapılacak olduğunda burada görürsün.')
+        : uyariPersonel.map(uyariSatir).join('')}`;
+}
 async function vOzet(){
+  /* ⚠ Y67 · SUBE VERISI YETKILI PERSONEL AYRI YOLDAN CIZILIR. Sahip ve bayraksiz personel
+       yollari BU SATIRDAN SONRA AYNEN kaliyor (sahibin ekran imzasi olculuyor). */
+  if (subeVerisiAcik()) return vOzetSubeVerisi();
   const el = document.getElementById('icerik');
   el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
   const ay = OZ_AY || bugun().slice(0,7);
@@ -4056,14 +4100,9 @@ async function vOzet(){
        sahibin verisinden (personelde ya hic yok ya da 7 gunluk kesitten).
        Sayi ve ACIL etiketi de AYNI suzulmus listeden — sahibin listesine dokunulmadi.
        Bu kart yalniz personelde ciziliyor. */
-  const UY_PERSONEL_TAM = new Set(['talep', 'stok']);
-  const uyariPersonel = sirali.filter(x => UY_PERSONEL_TAM.has(x.tip));
-  const agirPersonel = uyariPersonel.filter(x => UY_AGIR[x.tip]).length;
-  const blokUyari = `
-      ${kbaslik(agirPersonel?'ACİL '+agirPersonel:'', 'Uyarılar', `<div class="kb-sag">${uyariPersonel.length}</div>`)}
-      ${uyariPersonel.length===0
-        ? bosDurum('uyari','Bekleyen uyarı yok','Biten stok ya da bekleyen yapılacak olduğunda burada görürsün.')
-        : uyariPersonel.map(uyariSatir).join('')}`;
+  /* ⚠ Y67 · GOVDE personelUyariBlogu'na TASINDI (asagida): sube verisi yetkili yol da
+       AYNI karti ciziyor, iki tanim olmasin. Suzgec ve metin DEGISMEDI. */
+  const blokUyari = personelUyariBlogu(sirali);
 
   const blokAyRaporu = !o ? '' : `
       ${kbaslik('AY RAPORU', ayAdi(ay),
@@ -4244,6 +4283,142 @@ async function vOzet(){
   const sk = sessionStorage.getItem('ozScroll');
   if (sk){ OZ_SCROLL = +sk; sessionStorage.removeItem('ozScroll'); }
   if (OZ_SCROLL) window.scrollTo(0, OZ_SCROLL);   // rAF gizli sekmede atesLENMIYOR (olculdu)
+}
+
+/* ==================================================================
+   Y67 · SUBE VERISI YETKILI PERSONEL OZETI
+   ==================================================================
+   KULLANICI (17 Eylul, aynen): "SADECE SAMSUN İLE İLGİLİ HER ŞEYİ GÖRSÜN."
+   Ekran: GUNLUK CIRO GRAFIGI + SONUC TABLOSU + DONEM karti. Rakamlar sahibinkiyle
+   KURUSU KURUSUNA ayni; cunku hepsi TEK sunucu cagrisindan (rpc_sube_ozet) geliyor
+   ve orada TAM veriyle hesaplaniyor.
+   ⚠ NEDEN SUNUCUDAN: olculdu (Y67 Faz 1) — bayrakli kisi gorunumu kendi izniyle
+     okursa sahibe ozel kategorideki gider satirlari ona kapali oldugu icin
+     gider_toplam, ay_kari, gercek_ay_kari ve kasadan gider olan aylarda z_disi_nakit,
+     gercek_ciro, kasadan_nakit AYRISIYOR. Kismi rakam gostermek Y65'te kapattigimiz
+     kusurun ta kendisi olurdu.
+   ⚠ BURADA OLMAYANLAR (kullanici karari): odemeler, BU AY, BUGUN DUZELT, ay dokumu,
+     kasa koprusu, ay raporu, borc kartlari, finansman/yatirim notu, TOPLAM ekrani,
+     baska subenin tek rakami.
+   ⚠ GELIR VERGISI: sahibin ekranindaki CAPRAZ SUBE PAYI burada YOK. Yerine "sube tek
+     basinaymis gibi" tahmin var ve tablonun altinda bunun sahibinkinden farkli
+     olabilecegi YAZIYOR. Sebep olculdu: capraz pay, Samsun'un kendi rakamlariyla
+     birlikte KTU'nun yil ici karini geri hesaplattiriyordu.
+   ⚠ HESAPLAR AYNI FONKSIYONLARDAN: subeOzetHesabi, ciroGrafigi, sonucHesabi,
+     sonucTablosuHtml, donemGorunumuHtml — ikinci bir tanim YAZILMADI. */
+let SV_VERI = null;          // son okunan RPC cevabi (gun sonu listesi de bunu kullanir)
+async function subeOzetVerisi(ay){
+  /* Donem penceresi SAHIPLE AYNI KURALDAN: sube.donem_baslangic_ayi + sonucDonemBasi.
+     Pencere ONCEKI aydan basliyor ki sonuc tablosu "gecen aya gore" okunu cizebilsin. */
+  const sn = await sb.from('sube').select('donem_baslangic_ayi').eq('id', AKTIF_SUBE).maybeSingle();
+  const basAyi = (sn.data && sn.data.donem_baslangic_ayi) || 1;
+  const bas = sonucDonemBasi(ay, basAyi), son = BB_AYEKLE(bas, 11), onceki = BB_AYEKLE(bas, -1);
+  const r = await sb.rpc('rpc_sube_ozet', { p_ay: ay, p_bas: onceki, p_son: son });
+  if (r.error || !r.data || !r.data.ok)
+    return { hata: r.error || new Error('Şube verileri alınamadı'), ay, bas, son, onceki, basAyi };
+  SV_VERI = { ...r.data, ay, bas, son, onceki, basAyi,
+    notlar: (sn.error || !sn.data) ? ['Dönem başlangıcı okunamadı — takvim yılı gösteriliyor.'] : [] };
+  return SV_VERI;
+}
+/* RPC cevabini sonucHesabi'nin bekledigi kaplara koyar — ikinci bir hesap YOK. */
+function svSonucVerisi(R){
+  const ad = subeAdiVer(AKTIF_SUBE) || SUBE_AD || 'şube ?';
+  const aylar = R.aylar || [];
+  const gv = {};
+  for (const a of aylar){
+    const yil = +a.donem.slice(0, 4);
+    (gv[yil] = gv[yil] || { data: [] }).data.push({ sube_id: AKTIF_SUBE, donem: a.donem,
+      durum: a.gelir_vergisi_durum, sube_ay_vergi: a.gelir_vergisi_tek_basina });
+  }
+  return { bas: R.bas, son: R.son, onceki: R.onceki, basAyi: R.basAyi, notlar: R.notlar || [],
+    hedefler: [{ id: AKTIF_SUBE, ad }],
+    oz: { data: aylar.map(a => ({ ...a, sube_id: AKTIF_SUBE })) },
+    kd: { data: aylar.map(a => ({ sube_id: AKTIF_SUBE, donem: a.donem,
+           odenecek_kdv_tahmini: a.odenecek_kdv_tahmini })) },
+    vo: { data: aylar.flatMap(a => (a.diger_vergi || []).map(x => ({ sube_id: AKTIF_SUBE,
+           donem: a.donem, tur: x.tur, tutar: x.tutar }))) },
+    sn: { data: R.vergi_sinif || [] },
+    gvYil: gv };
+}
+/* RPC'nin gun satirlari (KURUS) subeOzetHesabi'nin bekledigi bicime. */
+function svGunGirdisi(R){
+  const g = R.gunler || [];
+  return {
+    gunler: g.map(x => ({ tarih: x.tarih, toplam: x.toplam / 100, kart_toplam: x.kart / 100,
+      nakit_toplam: x.z_nakit / 100, kasa_nakit: x.kasa_nakit == null ? null : x.kasa_nakit / 100 })),
+    kasadan: g.filter(x => x.kasa_cikis).map(x => ({ tarih: x.tarih, tutar: x.kasa_cikis / 100 })),
+    owner: g.filter(x => x.sahip_net).map(x => ({ tarih: x.tarih, yon: 'koyus', tutar: x.sahip_net / 100 })),
+  };
+}
+async function vOzetSubeVerisi(){
+  const el = document.getElementById('icerik');
+  el.innerHTML = '<h2 class="bolum">Özet</h2><div class="kart">Yükleniyor...</div>';
+  const ay = OZ_AY || bugun().slice(0,7);
+  OZ_AY = ay;
+  const [R, uyari, talep] = await Promise.all([
+    subeOzetVerisi(ay),
+    sb.from('v_uyarilar').select('*').order('tarih'),
+    sb.from('duzeltme_talebi').select('created_at').eq('durum','acik').eq('is_deleted',false).order('created_at')
+  ]);
+  if (R.hata){
+    /* ⚠ Migration yayina cikmadan istemci giderse RPC yok: ekran DUSMEZ, sebebini yazar. */
+    el.innerHTML = '<h2 class="bolum">Özet</h2>' + hataKutusu(R.hata, 'rpc_sube_ozet');
+    return;
+  }
+  const ayRow = (R.aylar || []).find(x => x.donem === ay) || null;
+  const gir = svGunGirdisi(R);
+  const H = subeOzetHesabi(ay, {
+    ozet: ayRow ? [ayRow] : [], gunler: gir.gunler, kasadan: gir.kasadan, nakitOdeme: [], owner: gir.owner,
+    kapali: (R.kapali || []).map(t => ({ tarih: t })), kapaliHata: false,
+    sayim: R.sayim || [], sayimHata: false,
+    ilkGunSonu: { data: R.ilk_gun_sonu ? [{ tarih: R.ilk_gun_sonu }] : [], error: null } });
+  const { o, GC } = H;
+  OZ_TAMLIK = H.tamlik;            /* ⚠ Y67 · tamlik ARTIK TAM VERIDEN: serit ve "en az" oneki sahiple ayni */
+  kapsamSeridiCiz();
+  const u = uyari.data || [];
+  const acikTalep = talep.data || [];
+  if (acikTalep.length > 0){
+    const gunFarki = Math.floor((Date.now() - new Date(acikTalep[0].created_at).getTime()) / 86400000);
+    u.unshift({ tip:'talep', mesaj: acikTalep.length + ' bekleyen yapılacak/alınacak' + (gunFarki >= 1 ? ` (en eskisi ${gunFarki} gündür)` : ''), tarih: acikTalep[0].created_at });
+  }
+  const sirali = [...u].sort((a,b)=>(UY_AGIR[b.tip]||0)-(UY_AGIR[a.tip]||0));
+  /* Grafik blogu SAHIPTEKIYLE AYNI govde: baslik sagi, lejant toplamlari, KDV ipucu,
+     kasa acigi ve sayilmayan gun uyarilari. Tek fark: gune dokunma yolu KAPALI —
+     gun ayrintisi ham satirlari ve sahibin yukledigi fotografi acardi (kullanici karari). */
+  const blokCiro = !GC.kayitliGun ? '' : `
+      ${kbaslik('GÜNLÜK GERÇEK CİRO', ayAdi(ay),
+        `<div class="kb-sag">${tl(GC.toplamGercek)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${GC.kayitliGun} kayıtlı gün</span></div>`)}
+      <div class="gc-ust">
+        <span><i style="background:#4F86D6"></i>Kart <b>${tl(GC.toplamKart)}</b></span>
+        <span><i style="background:#E08A3C"></i>Nakit <b>${tl(GC.toplamNakit)}</b></span>
+      </div>
+      <div class="ipucu" style="margin:0 0 8px">
+        Kart bankaya gider. <b>Toplam nakit ${tl(GC.toplamNakit)}</b> — kasaya elle yazdığın tutar.
+        Bunun <b>${tl(GC.toplamKdvNakit)}</b>'i Z raporunda; ${ayAdi(ay)} KDV'si
+        o rakamdan hesaplanıp gelecek ay ödenecek.
+      </div>
+      ${ciroGrafigi(GC)}
+      ${GC.kasaAcigiGun ? `<div class="uyari-agir">${GC.kasaAcigiGun} günde kasada Z raporunun
+        dediğinden AZ para sayılmış. Bu Z dışı satış değil <b>kasa açığı</b> — grafikte koyu
+        kırmızı sütun. O günleri Gün Sonu ekranından kontrol et.</div>` : ''}
+      ${GC.kasaSayilmayanGun ? `<div class="uyari-orta">${GC.kasaSayilmayanGun} günde kasa
+        sayılmamış — o günlerin Z dışı nakdi bilinmiyor, toplama dahil edilmedi.</div>` : ''}`;
+  el.innerHTML = `
+    <div class="ay-gez">
+      <button onclick="ozAyDegistir(-1)" aria-label="Önceki ay">‹</button>
+      <div><div class="ay-ad">${ayAdi(ay)}</div>
+        <div class="ay-alt">${ay===bugun().slice(0,7)
+          ? 'bu ay · '+new Date().toLocaleDateString('tr-TR')
+          : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
+      <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
+    </div>
+    ${blokCiro ? `<div class="kart">${blokCiro}</div>` : ''}
+    <div class="kart" id="bfSonuc"><div class="ipucu" style="margin:0">Sonuç tablosu hazırlanıyor…</div></div>
+    <div class="kart gizli" id="bfDonem"></div>
+    <div class="kart">${personelUyariBlogu(sirali)}</div>`;
+  OZ_O = o;
+  sonucKartlariCiz(ay, false);
+  if (OZ_SCROLL) window.scrollTo(0, OZ_SCROLL);
 }
 
 /* ==================================================================
@@ -4587,7 +4762,9 @@ function sonucTablosuHtml(R, oncekiR, ad, toplam, ek){
     + (toplam && R.kdvKirilim.length ? ' · ' + R.kdvKirilim.map(x => esc(x.ad) + ' ' + t(x.kdv)).join(' · ') : '');
   const g = R.gelir;
   const gelirSatir = g.durum === 'tamam'
-    ? sat('Gelir vergisi', g.yil + ' dilimleri · ' + (toplam ? 'şubelerin toplam kârı' : esc(tamlayanEki(ad) || ad) + ' payı')
+    ? sat('Gelir vergisi', g.yil + ' dilimleri · '
+        + (ek.tekBasina ? '<b>şube tek başınaymış gibi</b>'
+           : toplam ? 'şubelerin toplam kârı' : esc(tamlayanEki(ad) || ad) + ' payı')
         + ' · matrah beyana giren kâr (Z dışı nakit hariç)', t(g.tutar))
     : g.durum === 'dilim_yok'
       ? sat('Gelir vergisi', g.yil + ' dilimleri girilmedi — tahmin yok', 'dilimler girilmedi', 'yok')
@@ -4602,9 +4779,16 @@ function sonucTablosuHtml(R, oncekiR, ad, toplam, ek){
     : sat('Diğer vergiler', 'kayıtlı ödemelerden · kaydedildiği şubeye'
         + (sinifsizMetin ? ' · <b style="color:var(--uyari)">sınıflandırılmamış, toplama girmedi:</b> ' + sinifsizMetin : ''), t(d.tutar));
   const eksik = sonucEksikleri(R);
+  /* ⚠ Y67 · Bayrakli yolda gelir vergisi SUBENIN KENDI birikimli karina uygulaniyor;
+       yoneticinin ekranindaki pay butun subelerin toplam karindan dagitiliyor ve
+       BASKA bir rakam olabilir. Bunu ekranda SOYLEMEK, iki ekranin celismesini
+       "hangisi dogru" sorusuna cevirmemek icin sart (kullanici karari). */
+  const vergiNotu = [eksik.length ? '<b style="color:var(--uyari)">' + eksik.join(' ve ') + ' hariç</b>' : '',
+    ek.tekBasina ? 'Gelir vergisi burada <b>şube tek başınaymış gibi</b> hesaplandı; yöneticinin ekranındaki pay bundan farklı olabilir.' : '']
+    .filter(Boolean).join('<br>');
   const vergi = blok(SONUC_RENK.vergi, 'Tahmini vergiler', '−',
       sat('Ödenecek KDV', kdvAlt, t(R.kdv)) + gelirSatir + digerSatir,
-    'Toplam vergi', t(R.vergiToplam), eksik.length ? '<b style="color:var(--uyari)">' + eksik.join(' ve ') + ' hariç</b>' : '');
+    'Toplam vergi', t(R.vergiToplam), vergiNotu);
 
   /* ---- SONUÇ ---- */
   let fark;
@@ -4694,14 +4878,21 @@ function donemGorunumuHtml(aylar, oncekiR, ad, toplam, bas, son, bugunAy, notlar
 async function sonucKartlariCiz(ay, toplam, toplamOnek){
   const idT = toplam ? 'tpSonuc' : 'bfSonuc', idD = toplam ? 'tpDonem' : 'bfDonem';
   if (!document.getElementById(idT)) return;
-  if (!PROFIL || PROFIL.rol !== 'owner'){
+  /* ⚠ Y67 · SUBE VERISI YETKILI PERSONEL DE CIZER. Onun verisi sunucudan (rpc_sube_ozet)
+       gelir; sorgu yolu ve gelir vergisi satiri farkli, HESAP AYNI fonksiyonlardan. */
+  const subeVeri = !toplam && subeVerisiAcik();
+  if (!PROFIL || (PROFIL.rol !== 'owner' && !subeVeri)){
     [idT, idD].forEach(i => { const e = document.getElementById(i); if (e) e.remove(); });
     return;
   }
   const istek = ++SONUC_ISTEK, kapsam = AKTIF_SUBE;
   const tamlik = OZ_TAMLIK;
   let V = null, hata = null;
-  try { V = await sonucVerisiYukle(ay, toplam); } catch (e) { hata = e; }
+  if (subeVeri){
+    const R = (SV_VERI && SV_VERI.ay === ay) ? SV_VERI : await subeOzetVerisi(ay);
+    if (R.hata) hata = R.hata; else V = svSonucVerisi(R);
+  }
+  else try { V = await sonucVerisiYukle(ay, toplam); } catch (e) { hata = e; }
   /* ⚠ BAYAT ÇİZİM YOK: yükleme sürerken ay ya da şube değiştiyse bu sonuç atılır. */
   if (istek !== SONUC_ISTEK || kapsam !== AKTIF_SUBE) return;
   const elT = document.getElementById(idT), elD = document.getElementById(idD);
@@ -4719,7 +4910,10 @@ async function sonucKartlariCiz(ay, toplam, toplamOnek){
     ? sonucTopla(V.hedefler.map(s => ({ s, R: sonucHesabi(V, s.id, donem) })))
     : sonucHesabi(V, AKTIF_SUBE, donem);
   const R = hesapla(ay), oncekiR = hesapla(BB_AYEKLE(ay, -1));
-  const ek = { finansman: (!toplam && OZ_EK && OZ_EK.donem === ay) ? OZ_EK.finansman : null,
+  const ek = { finansman: (!toplam && !subeVeri && OZ_EK && OZ_EK.donem === ay) ? OZ_EK.finansman : null,
+    /* ⚠ Y67 · Bayrakli yolda gelir vergisi SUBE TEK BASINA hesaplaniyor; satirin alt
+         yazisi ve blogun notu bunu SOYLER (sahibin ekraninda hicbir sey degismez). */
+    tekBasina: subeVeri,
     /* ⚠ "en az" ÖNEKİ şube Özet'inde KENDİ tamlığından (tamlikOnek); TOPLAM'da üst kartın
          AYNI kuralından (ustOnek) — aynı rakam iki yerde farklı önekle görünmesin. */
     onekCiro: !R ? '' : toplam ? ((toplamOnek && toplamOnek.ciro) || '') : tamlikIle(tamlik, () => tamlikOnek('ciro')),
@@ -5559,7 +5753,16 @@ async function zRaporuOku(k){
     if (v.uyari) msj += ' (' + v.uyari + ')';
     yaz(msj, (dolduruldu.length && !eksikHepsi.length) ? 'ok' : 'uyari');
   }catch(e){
-    yaz('Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
+    /* ⚠ Y67 EKI · -76 · KAYITLI FOTOGRAF BASKASININSA DEPO ACMAZ. Sube sorumlusu artik
+         sahibin girdigi gunu de duzenliyor; yeni fotograf secmeden "oku" deyince okuyucu
+         kayitli yolu KENDI kimligiyle indirmeye calisiyor ve depo personele yalniz KENDI
+         yukledigi nesneyi aciyor (Y67'de olculdu; kova ACILMADI, kullanici karari).
+         Sunucunun "Belge indirilemedi" cevabi o durumda ne yapacagini soyler. */
+    const kayitliAcilmadi = !dosyaVar && !!mevcutYol && PROFIL?.rol !== 'owner'
+      && /indirilemedi/i.test(e?.message || '');
+    yaz(kayitliAcilmadi
+      ? 'Kayıtlı fotoğraf sende açılmıyor (yalnız yükleyen ve yönetici açabilir). Okutmak için fotoğrafı yeniden seç ya da rakamları elle düzelt.'
+      : 'Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
   }finally{
     btn.disabled = false; btn.textContent = eski;
   }
@@ -6167,11 +6370,17 @@ async function vGunSonu(zListe){
       <div class="gs-eksik" id="gsEksik"></div>
       <button class="btn" id="gsKaydet" onclick="gunSonuKaydet()">Gün Sonunu Kaydet</button>
       <div class="hata-msg" id="gsMsg"></div>
-      <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.':'Yanlış girersen 3 gün içinde aşağıdan silip yeniden girebilirsin.'}</div>
+      <div class="bilgi-not">Kayıt sonrası gün kilitlenir. ${PROFIL.rol==='owner'?'Hatayı listeden silip yeniden girebilirsin.'
+        : subeVerisiAcik() ? 'Yanlış girersen aşağıdaki listeden <b>Düzenle</b> ile düzeltebilirsin (ay kapanana kadar).'
+        : 'Yanlış girersen 3 gün içinde aşağıdan silip yeniden girebilirsin.'}</div>
     </div>
-    ${PROFIL.rol==='owner' ? '<div id="gsListe"></div>' : '<div id="gsSonKayit"></div>'}`;
-  if (PROFIL.rol==='personel') personelSonKayit();
-  else if (PROFIL.rol==='owner') gunSonuListe();
+    ${(PROFIL.rol==='owner' || subeVerisiAcik()) ? '<div id="gsListe"></div>' : '<div id="gsSonKayit"></div>'}`;
+  /* ⚠ Y67 · Sube sorumlusu (sube verisi bayragi) AY LISTESINI gorur (sahibin listesiyle
+       ayni fonksiyon): sahibin girdigi ve 3 gunden eski gunler dahil; fotograf dugmesi
+       cikmaz. -76 (v143): ay acikken HER satirda Düzenle; Sil yalniz kendi girdigi ve
+       3 gunden yeni satirda (gunSonuListe). */
+  if (PROFIL.rol==='owner' || subeVerisiAcik()) gunSonuListe();
+  else if (PROFIL.rol==='personel') personelSonKayit();
   KASA_NO().forEach(n=>(ZLISTE[n]||[]).forEach(s=>zBlokKur(n,s)));
   paraBagla(document.getElementById('gsKasa'), kasaHesapla);
   kasaHesapla();
@@ -6446,11 +6655,19 @@ async function gunSonuListe(){
     .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,toplam,z_foto_path,pos_slip_foto_path,is_deleted), gun_sonu_kdv(kasa_no,sira,oran,satis_toplam,kdv_tutar,is_deleted)')
     .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son).order('tarih',{ascending:false});
   const gunler = data||[];
+  const sahip = PROFIL.rol === 'owner';
+  /* ⚠ Y67 · KASADAN ODENEN SAHIPTE HAM SORGUDAN, BAYRAKLI PERSONELDE SUNUCUDAN.
+       Sebep olculdu: sahibe ozel kategorideki kasadan gider ona v141 ile KAPALI; ham
+       sorgu o gunun "Gerçek / Z dışı nakit" satirini KISMI gosterirdi (Y65'te kapatilan
+       kusurun aynisi). Gun basina kasa cikisi rpc_sube_ozet'ten kurus olarak geliyor. */
+  const svR = sahip ? null : await subeOzetVerisi(ay);
   // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
   const kasadanMap = {};
-  const [kg, no, kapali, ilkGunSonu] = await Promise.all([
-    sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
-    sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
+  const [kg, no, kapali, ilkGunSonu, kilit] = await Promise.all([
+    sahip ? sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
+          : Promise.resolve({ data: [] }),
+    sahip ? sb.from('tedarikci_odeme').select('tarih,tutar').eq('yontem','nakit').eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
+          : Promise.resolve({ data: [] }),
     /* ⚠ ADIM 15 · kapali_gun index'te ILK KEZ OKUNUYOR. Bugune kadar
        yalniz rpc_kapali_gun ile YAZILIYORDU; okuma yolu yoktu ve
        kasten kapatilan gun bu listede "girilmemis" goruniyordu. */
@@ -6458,10 +6675,38 @@ async function gunSonuListe(){
       .gte('tarih',bas).lte('tarih',son),
     /* ⚠ Y19 · Ozet ile AYNI capa sorgusu — iki ekran ayrisirsa biri
        "eksik" derken oteki demezdi. */
-    ilkGunSonuSorgusu()
+    ilkGunSonuSorgusu(),
+    /* ⚠ Y67 EKI · ay kilidi yalniz sube sorumlusunda sorulur (asagidaki dugmeler).
+         ay_kapanis personele RLS ile kapali; ay_kilitli ayni cevabi veren DEFINER fonksiyon. */
+    sahip ? Promise.resolve({ data: null }) : sb.rpc('ay_kilitli', { p_sube: AKTIF_SUBE, p_tarih: bas })
   ]);
-  [...(kg.data||[]), ...(no.data||[])].forEach(x=>{ kasadanMap[x.tarih] = (kasadanMap[x.tarih]||0) + (+x.tutar); });
+  if (sahip) [...(kg.data||[]), ...(no.data||[])].forEach(x=>{ kasadanMap[x.tarih] = (kasadanMap[x.tarih]||0) + (+x.tutar); });
+  else ((svR && svR.gunler) || []).forEach(x=>{ if (x.kasa_cikis) kasadanMap[x.tarih] = x.kasa_cikis / 100; });
   const kapaliGunler = kapali.data || [];
+  /* ⚠ Y67 EKI · -76 · SUBE SORUMLUSU SUBESININ HER GUN SONUNU DUZELTIR (v143).
+       Kullanici karari (18 Eylul): "Evet, Samsun'un hepsini düzeltsin." Sunucu bayrakli
+       personelde kimin girdigine ve kac gun gectigine BAKMIYOR; sube denetimi ve ay kilidi
+       herkes icin AYNEN. SILME DEGISMEDI: yalniz kendi girdigi ve 3 gunden yeni kayit
+       (SADECE_KENDI · SURE_GECTI) — Sil yalniz o satirda.
+     ⚠ GIDECEGI OLMAYAN DUGME BIRAKILMAZ (M3): ay kapaliysa sunucu AY_KAPALI ile reddeder,
+       dugme cizilmez; ay durumu okunamazsa da cizilmez ve sebebi yazar.
+     ⚠ SAHIP YOLU DEGISMEDI: her satirda Düzenle/Sil (kapali ayi Ay Sonu'ndan acabiliyor). */
+  const ayDurumuYok = !sahip && (!!kilit.error || typeof kilit.data !== 'boolean');
+  const ayKapali = !sahip && kilit.data === true;
+  const kendiYeniKayit = (g) => g.giren_id === (PROFIL && PROFIL.id)
+    && (Date.now() - new Date(g.created_at).getTime()) < 3*24*60*60*1000;
+  const duzenleBtn = (g) => `<button class="btn2" style="margin-top:4px" onclick="gunSonuDuzenle('${g.id}')">Düzenle</button>`;
+  const silBtn = (g) => `<button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil</button>`;
+  const satirDugmeleri = (g) => sahip
+    ? `${duzenleBtn(g)}
+          ${silBtn(g)}`
+    : (ayKapali || ayDurumuYok) ? ''
+    : duzenleBtn(g) + (kendiYeniKayit(g) ? `
+          ${silBtn(g)}` : '');
+  const sorumluNotu = sahip ? ''
+    : ayDurumuYok ? '<div class="uyari-orta">Ayın kapalı olup olmadığı okunamadı; düzeltme düğmeleri gösterilmedi. Ekranı yeniden açıp tekrar dene.</div>'
+    : ayKapali ? '<div class="bilgi-not" style="margin:0 0 10px">Bu ay kapatılmış — düzeltme için yöneticinin ayı açması gerekir.</div>'
+    : '<div class="bilgi-not" style="margin:0 0 10px">Her günü <b>Düzenle</b> ile düzeltebilirsin; her düzeltme kayıt defterine adınla düşer. <b>Sil</b> yalnız kendi girdiğin ve 3 günden yeni kayıtta çıkar.</div>';
 
   // Ay toplamı + girilmeyen günler (bugünden sonrası beklenmez)
   const tKart  = gunler.reduce((a,g)=>a+ +g.kart_toplam,0);
@@ -6521,7 +6766,7 @@ async function gunSonuListe(){
         ? ` · ${kapaliGunler.length} gün kapalı işaretli (${kapaliGunler
             .map(x=>+x.tarih.slice(8,10)).sort((a,b)=>a-b).join(', ')}) — eksik sayılmadı`
         : ''}
-    </div>
+    </div>${sorumluNotu}
     ${gunler.length===0?bosDurum('belge','Bu ayda gün sonu kaydı yok','Yukarıdan başka ay seçebilir veya bugünün Z raporlarını girebilirsin.'):gunler.map(g=>{
       const kasa = g.kasa_nakit===null ? null : +g.kasa_nakit;
       const kasadan = kasadanMap[g.tarih]||0;
@@ -6556,7 +6801,13 @@ async function gunSonuListe(){
             return `<br>KDV: <b>${tl(t)}</b>${par?' ('+par+')':''}`
               + (acik.length?`<br><span style="color:var(--uyari)">⚠ Kasa ${acik.join(' ve ')} satış yapmış ama KDV'si girilmemiş</span>`:'');})()}
           ${g.notlar?'<br>'+esc(g.notlar):''}
-          ${(()=>{const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted)
+          ${(()=>{
+            /* ⚠ Y67 · FOTOGRAF DUGMESI YALNIZ SAHIPTE. Depo kurali personele yalniz KENDI
+                 yukledigi nesneyi aciyor (canlida olculdu); nesne yolunda sube YOK, yani
+                 yolla Samsun'a daraltilamiyor ve kova butunuyle acilmiyor (kullanici karari).
+                 Acilmayacak bir dugmeyi cizmek yalan olurdu (M3). */
+            if(!sahip) return '';
+            const ks=(g.gun_sonu_kasa||[]).filter(k=>!k.is_deleted)
               .sort((a,b)=>a.kasa_no-b.kasa_no || (a.sira||1)-(b.sira||1));
             const t=new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR');
             if(ks.length) return '<div style="margin-top:6px">'+ks.map(k=>{
@@ -6566,9 +6817,7 @@ async function gunSonuListe(){
             return '<div style="margin-top:6px">'+belgeBtn(g.z_foto_path,'Z Raporu',`${t} — Z Raporu`)+
                    slipBtn(g.pos_slip_foto_path,'POS Slip',`${t} — POS Slip`)+'</div>';
           })()}</div></div>
-        <div class="l-sag">${tl(g.toplam)}<br>
-          <button class="btn2" style="margin-top:4px" onclick="gunSonuDuzenle('${g.id}')">Düzenle</button>
-          <button class="btn-kirmizi" style="margin-top:4px" onclick="gunSil('${g.id}','${g.tarih}')">Sil</button></div>
+        <div class="l-sag">${tl(g.toplam)}<br>${satirDugmeleri(g)}</div>
       </div>`;}).join('')}</div>`;
 }
 async function gunSil(id, tarih){
@@ -8584,7 +8833,9 @@ async function giderListe(){
   const ayToplam = buAy.reduce((a,g)=>a+ +g.tutar,0);
   const kasadanToplam = buAy.filter(g=>g.kasadan).reduce((a,g)=>a+ +g.tutar,0);
   el.innerHTML = `<div class="kart">
-    ${kbaslik(PROFIL.rol==='personel'?'SON 7 GÜN':'SON KAYITLAR', 'Giderler',
+    ${/* ⚠ Y67 · Bayrakli personelde 7 gun penceresi KALKTI (v142 politikasi): baslik da
+           artik "SON 7 GÜN" demiyor — ekran ne gosteriyorsa onu soylemeli. */''}
+    ${kbaslik(PROFIL.rol==='personel' && !subeVerisiAcik() ? 'SON 7 GÜN':'SON KAYITLAR', 'Giderler',
        buAy.length?`<div class="kb-sag">${tl(ayToplam)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${ayAdi(ay)}</span></div>`:'')}
     ${kasadanToplam>0?`<div class="ipucu">Bu ayın <b>${tl(kasadanToplam)}</b> tutarı kasadan nakit ödendi — gün sonu sayımında eksik çıkar, gerçek ciroya geri eklenir.</div>`:''}
     ${/* ⚠ ADIM 2b · ALT TOPLAM CIZILEN AYNI `list`TEN — ayri sorgu YOK. */''}
@@ -9710,7 +9961,8 @@ async function alisListe(){
   const ayBasligi = ayAdi(ay);   // global ayAdi() fonksiyonuyla ayni ismi kullanma: golgeliyordu
 
   el.innerHTML = `<div class="kart">
-    ${kbaslik(PROFIL.rol==='personel'?'SON 7 GÜN':'ALIŞ FATURALARI', ayBasligi,
+    ${/* ⚠ Y67 · Bayrakli personelde 7 gun penceresi KALKTI (v142 politikasi). */''}
+    ${kbaslik(PROFIL.rol==='personel' && !subeVerisiAcik() ? 'SON 7 GÜN':'ALIŞ FATURALARI', ayBasligi,
       PROFIL.rol==='owner'
         ? `<input type="month" id="alListeAy" value="${ay}" onchange="alAyDegisti()"
              style="width:auto;margin:0;min-height:44px;font-size:13px">` : '')}
@@ -12430,6 +12682,9 @@ let YY_ROLLER = [], YY_KISILER = [], YY_MATRIS = {}, YY_SECILI = null;
 /* ⚠ Y61 · profil.maas_yetkisi haritasi (id → true/false). null = OKUNAMADI (v138 oncesi
      sunucu): anahtar CIZILMEZ, "okunamadı" yazar — varsayilan "kapalı" UYDURULMAZ. */
 let YY_MAAS = null;
+/* ⚠ Y67 · profil.sube_verisi_yetkisi haritasi (v142). null = OKUNAMADI (migration henuz
+     uygulanmadiysa profil sorgusu komple duser) — anahtar CIZILMEZ, "okunamadı" yazar. */
+let YY_SUBE_VERI = null;
 async function yetkiYukle(){
   const el = document.getElementById('yetkiIcerik'); if (!el) return;
   const [{ data: roller, error: e1 }, { data: kisiler, error: e2 }, { data: matris, error: e3 }, maas] =
@@ -12438,7 +12693,8 @@ async function yetkiYukle(){
       sb.from('v_kisi_yetki').select('*').order('ad'),
       sb.from('rol_yetki').select('*'),
       /* Y61 · 'profil' sube suzgeci haritasinda DEGIL; sahip RLS'i butun profilleri acar. */
-      sb.from('profil').select('id,maas_yetkisi')
+      /* ⚠ Y67 · ikinci bayrak (v142) AYNI sorguda: ayri tur atmak yerine kolon eklendi. */
+      sb.from('profil').select('id,maas_yetkisi,sube_verisi_yetkisi')
     ]);
   if (e1 || e2 || e3){
     el.innerHTML = `<div class="uyari-agir">Yetkiler yüklenemedi: ${esc(hataTr((e1||e2||e3).message))}</div>`;
@@ -12446,6 +12702,10 @@ async function yetkiYukle(){
   }
   YY_ROLLER = roller||[]; YY_KISILER = kisiler||[];
   YY_MAAS = (maas && !maas.error) ? new Map((maas.data||[]).map(p => [p.id, p.maas_yetkisi === true])) : null;
+  /* ⚠ Y67 · null = OKUNAMADI (v142 oncesi sunucuda kolon yok) — ekran "okunamadı" yazar,
+       anahtar cizmez; yanlis bir "kapalı" gostermek yalan olurdu. */
+  YY_SUBE_VERI = (maas && !maas.error && (maas.data||[]).every(p => 'sube_verisi_yetkisi' in p))
+    ? new Map((maas.data||[]).map(p => [p.id, p.sube_verisi_yetkisi === true])) : null;
   YY_MATRIS = {};
   (matris||[]).forEach(x => { (YY_MATRIS[x.rol] = YY_MATRIS[x.rol] || {})[x.ekran] = x; });
   if (!YY_SECILI || !YY_ROLLER.some(r => r.kod === YY_SECILI))
@@ -12480,6 +12740,9 @@ function yetkiCiz(){
               acik.length ? ' · ' + acik.map(x => esc(EKRAN_AD[x]||x)).join(', ') : ''}</div>
             ${/* ⚠ Y61 · ANAHTAR SOL SUTUNDA: sag sutuna konunca 375px'te sutunu genisletip
                  adi harf ortasindan boluyordu (olculdu, ekran goruntusu). Sag sutun -70 ile ayni. */''}${kisiMaasAnahtari(k)}
+            ${/* ⚠ Y67 · IKINCI ANAHTAR: sube sorumlusu. Maas anahtarindan AYRI — biri maas
+                   ekranini, oteki Ozet'teki sube rakamlarini ve gecmis gun sonlarini acar ve
+                   (-76 · v143) subenin her gun sonunu duzeltmeyi. */''}${kisiSubeVerisiAnahtari(k)}
           </div>
           <div style="min-width:120px;text-align:right">
             ${k.korumali
@@ -12494,7 +12757,8 @@ function yetkiCiz(){
     + `<div class="yy-bas" style="margin-top:14px">ROLLER</div>
        <div class="bilgi-not yy-not" id="yyRolNotu"><b>Rol yetkileri TÜM şubelerde geçerlidir.</b> Burada bir ekranı açınca,
          hangi şubede olursan ol, o roldeki <b>herkese</b> açılır — diğer şubelerdekiler dahil. Şube seçimi bunları değiştirmez.
-         Maaş (Personel) ekranı rol yetkisiyle açılmaz: aşağıdaki <b>Maaşlar (Personel ekranı)</b> satırında ya da yukarıdaki KİŞİLER listesinde, <b>kişiye özel</b> anahtarla açılır.</div>
+         Maaş (Personel) ekranı rol yetkisiyle açılmaz: aşağıdaki <b>Maaşlar (Personel ekranı)</b> satırında ya da yukarıdaki KİŞİLER listesinde, <b>kişiye özel</b> anahtarla açılır.
+         <b>Şube sorumlusu</b> da öyle: aşağıdaki <b>Şube sorumlusu</b> satırındaki anahtar, o kişiye kendi şubesinin Özet rakamlarını ve geçmiş gün sonlarını açar ve o şubenin her gün sonunu düzeltebilmesini sağlar (ay kapalıysa düzeltemez).</div>
        <div class="yy-rol">${YY_ROLLER.map(r => `
          <button class="btn2${r.kod===YY_SECILI?' yy-aktif':''}" onclick="YY_SECILI='${r.kod}';yetkiCiz()">
            ${esc(r.ad)}${rolSayi[r.kod]?' ('+rolSayi[r.kod]+')':''}
@@ -12522,12 +12786,25 @@ function yetkiCiz(){
                   KALDI; basilinca yetkiYukle ikisini birlikte yeniden cizer. */
              if (t.id === 'personel'){
                const maasKisileri = YY_KISILER.filter(k => k.rol === 'personel');
+               const bosMetin = '<div class="yy-maas">Bu şubede Personel rolünde kimse yok. Kişi hangi şubedeyse o şubeye geçip buradan aç.</div>';
+               /* ⚠ Y67 · IKINCI SATIR: SUBE SORUMLUSU. Ayni kisiler, ayri anahtar; ikisi de
+                    rol izniyle degil KISIYE OZEL acilir. Ayri satir, cunku actiklari sey
+                    farkli: biri maas ekrani, oteki Ozet'teki sube rakamlari, gecmis gun
+                    sonlari ve (-76 · v143) gun sonu duzeltme. Ayni satira iki dugme koymak
+                    375px'te adi harf ortasindan boluyordu (Y61'de olculmustu). */
                return `<div class="sr" id="yyPersonelSatiri">
                <div><div class="sr-ad">Maaşlar (Personel ekranı)</div>
                  <div class="sr-alt">rol izniyle açılmaz — kişiye özel anahtar</div>
                  ${maasKisileri.length
                    ? maasKisileri.map(k => `<div class="yy-maas-kisi"><span class="yy-maas-ad">${esc(k.ad||'—')}${k.aktif?'':' <span class="rozet rz-gri">pasif</span>'}</span>${kisiMaasAnahtari(k)}</div>`).join('')
-                   : '<div class="yy-maas">Bu şubede Personel rolünde kimse yok. Kişi hangi şubedeyse o şubeye geçip buradan aç.</div>'}</div>
+                   : bosMetin}</div>
+             </div>
+             <div class="sr" id="yySubeVeriSatiri">
+               <div><div class="sr-ad">Şube sorumlusu (şube rakamlarını görür · gün sonlarını düzeltir)</div>
+                 <div class="sr-alt">rol izniyle açılmaz — kişiye özel anahtar</div>
+                 ${maasKisileri.length
+                   ? maasKisileri.map(k => `<div class="yy-maas-kisi"><span class="yy-maas-ad">${esc(k.ad||'—')}${k.aktif?'':' <span class="rozet rz-gri">pasif</span>'}</span>${kisiSubeVerisiAnahtari(k)}</div>`).join('')
+                   : bosMetin}</div>
              </div>`;
              }
              const y = YY_MATRIS[sec.kod]?.[t.id] || {gorebilir:false, yazabilir:false};
@@ -12596,6 +12873,34 @@ function kisiMaasAnahtari(k){
   return `<button type="button" class="btn2 yy-maas-btn${acik ? ' yy-acik' : ''}" data-maas="${acik ? 'acik' : 'kapali'}"
       aria-pressed="${acik}" data-kisi="${esc(k.id)}" data-ad="${esc(k.ad||'')}"
       onclick="kisiMaasDegistir(this.dataset.kisi, ${!acik}, this.dataset.ad)"><span class="yy-maas-et">Maaş girebilir</span> <b>${acik ? 'Açık' : 'Kapalı'}</b></button>`;
+}
+/* ⚠ Y67 · KISIYE OZEL SUBE SORUMLUSU ANAHTARI (v142 rpc_profil_sube_verisi).
+   Kullanici karari: "SADECE SAMSUN İLE İLGİLİ HER ŞEYİ GÖRSÜN." Maas anahtarinin
+   KALIBI aynen: sahip kapisi SUNUCUDA, sahibe ve Personel disi role ACMAK reddedilir,
+   KAPATMAK serbest. Iki anahtar AYRI: biri maas ekranini, oteki sube rakamlarini acar.
+   ⚠ Y67 EKI · -76 · TEK ANAHTAR, IKI YETKI: ayni bayrak v143'le subenin HER gun sonunu
+     duzeltmeyi de aciyor (kullanici karari, 18 Eylul). Adi "Şube sorumlusu"; onay metni
+     gormeyi VE duzeltmeyi BIRLIKTE soyluyor — sahip neyi actigini tek yerde okur. */
+function kisiSubeVerisiAnahtari(k){
+  if (k.korumali || k.rol === 'owner') return '<span class="yy-maas">şube verileri her zaman açık</span>';
+  if (YY_SUBE_VERI === null) return '<span class="yy-maas">şube sorumlusu anahtarı okunamadı</span>';
+  if (k.rol !== 'personel') return YY_SUBE_VERI.get(k.id) === true
+    ? `<button type="button" class="btn2 yy-maas-btn" data-subeveri="acik" data-kisi="${esc(k.id)}" data-ad="${esc(k.ad||'')}"
+        onclick="kisiSubeVerisiDegistir(this.dataset.kisi, false, this.dataset.ad, true)">Şube sorumlusu anahtarını kapat</button><span class="yy-maas">rolü Personel değil — anahtar etkisiz</span>`
+    : '<span class="yy-maas">şube sorumlusu anahtarı yalnız Personel rolünde</span>';
+  const acik = YY_SUBE_VERI.get(k.id) === true;
+  return `<button type="button" class="btn2 yy-maas-btn${acik ? ' yy-acik' : ''}" data-subeveri="${acik ? 'acik' : 'kapali'}"
+      aria-pressed="${acik}" data-kisi="${esc(k.id)}" data-ad="${esc(k.ad||'')}"
+      onclick="kisiSubeVerisiDegistir(this.dataset.kisi, ${!acik}, this.dataset.ad)"><span class="yy-maas-et">Şube sorumlusu</span> <b>${acik ? 'Açık' : 'Kapalı'}</b></button>`;
+}
+async function kisiSubeVerisiDegistir(profil, acik, ad, etkisiz){
+  if (!await onaySor(`${ad} · şube sorumlusu ${acik ? 'AÇILACAK' : 'KAPATILACAK'}.`,
+    acik ? 'Kendi şubesinde:\n\n• GÖRÜR: gün sonu kayıtları (senin girdiklerin ve eski günler dahil), gider/alış/ödeme listeleri ve Özet ekranındaki grafik, sonuç tablosu ve dönem rakamları — SENİN GÖRDÜĞÜN gibi. Kâr tablosundaki toplamlar şubenin bütün giderlerini içerir.\n\n• DÜZELTİR: şubenin HER gün sonu kaydını — kimin girdiğine ve kaç gün geçtiğine bakılmaz; ay kapatılmışsa düzeltemez. Her düzeltme kayıt defterine onun adıyla düşer. Silme yetkisi değişmez (yalnız kendi girdiği, 3 günden yeni kayıt).\n\nDiğer şube, borç ekranları ve senin yönetim ekranların KAPALI kalır.\n\nOnaylıyor musun?'
+         : etkisiz ? 'Rolü Personel değil; anahtar şu an etkisiz. Kapatılmazsa, yeniden Personel yapıldığında şube rakamları ve gün sonu düzeltme kendiliğinden açılır.\n\nOnaylıyor musun?'
+         : 'Özet ekranındaki şube rakamları ve geçmiş gün sonu kayıtları bu kişiye kapanır; başkasının girdiği ya da 3 günden eski gün sonunu artık düzeltemez. Girdiği satırlar ve yaptığı düzeltmeler silinmez.\n\nOnaylıyor musun?',
+    acik ? 'Aç' : 'Kapat')) return;
+  const data = await rpcCagir('rpc_profil_sube_verisi', { p_profil: profil, p_acik: acik }, null, 'yyMsg', 'Kaydedildi ✓');
+  if (data && data.ok) yetkiYukle();
 }
 async function kisiMaasDegistir(profil, acik, ad, etkisiz){
   if (!await onaySor(`${ad} · maaş girme ${acik ? 'AÇILACAK' : 'KAPATILACAK'}.`,
