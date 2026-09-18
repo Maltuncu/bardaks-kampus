@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-77">
+<meta name="surum" content="2026-08-27-78">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -194,6 +194,29 @@
 .uy-sr:last-child{margin-bottom:0}
 .uy-et{font-size:9.5px;font-weight:900;letter-spacing:.7px;flex:none;opacity:.72;padding-top:1px}
 .uy-mt{min-width:0;overflow-wrap:anywhere}
+/* ===== Y72 · DUZENLI ODEMELER · serit (Giderler) + tanim karti (Yonetim) =====
+   ⚠ `dz-` oneki evde YOKTU (grep: 0) — eski ekrani ezmez. Satir 44px vurus alani;
+     375px'te ad solda kirilir, durum sagda tek satir kalir. */
+.dz-serit{padding:10px 12px}
+.dz-bas{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font-size:12px;font-weight:800;letter-spacing:.4px;color:var(--soluk);margin:0 0 4px}
+.dz-sr{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+  min-height:44px;padding:6px 0;border:0;border-top:1px solid #F2ECD9;border-radius:0;background:none;
+  font:inherit;font-size:14px;color:var(--metin);text-align:left}
+/* ⚠ :first-of-type DEGIL — satirlar div (girildi) + button (bekliyor) karisik; tur basina
+     "ilk" sayilir ve girildi satirindan sonraki ilk dugmenin cizgisi kaybolurdu. */
+.dz-bas + .dz-sr, .dz-serit > .dz-sr:first-child{border-top:0}
+button.dz-sr{cursor:pointer}
+button.dz-sr:active{background:var(--acik)}
+.dz-ad{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:700}
+.dz-drm{flex:none;font-size:12.5px;font-weight:800;text-align:right;white-space:nowrap}
+.dz-ok{color:var(--ok)} .dz-bek{color:#8A6316} .dz-gec{color:var(--hata)}
+.dz-serit .k{font-size:12px;font-weight:600;color:var(--soluk)}
+.dz-tanim{padding:10px 0;border-top:1px solid #F2ECD9}
+.dz-tanim:first-child{border-top:0}
+.dz-tanim .b{font-weight:700;font-size:14px}                 /* .l-sol kalibi — orada kapsamli */
+.dz-tanim .k{font-size:12px;color:var(--soluk);overflow-wrap:anywhere}
+.dz-eylem{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 /* ===== Ürün detayı — tıklanabilir stok satırı + fiyat geçmişi ===== */
 .tikla{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tikla:active{background:#F7F3E8}
@@ -797,6 +820,9 @@ const SUBE_SUZGEC = new Map([
   ['v_owner_hareket_ay',  false], ['v_stok_durum',       false],
   ['v_tedarikci_bakiye',  false], ['v_urun_alacak',      false],
   ['v_urun_son_fiyat',    false], ['v_vade_liste',       false],
+  /* v144 · Y72 · duzenli odeme tanimlari. sube_id NOT NULL, genel satir URETMEZ.
+     ⚠ fikstur (araclar/ + yedek/sube-tablolari.txt) ile AYNI GUN canliya. */
+  ['duzenli_odeme',       false],
 
   /* ⚠ ŞEMA AÇIĞI — sube_id NOT NULL DEĞİL, ama genel satır da DEĞİL.
      Ölçüldü: bugün ikisinde de şubesiz satır YOK (0 satır). Yine de
@@ -2949,11 +2975,15 @@ let OZ_ODEME_CTX = null;   // odemelerBlogu'nun son ctx'i (bkz. bankaBakiyeKayde
    ⚠ vOzet'ten MODUL KAPSAMINA alindi: ayni satiri artik iki yer ciziyor
    (personelde vOzet, owner'da odemelerBlogu) — tek kaynak kalsin. */
 const UY_AGIR   = { fatura:1, cek:1, vade:1 };
-const UY_ETIKET = { vade:'VADE', stok:'STOK', talep:'YAPILACAK', eksik_gun:'EKSİK GÜN', fatura:'FATURA', cek:'ÇEK' };
+const UY_ETIKET = { vade:'VADE', stok:'STOK', talep:'YAPILACAK', eksik_gun:'EKSİK GÜN', fatura:'FATURA', cek:'ÇEK', duzenli:'ÖDEME' };
 const UY_HEDEF  = { vade:'tedarikci', fatura:'tedarikci', cek:'tedarikci', stok:'stok', talep:'talep', eksik_gun:'gunsonu' };
+/* ⚠ Y72 · DUZENLI ODEME UYARISI (v144 · v_uyarilar tip 'duzenli') Giderler → Gider
+     bolumune gider — "bu ayin duzenli odemeleri" seridi orada. Oteki tiplerde uretilen
+     metin ESKISIYLE BIREBIR (sekmeAc('...')). */
+const uyGit = (tip) => tip === 'duzenli' ? 'duzenliGit()' : `sekmeAc('${UY_HEDEF[tip]||'ozet'}')`;
 function uyariSatir(x){
   return `<div class="${UY_AGIR[x.tip]?'uyari-agir':'uyari-orta'} uy-sr"${
-      x.tip==='eksik_gun' ? '' : ` onclick="sekmeAc('${UY_HEDEF[x.tip]||'ozet'}')"`}>
+      x.tip==='eksik_gun' ? '' : ` onclick="${uyGit(x.tip)}"`}>
     <span class="uy-et">${UY_ETIKET[x.tip]||'UYARI'}</span>
     ${/* ⚠ Y30 · TUTAR SUNUCUDAN SAYI OLARAK GELIYOR, METINDEN
            AYIKLANMIYOR. Bicimlendirmeyi EKRAN yapar: tl() zaten
@@ -3027,6 +3057,10 @@ const UY_GRUP = [
     ad:n => n + ' çekin vadesi yaklaştı/geçti', eylem:'Gör' },
   { k:'vade',      tip:'vade',      kod:'vade',
     ad:n => n + ' vadenin ödeme günü yaklaştı', eylem:'Gör' },
+  /* Y72 · v144 · duzenli odeme (kira, elektrik, su, internet). Gunu yaklasan ve
+     gecen ikisi de burada: is ayni — gideri gir, hatirlatma kendiliginden kapanir. */
+  { k:'duzenli',   tip:'duzenli',   kod:'duzenli',
+    ad:n => n + ' düzenli ödeme bekliyor',      eylem:'Gir' },
   { k:'stok',      tip:'stok',      kod:'stok',
     ad:n => n + ' ürün kritik seviyede',        eylem:'Gör' },
   { k:'eksik_gun', tip:'eksik_gun', kod:'eksik_gun',
@@ -3096,7 +3130,7 @@ function uyariGrupla(liste){
        IKI SATIRA kiriyordu (olculdu: rozetli 59px, rozetsiz 44px).
        Tek tek satirlar ayrintida rozetini KORUYOR. */
     ozet += `<div class="${UY_AGIR[ilk.tip] ? 'uyari-agir' : 'uyari-orta'} uy-sr"
-        onclick="sekmeAc('${UY_HEDEF[ilk.tip] || 'ozet'}')">
+        onclick="${uyGit(ilk.tip)}">
       <span class="uy-mt" style="flex:1">${esc(g.ad(uye.length))}${toplam != null ? ' · ' + uyariKurusTl(toplam) : ''}</span>
       <span class="k">${g.eylem} ›</span>
     </div>`;
@@ -3128,7 +3162,7 @@ async function odemelerBlogu(hedefId, ctx){
      Geçmiş vadeler hiçbir pencereye GİRMEZ, ayrı sayılır. */
   const { bas: hBas, son: hSon } = BB_HAFTA(b);
   const buAy = b.slice(0,7), gecenAy = BB_AYEKLE(buAy,-1);
-  const [kredi, kart, donem, vade, taksit, banka, kasa, dunGs, kapanis, tumTaksit, cariH, madenK, fiyatK] = await Promise.all([
+  const [kredi, kart, donem, vade, taksit, banka, kasa, dunGs, kapanis, tumTaksit, cariH, madenK, fiyatK, dzGecmis] = await Promise.all([
     sb.from('v_kredi_taksit_durum').select('vade_tarihi,kalan,kredi_ad,banka,kredi_tur')
       .gt('kalan',0).neq('durum','kapali').lte('vade_tarihi', s30).order('vade_tarihi'),
     sb.from('kart').select('id,ad,banka,sahip,kesim_gunu,son_odeme_gunu,kart_limiti,limit_paylasan_id')
@@ -3150,9 +3184,13 @@ async function odemelerBlogu(hedefId, ctx){
     sb.from('v_kredi_taksit_durum').select('kredi_tur,anapara_tutar,faiz_tutar,vergi_masraf_tutar,kalan,durum,anapara_odenen,faiz_odenen'),
     sb.from('v_sahis_hesap_bakiye').select('bakiye'),
     sb.from('maden').select('tur,gram,tarih,alis_tutar').eq('is_deleted',false),
-    sb.from('maden_fiyat').select('tur,gram_fiyat,tarih').eq('is_deleted',false).order('tarih',{ascending:false})
+    sb.from('maden_fiyat').select('tur,gram_fiyat,tarih').eq('is_deleted',false).order('tarih',{ascending:false}),
+    /* ⚠ Y72 · DUZENLI ODEME ONGORUSU (v144). ilkHata'ya BILEREK GIRMEZ: migration
+         yokken kolon yok, sorgu duser — blok DUSMEZ, duzenli satir zaten olmaz. */
+    duzenliGecmisSorgu()
   ]);
   const hata = ilkHata(kredi, kart, donem, vade, taksit, banka, kasa, dunGs, kapanis, tumTaksit, cariH, madenK, fiyatK);
+  const dzOng = duzenliOngoruHaritasi(dzGecmis);
   if (hata){ el.innerHTML = hataKutusu(hata, 'vOzet()'); return; }
 
   /* ---- DÖRT KAYNAK TEK LİSTE: {t:tarih, ad, alt, tutar|null, kaynak} ---- */
@@ -3186,6 +3224,18 @@ async function odemelerBlogu(hedefId, ctx){
   }
   let tutarsiz = 0;
   for (const v of vade.data||[]){
+    /* ⚠ Y72 · DUZENLI ODEME (tur 'duzenli', v144): tutari ODEME ANINDA belli olur,
+         "tutarı girilmemiş" EKSIK VERI DEGIL — tutarsiz sayilmaz, Vergiler'e yollanmaz.
+         Son odenen tutar "geçen sefer X" ONGORUSU olarak yazilir; kesin toplama GIRMEZ
+         (vadeOngoru kalibi: ongoru ayri, ciplak rakam yok, gecmis yoksa sifir yazilmaz). */
+    if (v.tur === 'duzenli'){
+      if (v.durum !== 'acik') continue;          // "tutar çıkmadı" ile kapatilmis ay listelenmez
+      const o = dzOng.get(v.id);
+      L.push({ t:v.vade_tarihi, ad:esc(v.aciklama||'Düzenli ödeme'),
+               alt:'düzenli ödeme' + (o ? ' · geçen sefer ' + tl(o.tutar) + ' (öngörü)' : ' · tutarı ödeyince belli olur'),
+               tutar:null, k:'duzenli', ong: o ? o.tutar : 0 });
+      continue;
+    }
     const yok = v.durum === 'tutar_yok' || v.tutar == null;
     if (yok) tutarsiz++;
     L.push({ t:v.vade_tarihi, ad:esc(v.aciklama||v.tur), alt:'vergi/vade'+(yok?' · <b style="color:var(--uyari)">tutar bekleniyor</b>':''),
@@ -3203,8 +3253,13 @@ async function odemelerBlogu(hedefId, ctx){
      ⚠ BO · n ESKIDEN tum kalemleri sayiyordu, ts ayni kalemi BIR DAHA —
      canli sonuc "1 ödeme · 0,00 TL + 1 tutarsız" (tek kalem, tutari yok)
      ve "0,00 geçti" alarmi bosuna telaslandirdi. n artik tutari OLAN kalem. */
-  const pen = (f) => { const s = L.filter(f); const ts = s.filter(x => x.tutar == null).length;
-    return { n:s.length - ts, t:s.reduce((a,x)=>a+(x.tutar||0),0), ts }; };
+  /* ⚠ Y72 · DUZENLI kalemler AYRI sayilir: n/t/ts'ye GIRMEZ (tutarsiz degiller),
+       od = adet, ot = ongoru toplami. Duzenli yoksa n/t/ts ESKISIYLE BIREBIR. */
+  const pen = (f) => { const s0 = L.filter(f);
+    const dz = s0.filter(x => x.k === 'duzenli'), s = dz.length ? s0.filter(x => x.k !== 'duzenli') : s0;
+    const ts = s.filter(x => x.tutar == null).length;
+    return { n:s.length - ts, t:s.reduce((a,x)=>a+(x.tutar||0),0), ts,
+             od:dz.length, ot:dz.reduce((a,x)=>a+(x.ong||0),0) }; };
   /* ⚠ Alarm ve "dogrulanmis" toplam gi (odeme bilgisi girilmemis) dislar. */
   const gec = pen(x => x.t < b && !x.gi && !x.dv),
         gecGi = L.filter(x => x.t < b && x.gi).length,
@@ -3214,9 +3269,16 @@ async function odemelerBlogu(hedefId, ctx){
         g7d = pen(x => x.t >= b && x.t <= s7 && !x.gi);
   /* BO · "0 ödeme · 0,00 TL" HICBIR dalda yazilmaz; yalniz tutarsiz varsa
      "M kalemin tutarı girilmemiş" — o eksik VERIDIR, odeme degil. */
-  const pz = (p) => p.n
+  const pz0 = (p) => p.n
     ? p.n + ' ödeme · ' + tl(p.t) + (p.ts ? ' + <b style="color:var(--uyari)">' + p.ts + ' tutarsız</b>' : '')
     : p.ts + ' kalemin tutarı girilmemiş';
+  /* Y72 · duzenli varsa AYRI parca: "2 düzenli ≈1.234,56 TL öngörü" — kesin toplamla
+     toplanmaz. Duzenli yoksa metin ESKISIYLE BIREBIR (pz0). */
+  const pz = (p) => {
+    if (!p.od) return pz0(p);
+    const dzP = p.od + ' düzenli' + (p.ot ? ' ≈' + tl(p.ot) + ' öngörü' : '');
+    return (p.n || p.ts) ? pz0(p) + ' · ' + dzP : dzP;
+  };
   el.dataset.g7 = JSON.stringify(g7);   // BC3 ölçümü için; ekranda gösterilmez
 
   /* ---- ELDE · kasa + banka · fark hesaplanmaz ---- */
@@ -3321,6 +3383,7 @@ async function odemelerBlogu(hedefId, ctx){
   const gitYolu = (x) => x.k === 'kredi' ? "bfGit('borc.html#krediler')"
     : x.k === 'kart' ? "bfGit('borc.html#kartlar')"
     : x.k === 'vergi' ? `ozVadeGit('${x.id || ''}')`
+    : x.k === 'duzenli' ? 'duzenliGit()'
     : "sekmeAc('tedarikci')";
   const satir = (x) => `<div class="sr" role="button" tabindex="0" data-git="${x.k}" style="cursor:pointer"
       onclick="${gitYolu(x)}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><div><div class="sr-ad"><span class="rozet rz-gri" style="margin-right:6px">${BB_GG(x.t)}</span>${x.ad}</div>
@@ -3362,7 +3425,7 @@ async function odemelerBlogu(hedefId, ctx){
        satirlar ayni sayiyi soylesin. */
   const ek = OZ_EK || {};
   const uyL = (ek.uyarilar || []).filter(x =>
-    !(x.tip === 'vade' && x.tarih <= s30) && !(x.tip === 'eksik_gun' && x.tarih === dun));
+    !((x.tip === 'vade' || x.tip === 'duzenli') && x.tarih <= s30) && !(x.tip === 'eksik_gun' && x.tarih === dun));
   /* BR · Tur basina TEK ozet satiri; ayrinti "tumunu gor"un arkasinda.
      ⚠ ACIL sayaci artik GRUP sayar: on bir vadesiz fatura tek is, tek alarm.
        Onceden satir sayiyordu ve "ACİL 16" gercekte 4 isi anlatiyordu. */
@@ -3386,9 +3449,12 @@ async function odemelerBlogu(hedefId, ctx){
       ${gec.n ? grup('Vadesi geçti: ' + pz(gec), 'uyari-agir', grupGec, 0)
         /* BO · tutari bilinmeyen vadenin tarihi gecti = EKSIK VERI, gecikmis
            odeme degil: alarm cubugu yok, satir listede kaliyor. */
-        : gec.ts ? grup(pz(gec), '', grupGec, 0) : ''}
-      ${(haf.n || haf.ts) ? grup('Bu hafta (' + BB_GG(hBas) + '–' + BB_GG(hSon) + '): ' + pz(haf), 'uyari-orta', grupHaf, 3) : ''}
-      ${(g30.n || g30.ts) ? grup('30 gün (→ ' + BB_GG(s30) + '): ' + pz(g30), '', grupSonra, 0) : ''}
+        : gec.ts ? grup(pz(gec), '', grupGec, 0)
+        /* Y72 · yalniz duzenli odemenin gunu gecmisse: tutari bilinmiyor, alarm
+           cubugu (agir) degil orta ton — gider girilince kendiliginden kapanir. */
+        : gec.od ? grup('Günü geçti: ' + pz(gec), 'uyari-orta', grupGec, 0) : ''}
+      ${(haf.n || haf.ts || haf.od) ? grup('Bu hafta (' + BB_GG(hBas) + '–' + BB_GG(hSon) + '): ' + pz(haf), 'uyari-orta', grupHaf, 3) : ''}
+      ${(g30.n || g30.ts || g30.od) ? grup('30 gün (→ ' + BB_GG(s30) + '): ' + pz(g30), '', grupSonra, 0) : ''}
       ${L.length ? '' : bosDurum('liste','30 gün içinde ödeme yok','Kredi, kart ekstresi, vergi vadesi ve kart taksiti burada birleşir.')}
     </div>
     <div class="kart" id="bfAy" style="cursor:pointer" onclick="ayRaporuAc('${ctx.donem}')">
@@ -7110,6 +7176,9 @@ async function odemeGirisiKaydet(){
     if (data && data.ok){
       document.getElementById('odTutar').value=''; document.getElementById('odAciklamaDiger').value='';
       gdOdeme();
+      /* Y72 · "Diğer" + kategori (ör. havaleyle kira) de duzenli hatirlatmayi kapatir — SOYLER.
+         gdOdeme formu ilk adiminda (await'ten once) yeniden kurar; mesaj yeni kutuya. */
+      if (data.kapanan_duzenli) mesaj('odMsg','ok','Ödeme kaydedildi ✓ · ' + duzenliKapanisMetni(data.kapanan_duzenli));
     }
     return;
   }
@@ -7734,6 +7803,14 @@ function tpKur(eksikler){
        ⚠ eksik[]'e KONMAZ — ADIM 06'nin karari: SOYLER, DURDURMAZ.
          Bir faturada gercekten KDV olmayabilir (istisna, tevkifat). */
     satir.kdvOkunamadi = !x.kdv && satir.kdv == null;
+    /* ⚠ Y72 · DUZENLI GIDER FIRMASI (elektrik, su, internet...). OLCULDU: bu tabloda
+         varsayilan tur YOK, yalniz "geçen sefer alış/gider girilmişti" ONERISI var
+         ("Sistem tahmin etmiyor"). Firma bir duzenli tanima bagliysa satir Gider +
+         tanimin kategorisiyle HAZIR gelir ve bunu satirda YAZAR; isaretleme (sec)
+         yine kullanicinin — kaydetmeden once degistirebilir. Gerekce: yedekte elektrik
+         firmasinin faturasi Alis'a girilmis ve tedarikci borcu acmis (Y72 olcumu). */
+    const dzT = tpDuzenliTanim(ted);
+    if (dzT){ satir.tur = 'gider'; satir.kategori = dzT.kategori_id; satir.duzenli = dzT.ad; }
     return satir;
   });
 }
@@ -7915,6 +7992,9 @@ function tpCiz(){
             ${r.oneri && !r.tur
               ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'alış' : 'gider'}</b>
                    olarak girilmişti — yine de sen seç</div>` : ''}
+            ${r.duzenli && r.tur === 'gider'
+              ? `<div class="k" style="color:var(--ana)">düzenli gider (<b>${esc(r.duzenli)}</b>) — <b>Gider</b> ve
+                   kategorisi hazır seçildi; işaretlemeyi sen yap</div>` : ''}
             ${!r.ted && r.esles === 'catisma'
               ? `<div class="k" style="color:var(--uyari)">Adı "${esc(r.ted && r.ted.ad || r.unvan || '')}" ile
                    tutan kayıtlı bir tedarikçi var ama <b>VKN'si farklı</b> — iki ayrı firma olabilir.
@@ -8032,7 +8112,11 @@ async function tpSiniflandir(nolar){
 }
 async function tpKaydet(){
   const btn = document.getElementById('tpKaydet');
-  const secilenler = TOPLU.filter(r => r.sec && tpKaydedilebilir(r));
+  /* ⚠ Y72 · TARIH SIRASIYLA kaydedilir: sunucu duzenli hatirlatmayi EN ESKI acik aydan
+       kapatiyor (v144). Zip sirasiyla Eylul faturasi Agustos'tan once girseydi Agustos'u
+       kapatir, Agustos faturasi da Eylul'e yetismezdi (pencere) — Eylul acik kalirdi. */
+  const secilenler = TOPLU.filter(r => r.sec && tpKaydedilebilir(r))
+    .sort((a, c) => String(a.tarih).localeCompare(String(c.tarih)));
   if (!secilenler.length) return;
   /* ⚠ İŞLETME DIŞI KALICI OLMALI: yalnız ekranda işaretlemek yetmez,
      bir sonraki mutabakatta yine "gözden kaçmış" diye çıkardı.
@@ -8050,7 +8134,7 @@ async function tpKaydet(){
     if (!haricNeden.trim()){ bildir('Gerekçe zorunlu.', 'hata'); return; }
   }
   btn.disabled = true;
-  let ok = 0, haricOk = 0; const hatalar = [];
+  let ok = 0, haricOk = 0; const hatalar = [], dzKapanan = [];
   for (const r of haricler){
     try{
       await belgeHaricEkle(r.belge_no, r.firma, haricNeden.trim());
@@ -8084,6 +8168,7 @@ async function tpKaydet(){
       if (error) throw new Error(error.message);
       if (!data || !data.ok) throw new Error('sunucu onay vermedi');
       r.sonuc = 'ok'; r.sec = false; ok++;
+      if (data.kapanan_duzenli) dzKapanan.push(duzenliKapanisMetni(data.kapanan_duzenli));   // Y72
     }catch(e){
       const m = hataTr(e.message);
       r.sonuc = m; hatalar.push((r.belge_no || r.firma) + ': ' + m);
@@ -8154,6 +8239,7 @@ async function tpKaydet(){
         /* ⚠ CY · ELLE YAZILAN KDV DE KORUNUR: tpKur satiri sifirdan
            kuruyor ve okunan (yanlis) rakama geri donerdi. */
         kdv:r.kdv, kdvDurum:r.kdvDurum, kdvNot:r.kdvNot, kdvKontrol:r.kdvKontrol }; });
+    await duzenliYukle();   // Y72 · tpKur duzenli tanimlara bakiyor
     tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
     TOPLU.forEach(r => { const o = r.belge_no && onceki[r.belge_no]; if (!o) return;
       r.tur = o.tur; r.kategori = o.kategori; r.haric = o.haric;
@@ -8167,6 +8253,7 @@ async function tpKaydet(){
   tpCiz();
   mesaj('tpMsg', hatalar.length ? 'hata' : ((tazeHata || belgeHata.length) ? 'uyari' : 'ok'),
     ok + ' kaydedildi'
+    + (dzKapanan.length ? ' · ' + dzKapanan.join(', ') : '')   // Y72 · "Eylül elektrik ödemesi kapandı"
     /* ⚠ IKI SAYI AYRI: kayit girdi ama belge girmediyse kullanici BUNU
        BILMELI. Tek sayida birlestirmek "hepsi tamam" izlenimi verirdi. */
     + (belgeOk ? ' · ' + belgeOk + ' belge bağlandı' : '')
@@ -8269,6 +8356,7 @@ async function mutabakatCalistir(){
     /* CS · Toplu tablo YALNIZ sisteme girilmemiş belgelerle kurulur;
        zaten kayıtlı olanlar yukarıdaki kutularda duruyor — aynı zip
        ikinci kez yüklenirse bu tablo boş gelir. */
+    await duzenliYukle(true);   // Y72 · tpKur duzenli tanimlara bakiyor
     tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
     await tpGecmisYukle();
     tpCiz();
@@ -8415,9 +8503,401 @@ function mutabakatGir(no){
     window.scrollTo(0,0);
   }, 60);
 }
+/* =====================================================================
+   Y72 · DUZENLI ODEMELER (kira, elektrik, su, internet) · v144
+   =====================================================================
+   KULLANICI: "Temel faturaların uyarısı yok ... o karışıklığa bir son vermek gerek."
+   ⚠ HATIRLATMA YENI LISTE DEGIL: `vade` satiri (tur 'duzenli', duzenli_id dolu).
+     Ozet ve uyarilar onu mevcut yollarindan gorur. Vergiler (takvim + odenenler) ve gider
+     formundaki vade secimi GORMEZ (`tur` suzgeci) — vergi ekrani v144 varken de degismez.
+   ⚠ KAPANMA SUNUCUDA: gider kaydinda vade secilmemisse ayni sube + kategorideki en
+     eski acik duzenli vade kapanir (rpc_gider_kaydet · v144). Istemci yalniz SOYLER.
+   ⚠ MIGRATION YOKSA HICBIR SEY CIZILMEZ: tablo/kolon yoksa sorgu duser, DZ.var = false,
+     serit / kart / yonlendirme cikmaz — eski ekran birebir.
+   ⚠ KIM GORUR: sahip + sube sorumlusu (v142 bayragi; RLS: sahibe ozel kategori HARIC).
+     Bayraksiz personel hicbirini gormez (RLS bos doner, serit cizilmez). */
+const DZ = { var:null, tanimlar:[], sube:null };
+async function duzenliYukle(zorla){
+  if (!zorla && DZ.var !== null && DZ.sube === AKTIF_SUBE) return DZ;
+  if (!AKTIF_SUBE){ DZ.var = null; DZ.tanimlar = []; DZ.sube = null; return DZ; }
+  const { data, error } = await sb.from('duzenli_odeme')
+    .select('id,sube_id,kategori_id,ad,periyot,gun,aylar,uyari_gun,tedarikci_id,baslangic_ay,aktif,pasif_neden')
+    .order('ad');
+  DZ.sube = AKTIF_SUBE;
+  if (error){ DZ.var = false; DZ.tanimlar = []; return DZ; }
+  DZ.var = true; DZ.tanimlar = data || [];
+  return DZ;
+}
+/* Ozet + Vergiler ongorusu icin: duzenli vadeler ve odendiyse bagli giderin tutari.
+   Migration yoksa kolon yok → hata doner; cagiran HATAYI YUTAR (ekran dusmez). */
+function duzenliGecmisSorgu(){
+  return sb.from('vade').select('id,duzenli_id,durum,donem,odendi_tarih,gider:odendi_gider_id(tutar)')
+    .not('duzenli_id', 'is', null).eq('is_deleted', false);
+}
+/* acik duzenli vade id → ayni tanimin EN SON odenen tutari { tutar, donem }.
+   Gecmis odeme yoksa girdi YOK — sifir yazilmaz (vadeOngoru kurali). */
+function duzenliOngoruHaritasi(res){
+  const m = new Map();
+  if (!res || res.error || !Array.isArray(res.data)) return m;
+  const son = new Map();
+  for (const v of res.data){
+    if (v.durum !== 'odendi' || !v.gider || v.gider.tutar == null) continue;
+    const e = son.get(v.duzenli_id);
+    if (!e || String(v.odendi_tarih || '') > String(e.tarih || ''))
+      son.set(v.duzenli_id, { tutar:+v.gider.tutar, tarih:v.odendi_tarih, donem:v.donem });
+  }
+  for (const v of res.data) if (v.durum === 'acik' && son.has(v.duzenli_id)) m.set(v.id, son.get(v.duzenli_id));
+  return m;
+}
+function duzenliGit(){ GIDER_BOLUM = 'temel'; sekmeAc('gider'); }
+let DZ_KARTA_GIT = false;
+function duzenliTanimlaGit(){ DZ_KARTA_GIT = true; sekmeAc('yonetim'); }
+/* "Eylül elektrik ödemesi kapandı" — sunucunun dondurdugu kapanan_duzenli'den. */
+function duzenliKapanisMetni(k){
+  if (!k || !k.donem) return '';
+  return ayKisa(k.donem) + ' ' + String(k.ad || '').toLocaleLowerCase('tr') + ' ödemesi kapandı';
+}
+
+/* ---- D · GIDER EKRANI SERIDI · "Bu ayın düzenli ödemeleri" (aktif sube) ----
+   ✓ girildi (tarih) / bekliyor (son gun) / GEÇTİ. Onceki aylardan ACIK kalan da
+   gorunur (ay adiyla). Takvimdeki KTU kirasi (yalniz `kira` kodu) o ay aciksa
+   SAHIPTE ayni seritte; vergi kodlari GORUNMEZ. Tanim yoksa sahipte tek satir
+   "Düzenli ödeme tanımla ›", personelde hic cizilmez. TOPLAM'da sube belirsiz: yok. */
+let DZ_SERIT = [];
+async function duzenliSeritCiz(){
+  const el = document.getElementById('gdDuzenli'); if (!el) return;
+  const sahip = !!PROFIL && PROFIL.rol === 'owner';
+  if ((!sahip && !subeVerisiAcik()) || !AKTIF_SUBE || toplamKipi()){ el.innerHTML = ''; return; }
+  const d = await duzenliYukle(true);
+  if (!document.getElementById('gdDuzenli')) return;        // bu arada ekran degisti
+  if (!d.var){ el.innerHTML = ''; return; }
+  if (!d.tanimlar.some(t => t.aktif)){
+    el.innerHTML = sahip ? `<div class="kart dz-serit"><button type="button" class="dz-sr" onclick="duzenliTanimlaGit()">
+        <span class="dz-ad">Kira, elektrik, su, internet için hatırlatma yok</span>
+        <span class="dz-drm" style="color:var(--ana)">Düzenli ödeme tanımla ›</span></button></div>` : '';
+    return;
+  }
+  const b = bugun(), ay = b.slice(0,7), ayBas = ay + '-01', aySonu = aySon(ay);
+  const [dv, kv, uv] = await Promise.all([
+    sb.from('vade').select('id,donem,vade_tarihi,durum,odendi_tarih,duzenli_id')
+      .not('duzenli_id', 'is', null).eq('is_deleted', false).in('durum', ['acik','odendi'])
+      .or(`and(vade_tarihi.gte.${ayBas},vade_tarihi.lte.${aySonu}),and(durum.eq.acik,vade_tarihi.lt.${ayBas})`)
+      .order('vade_tarihi'),
+    sahip ? sb.from('vade').select('id,aciklama,vade_tarihi')
+      .eq('takvim_kod', 'kira').eq('durum', 'acik').eq('is_deleted', false).lte('vade_tarihi', aySonu).order('vade_tarihi')
+          : Promise.resolve({ data: [] }),
+    /* UFUK SESSIZCE BITMESIN: sahip Yonetim'e girmese de her ay buraya girer — ileri
+       satirlarin sonu 90 gunden yakinsa bu seritte de soylenir (Yonetim kartiyla ayni cumle). */
+    sahip ? sb.from('vade').select('duzenli_id,vade_tarihi')
+      .not('duzenli_id', 'is', null).eq('is_deleted', false).gte('vade_tarihi', b)
+          : Promise.resolve({ data: [] })
+  ]);
+  if (!document.getElementById('gdDuzenli')) return;
+  if (dv.error){ el.innerHTML = ''; return; }
+  const tanim = new Map(d.tanimlar.map(t => [t.id, t]));
+  DZ_SERIT = [];
+  for (const v of dv.data || []){
+    const t = tanim.get(v.duzenli_id); if (!t) continue;
+    DZ_SERIT.push({ id:v.id, ad:t.ad, kategori_id:t.kategori_id, donem:v.donem, vade_tarihi:v.vade_tarihi,
+                    durum:v.durum, odendi_tarih:v.odendi_tarih, takvim:false });
+  }
+  const kiraKat = (KATALOG.kategoriler || []).find(k => k.ad === 'Kira');
+  for (const v of (kv && !kv.error ? kv.data : []) || [])
+    DZ_SERIT.push({ id:v.id, ad:'Kira (ödeme takvimi)', kategori_id: kiraKat ? kiraKat.id : null,
+                    donem:String(v.vade_tarihi).slice(0,7), vade_tarihi:v.vade_tarihi, durum:'acik', takvim:true });
+  DZ_SERIT.sort((a, c) => String(a.vade_tarihi).localeCompare(String(c.vade_tarihi)));
+  const satir = (x) => {
+    if (x.durum === 'odendi') return `<div class="dz-sr"><span class="dz-ad">${esc(x.ad)}</span>
+      <span class="dz-drm dz-ok">✓ girildi ${BB_GG(String(x.odendi_tarih || ''))}</span></div>`;
+    const gecti = x.vade_tarihi < b;
+    return `<button type="button" class="dz-sr" onclick="duzenliDoldur('${x.id}')">
+      <span class="dz-ad">${esc(x.ad)}${x.donem < ay ? ' <span class="k">(' + esc(ayAdi(x.donem)) + ')</span>' : ''}</span>
+      <span class="dz-drm ${gecti ? 'dz-gec' : 'dz-bek'}">${gecti ? 'GEÇTİ · ' : 'bekliyor · son gün '}${BB_GG(x.vade_tarihi)}</span></button>`;
+  };
+  el.innerHTML = `<div class="kart dz-serit">
+    <div class="dz-bas"><span>BU AYIN DÜZENLİ ÖDEMELERİ</span>${sahip
+      ? '<button type="button" class="bo-btn" onclick="duzenliTanimlaGit()">Tanımlar</button>' : ''}</div>
+    ${DZ_SERIT.length ? DZ_SERIT.map(satir).join('') : '<div class="k" style="padding:6px 0">Bu ay beklenen düzenli ödeme yok.</div>'}
+    ${DZ_SERIT.some(x => x.durum === 'acik')
+      ? '<div class="k" style="margin-top:4px">Bekleyene dokun: kategori ve açıklama dolar. Kaydedince hatırlatma kendiliğinden kapanır.</div>' : ''}
+    ${duzenliUfukUyari(sahip ? uv : null, d.tanimlar, b)}
+  </div>`;
+}
+/* Aktif tanimlarin EN ERKEN biten ileri hatirlatmasi 90 gunden yakinsa uyari + "Uzat".
+   Hic ileri satiri kalmayan tanim "süresi doldu" der. Sorgu dustuyse SUSAR (tahmin yok). */
+function duzenliUfukUyari(uv, tanimlar, b){
+  if (!uv || uv.error || !Array.isArray(uv.data)) return '';
+  const son = {};
+  uv.data.forEach(v => { if (!son[v.duzenli_id] || v.vade_tarihi > son[v.duzenli_id]) son[v.duzenli_id] = v.vade_tarihi; });
+  const aktif = tanimlar.filter(t => t.aktif);
+  if (!aktif.length) return '';
+  const bitmis = aktif.some(t => !son[t.id]);
+  const enErken = aktif.map(t => son[t.id]).filter(Boolean).sort()[0];
+  const kalan = enErken ? Math.round((new Date(enErken + 'T00:00') - new Date(b + 'T00:00')) / 864e5) : 0;
+  if (!bitmis && kalan > 90) return '';
+  const dugme = '<button type="button" class="btn2" style="display:block;margin-top:8px" onclick="duzenliUzat()">Hatırlatmaları uzat ›</button>';
+  return `<div class="uyari-orta" style="margin:8px 0 0">${bitmis
+    ? 'Bir düzenli ödemenin hatırlatmaları bitti — sonraki aylar için üretilmedi.'
+    : 'Hatırlatmalar ' + new Date(enErken + 'T00:00').toLocaleDateString('tr-TR') + '’ye kadar üretildi — ' + kalan + ' gün kaldı.'}${dugme}</div>`;
+}
+/* Bekleyene dokununca: kategori + aciklama ("Eylül 2026 elektrik"). Takvim kirasinda
+   sahibin "vadeye mi ait?" seciminde o vade secilir — v110 yolu kapatir. */
+function duzenliDoldur(id){
+  const x = DZ_SERIT.find(v => v.id === id); if (!x) return;
+  const kat = document.getElementById('gdKategori');
+  if (kat && x.kategori_id && [...kat.options].some(o => o.value === x.kategori_id)){ kat.value = x.kategori_id; gdKatDegisti(); }
+  const ac = document.getElementById('gdAciklama');
+  if (ac) ac.value = ayAdi(x.donem) + ' ' + String(x.takvim ? 'kira' : x.ad).toLocaleLowerCase('tr');
+  /* Duzenli satirda vade secimi BOSALIR: onceden secilmis takvim vadesi (kira) kalsaydi
+     elektrik gideri kirayi kapatirdi. Duzenliyi sunucu p_vade'siz kapatir. */
+  const s = document.getElementById('gdVade');
+  if (s){
+    const hedef = x.takvim && [...s.options].some(o => o.value === x.id) ? x.id : '';
+    if (s.value !== hedef){ s.value = hedef; if (s.onchange) s.onchange(); }
+  }
+  const t = document.getElementById('gdTutar');
+  if (t){ t.scrollIntoView({ block:'center', behavior:'auto' }); t.focus(); }
+}
+
+/* ---- F · FATURA → GIDER YONLENDIRMESI ----
+   Secilen/okunan tedarikci aktif subenin bir duzenli tanimina bagliysa soyler.
+   ⚠ ENGELLEMEZ (gdKatDegisti kalibi, uyari-orta). Mevcut faturayi duzenlerken cikmaz. */
+function alDuzenliKontrol(){
+  const el = document.getElementById('alDuzenliNot'); if (!el) return;
+  const sel = document.getElementById('alTedarikci');
+  const t = (!AL_DUZENLE && DZ.var && sel && sel.value)
+    ? DZ.tanimlar.find(x => x.aktif && x.tedarikci_id === sel.value && x.sube_id === AKTIF_SUBE) : null;
+  if (!t){ el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="uyari-orta" style="margin:8px 0 0">Bu firma düzenli gider (<b>${esc(t.ad)}</b>).
+    Fatura bölümü sattığın mal içindir. Yine de buraya kaydedebilirsin.
+    <button type="button" class="btn2" style="display:block;margin-top:8px" onclick="alGidereGec('${t.id}')">Gider'e geç ›</button></div>`;
+}
+function alKdvToplamOku(){
+  let k = 0;
+  document.querySelectorAll('#alKdvSatirlari .kdv-satir').forEach(d => {
+    const p = paraOku(document.getElementById('alKdvT_' + d.id.split('_')[1]));
+    if (p.ok) k += p.deger;
+  });
+  return +k.toFixed(2);
+}
+/* ⚠ mutabakatGir kalibi: bolum DOGRUDAN degisir, taslak sorusu sorulmaz — dosya,
+     tutar ve KDV Gider formuna TASINIYOR, kaybolan bir sey yok. */
+function alGidereGec(tid){
+  const t = DZ.tanimlar.find(x => x.id === tid); if (!t) return;
+  const f = document.getElementById('alFoto');
+  const dosya = f && f.files && f.files[0] ? f.files[0] : null;
+  const toplam = paraDeger('alToplam'), kdv = alKdvToplamOku();
+  const tarih = (document.getElementById('alTarih') || {}).value || bugun();
+  GIDER_BOLUM = 'temel'; formTemiz(); vGider();
+  setTimeout(() => {
+    const g = id => document.getElementById(id);
+    if (dosya && g('gdFoto')){ const dt = new DataTransfer(); dt.items.add(dosya); g('gdFoto').files = dt.files; }
+    if (g('gdTarih')) g('gdTarih').value = tarih;
+    if (g('gdKategori') && [...g('gdKategori').options].some(o => o.value === t.kategori_id)){
+      g('gdKategori').value = t.kategori_id; gdKatDegisti(); }
+    const tlYaz = v => v.toLocaleString('tr-TR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    if (g('gdTutar') && toplam > 0) g('gdTutar').value = tlYaz(toplam);
+    if (g('gdKdvTutar') && kdv > 0) g('gdKdvTutar').value = tlYaz(kdv);
+    if (g('gdAciklama')) g('gdAciklama').value = ayAdi(tarih.slice(0,7)) + ' ' + t.ad.toLocaleLowerCase('tr');
+    const d = g('gdOkuDurum');
+    if (d){ d.className = 'oku-durum'; d.textContent = 'Fatura bölümünden taşındı — tutarı ve KDV’yi belgeyle karşılaştır.'; }
+    window.scrollTo(0, 0);
+  }, 60);
+}
+/* Ay Sonu toplu giris: firmasi duzenli tanima bagli satir. */
+function tpDuzenliTanim(ted){
+  return ted && DZ.var ? DZ.tanimlar.find(x => x.aktif && x.tedarikci_id === ted.id && x.sube_id === AKTIF_SUBE) || null : null;
+}
+
+/* ---- A · YONETIM · DUZENLI ODEMELER KARTI (yalniz sahip) ----
+   Satir: sube · kategori · ad · siklik · son odeme gunu · (3 ayda/yilda) aylar ·
+   kac gun once uyarir · istege bagli firma · baslangic ayi · aktif. Ekle / duzenle /
+   gerekceyle pasiflestir (fiziksel silme YOK) / yeniden ac. Uretim ufku YAZAR. */
+let DZ_DUZENLE = null;           // duzenlenen tanim (null = yeni)
+const DZ_HATA = {
+  KIRA_TAKVIMDE: 'Bu şubenin kirası zaten Ödeme Takvimi’nden (kira taksiti) hatırlatılıyor. Aynı ödeme için ikinci hatırlatma eklenmedi.',
+  AYLAR_GECERSIZ: 'Aylar geçersiz — 3 ayda birde dört ay, yılda birde tek ay seçilir.',
+  GUN_GECERSIZ: 'Son ödeme günü 1–31 arasında olmalı.', AD_GECERSIZ: 'Ad 1–60 harf olmalı.',
+  KATEGORI_YOK: 'Kategori bulunamadı (pasif olabilir).', TEDARIKCI_YOK: 'Firma bulunamadı.',
+  SUBE_YOK: 'Şube bulunamadı.', SUBE_DEGISMEZ: 'Tanımın şubesi değiştirilemez — pasifleştirip yenisini ekle.',
+  TANIM_YOK: 'Tanım bulunamadı — ekranı yenile.', TANIM_PASIF: 'Pasif tanım düzenlenemez — önce yeniden aç.',
+  NEDEN_ZORUNLU: 'Gerekçe yazmak zorunlu.', YETKI_YOK: 'Bu işlem yalnız yöneticide.',
+  BASLANGIC_GECERSIZ: 'Başlangıç ayı geçersiz.', UYARI_GUN_GECERSIZ: 'Uyarı günü 0–60 arasında olmalı.',
+  PERIYOT_GECERSIZ: 'Sıklık seçilmedi.'
+};
+const duzenliHata = (m) => { const k = Object.keys(DZ_HATA).find(x => String(m || '').includes(x)); return k ? DZ_HATA[k] : hataTr(m); };
+const dzAy = (m) => AY_ADI[m - 1] || '';
+function dzSiklikMetni(t){
+  if (t.periyot === 'aylik') return 'her ay · son gün ' + t.gun;
+  const aylar = (t.aylar || []).slice().sort((a, b) => a - b).map(dzAy).join(', ');
+  return (t.periyot === 'ucaylik' ? '3 ayda bir' : 'yılda bir') + ' (' + aylar + ') · son gün ' + t.gun;
+}
+function dzAyAlaniHtml(periyot, t){
+  if (periyot === 'ucaylik'){
+    const ilk = t && t.periyot === 'ucaylik' && t.aylar && t.aylar.length ? ((Math.min(...t.aylar) - 1) % 3) + 1 : 1;
+    return `<label>Hangi aylarda</label><select id="dzIlkAy">${[1,2,3].map(m =>
+      `<option value="${m}"${m === ilk ? ' selected' : ''}>${[0,3,6,9].map(k => dzAy(m + k)).join(' · ')}</option>`).join('')}</select>`;
+  }
+  if (periyot === 'yillik'){
+    const ay = t && t.periyot === 'yillik' && t.aylar && t.aylar.length ? t.aylar[0] : +bugun().slice(5,7);
+    return `<label>Hangi ay</label><select id="dzYilAy">${AY_ADI.map((a, i) =>
+      `<option value="${i + 1}"${i + 1 === ay ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
+  }
+  return '';
+}
+function dzPeriyotDegisti(){
+  const p = document.getElementById('dzPeriyot'), a = document.getElementById('dzAyAlan');
+  if (p && a) a.innerHTML = dzAyAlaniHtml(p.value, DZ_DUZENLE ? DZ.tanimlar.find(x => x.id === DZ_DUZENLE) : null);
+}
+async function duzenliKartCiz(){
+  const el = document.getElementById('duzenliKart'); if (!el) return;
+  if (!PROFIL || PROFIL.rol !== 'owner'){ el.innerHTML = ''; return; }
+  const d = await duzenliYukle(true);
+  if (!document.getElementById('duzenliKart')) return;
+  if (!d.var){ el.innerHTML = ''; return; }              // v144 yoksa kart YOK — eski ekran birebir
+  const ids = d.tanimlar.map(t => t.id), ufuk = {};
+  if (ids.length){
+    const r = await sb.from('vade').select('duzenli_id,vade_tarihi').in('duzenli_id', ids).eq('is_deleted', false);
+    (r.data || []).forEach(v => { if (!ufuk[v.duzenli_id] || v.vade_tarihi > ufuk[v.duzenli_id]) ufuk[v.duzenli_id] = v.vade_tarihi; });
+  }
+  if (!document.getElementById('duzenliKart')) return;
+  const trT = (t) => new Date(t + 'T00:00').toLocaleDateString('tr-TR');
+  const katAd = (id) => ((KATALOG.kategoriler || []).find(k => k.id === id) || {}).ad || '—';
+  const tedAd = (id) => ((KATALOG.tedarikciler || []).find(x => x.id === id) || {}).ad || '—';
+  const aktifler = d.tanimlar.filter(t => t.aktif);
+  /* UFUK SESSIZCE BITMEZ: aktif tanimlarin EN ERKEN biten hatirlatmasi yazar;
+     90 gunden az kaldiysa uyari + "Uzat" (ertesi yilin sonuna kadar uretir). */
+  const enErken = aktifler.map(t => ufuk[t.id]).filter(Boolean).sort()[0] || null;
+  const kalan = enErken ? Math.round((new Date(enErken + 'T00:00') - new Date(bugun() + 'T00:00')) / 864e5) : null;
+  const ufukHtml = !enErken ? ''
+    : kalan <= 90
+      ? `<div class="uyari-orta">Hatırlatmalar ${trT(enErken)}’ye kadar üretildi — ${Math.max(kalan, 0)} gün kaldı.
+           <button type="button" class="btn2" style="display:block;margin-top:8px" onclick="duzenliUzat()">Hatırlatmaları uzat ›</button></div>`
+      : `<div class="bilgi-not" style="margin:0 0 8px">Hatırlatmalar ${trT(enErken)}’ye kadar üretildi.</div>`;
+  const satir = (t) => `<div class="dz-tanim">
+      <div class="b">${esc(t.ad)}${t.aktif ? '' : ' <span class="rozet rz-gri">pasif</span>'}${subeEtiketi(t.sube_id)}</div>
+      <div class="k">${esc(katAd(t.kategori_id))} · ${esc(dzSiklikMetni(t))} · ${t.uyari_gun} gün önce uyarır${
+        t.tedarikci_id ? ' · firma: ' + esc(tedAd(t.tedarikci_id)) : ''} · başlangıç ${esc(ayAdi(t.baslangic_ay))}</div>
+      ${t.aktif
+        ? `<div class="k">hatırlatmalar ${ufuk[t.id] ? trT(ufuk[t.id]) + '’ye kadar üretildi' : 'üretilmedi'}</div>`
+        : `<div class="k">pasif — ${esc(t.pasif_neden || '')}</div>`}
+      <div class="dz-eylem">${t.aktif
+        ? `<button type="button" class="btn2" onclick="duzenliDuzenle('${t.id}')">Düzenle</button>
+           <button type="button" class="btn2" onclick="duzenliPasif('${t.id}')">Pasifleştir</button>`
+        : `<button type="button" class="btn2" onclick="duzenliAc('${t.id}')">Yeniden aç</button>`}</div>
+    </div>`;
+  const k = DZ_DUZENLE ? d.tanimlar.find(x => x.id === DZ_DUZENLE) : null;
+  const periyot = k ? k.periyot : 'aylik';
+  const subeAlani = k ? `<div class="k" style="margin-top:6px">Şube: <b>${esc((SUBELER.find(s => s.id === k.sube_id) || {}).ad || '—')}</b> (değiştirilemez)</div>`
+    : toplamKipi() ? `<label>Şube</label><select id="dzSube">${SUBELER.map(s => `<option value="${s.id}">${esc(s.ad)}</option>`).join('')}</select>` : '';
+  el.innerHTML = `<div class="kart">
+    <div class="kbaslik">Düzenli Ödemeler (kira, elektrik, su, internet)</div>
+    <div class="bilgi-not" style="margin:0 0 8px">Her ay (ya da 3 ayda / yılda bir) ödenen giderler. Günü yaklaşınca
+      uyarı çıkar; Giderler’de o şubede aynı kategoride gider girilince o ayın hatırlatması
+      <b>kendiliğinden kapanır</b>. Kira takvimde zaten hatırlatılıyorsa burada tekrar tanımlanmaz.</div>
+    ${ufukHtml}
+    ${d.tanimlar.length ? d.tanimlar.map(satir).join('') : '<div class="bilgi-not">Henüz düzenli ödeme yok.</div>'}
+    <div class="yy-bas" id="dzForm" style="margin-top:14px">${k ? 'DÜZENLE · ' + esc(k.ad) : 'YENİ DÜZENLİ ÖDEME'}</div>
+    ${subeAlani}
+    <label>Ad</label><input type="text" id="dzAd" maxlength="60" placeholder="örn: Elektrik" value="${k ? esc(k.ad) : ''}">
+    <label>Gider kategorisi</label>
+    <select id="dzKat">${(KATALOG.kategoriler || []).map(c =>
+      `<option value="${c.id}"${k && k.kategori_id === c.id ? ' selected' : ''}>${esc(c.ad)}</option>`).join('')}</select>
+    <div class="satir">
+      <div><label>Ne sıklıkla</label><select id="dzPeriyot" onchange="dzPeriyotDegisti()">
+        ${[['aylik','Her ay'],['ucaylik','3 ayda bir'],['yillik','Yılda bir']].map(([v, a]) =>
+          `<option value="${v}"${v === periyot ? ' selected' : ''}>${a}</option>`).join('')}</select></div>
+      <div><label>Son ödeme günü</label><input type="number" id="dzGun" min="1" max="31" inputmode="numeric" value="${k ? k.gun : 20}"></div>
+    </div>
+    <div id="dzAyAlan">${dzAyAlaniHtml(periyot, k)}</div>
+    <div class="satir">
+      <div><label>Kaç gün önce uyarsın</label><input type="number" id="dzUyari" min="0" max="60" inputmode="numeric" value="${k ? k.uyari_gun : 5}"></div>
+      <div><label>Başlangıç ayı</label><input type="month" id="dzBas" value="${k ? k.baslangic_ay : bugun().slice(0,7)}"></div>
+    </div>
+    <label>Firma (isteğe bağlı — faturası bu firmadan gelir)</label>
+    <select id="dzTed"><option value="">— yok —</option>${(KATALOG.tedarikciler || []).map(x =>
+      `<option value="${x.id}"${k && k.tedarikci_id === x.id ? ' selected' : ''}>${esc(x.ad)}</option>`).join('')}</select>
+    <div class="bilgi-not" style="margin:6px 0 0">Kısa ayda son ödeme günü ayın son günü olur (31 → Şubat’ta 28).
+      Başlangıç ayından beri girilmiş, o kategorideki giderler hatırlatmalarla kendiliğinden eşleşir.</div>
+    <button class="btn" id="dzKaydet" onclick="duzenliKaydet()">${k ? 'Değişiklikleri kaydet' : 'Düzenli ödemeyi ekle'}</button>
+    ${k ? '<button type="button" class="btn2" style="width:100%;margin-top:6px" onclick="duzenliVazgec()">Vazgeç</button>' : ''}
+    <div class="hata-msg" id="dzMsg"></div>
+  </div>`;
+  if (DZ_KARTA_GIT){ DZ_KARTA_GIT = false; el.scrollIntoView({ block:'start', behavior:'auto' }); }
+}
+function duzenliDuzenle(id){
+  DZ_DUZENLE = id;
+  duzenliKartCiz().then(() => { const f = document.getElementById('dzForm'); if (f) f.scrollIntoView({ block:'start', behavior:'auto' }); });
+}
+function duzenliVazgec(){ DZ_DUZENLE = null; duzenliKartCiz(); }
+async function duzenliKaydet(){
+  const g = (id) => document.getElementById(id);
+  const k = DZ_DUZENLE ? DZ.tanimlar.find(x => x.id === DZ_DUZENLE) : null;
+  const sube = k ? k.sube_id : (toplamKipi() ? (g('dzSube') || {}).value : AKTIF_SUBE);
+  const ad = (g('dzAd').value || '').trim();
+  const periyot = g('dzPeriyot').value;
+  const gun = parseInt(g('dzGun').value, 10), uyari = parseInt(g('dzUyari').value, 10);
+  const bas = g('dzBas').value;
+  if (!ad){ mesaj('dzMsg','hata','Ad yaz — örn: Elektrik.'); return; }
+  if (!sube){ mesaj('dzMsg','hata','Şube seç.'); return; }
+  if (!(gun >= 1 && gun <= 31)){ mesaj('dzMsg','hata', DZ_HATA.GUN_GECERSIZ); return; }
+  if (!(uyari >= 0 && uyari <= 60)){ mesaj('dzMsg','hata', DZ_HATA.UYARI_GUN_GECERSIZ); return; }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(bas || '')){ mesaj('dzMsg','hata', DZ_HATA.BASLANGIC_GECERSIZ); return; }
+  let aylar = null;
+  if (periyot === 'ucaylik'){ const m = +g('dzIlkAy').value; aylar = [0,3,6,9].map(x => ((m - 1 + x) % 12) + 1); }
+  if (periyot === 'yillik') aylar = [+g('dzYilAy').value];
+  const btn = g('dzKaydet'); if (btn){ btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
+  const { data, error } = await sb.rpc('rpc_duzenli_kaydet', {
+    p_id: k ? k.id : null, p_sube: sube, p_kategori: g('dzKat').value, p_ad: ad, p_periyot: periyot,
+    p_gun: gun, p_aylar: aylar, p_uyari_gun: uyari, p_tedarikci: g('dzTed').value || null, p_baslangic_ay: bas });
+  if (error){
+    if (btn){ btn.disabled = false; btn.textContent = k ? 'Değişiklikleri kaydet' : 'Düzenli ödemeyi ekle'; }
+    mesaj('dzMsg','hata', duzenliHata(error.message)); return;
+  }
+  DZ_DUZENLE = null;
+  await duzenliKartCiz();
+  const u = data && data.ufuk ? new Date(data.ufuk + 'T00:00').toLocaleDateString('tr-TR') + '’ye kadar' : '';
+  mesaj('dzMsg','ok', (k ? 'Güncellendi ✓' : 'Eklendi ✓')
+    + (data.eklenen ? ' · ' + data.eklenen + ' hatırlatma üretildi' : '')
+    + (data.guncellenen ? ' · ' + data.guncellenen + ' ileri hatırlatma güncellendi' : '')
+    + (data.iptal ? ' · ' + data.iptal + ' ay takvimden çıktı (iptal, silinmedi)' : '')
+    + (data.eslesen ? ' · ' + data.eslesen + ' eski ödeme eşleşti' : '')
+    + (u ? ' · ' + u : ''));
+}
+async function duzenliPasif(id){
+  const t = DZ.tanimlar.find(x => x.id === id); if (!t) return;
+  const neden = await nedenSor(`"${t.ad}" pasifleştirilecek`,
+    'Neden? (örn: abonelik kapandı) — ileri tarihli hatırlatmalar iptal edilir, silinmez', 1);
+  if (neden === null) return;
+  if (!neden.trim()){ bildir(DZ_HATA.NEDEN_ZORUNLU, 'hata'); return; }
+  const { data, error } = await sb.rpc('rpc_duzenli_pasif', { p_id: id, p_neden: neden.trim() });
+  if (error){ mesaj('dzMsg','hata', duzenliHata(error.message)); return; }
+  if (DZ_DUZENLE === id) DZ_DUZENLE = null;
+  await duzenliKartCiz();
+  mesaj('dzMsg','ok', `"${t.ad}" pasifleştirildi ✓ · ${data.iptal} ileri hatırlatma iptal edildi`);
+}
+async function duzenliAc(id){
+  const t = DZ.tanimlar.find(x => x.id === id); if (!t) return;
+  const { data, error } = await sb.rpc('rpc_duzenli_ac', { p_id: id });
+  if (error){ mesaj('dzMsg','hata', duzenliHata(error.message)); return; }
+  await duzenliKartCiz();
+  mesaj('dzMsg','ok', `"${t.ad}" yeniden açıldı ✓ · ${data.acilan} hatırlatma geri açıldı`
+    + (data.eklenen ? ' · ' + data.eklenen + ' yeni hatırlatma' : ''));
+}
+/* Yonetim kartindan VE Giderler seridinden cagrilir; mesaj hangisi ekrandaysa oraya. */
+async function duzenliUzat(){
+  const { data, error } = await sb.rpc('rpc_duzenli_uret', { p_sube: toplamKipi() ? null : AKTIF_SUBE });
+  const kart = !!document.getElementById('dzMsg');
+  if (error){ kart ? mesaj('dzMsg','hata', duzenliHata(error.message)) : bildir(duzenliHata(error.message), 'hata'); return; }
+  const m = 'Uzatıldı ✓ · ' + data.eklenen + ' hatırlatma üretildi';
+  if (kart){ await duzenliKartCiz(); mesaj('dzMsg','ok', m); }
+  else { await duzenliSeritCiz(); bildir(m, 'ok'); }
+}
+
 function gdTemel(){
   const katlar = KATALOG.kategoriler.filter(k=>k.ad!=='Fiş/Gündelik');
   document.getElementById('gdIcerik').innerHTML = `
+    ${/* Y72 · "Bu ayın düzenli ödemeleri" seridi (duzenliSeritCiz). Migration yoksa BOS. */''}<div id="gdDuzenli"></div>
     <div class="kart">
       <div class="kbaslik">Temel Gider (elektrik, su, tüp, internet...)</div>
       ${tarihSecici('gdTarih')}
@@ -8449,6 +8929,7 @@ function gdTemel(){
   gdVadeDoldur();
   gdKatDegisti();        // ilk cizimde de secili kategoriye bakilir
   giderListe();
+  duzenliSeritCiz();     // Y72
 }
 /* ===== Y3 FAZ 1-c · MAL ALIMI YONLENDIRMESI =====
    KULLANICININ KURALI (kendi sozleri): "Bunu musteriye satiyor muyum,
@@ -8505,8 +8986,11 @@ async function gdMalAlimina(){
 let GD_VADELER = [];
 async function gdVadeDoldur(){
   const s = document.getElementById('gdVade'); if (!s) return;
+  /* ⚠ Y72 · duzenli odeme (v144) bu listeye GIRMEZ: her ayin satiri gelecek yilin sonuna
+       kadar uretiliyor, liste tasardi. O hatirlatma p_vade'siz kapanir (sunucu, en eski ay);
+       takvimdeki kira burada kalir. `tur` NOT NULL — v144 oncesi liste birebir. */
   const { data } = await sb.from('v_vade_liste')
-    .select('id,aciklama,vade_tarihi,tutar').eq('durum','acik')
+    .select('id,aciklama,vade_tarihi,tutar').eq('durum','acik').neq('tur','duzenli')
     .eq('sube_id', AKTIF_SUBE).order('vade_tarihi');
   GD_VADELER = data || [];
   s.innerHTML = '<option value="">Hayır — vadeye bağlı değil</option>' +
@@ -8821,6 +9305,9 @@ async function giderKaydet(mod){
   if (data && data.ok){ ekranTaslakSil();   // ADIM 17 · basarida taslak DUSER
     ['gdTutar','gdKdvTutar','gdAciklama'].forEach(i=>document.getElementById(i).value=''); document.getElementById('gdFoto').value=''; document.getElementById('gdKasadan').checked=false;
     if (vadeId){ const n = document.getElementById('gdVadeNot'); if (n) n.hidden = true; gdVadeDoldur(); }  // kapanan vade listeden duser
+    /* Y72 · sunucu duzenli vadeyi kapattiysa SOYLER ve serit tazelenir. */
+    if (data.kapanan_duzenli){ mesaj('gdMsg','ok','Kaydedildi ✓ · ' + duzenliKapanisMetni(data.kapanan_duzenli)); gdVadeDoldur(); }
+    duzenliSeritCiz();
     giderListe(); }
 }
 async function giderListe(){
@@ -8945,6 +9432,7 @@ function firmaBilgiGoster(){
     ${t.telefon ? ' · <a href="tel:'+esc(t.telefon)+'" style="color:var(--ana);font-weight:800;text-decoration:none">📞 ARA</a>' : ''}
     ${t.vergi_no ? '<br>VKN: ' + esc(t.vergi_no) + (t.vergi_dairesi ? ' · ' + esc(t.vergi_dairesi) + ' V.D.' : '') : ''}
     ${t.adres ? '<br>' + esc(t.adres) : ''}</div>` : '';
+  alDuzenliKontrol();   // Y72 · secilen/okunan firma duzenli gidere bagli mi
 }
 /* ===== FATURA DÜZENLEME — kayıt silinmez, üzerine yazılır ===== */
 let AL_DUZENLE = null;   // {id, foto}
@@ -9013,6 +9501,7 @@ function gdFatura(){
       <select id="alTedarikci" onchange="firmaBilgiGoster()">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
       ${KATALOG.tedarikciler.length===0?'<div class="bilgi-not">Firma yok — önce Tedarikçi sekmesinden ekleyin.</div>':''}
       <div id="firmaBilgi"></div>
+      ${/* Y72 · firma duzenli gider tanimina bagliysa Gider'e yonlendirme (engellemez) */''}<div id="alDuzenliNot"></div>
       ${tarihSecici('alTarih')}
       <label>Belge Türü</label>
       <select id="alTur" onchange="alTurNot()"><option value="fatura">Fatura</option><option value="irsaliye">İrsaliye (mal geldi, faturası sonra)</option><option value="bilgi_fisi">Bilgi Fişi</option></select>
@@ -9066,6 +9555,7 @@ function gdFatura(){
   firmaBilgiGoster(); alTurNot(); alOdemeDurum();
   if (KATALOG.urunler.length>0) kalemEkle();
   alisListe();
+  duzenliYukle(true).then(alDuzenliKontrol);   // Y72
 }
 /* ===== FATURA KDV DÖKÜMÜ — bir belgede birden çok oran olabilir ===== */
 let AL_KDV_SAYAC = 0;
@@ -12324,6 +12814,65 @@ const BG_TUR_AD = { z_raporu:'Z Raporu', pos_slip:'POS Slip', fatura:'Fatura',
                     gider:'Gider', vergi:'Vergi/SGK', mutabakat:'POS Mutabakatı' };
 let BG_ARA = '';
 let BG_YUKLU_AY = null;   // arama tazelemesinde sorgu atmamak icin
+/* ==================================================================
+   Y72 · ARAMA TUM AYLARDA
+   ==================================================================
+   KULLANICI: "Yüklediğim belgeleri aradığımda bulabilir miyim?" OLCULDU: arama
+   yalniz YUKLENMIS AYIN listesinde calisiyordu, baska ayi bulmuyordu.
+   ⚠ KAYNAK: arama kutusunda metin varken TUM AYLAR (v_belgeler + banka_mutabakat),
+     temizlenince ay gorunumu aynen geri gelir. Bir kez cekilir, belge yuklenince bosalir.
+   ⚠ 1000 SATIRDA SESSIZ KESILME YOK: yedekte 2,5 ayda 331 satir, yillik yukleme
+     `max_rows = 1000`i (supabase/config.toml; canli degeri bilinmiyor) gecer. Sayfali
+     cekilir; ilk sayfa count:'exact' ile TOPLAMI soyler ve sunucu sayfa basina kac satir
+     donduruyorsa kalinan yerden devam edilir. Toplam tutmazsa arama TUM AYLARDA
+     YAPILMAZ, bu ayda yapilir ve ekranda NEDENIYLE yazar.
+   ⚠ Turkce katlama AYNEN (bgDesen = desenAd(trDuz(...))): "internet" → "İnternet",
+     "agustos" → "Ağustos". */
+let BG_TUM = null, BG_TUM_SUBE = null, BG_TUM_HATA = null, BG_TUM_SOZ = null;
+async function bgTumYukle(){
+  if (BG_TUM && BG_TUM_SUBE === AKTIF_SUBE) return BG_TUM;
+  if (BG_TUM_SOZ) return BG_TUM_SOZ;
+  const sube = AKTIF_SUBE;
+  BG_TUM_SOZ = (async () => {
+    /* ⚠ SIRA TAM: (tur, kayit_id) gorunumde tekil (her dal kendi tablosunun kimligi) —
+         sayfa sinirinda satir kaymaz. Toplam gelmezse BOS SAYFAYA kadar okunur
+         ("sayfa 1000'den kisa → bitti" varsayimi max_rows 500'de sessiz keserdi). */
+    const SAYFA = 1000; let hepsi = [], toplam = null, bitti = false;
+    for (let i = 0; i < 200 && !bitti; i++){
+      const { data, error, count } = await sb.from('v_belgeler')
+        .select('*', i === 0 ? { count: 'exact' } : undefined)
+        .order('tarih', { ascending:false }).order('tur').order('kayit_id')
+        .range(hepsi.length, hepsi.length + SAYFA - 1);
+      if (error) throw new Error(error.message);
+      if (i === 0) toplam = Number.isFinite(count) ? count : null;   // "*" gelirse NaN — null say
+      const parca = data || [];
+      hepsi = hepsi.concat(parca);
+      bitti = !parca.length || (toplam != null && hepsi.length >= toplam);
+    }
+    /* Kendi Turkce cumlemiz: CEVRILMIS sayilir (Y2 kapisi) — hataTr onu genel cumleye cevirmesin. */
+    const kendi = (m) => { HATA_CEVRILMIS.add(m); return new Error(m); };
+    if (!bitti) throw kendi(hepsi.length + ' belgeden sonrası alınamadı');
+    if (toplam != null && hepsi.length !== toplam)
+      throw kendi(hepsi.length + '/' + toplam + ' belge alınabildi');
+    const mut = await sb.from('banka_mutabakat').select('id,sube_id,donem,durum,pdf_path')
+      .eq('is_deleted', false).not('pdf_path', 'is', null);
+    (mut && !mut.error ? (mut.data || []) : []).forEach(m => {
+      if (!m.pdf_path) return;
+      hepsi.push({ kayit_id:m.id, tur:'mutabakat', tur_ad:'POS Mutabakatı',
+        sube_id:m.sube_id || sube, tarih:aySon(m.donem), tutar:0,
+        baslik:'POS ekstresi · ' + ayAdi(m.donem)
+               + (m.durum ? ' · ' + (m.durum === 'uyumlu' ? 'uyumlu' : 'fark var') : ''),
+        yol:m.pdf_path });
+    });
+    return hepsi;
+  })();
+  try {
+    const l = await BG_TUM_SOZ;
+    if (AKTIF_SUBE === sube){ BG_TUM = l; BG_TUM_SUBE = sube; BG_TUM_HATA = null; }
+    return l;
+  } catch(e){ BG_TUM = null; BG_TUM_SUBE = null; BG_TUM_HATA = e.message; return null; }
+  finally { BG_TUM_SOZ = null; }
+}
 /* ⚠ Y36 · `onbellek` YALNIZ ARAMA icin: her tus vurusunda yeni sorgu
      atmak yanlis olurdu — arama YUKLENMIS liste uzerinde calisir.
      Ay degisiminde, belge yuklemesinden sonra ve ilk acilista
@@ -12372,7 +12921,6 @@ async function vBelge(onbellek){
 function bgCiz(el, ay){
   const eksik = BG_LISTE.filter(x => !x.yol);
   const eksikTutar = eksik.reduce((a,x) => a + (+x.tutar||0), 0);
-  const turSuzulmus = BG_TUR === 'hepsi' ? BG_LISTE : BG_LISTE.filter(x => x.tur === BG_TUR);
   /* ⚠ Y36 · METIN ARAMASI · YUKLENMIS LISTE UZERINDE, yeni sorgu YOK.
      ⚠ TURKCE HARF · IKI MEVCUT YARDIMCI BIRLESTIRILDI, YENISI YAZILMADI:
        `desenAd` (ı/İ → i, sonra lower) TEK BASINA ı/İ eksenini cozuyor
@@ -12389,13 +12937,22 @@ function bgCiz(el, ay){
        "vergi" diye tur adiyla da arayabilir. */
   const bgDesen = (s) => desenAd(trDuz(s));
   const aranan = bgDesen(BG_ARA.trim());
+  /* ⚠ Y72 · ARAMA VARSA KAYNAK TUM AYLAR (bgTumYukle; yuklendiyse). Yuklenirken liste
+       "yükleniyor" der; alinamadiysa bu ayda aranir ve NEDENI yazar. Arama yoksa ay
+       listesi — eski davranis birebir. Ust ozet (BELGELİ / EKSİK) ayin ozeti kalir. */
+  if (aranan && !(BG_TUM && BG_TUM_SUBE === AKTIF_SUBE) && !BG_TUM_SOZ && !BG_TUM_HATA)
+    bgTumYukle().then(() => { if (BG_ARA.trim() && AKTIF_SEKME === 'belge') vBelge(true); });
+  const tumModu = !!aranan && !!BG_TUM && BG_TUM_SUBE === AKTIF_SUBE;
+  const tumBekliyor = !!aranan && !tumModu && !!BG_TUM_SOZ;
+  const kaynak = tumModu ? BG_TUM : BG_LISTE;
+  const turSuzulmus = BG_TUR === 'hepsi' ? kaynak : kaynak.filter(x => x.tur === BG_TUR);
   const gorunen = !aranan ? turSuzulmus : turSuzulmus.filter(x =>
     bgDesen((x.baslik || '') + ' ' + (BG_TUR_AD[x.tur] || x.tur || '')).includes(aranan));
   // Eksikler üstte: yapılacak iş onlar
   const sirali = [...gorunen].sort((a,b) => (a.yol?1:0) - (b.yol?1:0) || (a.tarih < b.tarih ? 1 : -1));
 
   const turSay = {};
-  BG_LISTE.forEach(x => {
+  kaynak.forEach(x => {
     turSay[x.tur] = turSay[x.tur] || { hepsi:0, eksik:0 };
     turSay[x.tur].hepsi++; if (!x.yol) turSay[x.tur].eksik++;
   });
@@ -12420,7 +12977,7 @@ function bgCiz(el, ay){
       Vergi dairesi veya muhasebeci sorduğunda kanıtın olmaz — dekontu bulup yükle.</div>` : ''}
     <div class="kart">
       <div class="yy-rol">
-        <button class="btn2${BG_TUR==='hepsi'?' yy-aktif':''}" onclick="BG_TUR='hepsi';vBelge()">Hepsi (${BG_LISTE.length})</button>
+        <button class="btn2${BG_TUR==='hepsi'?' yy-aktif':''}" onclick="BG_TUR='hepsi';vBelge()">Hepsi (${kaynak.length})</button>
         ${Object.keys(BG_TUR_AD).filter(t=>turSay[t]).map(t=>`
           <button class="btn2${BG_TUR===t?' yy-aktif':''}" onclick="BG_TUR='${t}';vBelge()">
             ${esc(BG_TUR_AD[t])}${turSay[t].eksik?' · '+turSay[t].eksik+' eksik':''}
@@ -12433,14 +12990,21 @@ function bgCiz(el, ay){
       <input type="search" id="bgAra" placeholder="Belge ara — örn: ekstre, elektrik, dekont"
         value="${esc(BG_ARA)}" oninput="bgAraDegisti(this.value)" autocomplete="off"
         style="margin:0">
-      ${aranan ? `<div class="bilgi-not" style="margin:8px 0 0">${gorunen.length} sonuç
+      ${aranan ? `<div class="bilgi-not" style="margin:8px 0 0">${
+          tumBekliyor ? 'Tüm aylar yükleniyor…'
+          : tumModu ? gorunen.length + ' sonuç · <b>tüm aylarda</b> arandı'
+          : gorunen.length + ' sonuç · <b>yalnız ' + esc(ayAdi(ay)) + '</b> içinde arandı'
+            + (BG_TUM_HATA ? ' — tüm aylar alınamadı (' + esc(hataTr(BG_TUM_HATA)) + ')' : '')}
         · <span class="tikla" style="text-decoration:underline"
           onclick="bgAraDegisti('')">aramayı temizle</span></div>` : ''}
     </div>
     <div class="kart">
-      ${sirali.length === 0
+      ${tumBekliyor ? '<div class="bilgi-not">Tüm aylardaki belgeler yükleniyor…</div>'
+        : sirali.length === 0
         ? (aranan
-            ? bosDurum('belge','Aramaya uyan belge yok','Başka bir kelime dene ya da aramayı temizle.')
+            ? bosDurum('belge','Aramaya uyan belge yok', tumModu
+                ? 'Tüm aylarda arandı. Başka bir kelime dene ya da aramayı temizle.'
+                : 'Başka bir kelime dene ya da aramayı temizle.')
             : bosDurum('belge','Bu ayda kayıt yok','Başka bir ay seç.'))
         : sirali.map(x => `<div class="liste-satir">
             <div class="l-sol">
@@ -12464,7 +13028,13 @@ function bgCiz(el, ay){
     araEl.setSelectionRange(BG_ARA.length, BG_ARA.length); }
 }
 /* Arama YUKLENMIS liste uzerinde calisir — yeni sorgu atilmaz. */
-function bgAraDegisti(v){ BG_ARA = String(v || ''); vBelge(true); }
+function bgAraDegisti(v){
+  BG_ARA = String(v || '');
+  /* Y72 · tum aylar ilk harfte BIR KEZ cekilir (bgCiz tetikler). Arama temizlenince
+     onceki "alinamadi" hatasi unutulur — sonraki aramada yeniden denenir. */
+  if (!BG_ARA.trim()) BG_TUM_HATA = null;
+  vBelge(true);
+}
 /* SAHİP PARA HAREKETİ — "kâr var ama para nerede?" sorusunun yarısı burada.
    Sahibin koyduğu/çektiği para kâr değildir ama kasayı ve bankayı değiştirir. */
 /* KAPALI GÜN — kampüs kapalıysa o gün "eksik" sayılmasın.
@@ -12554,6 +13124,7 @@ function belgeYukleAc(tur, kayitId, baslik){
         { p_tur: tur, p_kayit_id: kayitId, p_yol: yol });
       if (error) throw new Error(error.message);   // ⚠ Y2 · HAM firlatilir; ceviri GOSTERIM aninda
       mesaj('bgMsg','ok', baslik + ' — belge eklendi ✓');
+      BG_TUM = null; BG_TUM_SUBE = null;   // Y72 · tum-ay arama listesi tazelensin
       setTimeout(vBelge, 900);
     }catch(e){ mesaj('bgMsg','hata', hataTr(e.message)); }
   };
@@ -13036,6 +13607,7 @@ async function vYonetim(){
       </div>
       <div class="hata-msg" id="ynKatMsg"></div>
     </div>
+    ${/* Y72 · Düzenli ödemeler kartı (duzenliKartCiz). Migration yoksa BOS kalir. */''}<div id="duzenliKart"></div>
     <div class="kart">
       <div class="kbaslik">Ay Kapatma</div>
       <div class="bilgi-not" style="margin:0 0 8px">Ay kapatınca o aya personel hiçbir kayıt (geçmiş tarih dahil) giremez. Beyan/mutabakat sonrası kapatın. Gerekirse nedenle açarsınız.</div>
@@ -13057,6 +13629,7 @@ async function vYonetim(){
     </div>
     <div id="bankaMutabakatKart"></div>`;
   akDurumGoster(); bankaMutabakatKart();   // vergi bolumu artik Vergiler sekmesinde
+  duzenliKartCiz();                        // Y72
   paraBagla(document.getElementById('voTutar'));
   yetkiYukle();
 }
@@ -13620,8 +14193,11 @@ async function vergiVadeYukle(){
      odemesi gecen yildan kalmis olabilir (gelir vergisi taksitleri gibi)
      ve yil basinda filtreli sorgu "gecmis odeme yok" derdi. Ekran her
      acilista taze okur — ongoru saklanmadigi icin bayatlamaz. */
+  /* ⚠ Y72 · DUZENLI ODEMELER (tur 'duzenli', v144) BU TAKVIME GIRMEZ: elektrik/su/internet
+       vergi degil; hatirlatmasi Giderler seridinde ve Ozet'te. `tur` NOT NULL — v144 oncesi
+       sonuc kumesi BIREBIR ayni (suzulecek satir yok). */
   const [{ data, error }, bagli, odm] = await Promise.all([
-    sb.from('v_vade_liste').select('*').order('vade_tarihi'),
+    sb.from('v_vade_liste').select('*').neq('tur', 'duzenli').order('vade_tarihi'),
     sb.from('vade').select('id, vergi_odeme:odendi_vergi_id(id,tutar,tur,odeme_tarihi,donem), gider:odendi_gider_id(tutar)')
       .eq('is_deleted', false).eq('durum', 'odendi'),
     sb.from('vergi_odeme').select('id,tur,tutar,odeme_tarihi,donem').eq('is_deleted', false)
@@ -14682,9 +15258,11 @@ async function vergiOdenenYukle(){
     sb.from('vergi_odeme').select('*').eq('is_deleted',false)
       .gte('odeme_tarihi', yil+'-01-01').lte('odeme_tarihi', yil+'-12-31')
       .order('odeme_tarihi',{ascending:false}).limit(300),
+    /* ⚠ Y72 · duzenli odemeler (v144) vergi donemine GIRMEZ — ustelik limit(300)'u
+         doldurup vergi vadelerini listeden itebilirdi. `tur` NOT NULL: eski kume aynen. */
     sb.from('v_vade_liste')
       .select('id,tur,donem,aciklama,vade_tarihi,tutar,durum,gecti,yakin,kalan_gun')
-      .neq('durum','odendi').neq('durum','iptal').order('vade_tarihi').limit(300)
+      .neq('durum','odendi').neq('durum','iptal').neq('tur','duzenli').order('vade_tarihi').limit(300)
   ]);
   if (od.error){ el.innerHTML = `<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(od.error.message))}</div>`; return; }
   const odemeler = od.data || [];
