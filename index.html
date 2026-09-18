@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-78">
+<meta name="surum" content="2026-08-27-79">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -212,6 +212,24 @@ button.dz-sr:active{background:var(--acik)}
 .dz-drm{flex:none;font-size:12.5px;font-weight:800;text-align:right;white-space:nowrap}
 .dz-ok{color:var(--ok)} .dz-bek{color:#8A6316} .dz-gec{color:var(--hata)}
 .dz-serit .k{font-size:12px;font-weight:600;color:var(--soluk)}
+/* Y73 · seritte satir IKI KARDES OGE: ana eylem (formu doldurur) + sahipte acik duzenli
+   satirda ikincil "Ödeme yok". Dugme icinde dugme olmaz. Ad ustte, durum altta — 375px'te
+   ikincil dugmeye yer acar. `.dz-sr` (tanim yok satiri) -78 ile AYNEN kaldi. */
+.dz-sat{display:flex;align-items:center;gap:8px;border-top:1px solid #F2ECD9}
+.dz-bas + .dz-sat{border-top:0}
+.dz-ana{flex:1;min-width:0;min-height:44px;display:flex;flex-direction:column;justify-content:center;
+  align-items:flex-start;gap:1px;padding:6px 0;border:0;border-radius:0;background:none;
+  font:inherit;font-size:14px;color:var(--metin);text-align:left}
+.dz-ana .dz-ad{flex:none;max-width:100%}
+button.dz-ana{cursor:pointer}
+button.dz-ana:active{background:var(--acik)}
+/* ikincil oldugu gorunsun: dolgusuz, cerceveli ("Tanımlar" kalibi) — dokunma alani yine 44px.
+   .btn2'den SONRA tanimli degil, o yuzden iki sinifla (ozgulluk) */
+.btn2.dz-yok{flex:none;padding:0 12px;white-space:nowrap;background:var(--kart);
+  border:1.5px solid var(--cizgi);font-size:12.5px;font-weight:700}
+.btn2.dz-yok:active{background:var(--acik)}
+/* Y74 · Fatura formunda "Firmayı ekle" karti — formun ICINDE, kesikli cerceve (ic kart) */
+.af-kart{margin:10px 0 4px;padding:12px;border:1.5px dashed var(--cizgi);border-radius:12px;background:var(--kart)}
 .dz-tanim{padding:10px 0;border-top:1px solid #F2ECD9}
 .dz-tanim:first-child{border-top:0}
 .dz-tanim .b{font-weight:700;font-size:14px}                 /* .l-sol kalibi — orada kapsamli */
@@ -7879,6 +7897,21 @@ function tpAcilacaklar(){
     gorulen.add(k); return true;
   });
 }
+/* ===== Y74 · TEDARIKCI ACMA · TEK FONKSIYON, IKI CAGIRAN =====
+   Toplu giris (tpTedarikciAc) ve Fatura formundaki "Firmayı ekle" karti AYNI cagriyi
+   yapar — belgeHaricEkle emsali: iki kopya zamanla ayrisir. Toplu girisin gonderdigi
+   govde DEGISMEDI (anahtarlar, sira ve bos alanlar null; -78 ile olculdu).
+   rpc_tedarikci_kaydet: sahip VE personel · idem YOK · ad tekil (ux_tedarikci_ad,
+   upper(trim(ad)), silinmemis) · VKN tekil DEGIL. Ham hata aynen firlatilir (ceviri
+   gosterim aninda — Y2 kurali). */
+async function tedarikciKaydiAc(t){
+  const { data, error } = await sb.rpc('rpc_tedarikci_kaydet', {
+    p_id: null, p_ad: t.ad, p_unvan: t.unvan,
+    p_vergi_no: t.vkn || null, p_vergi_dairesi: t.vergi_dairesi || null,
+    p_yetkili: null, p_tel: null, p_tel2: null, p_email: null, p_adres: t.adres || null });
+  if (error) throw new Error(error.message);
+  return data;
+}
 async function tpTedarikciAc(hangi){
   const liste = hangi === 'hepsi' ? tpAcilacaklar()
               : tpAcilacaklar().filter(r => r.i === hangi);
@@ -7892,11 +7925,7 @@ async function tpTedarikciAc(hangi){
   let ok = 0; const hatalar = [];
   for (const r of liste){
     try{
-      const { error } = await sb.rpc('rpc_tedarikci_kaydet', {
-        p_id: null, p_ad: r.unvan, p_unvan: r.unvan,
-        p_vergi_no: r.kaynak.vkn || null, p_vergi_dairesi: null,
-        p_yetkili: null, p_tel: null, p_tel2: null, p_email: null, p_adres: null });
-      if (error) throw new Error(error.message);
+      await tedarikciKaydiAc({ ad: r.unvan, unvan: r.unvan, vkn: r.kaynak.vkn });   // Y74 · ortak
       ok++;
     }catch(e){ hatalar.push(r.unvan + ': ' + hataTr(e.message)); }
   }
@@ -8552,10 +8581,12 @@ function duzenliOngoruHaritasi(res){
 function duzenliGit(){ GIDER_BOLUM = 'temel'; sekmeAc('gider'); }
 let DZ_KARTA_GIT = false;
 function duzenliTanimlaGit(){ DZ_KARTA_GIT = true; sekmeAc('yonetim'); }
+/* "Eylül elektrik" — ay + tanim adi (tr kucuk harf). Kapanis mesaji ve Y73 penceresi AYNI. */
+const duzenliAyAdi = (x) => ayKisa(x.donem) + ' ' + String(x.ad || '').toLocaleLowerCase('tr');
 /* "Eylül elektrik ödemesi kapandı" — sunucunun dondurdugu kapanan_duzenli'den. */
 function duzenliKapanisMetni(k){
   if (!k || !k.donem) return '';
-  return ayKisa(k.donem) + ' ' + String(k.ad || '').toLocaleLowerCase('tr') + ' ödemesi kapandı';
+  return duzenliAyAdi(k) + ' ödemesi kapandı';
 }
 
 /* ---- D · GIDER EKRANI SERIDI · "Bu ayın düzenli ödemeleri" (aktif sube) ----
@@ -8607,12 +8638,17 @@ async function duzenliSeritCiz(){
                     donem:String(v.vade_tarihi).slice(0,7), vade_tarihi:v.vade_tarihi, durum:'acik', takvim:true });
   DZ_SERIT.sort((a, c) => String(a.vade_tarihi).localeCompare(String(c.vade_tarihi)));
   const satir = (x) => {
-    if (x.durum === 'odendi') return `<div class="dz-sr"><span class="dz-ad">${esc(x.ad)}</span>
-      <span class="dz-drm dz-ok">✓ girildi ${BB_GG(String(x.odendi_tarih || ''))}</span></div>`;
+    const ad = `<span class="dz-ad">${esc(x.ad)}${x.donem < ay ? ' <span class="k">(' + esc(ayAdi(x.donem)) + ')</span>' : ''}</span>`;
+    if (x.durum === 'odendi') return `<div class="dz-sat"><div class="dz-ana">${ad}
+      <span class="dz-drm dz-ok">✓ girildi ${BB_GG(String(x.odendi_tarih || ''))}</span></div></div>`;
     const gecti = x.vade_tarihi < b;
-    return `<button type="button" class="dz-sr" onclick="duzenliDoldur('${x.id}')">
-      <span class="dz-ad">${esc(x.ad)}${x.donem < ay ? ' <span class="k">(' + esc(ayAdi(x.donem)) + ')</span>' : ''}</span>
-      <span class="dz-drm ${gecti ? 'dz-gec' : 'dz-bek'}">${gecti ? 'GEÇTİ · ' : 'bekliyor · son gün '}${BB_GG(x.vade_tarihi)}</span></button>`;
+    /* Y73 · "Ödeme yok" YALNIZ SAHIPTE ve DUZENLI satirda: rpc_vade_durum sahibe ozel;
+       takvim kirasinin yolu Vergiler'deki pencere. Ablada DOM'a hic girmez. */
+    const yok = sahip && !x.takvim
+      ? `<button type="button" class="btn2 dz-yok" onclick="duzenliOdemeYok('${x.id}')"
+          aria-label="${esc(duzenliAyAdi(x))}: ödeme yok, ayı kapat">Ödeme yok</button>` : '';
+    return `<div class="dz-sat"><button type="button" class="dz-ana" onclick="duzenliDoldur('${x.id}')">${ad}
+      <span class="dz-drm ${gecti ? 'dz-gec' : 'dz-bek'}">${gecti ? 'GEÇTİ · ' : 'bekliyor · son gün '}${BB_GG(x.vade_tarihi)}</span></button>${yok}</div>`;
   };
   el.innerHTML = `<div class="kart dz-serit">
     <div class="dz-bas"><span>BU AYIN DÜZENLİ ÖDEMELERİ</span>${sahip
@@ -8657,6 +8693,31 @@ function duzenliDoldur(id){
   }
   const t = document.getElementById('gdTutar');
   if (t){ t.scrollIntoView({ block:'center', behavior:'auto' }); t.focus(); }
+}
+/* ---- Y73 · "ÖDEME YOK" · bir ayi ODEME GIRMEDEN kapatmak ----
+   Fatura gelmeyen ay VEYA odemesi baska yere (Fatura bolumu, baska kategori) girilmis ay
+   GECTI kalip FIFO'yu kaydiriyordu; kapatacak yol yoktu (Y27: kapanamayan alarm).
+   ⚠ PENCERE vadeKapat'in KENDISI (vadeKapatPenceresi) — yalniz metin, secenek ve tazeleme
+     farkli. RPC rpc_vade_durum (v114 · sahibe ozel · tur'a bakmaz · gerekce zorunlu; duzenli
+     satirda kapta olculdu). Kapanan ay seritten, Ozet'ten ve uyarilardan duser; siradaki
+     gider onu ATLAR (sunucu yalniz 'acik' satiri kapatir).
+   ⚠ GERI ACMA EKRANI YOK — vergide de yok; yanlis kapatilan ay icin yol ayri karar. */
+function duzenliOdemeYok(id){
+  const x = DZ_SERIT.find(v => v.id === id && !v.takvim && v.durum === 'acik'); if (!x) return;
+  const ad = duzenliAyAdi(x);
+  vadeKapatPenceresi({ id: x.id,
+    baslik: '“' + ad + '” kapatılacak.',
+    aciklama: "Ödeme YAPTIYSAN bunu kullanma: Giderler'e gir, hatırlatma kendiliğinden kapanır.",
+    secenekler: [['tutar_yok', 'Bu ay fatura/ödeme yok'],
+                 ['iptal', 'Ödeme başka yere girildi (örn. Fatura bölümü)']],
+    dugme: 'Ayı kapat',
+    sonra: async (durum) => {
+      await duzenliSeritCiz();                       // satir kalkar (durum artik acik degil)
+      bildir(ad + ' kapatıldı (' + (durum === 'iptal' ? 'ödeme başka yere girildi' : 'ödeme yok') + ')', 'ok');
+    },
+    /* acan dugme seritle birlikte gitti: odak seridin ilk ogesine (Tab sirasi kopmasin) */
+    odakYedek: () => { const e = document.querySelector('#gdDuzenli button.dz-ana') || document.querySelector('#gdDuzenli .bo-btn'); if (e) e.focus(); }
+  });
 }
 
 /* ---- F · FATURA → GIDER YONLENDIRMESI ----
@@ -9938,6 +9999,126 @@ function alTedarikciEslestir(ocrAd, ocrVkn){
   }
   return { t:null, nasil:null };
 }
+/* =====================================================================
+   Y74 · FATURA OKUNUNCA KAYITLI OLMAYAN FIRMAYI TEK TIKLA EKLE
+   =====================================================================
+   KULLANICI: "Faturayı yüklüyorum, yeni tedarikçi oluşturmuyor. Tek tek her seferinde elle
+   mi gireceğiz?" OLCULDU: eslesmeyen firmada tek yol "Tedarikçi sekmesinden ekleyip geri
+   dön" idi — formdan cikip donunce belge yeniden okunuyordu.
+   ⚠ KART FORMUN ICINDE: okunan ad/unvan/VKN/vergi dairesi/adres hazir, hepsi duzeltilebilir.
+     "Ekle ve seç" → tedarikciKaydiAc (toplu girisle ORTAK) → katalogYukle → secilir →
+     firmaBilgiGoster (Y72 duzenli yonlendirmesi dahil) → satirlar yeni firmayla eslesir.
+     Form, okunan rakamlar ve dosya YERINDE; belge yeniden OKUNMAZ.
+   ⚠ ALICI KORUMASI (SIZINTI_2026-08-06_tckn.md): logosu resim olan faturada metindeki tek ad
+     ve tek 11 haneli numara ALICININ (isletme sahibi). Satici alani aliciyla ayniysa (ad VEYA
+     numara) kart o alanlari DOLDURMAZ ve numara hicbir yere BASILMAZ. Alicinin numarasi
+     okunamadiysa 11 haneli satici numarasi da basilmaz (kisi numarasi olabilir).
+   ⚠ Ayni ad kayitliysa (ux_tedarikci_ad) o SECILIR, ikinci kayit ACILMAZ. Duzenleme kipinde
+     kart YOK. Personel de gorur (RPC ona da acik, Fatura onun da ekrani). */
+let AL_FIRMA_OKUNAN = null;     // son okumanin satici alanlari — alici korumasindan GECMIS hali
+let AL_FIRMA_KILIT = false;     // cift tik TEK istek
+const alRakam = (s) => String(s == null ? '' : s).replace(/\D/g, '');
+function alSaticiOkunan(v){
+  const t = (v && v.tedarikci) || {}, a = (v && v.alici) || {};
+  const sAd = String(t.ad || '').trim(), sNo = alRakam(t.vkn || t.vergi_no);
+  const aAd = String(a.ad || '').trim(), aNo = alRakam(a.vkn || a.vergi_no);
+  const aliciMi = (!!sAd && !!aAd && fuAnahtar(sAd) === fuAnahtar(aAd)) || (!!sNo && !!aNo && sNo === aNo);
+  const noSupheli = !aliciMi && !!sNo && !aNo && sNo.length === 11;
+  return { aliciMi, noSupheli,
+    ad: aliciMi ? '' : sAd,
+    unvan: aliciMi ? '' : String(t.unvan || sAd || '').trim(),
+    vkn: aliciMi || noSupheli ? '' : sNo,
+    vergi_dairesi: aliciMi ? '' : String(t.vergi_dairesi || '').trim(),
+    adres: aliciMi ? '' : String(t.adres || '').trim(),
+    /* ekranda HIC gorunmeyecek numaralar (okuyucunun serbest metni dahil) */
+    gizli: [aNo, (aliciMi || noSupheli) ? sNo : ''].filter(n => n.length >= 10) };
+}
+/* Okuyucunun serbest metninde (uyari) gecen gizli numara yerine ••• */
+function alNumaraGizle(metin, gizli){
+  let m = String(metin == null ? '' : metin);
+  (gizli || []).forEach(n => { m = m.split(n).join('•••'); });
+  return m;
+}
+function alFirmaKartAc(){
+  const k = document.getElementById('alFirmaKart'); if (!k || AL_DUZENLE) return;
+  const o = AL_FIRMA_OKUNAN || {};
+  const alan = (id, et, deger, ek) => `<label for="${id}">${et}</label>
+    <input type="text" id="${id}" value="${esc(deger || '')}" autocomplete="off"${ek || ''}>`;
+  k.innerHTML = `<div class="af-kart">
+    <div class="yy-bas">YENİ FİRMA</div>
+    ${o.aliciMi || !o.ad ? '<div class="uyari-orta" style="margin:6px 0 2px">Satıcının adı faturanın metninde yok (logo resim olabilir) — firma adını kendin yaz.</div>' : ''}
+    ${o.noSupheli ? '<div class="bilgi-not" style="margin:6px 0 2px">Okunan numara 11 haneli ve alıcının numarası okunamadı — kişi numarası olabilir. VKN’yi faturadan kendin yaz.</div>' : ''}
+    ${alan('afAd', 'Firma adı (listede görünür)', o.ad, ' maxlength="120" oninput="alFirmaDenetle()"')}
+    ${alan('afUnvan', 'Ünvan', o.unvan)}
+    <div class="satir">
+      <div>${alan('afVkn', 'VKN', o.vkn, ' inputmode="numeric"')}</div>
+      <div>${alan('afVd', 'Vergi dairesi', o.vergi_dairesi)}</div>
+    </div>
+    ${alan('afAdres', 'Adres', o.adres)}
+    <div class="satir" style="margin-top:12px">
+      <button type="button" class="btn2" onclick="alFirmaKartKapat()">Vazgeç</button>
+      <button type="button" class="btn" id="afEkle" style="margin-top:0" onclick="alFirmaEkle()">Ekle ve seç</button>
+    </div>
+    <div class="hata-msg" id="afMsg"></div>
+  </div>`;
+  const ac = document.getElementById('alFirmaEkleAc'); if (ac) ac.setAttribute('aria-expanded', 'true');
+  alFirmaDenetle();
+  const ad = document.getElementById('afAd'); if (ad) ad.focus();
+}
+function alFirmaKartKapat(){
+  const k = document.getElementById('alFirmaKart'); if (k) k.innerHTML = '';
+  const ac = document.getElementById('alFirmaEkleAc');
+  if (ac){ ac.setAttribute('aria-expanded', 'false'); ac.focus(); }
+}
+function alFirmaDenetle(){
+  const b = document.getElementById('afEkle'), a = document.getElementById('afAd');
+  if (b && !AL_FIRMA_KILIT) b.disabled = !(a && a.value.trim());
+}
+/* Firma listesi KATALOG'dan yeniden kurulur (gdFatura'nin kalibiyla), secili = id */
+function alTedarikciListesiTazele(id){
+  const sel = document.getElementById('alTedarikci'); if (!sel) return;
+  sel.innerHTML = KATALOG.tedarikciler.map(t => `<option value="${t.id}">${esc(t.ad)}</option>`).join('');
+  sel.value = id;
+}
+async function alFirmaEkle(){
+  const b = document.getElementById('afEkle');
+  if (!b || b.disabled || AL_FIRMA_KILIT) return;
+  const g = (id) => ((document.getElementById(id) || {}).value || '').trim();
+  const ad = g('afAd'); if (!ad) return;
+  AL_FIRMA_KILIT = true; b.disabled = true; b.textContent = 'Ekleniyor...';
+  /* Ayni ad ONCE listede aranir — Turkce katlamali anahtarla (fuAnahtar, toplu girisin
+     eslestirmesiyle AYNI): sunucunun ux_tedarikci_ad'i upper(trim) oldugu icin "İNTERNET"
+     ile "internet"i AYRI sayar; burada ikinci kayit o yoldan da acilmaz. */
+  const bul = () => (KATALOG.tedarikciler || []).find(x => fuAnahtar(x.ad) === fuAnahtar(ad));
+  let t = bul(), vardi = !!t, hata = null;
+  if (!t){
+    try {
+      const d = await tedarikciKaydiAc({ ad, unvan: g('afUnvan') || ad, vkn: alRakam(g('afVkn')),
+                                         vergi_dairesi: g('afVd'), adres: g('afAdres') });
+      await katalogYukle();
+      t = (KATALOG.tedarikciler || []).find(x => d && x.id === d.id) || bul();
+    } catch (e){
+      hata = e.message;
+      if (/ux_tedarikci_ad|duplicate key|23505/i.test(hata)){ await katalogYukle(); t = bul(); vardi = !!t; }
+    }
+  }
+  AL_FIRMA_KILIT = false;
+  if (!t){
+    b.disabled = false; b.textContent = 'Ekle ve seç';
+    mesaj('afMsg', 'hata', /ux_tedarikci_ad|duplicate key|23505/i.test(hata || '')
+      ? 'Bu adla kayıtlı ama pasif bir firma var — Tedarikçi ekranından aç ya da başka ad yaz.'
+      : hataTr(hata || 'Firma eklenemedi.'));
+    return;
+  }
+  alTedarikciListesiTazele(t.id);
+  firmaBilgiGoster();                               // Y72 · duzenli firma yonlendirmesi burada
+  const v = OCR_SON && OCR_SON.veri;
+  await alSatirlariKur(v ? v.satirlar : [], t.id);  // satirlar yeni firmanin eslesmesiyle
+  const n = document.getElementById('alFirmaNot');
+  if (n){ n.style.color = 'var(--ok)';
+    n.innerHTML = (vardi ? 'Bu adla kayıtlı firma vardı, o seçildi: ' : '✓ Firma eklendi ve seçildi: ') + '<b>' + esc(t.ad) + '</b>'; }
+  const k = document.getElementById('alFirmaKart'); if (k) k.innerHTML = '';
+}
 async function faturaOku(){
   const inp = document.getElementById('alFoto');
   const drm = document.getElementById('alOkuDurum');
@@ -9953,6 +10134,7 @@ async function faturaOku(){
   yaz(dosyaVar ? 'Belge okunuyor, 10-20 saniye sürebilir...'
                : 'Kayıtlı belge okunuyor, 10-20 saniye sürebilir...','');
   if (ozet) ozet.innerHTML = '';
+  AL_FIRMA_OKUNAN = null;                           // Y74 · onceki okumanin satici alanlari dusmez
   try{
     const { data:{ session } } = await sb.auth.getSession();
     if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
@@ -9986,6 +10168,9 @@ async function faturaOku(){
     OCR_SON = { veri:s.veri, model:s.model };
 
     const v = s.veri || {}, dn = s.denetim || {};
+    /* ⚠ Y74 · alicinin numarasi (ve aliciyla ayni satici numarasi) HICBIR yere basilmaz */
+    const gizli = alSaticiOkunan(v).gizli;
+    const gizle = (x) => alNumaraGizle(x, gizli).replace(/\b\d{10,11}\b/g, '•••');
     const doldu = [];
     const koy = (id, deger, etiket) => {
       if (deger === null || deger === undefined || deger === '') return;
@@ -10024,9 +10209,15 @@ async function faturaOku(){
       firmaNot = `<div class="bilgi-not" style="color:var(--ok)">✓ Firma eşleşti (${es.nasil}): <b>${esc(es.t.ad)}</b></div>`;
       doldu.push('Firma');
     } else {
-      firmaNot = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Bu firma kayıtlı değil:
-        <b>${esc(v.tedarikci?.ad || '—')}</b>${v.tedarikci?.vkn?' · VKN '+esc(v.tedarikci.vkn):''}<br>
-        Tedarikçi sekmesinden ekleyip geri dön, ya da listeden doğru firmayı seç.</div>`;
+      /* ⚠ Y74 · ALICI KORUMASI: aliciyla ayni ad VEYA numara burada BASILMAZ, kartta DOLMAZ */
+      const ok = AL_FIRMA_OKUNAN = alSaticiOkunan(v);
+      firmaNot = `<div class="bilgi-not" style="color:var(--uyari)" id="alFirmaNot">⚠ Bu firma kayıtlı değil:
+        <b>${esc(ok.ad || (ok.aliciMi ? 'satıcının adı metinde yok' : '—'))}</b>${ok.vkn ? ' · VKN ' + esc(ok.vkn) : ''}<br>
+        ${AL_DUZENLE ? 'Tedarikçi sekmesinden ekleyip geri dön, ya da listeden doğru firmayı seç.'
+          : `Buradan ekleyebilir ya da listeden doğru firmayı seçebilirsin.
+        <button type="button" class="btn2" id="alFirmaEkleAc" aria-expanded="false" aria-controls="alFirmaKart"
+          style="display:block;margin-top:8px" onclick="alFirmaKartAc()">Firmayı ekle ›</button>`}</div>
+        ${AL_DUZENLE ? '' : '<div id="alFirmaKart"></div>'}`;
     }
     /* Alıcı kontrolü — LTD faturası şahıs defterine girmesin.
        Eskiden alıcının VKN'si sabit TCKN ile karşılaştırılıyordu; o sabit
@@ -10039,7 +10230,7 @@ async function faturaOku(){
     let aliciNot = '';
     if (v.alici?.ad || v.alici?.vkn){
       aliciNot = `<div class="bilgi-not" style="color:var(--uyari)"><b>Alıcıyı doğrula:</b>
-        bu belge <b>${esc(v.alici?.ad || 'adı okunamayan bir alıcıya')}</b> adına kesilmiş.
+        bu belge <b>${esc(gizle(v.alici?.ad || 'adı okunamayan bir alıcıya'))}</b> adına kesilmiş.
         KTÜ şahıs şirketine ait DEĞİLSE buraya girme — LTD defterine aittir.</div>`;
     } else {
       aliciNot = `<div class="bilgi-not" style="color:var(--uyari)"><b>Alıcı okunamadı.</b>
@@ -10069,7 +10260,13 @@ async function faturaOku(){
     if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
     /* ⚠ ADIM 14 B · ONAY TABLOSU — alMatrahTamamla'dan SONRA cizilir:
        hesaplanan matrahin bayragi orada konuyor, tablo onu okuyor. */
-    axTabloCiz(document.getElementById('alOkuTablo'), alOkumaSatirlari(v));
+    /* Y74 · satici aliciyla ayniysa tabloda "Tedarikçi" OKUNMAMIS gorunur (sahibin adi satici
+       diye yazilmaz); adda numara varsa maskelenir. Eslesen/normal belgede v AYNEN. */
+    const saticiAlici = alSaticiOkunan(v).aliciMi;
+    const vTablo = saticiAlici || /\d{10,11}/.test(String(v.tedarikci?.ad || ''))
+      ? Object.assign({}, v, { tedarikci: Object.assign({}, v.tedarikci, { ad: saticiAlici ? null : gizle(v.tedarikci.ad) }) })
+      : v;
+    axTabloCiz(document.getElementById('alOkuTablo'), alOkumaSatirlari(vTablo));
     // Faturadaki ürün satırları — tanınanlar otomatik, ilk kez görülenler sorulur
     await alSatirlariKur(v.satirlar, es.t ? es.t.id : null);
 
@@ -10077,7 +10274,7 @@ async function faturaOku(){
     let msj = (OKUMA_YONTEMI === 'PDF metni' ? '✓ e-Fatura PDF\'inden okundu (rakamlar birebir) → ' : 'Okundu → ')
             + (doldu.join(' · ') || 'alan doldurulamadı') + '. ⚠️ Rakamları belgeyle KARŞILAŞTIR.';
     if (eksik.length) msj += ' ' + dilEksik(eksik);   // ADIM 14 B · sozlukten
-    if (v.uyari) msj += ' (' + v.uyari + ')';
+    if (v.uyari) msj += ' (' + gizle(v.uyari) + ')';     // Y74 · okuyucunun serbest metni de
     yaz(msj, doldu.length ? 'ok' : 'uyari');
   }catch(e){
     yaz('Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
@@ -14412,25 +14609,35 @@ async function vergiVadeYukle(){
      ile secilir — olculdu.
    ⚠ Iki hata yolu artik URETILEMEZ: "1 veya 2 yazmalisin" ve "Neden
      zorunlu" — dugme, secim VE gerekce birlikte saglanmadan aktif olmaz. */
+/* ⚠ Y73 · PENCERE TEK YERDE (vadeKapatPenceresi): vergi takvimi (vadeKapat) ve duzenli
+     odeme (duzenliOdemeYok) AYNI mekanigi kullanir — iki kopya zamanla ayrisir. Vergi
+     cagrisi metni, secenekleri, RPC'yi ve tazelemeyi -78 ile BIREBIR uretir (olculdu). */
 function vadeKapat(id, ad){
+  vadeKapatPenceresi({ id, baslik: `"${ad}" kapatılacak.`,
+    /* BL · Eski metin dogru seyi soyluyordu ama YOL YOKTU (rpc_gider_kaydet'te
+       p_vade yoktu). v110 yolu acti; metin artik yolu GOSTERIYOR. */
+    aciklama: 'Ödeme YAPILDIYSA burayı kullanma. Ödemeyi kaydetmek için: Giderler → Temel Gider → '
+      + '"Bu ödeme bir vadeye mi ait?" alanından bu vadeyi seç — kaydedince vade kendiliğinden kapanır. '
+      + 'Vergi ödemesi Vergi → Ödeme Kaydet ile girilir, en yakın açık vadeye kendiliğinden bağlanır.',
+    secenekler: [['tutar_yok','Beyan verildi, ödenecek tutar çıkmadı'],
+                 ['iptal','İptal (bu yükümlülük geçerli değil)']],
+    dugme: 'Vadeyi kapat',
+    sonra: () => { vergiVadeYukle(); } });
+}
+/* o: { id, baslik, aciklama, secenekler:[[durum, metin]...], dugme, sonra(durum), odakYedek? } */
+function vadeKapatPenceresi(o){
   const acan = document.activeElement;
   const yap = (t,s,m)=>{ const e=document.createElement(t); if(s) e.className=s; if(m!=null) e.textContent=m; return e; };
   const d = document.createElement('dialog'); d.className = 'pm';
   d.setAttribute('aria-modal','true');
-  const bas = yap('div','pm-bas', `"${ad}" kapatılacak.`); bas.id = 'vkBas';
+  const bas = yap('div','pm-bas', o.baslik); bas.id = 'vkBas';
   d.setAttribute('aria-labelledby', bas.id); d.appendChild(bas);
-  /* BL · Eski metin dogru seyi soyluyordu ama YOL YOKTU (rpc_gider_kaydet'te
-     p_vade yoktu). v110 yolu acti; metin artik yolu GOSTERIYOR. */
-  const uy = yap('div','pm-aciklama',
-    'Ödeme YAPILDIYSA burayı kullanma. Ödemeyi kaydetmek için: Giderler → Temel Gider → '
-    + '"Bu ödeme bir vadeye mi ait?" alanından bu vadeyi seç — kaydedince vade kendiliğinden kapanır. '
-    + 'Vergi ödemesi Vergi → Ödeme Kaydet ile girilir, en yakın açık vadeye kendiliğinden bağlanır.');
+  const uy = yap('div','pm-aciklama', o.aciklama);
   uy.id = 'vkUyari'; d.setAttribute('aria-describedby', uy.id); d.appendChild(uy);
   const grup = yap('div','pm-secim');
   grup.setAttribute('role','radiogroup'); grup.setAttribute('aria-label','Kapatma sebebi');
   const radyo = [];
-  [['tutar_yok','Beyan verildi, ödenecek tutar çıkmadı'],
-   ['iptal','İptal (bu yükümlülük geçerli değil)']].forEach(([deger, metin], i) => {
+  o.secenekler.forEach(([deger, metin], i) => {
     const l = yap('label','pm-sec');
     const r = document.createElement('input');
     r.type = 'radio'; r.name = 'vkDurum'; r.value = deger; r.id = 'vkSec'+i;   // ⚠ checked YOK
@@ -14444,7 +14651,7 @@ function vadeKapat(id, ad){
   ta.setAttribute('aria-describedby', sayac.id);
   d.appendChild(et); d.appendChild(ta); d.appendChild(sayac);
   const ey = yap('div','pm-ey');
-  const vaz = yap('button','btn2','Vazgeç'), kap = yap('button','btn-kirmizi','Vadeyi kapat');
+  const vaz = yap('button','btn2','Vazgeç'), kap = yap('button','btn-kirmizi', o.dugme);
   vaz.type = kap.type = 'button'; kap.disabled = true;
   ey.appendChild(vaz); ey.appendChild(kap); d.appendChild(ey);
   document.body.appendChild(d); d.showModal(); radyo[0].focus();
@@ -14473,11 +14680,14 @@ function vadeKapat(id, ad){
     radyo.forEach(r => r.disabled = true);
     d.tabIndex = -1; d.focus(); kap.textContent = 'Kapatılıyor...';
     /* ⚠ RPC ve parametreleri AYNEN eski hali: p_id · p_durum · p_not */
+    const durum = secili().value;
     const { error } = await sb.rpc('rpc_vade_durum',
-      { p_id:id, p_durum:secili().value, p_not:ta.value.trim() });
+      { p_id:o.id, p_durum:durum, p_not:ta.value.trim() });
     kapat();
     if (error){ bildir('Kapatılamadı: '+hataTr(error.message), 'hata'); return; }
-    vergiVadeYukle();
+    const s = o.sonra(durum);
+    /* acan oge tazelemeyle gittiyse odak yedege (yalniz duzenli verir; vergide YOK) */
+    if (o.odakYedek) Promise.resolve(s).then(() => { if (!(acan && acan.isConnected)) o.odakYedek(); });
   };
 }
 /* VERGİ DEKONTU OKUMA — fatura ve araç masrafındaki ile aynı okuyucu.
