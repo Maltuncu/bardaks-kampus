@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-79">
+<meta name="surum" content="2026-08-27-80">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1073,8 +1073,11 @@ function kapsamSeridiCiz(){
          Y23'un TAM TERSI — orada kayitVar gercek bir 31 gunluk boslugu
          susturuyordu, burada susacak bosluk yok.
        ⚠ METIN "sayım var/yok" IDDIASI TASIMIYOR — ayin kendisi hakkinda
-         konusuyor, sayim hakkinda degil. */
-    p.push(!t.kayitVar  ? { s:'ks',       m:'ay için veri yok' }
+         konusuyor, sayim hakkinda degil.
+       ⚠ Y75 · BESINCI DURUM: satir VAR ama gun sonu YOK (v145 · yalniz gider, maas, alis).
+         "ay için veri yok" artik YANLIS olurdu — veri var, satis yok. Notr sinif. */
+    p.push(t.gunSonuYok ? { s:'ks',       m:'gün sonu yok' }
+         : !t.kayitVar  ? { s:'ks',       m:'ay için veri yok' }
          : t.sayimYok   ? { s:'ks eksik', m:'sayım yok' }
          : t.sayimKismi ? { s:'ks',       m:'sayım kısmi' }
          :                { s:'ks tam',   m:'sayım var' });
@@ -2875,7 +2878,7 @@ function bdAc(btn, id){
 let OZ_O = null;         // vOzet'in aylik ozeti — kart-3 ve kart-5'e girer
 /* ADIM 15 · verinin TAMLIGI — kart-3, kart-5 ve kapsam seridi AYNI
    nesneyi okur. Ikisi ayri hesaplarsa ayrisir. */
-let OZ_TAMLIK = null;    // { ay, eksikGunler[], bilinmiyor, sayimYok, kayitVar }
+let OZ_TAMLIK = null;    // { ay, eksikGunler[], bilinmiyor, sayimYok, kayitVar, gunSonuYok }
 
 /* ==================================================================
    ADIM 15 · EKSIK GUN VARKEN HICBIR TOPLAM KESIN DEGIL
@@ -2927,7 +2930,11 @@ const tamlikOnek = (hangi) => {
 const tamlikRozet = () => {
   const t = OZ_TAMLIK; if (!t) return '';
   const r = [];
-  if (t.bilinmiyor) r.push('veri tamlığı bilinmiyor');
+  /* ⚠ Y75 · GUN SONU HIC YOKSA ROZET ONU SOYLER: ciro 0, rakamlar yalniz gider, maas ve alis.
+       "N gün eksik" onun alt kumesi — ayni yerde ikinci rozet olmaz; eksik gunler asagidaki
+       notta (tamlikNotlari) listelenmeye devam eder. v145 yokken bu dal HIC calismaz. */
+  if (t.gunSonuYok) r.push('gün sonu yok');
+  else if (t.bilinmiyor) r.push('veri tamlığı bilinmiyor');
   else if (t.eksikGunler.length) r.push(t.eksikGunler.length + ' gün eksik');
   /* ⚠ SADELESTIRME · BU ROZET KALDI — ONCE KALDIRILDI, OLCUM GERI
      GETIRDI. Varsayim suydu: "AY KARI kirmizi kutusu ayni kartta
@@ -4028,6 +4035,13 @@ function subeOzetHesabi(ay, v){
      ayin sayimi (olculdu, v_aylik_ozet). Biri kismiyse olcum tam degil. */
   const sayimKismi = !!(o && o.stok_bazli) && !sayimHata
     && (kismiMi(sayimlar[ay]) || kismiMi(sayimlar[ayOnceki(ay)]));
+  /* ⚠ Y75 · SATIR VAR ARTIK "GUN SONU VAR" DEMEK DEGIL. v145'ten sonra ozet satiri gun sonu
+       OLMAYAN ayda da geliyor (gider, alis, maas, odeme ya da transfer varsa; satis kolonlari 0).
+       kayitVar bundan boyle gun_sayisi > 0: seritteki "gun sonu girilmis mi" anlami (1029 notu)
+       korunur. Gun sonsuz satir AYRI isaret (gunSonuYok). Sayim rozeti seritte kayitVar'a bagli
+       (1060 notu); rozet de ayni kapidan gecer ki iki yan celismesin.
+       ⚠ v145 YOKKEN gun sonsuz satir gelmez: satir varsa gun_sayisi >= 1, uc bayrak -79'la AYNI. */
+  const gunSonuVar = !!o && +o.gun_sayisi > 0;
   /* kart-3 (odemelerBlogu) ve kart-5 ayni tamlik bilgisini okur —
      ikisi ayri hesaplarsa ayrisir. Serit de buradan besleniyor. */
   const tamlik = { ay, eksikGunler: OZ_EKSIK, bilinmiyor: kapaliHata,
@@ -4035,7 +4049,8 @@ function subeOzetHesabi(ay, v){
                    beklenmis olmali. kayitVar ile AYNI SEY DEGIL —
                    gerekce kapsamSeridiCiz'de, olcumuyle. */
                 gunBekleniyor: ayinGunBekleniyorMu(ay, OZ_ILK_GUN),
-                sayimYok: !!(o && !o.stok_bazli), sayimKismi, kayitVar: !!o };
+                sayimYok: gunSonuVar && !o.stok_bazli, sayimKismi, kayitVar: gunSonuVar,
+                gunSonuYok: !!o && !gunSonuVar };
   return { o, GC, tamlik };
 }
 
@@ -4340,7 +4355,7 @@ async function vOzet(){
         <div class="ay-alt">${ay===bugun().slice(0,7)
           ? 'bu ay · '+new Date().toLocaleDateString('tr-TR')
           : /* Y65 · personelde gecmis ayin kayitli gun sayisi kismi veriden — yazilmaz */
-            !sahip ? '' : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
+            !sahip ? '' : (o && +o.gun_sayisi > 0 ? o.gun_sayisi+' gün kayıtlı' : o ? 'gün sonu yok' : 'kayıt yok')}</div></div>
       <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
     </div>
     <div id="kararBlok"></div>
@@ -4493,7 +4508,7 @@ async function vOzetSubeVerisi(){
       <div><div class="ay-ad">${ayAdi(ay)}</div>
         <div class="ay-alt">${ay===bugun().slice(0,7)
           ? 'bu ay · '+new Date().toLocaleDateString('tr-TR')
-          : (o?o.gun_sayisi+' gün kayıtlı':'kayıt yok')}</div></div>
+          : (o && +o.gun_sayisi > 0 ? o.gun_sayisi+' gün kayıtlı' : o ? 'gün sonu yok' : 'kayıt yok')}</div></div>
       <button onclick="ozAyDegistir(1)" ${ay>=bugun().slice(0,7)?'disabled':''} aria-label="Sonraki ay">›</button>
     </div>
     ${blokCiro ? `<div class="kart">${blokCiro}</div>` : ''}
@@ -4813,7 +4828,10 @@ function sonucTablosuHtml(R, oncekiR, ad, toplam, ek){
   const o = R.o;
 
   /* ---- CİRO ---- */
-  const ciroNot = ['Fiş iptali henüz düşülmüyor — iptal olan günde ciro, iptal edilen tutar kadar yüksek.'];
+  /* ⚠ Y75 · "Fiş iptali henüz düşülmüyor" cümlesi KALDIRILDI — YANLIŞTI: Y57 kanıtında (Z
+       fotoğrafı) iptal edilen fiş Z TOPLAMINA GİRMİYOR. Öteki cihaz için kanıt yok; yerine yeni
+       bir iddia YAZILMADI. Kalan iki not aynen. */
+  const ciroNot = [];
   if (o && +o.kasa_sayilmayan_gun > 0) ciroNot.push(o.kasa_sayilmayan_gun + ' gün kasa sayılmamış — o günlerin Z dışı nakdi bilinmiyor.');
   if (o && +(o.kapsam_disi_nakit || 0) !== 0) ciroNot.push('Kasası sayılmayan güne düşen ' + tl(Math.abs(+o.kapsam_disi_nakit)) + ' nakit hareketi Z dışı nakde katılmadı.');
   const ciro = blok(SONUC_RENK.ciro, 'Ciro', '+',
@@ -4923,6 +4941,7 @@ function donemGrafigi(aylar, bugunAy){
 function donemGorunumuHtml(aylar, oncekiR, ad, toplam, bas, son, bugunAy, notlar){
   const t = kurusTl;
   const veri = aylar.filter(a => a.R);
+  const gsyAylar = veri.filter(a => a.gunSonuYok).map(a => esc(ayKisa(a.donem)));
   const maks = Math.max(1, ...veri.map(a => Math.abs(a.R.sonuc)));
   const satirlar = aylar.map((a, i) => {
     const adKisa = esc(ayKisa(a.donem).slice(0, 3)) + (a.donem.slice(5) === '01' || i === 0 ? ' <span style="color:var(--soluk);font-weight:600">' + a.donem.slice(0, 4) + '</span>' : '');
@@ -4947,7 +4966,9 @@ function donemGorunumuHtml(aylar, oncekiR, ad, toplam, bas, son, bugunAy, notlar
     + '<div class="dn-grafik">' + donemGrafigi(aylar, bugunAy) + '</div>'
     + '<div class="dn-lejant"><span><i style="background:' + SONUC_RENK.ciro + '"></i>Ciro</span><span><i style="background:' + SONUC_RENK.gider + '"></i>Gider</span>'
     + '<span><i style="background:' + SONUC_RENK.vergi + '"></i>Vergi</span><span><i style="background:' + SONUC_RENK.kalan + '"></i>Bıraktığı</span></div>'
-    + '<div class="ipucu" style="margin:4px 0 8px">Yükselen ay ▲, düşen ay ▼. Gelecek aylar boş — sistem tahmin çizmez.</div>'
+    + '<div class="ipucu" style="margin:4px 0 8px">Yükselen ay ▲, düşen ay ▼. Gelecek aylar boş — sistem tahmin çizmez.'
+    /* ⚠ Y75 · gun sonu olmayan ay satiri (ciro 0, yalniz gider) ADIYLA soylenir; yoksa satir hic eklenmez. */
+    + (gsyAylar.length ? ' Gün sonu yok: ' + gsyAylar.join(', ') + ' — ciro 0, yalnız gider.' : '') + '</div>'
     + '<div class="dn-aylar">' + satirlar + '</div>'
     + (veri.length ? '<div class="dn-top" id="' + (toplam ? 'tpDonemToplam' : 'bfDonemToplam') + '">'
       + '<div><div class="et">Ciro · ' + aralikKisa + '</div><div class="dg">' + t(topla(R => R.ciro.toplam)) + '</div></div>'
@@ -5002,11 +5023,19 @@ async function sonucKartlariCiz(ay, toplam, toplamOnek){
          AYNI kuralından (ustOnek) — aynı rakam iki yerde farklı önekle görünmesin. */
     onekCiro: !R ? '' : toplam ? ((toplamOnek && toplamOnek.ciro) || '') : tamlikIle(tamlik, () => tamlikOnek('ciro')),
     onekKar: !R ? '' : toplam ? ((toplamOnek && toplamOnek.kar) || '') : tamlikIle(tamlik, () => tamlikOnek('kar')) };
-  elT.innerHTML = kbaslik('SONUÇ TABLOSU', ayAdi(ay) + ' · ' + ad, '')
+  /* ⚠ Y75 · GUN SONU OLMAYAN AY (v145): satir var, satis kolonlari 0 — tablo ciro 0 + giderler
+       (zarar) gosterir ve BASLIKTA isaret tasir. Isaret YALNIZ tablodaki her subenin o ayda
+       satiri gun sonsuzsa konur (TOPLAM'da bir sube satis yaptiysa ciro 0 degildir). Kalip
+       DUN kartinin "gün sonu girilmemiş" rozeti. v145 yokken gun sonsuz satir gelmez. */
+  const gunSonsuz = (donem) => {
+    const sat = V.hedefler.map(s => ((V.oz && V.oz.data) || []).find(x => x.sube_id === s.id && x.donem === donem)).filter(Boolean);
+    return sat.length > 0 && sat.every(x => !(+x.gun_sayisi > 0));
+  };
+  elT.innerHTML = kbaslik('SONUÇ TABLOSU', ayAdi(ay) + ' · ' + ad, R && gunSonsuz(ay) ? '<span class="rozet rz-uyari" style="white-space:nowrap">gün sonu yok</span>' : '')
     + (R ? sonucTablosuHtml(R, oncekiR, ad, toplam, ek) : '<div class="bilgi-not" style="margin-top:0">Bu ay için kayıt yok.</div>');
   if (elD){
     const aylar = [];
-    for (let i = 0; i < 12; i++){ const donem = BB_AYEKLE(V.bas, i); aylar.push({ donem, R: hesapla(donem) }); }
+    for (let i = 0; i < 12; i++){ const donem = BB_AYEKLE(V.bas, i); aylar.push({ donem, R: hesapla(donem), gunSonuYok: gunSonsuz(donem) }); }
     elD.innerHTML = donemGorunumuHtml(aylar, hesapla(V.onceki), ad, toplam, V.bas, V.son, bugun().slice(0, 7), V.notlar);
     elD.classList.remove('gizli');
   }
