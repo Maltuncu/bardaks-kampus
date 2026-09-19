@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-80">
+<meta name="surum" content="2026-08-27-81">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -10075,8 +10075,8 @@ function alFirmaKartAc(){
     <input type="text" id="${id}" value="${esc(deger || '')}" autocomplete="off"${ek || ''}>`;
   k.innerHTML = `<div class="af-kart">
     <div class="yy-bas">YENİ FİRMA</div>
-    ${o.aliciMi || !o.ad ? '<div class="uyari-orta" style="margin:6px 0 2px">Satıcının adı faturanın metninde yok (logo resim olabilir) — firma adını kendin yaz.</div>' : ''}
-    ${o.noSupheli ? '<div class="bilgi-not" style="margin:6px 0 2px">Okunan numara 11 haneli ve alıcının numarası okunamadı — kişi numarası olabilir. VKN’yi faturadan kendin yaz.</div>' : ''}
+    ${!o.bos && (o.aliciMi || !o.ad) ? '<div class="uyari-orta" style="margin:6px 0 2px">Satıcının adı faturanın metninde yok (logo resim olabilir) — firma adını kendin yaz.</div>' : ''}
+    ${o.noSupheli ? '<div class="bilgi-not" style="margin:6px 0 2px">Okunan numara 11 haneli ve alıcının numarası okunamadı — kişi numarası olabilir. VKN’yi faturadan kendin yaz.</div>' : ''}${/* Y77 · PDF'ten okunan 11 hane (TCKN) ekrana basilmaz */ o.tcknGizli ? '<div class="bilgi-not" style="margin:6px 0 2px">Satıcının numarası 11 haneli (kişi numarası olabilir) — ekrana basılmadı. VKN’yi faturadan kendin yaz.</div>' : ''}
     ${alan('afAd', 'Firma adı (listede görünür)', o.ad, ' maxlength="120" oninput="alFirmaDenetle()"')}
     ${alan('afUnvan', 'Ünvan', o.unvan)}
     <div class="satir">
@@ -10140,6 +10140,7 @@ async function alFirmaEkle(){
     return;
   }
   alTedarikciListesiTazele(t.id);
+  AL_FIRMA_KAYNAK = 'kullanici';                    // Y77 · okuma surerken eklendiyse model donunce EZILMEZ
   firmaBilgiGoster();                               // Y72 · duzenli firma yonlendirmesi burada
   const v = OCR_SON && OCR_SON.veri;
   await alSatirlariKur(v ? v.satirlar : [], t.id);  // satirlar yeni firmanin eslesmesiyle
@@ -10147,6 +10148,235 @@ async function alFirmaEkle(){
   if (n){ n.style.color = 'var(--ok)';
     n.innerHTML = (vardi ? 'Bu adla kayıtlı firma vardı, o seçildi: ' : '✓ Firma eklendi ve seçildi: ') + '<b>' + esc(t.ad) + '</b>'; }
   const k = document.getElementById('alFirmaKart'); if (k) k.innerHTML = '';
+}
+/* =====================================================================
+   Y77 · UZUN E-FATURADA OKUYUCU DUSUYOR + FIRMA PDF METNINDEN · Y76 BOS SECIM
+   =====================================================================
+   KULLANICI (19 Eylul · Metro e-faturasi, 20 satir, 2 sayfa): uzun sure "okunuyor", sonra "İşlem
+   tamamlanamadı"; firma kutusunda listenin ILK firmasi kaldi. "O okuyup firmayı belirlemesi lazım ya."
+   ⚠ C · SURE: istek AL_OKUMA_UST_SURE_MS'de kesilir — okuyucunun 140 s butcesinin ve ag gecidinin
+     150 s bosta kalma sinirinin USTUNDE; okuyucu takilirsa ONCE ag gecidinin cevabi gelir, bu yalniz
+     ag takilmasina karsi. 20 s'de ara mesaj. Okuyucu (v6) nedeni makine okunur verirse KISA TURKCE
+     gosterilir; neden alani YOKSA (eski okuyucu) ya da cevap JSON degilse -80'in yolu AYNEN (hataTr).
+   ⚠ D · FIRMA PDF METNINDEN (alPdfSatici), okuyucu BEKLENMEDEN; model sonra donerse yalniz BOS
+     alanlari doldurur, PDF'in ya da okuma surerken kullanicinin sectigi firmayi EZMEZ.
+   ⚠ E · Y76: eslesme yoksa secim "— firma seç —" bos secenegine doner; alisKaydet'in "Tedarikçi
+     seçilmedi." kapisi boylece calisir. Eslesen belgede ekran -80 ile BIREBIR.
+   ⚠ F · okuma dusse de "Firmayı ekle" acik: D aday bulduysa dolu kart, bulamadiysa bos kart.
+     Duzenleme kipinde (AL_DUZENLE) E ve F YOK: kayitli firma yerinde kalir (-80 gibi). */
+const AL_OKUMA_UST_SURE_MS = 170000;
+const AL_OKUMA_ARA_MESAJ_MS = 20000;
+let AL_PDF_SATICI = null;       // D'nin son sonucu ({ bulundu, vkn, tur, unvan, vergi_dairesi } ya da { bulundu:false, neden })
+let AL_PDF_ES = null;           // D'nin adayinin kayitli firmayla eslesmesi
+let AL_FIRMA_KAYNAK = null;     // bu okumada firmayi kim belirledi: 'pdf' | 'kullanici' | null (model)
+/* ---------------------------------------------------------------------
+   D · PDF METNINDEN SATICI — KURAL
+   e-faturada satici blogu ALICI SINIRINDAN ("SAYIN" ya da tek basina "Alıcı Bilgileri", ILK sayfada)
+   ONCE gelir. O bolumdeki ETIKETLI numara alinir (VKN / TCKN / Vergi Numarası / Vergi Kimlik No /
+   TC Kimlik No): TEK aday olmali, VKN ya da TCKN sagiamasi tutmali, ilk sayfanin alici blogunda
+   GECMEMELI. Unvan ilk 1-3 satir: sirket ekinde (A.Ş., LTD. ŞTİ., ŞİRKETİ...) kesilir, adres ya da
+   etiket satiri gelince biter. Sinirdan SONRAKI hicbir numara KULLANILMAZ (SIZINTI_2026-08-06_tckn.md).
+   ⚠ BELIRSIZSE SUS: sinir yok (telekom faturasi, BIM e-arsiv, Senpilic sablonu), etiketli numara yok,
+     birden cok aday, sagiama tutmuyor, numara alicida da geciyor → HICBIR SEY doldurulmaz.
+   ⚠ OLCULDU (bilgisayardaki gercek PDF'ler; depoya ve rapora girmez · tmp/y77 duzenegi asagidaki
+     isaretlerin arasini index.html'den AYNEN ceker): 118 belge · dogru 70 · sus 48 · YANLIS 0.
+   ⚠ /i BAYRAGI 'ı'yi 'I' ile ESLEMEZ (Unicode katlamasi Turkce degil): "Numarası", "Alıcı" kaciyordu
+     (olculdu). Harf siniflari ACIK yazildi. */
+/* @@Y77-SATICI-BAS@@ */
+function alVknGecerli(n){                 // 10 hane VKN sagiamasi
+  if (!/^\d{10}$/.test(n)) return false;
+  let top = 0;
+  for (let i = 0; i < 9; i++){
+    const t = (+n[i] + 9 - i) % 10;
+    let v = (t * Math.pow(2, 9 - i)) % 9;
+    if (t !== 0 && v === 0) v = 9;
+    top += v;
+  }
+  return (10 - (top % 10)) % 10 === +n[9];
+}
+function alTcknGecerli(n){                // 11 hane TCKN sagiamasi
+  if (!/^[1-9]\d{10}$/.test(n)) return false;
+  const d = [...n].map(Number);
+  const on = (((d[0] + d[2] + d[4] + d[6] + d[8]) * 7 - (d[1] + d[3] + d[5] + d[7])) % 10 + 10) % 10;
+  return on === d[9] && d.slice(0, 10).reduce((a, b) => a + b, 0) % 10 === d[10];
+}
+function alPdfSatici(metin){
+  const L = String(metin || '').split('\n').map(s => s.trim());
+  const sus = (neden) => ({ bulundu: false, neden });
+  const H = 'A-Za-zÇĞİÖŞÜçğıöşü';
+  const sayfa1 = L.indexOf('--- SAYFA ---') < 0 ? L.length : L.indexOf('--- SAYFA ---');
+  const iS = L.findIndex((l, i) => i < sayfa1
+    && (new RegExp('(^|[^' + H + '])SAYIN([^' + H + ']|$)').test(l) || /^AL[IİıiI]C[IİıiI] B[İIiı]LG[İIiı]LER[İIiı]$/iu.test(l)));
+  if (iS < 0) return sus('alici_siniri_yok');
+  const sat = L.slice(0, iS);
+  const ali = L.slice(iS, Math.min(iS + 16, sayfa1));      // ilk sayfadaki alici blogu
+  const ET = /(?:V\.?\s?K\.?\s?N\.?|T\.?\s?C\.?\s?K\.?\s?N\.?|VERG[İIiı]\s+(?:K[İIiı]ML[İIiı]K\s+)?(?:NO|NUMARAS[IİıiI])|T\.?\s?C\.?\s+K[İIiı]ML[İIiı]K\s+(?:NO|NUMARAS[IİıiI]))\s*[:：]?\s*(?:(?:VKN|TCKN)\s*[:：]\s*)?(\d{10,11})(?!\d)/giu;
+  const adaylar = new Set();
+  for (const l of sat) for (const m of l.matchAll(ET)) adaylar.add(m[1]);
+  if (!adaylar.size) return sus('etiketli_no_yok');
+  if (adaylar.size > 1) return sus('birden_cok_no');
+  const no = [...adaylar][0];
+  const tur = no.length === 10 ? 'VKN' : 'TCKN';
+  if (tur === 'VKN' ? !alVknGecerli(no) : !alTcknGecerli(no)) return sus('sagiama_tutmadi');
+  if (ali.some(l => l.includes(no))) return sus('alicida_da_var');
+  const ETIKET = /^(Tel|Telefon|Fax|Faks|Web|E-?Posta|E-?mail|Vergi|VKN|TCKN|Mersis|MERSISNO|Ticaret Sicil|TICARETSICILNO|Merkez|Adres|FATURA|e-?FATURA|e-?Ar[sş]iv|Özelleştirme|Senaryo)\b/iu;
+  const ADRES = /(^|[^A-Za-zÇĞİÖŞÜçğıöşü])(MAH(ALLES[İI])?|MH|CAD(DES[İI])?|CD|SOK(AK)?|SK|BULVAR[Iİ]?|BLV|APT|KAPI NO|K[ÜU]ME EVLER|PLAZA|[İI]Ş ?HANI)([^A-Za-zÇĞİÖŞÜçğıöşü]|$)|NO\s*:/iu;
+  const EK = new RegExp('(^|[^' + H + '])(A\\.\\s?[ŞS]\\.?|AŞ|ANON[İI]M\\s+[ŞS][İI]RKET[İI]|L[İI]M[İI]TED\\s+[ŞS][İI]RKET[İI]|LTD\\.?\\s*[ŞS]T[İI]\\.?|[ŞS][İI]RKET[İI]|[ŞS]T[İI]\\.?)(?![' + H + '])', 'iu');
+  const parca = [];
+  for (let i = 0; i < Math.min(sat.length, 3); i++){
+    const l = sat[i];
+    if (!l || ETIKET.test(l) || ADRES.test(l) || /\d{5}/.test(l)) break;
+    const m = l.match(EK);
+    if (m){ parca.push(l.slice(0, m.index + m[0].length)); break; }
+    parca.push(l);
+  }
+  let unvan = parca.join(' ').replace(/\s+/g, ' ').trim();
+  if (unvan && !new RegExp('[' + H + ']{3}').test(unvan)) unvan = '';
+  const vdS = sat.map(l => (l.match(/^Vergi Dairesi\s*[:：]\s*(.+)$/iu) || [])[1]).find(Boolean) || '';
+  const vd = /yok|^-+$/i.test(vdS) ? '' : vdS.trim();
+  return { bulundu: true, vkn: no, tur, unvan, vergi_dairesi: vd };
+}
+/* @@Y77-SATICI-SON@@ */
+/* D'nin adayini kayitli firmayla eslestirir: once VKN; yoksa ad (alTedarikciEslestir'in ad kurali) —
+   ama adla bulunan firmanin KAYITLI numarasi farkliysa ESLESME YOK (yanlis firma secilmesin). */
+function alPdfEslestir(s){
+  if (!s || !s.bulundu) return { t: null, nasil: null };
+  const v = (KATALOG.tedarikciler || []).find(t => alRakam(t.vergi_no) === s.vkn);
+  if (v) return { t: v, nasil: 'VKN' };
+  const a = s.unvan ? alTedarikciEslestir(s.unvan, '') : { t: null };
+  if (a.t && (!alRakam(a.t.vergi_no) || alRakam(a.t.vergi_no) === s.vkn)) return a;
+  return { t: null, nasil: null };
+}
+/* D'nin kayitsiz firmasi Y74 kartinin alanlarina: 11 hane (TCKN) kartA YAZILMAZ, ekrana BASILMAZ */
+function alPdfOkunan(s){
+  const tc = s.tur === 'TCKN';
+  return { aliciMi: false, noSupheli: false, tcknGizli: tc, kaynak: 'pdf',
+    ad: s.unvan, unvan: s.unvan, vkn: tc ? '' : s.vkn, vergi_dairesi: s.vergi_dairesi, adres: '',
+    gizli: tc ? [s.vkn] : [] };
+}
+/* Model sonra donerse YALNIZ BOS alanlar dolar; PDF'ten gelen (ve gizlenen 11 hane) aynen kalir */
+function alOkunanBirlestir(pdf, model){
+  if (!pdf) return model;
+  const o = Object.assign({}, pdf);
+  for (const k of ['ad', 'unvan', 'vergi_dairesi', 'adres']) if (!o[k] && model && model[k]) o[k] = model[k];
+  if (!o.vkn && !o.tcknGizli && model && model.vkn) o.vkn = model.vkn;
+  o.gizli = [...(pdf.gizli || []), ...((model && model.gizli) || [])];
+  return o;
+}
+/* Kart aciksa yalniz BOS kutular doldurulur — kullanicinin yazdigi EZILMEZ */
+function alKartBoslariDoldur(o){
+  [['afAd', o.ad], ['afUnvan', o.unvan], ['afVkn', o.vkn], ['afVd', o.vergi_dairesi], ['afAdres', o.adres]].forEach(([id, d]) => {
+    const e = document.getElementById(id);
+    if (e && !e.value.trim() && d) e.value = d;
+  });
+  alFirmaDenetle();
+}
+/* -80'in iki firma notu AYNEN (eslesen · kayitli olmayan) */
+function alFirmaEslestiHtml(es){
+  return `<div class="bilgi-not" style="color:var(--ok)">✓ Firma eşleşti (${es.nasil}): <b>${esc(es.t.ad)}</b></div>`;
+}
+function alFirmaKayitsizHtml(ok){
+  return `<div class="bilgi-not" style="color:var(--uyari)" id="alFirmaNot">⚠ Bu firma kayıtlı değil:
+        <b>${esc(ok.ad || (ok.aliciMi ? 'satıcının adı metinde yok' : '—'))}</b>${ok.vkn ? ' · VKN ' + esc(ok.vkn) : ''}<br>
+        ${AL_DUZENLE ? 'Tedarikçi sekmesinden ekleyip geri dön, ya da listeden doğru firmayı seç.'
+          : `Buradan ekleyebilir ya da listeden doğru firmayı seçebilirsin.
+        <button type="button" class="btn2" id="alFirmaEkleAc" aria-expanded="false" aria-controls="alFirmaKart"
+          style="display:block;margin-top:8px" onclick="alFirmaKartAc()">Firmayı ekle ›</button>`}</div>
+        ${AL_DUZENLE ? '' : '<div id="alFirmaKart"></div>'}`;
+}
+/* E · Y76 · eslesme yok: bos secenek (yoksa) eklenir ve SECILIR */
+function alFirmaSecimiBosalt(){
+  const sel = document.getElementById('alTedarikci'); if (!sel || AL_DUZENLE) return;
+  if (!sel.querySelector('option[value=""]'))
+    sel.insertAdjacentHTML('afterbegin', '<option value="">— firma seç —</option>');
+  sel.value = '';
+  firmaBilgiGoster();
+}
+/* D · okuyucu BEKLENMEDEN: kayitliysa sec, degilse Y74 kartini PDF'in bilgisiyle hazirla, belirsizse SUS */
+function alPdfFirmaUygula(s){
+  AL_PDF_SATICI = s;
+  if (!s || !s.bulundu || AL_DUZENLE) return;
+  const es = AL_PDF_ES = alPdfEslestir(s);
+  const ozet = document.getElementById('alOkuOzet');
+  AL_FIRMA_KAYNAK = 'pdf';
+  if (es.t){
+    const sel = document.getElementById('alTedarikci');
+    if (sel){ sel.value = es.t.id; firmaBilgiGoster(); }
+    if (ozet) ozet.innerHTML = alFirmaEslestiHtml(es);
+  } else {
+    AL_FIRMA_OKUNAN = alPdfOkunan(s);
+    alFirmaSecimiBosalt();
+    if (ozet) ozet.innerHTML = alFirmaKayitsizHtml(AL_FIRMA_OKUNAN);
+  }
+}
+/* Model dondu: firma karari. PDF'in ya da kullanicinin secimi EZILMEZ; aksi halde -80'in yolu AYNEN */
+function alFirmaSonuc(v){
+  const esM = alTedarikciEslestir(v.tedarikci?.ad, v.tedarikci?.vkn);
+  const sel = document.getElementById('alTedarikci');
+  const kart = document.getElementById('alFirmaKart'), not = document.getElementById('alFirmaNot');
+  const kartAcik = !!(kart && kart.querySelector('input'));
+  if (AL_FIRMA_KAYNAK === 'kullanici'){
+    const t = (KATALOG.tedarikciler || []).find(x => sel && x.id === sel.value) || null;
+    const es = t && esM.t && esM.t.id === t.id ? esM : { t: null, nasil: null };
+    return { es, firmaId: t ? t.id : null, korunan: not ? [not, kart].filter(Boolean) : null,
+      firmaNot: not ? '' : es.t ? alFirmaEslestiHtml(es)
+        : t ? `<div class="bilgi-not">Firma: <b>${esc(t.ad)}</b> — senin seçimin.</div>` : '' };
+  }
+  if (AL_FIRMA_KAYNAK === 'pdf' && AL_PDF_ES && AL_PDF_ES.t){
+    const es = esM.t && esM.t.id === AL_PDF_ES.t.id ? esM : AL_PDF_ES;   // ikisi ayniysa -80'in notu birebir
+    return { es, firmaId: es.t.id, firmaNot: alFirmaEslestiHtml(es) };
+  }
+  if (AL_FIRMA_KAYNAK === 'pdf'){
+    AL_FIRMA_OKUNAN = alOkunanBirlestir(AL_FIRMA_OKUNAN, alSaticiOkunan(v));
+    if (kartAcik) alKartBoslariDoldur(AL_FIRMA_OKUNAN);
+    return { es: { t: null, nasil: null }, firmaId: null, korunan: kartAcik ? [not, kart].filter(Boolean) : null,
+      firmaNot: kartAcik ? '' : alFirmaKayitsizHtml(AL_FIRMA_OKUNAN) };
+  }
+  if (esM.t){
+    if (sel){ sel.value = esM.t.id; firmaBilgiGoster(); }
+    return { es: esM, firmaId: esM.t.id, firmaNot: alFirmaEslestiHtml(esM) };
+  }
+  /* ⚠ Y74 · ALICI KORUMASI: aliciyla ayni ad VEYA numara burada BASILMAZ, kartta DOLMAZ */
+  AL_FIRMA_OKUNAN = alSaticiOkunan(v);
+  alFirmaSecimiBosalt();
+  return { es: esM, firmaId: null, firmaNot: alFirmaKayitsizHtml(AL_FIRMA_OKUNAN) };
+}
+/* F · okuma dustu: PDF firmayi bulduysa onun notu/karti zaten ekranda; bulmadiysa secim bos + bos kart */
+function alOkumaDustuFirma(){
+  if (AL_DUZENLE || AL_FIRMA_KAYNAK) return;
+  const ozet = document.getElementById('alOkuOzet'); if (!ozet) return;
+  alFirmaSecimiBosalt();
+  AL_FIRMA_OKUNAN = { bos: true };
+  ozet.innerHTML = `<div class="bilgi-not" style="color:var(--uyari)" id="alFirmaNot">⚠ Firma okunamadı — listeden seç ya da buradan ekle.
+        <button type="button" class="btn2" id="alFirmaEkleAc" aria-expanded="false" aria-controls="alFirmaKart"
+          style="display:block;margin-top:8px" onclick="alFirmaKartAc()">Firmayı ekle ›</button></div>
+        <div id="alFirmaKart"></div>`;
+}
+/* C · okuyucunun makine okunur nedeni → kisa Turkce. Neden YOKSA null: -80'in hataTr yolu AYNEN. */
+const AL_OKUMA_NEDEN = {
+  zaman_asimi: 'Okuyucu zamanında yanıt vermedi.',
+  mesgul: 'Yapay zekâ servisi meşgul.',
+  yogun: 'Yapay zekâ servisi şu an yoğun.',
+  ariza: 'Yapay zekâ servisinde geçici arıza.',
+  ayar: 'Okuyucunun ayarı yapay zekâ servisine uymuyor — yöneticiye bildir.',
+  anahtar: 'Okuyucunun yapay zekâ anahtarı geçersiz — yöneticiye bildir.',
+  token_siniri: 'Belge, okuyucunun sınırına göre çok uzun.',
+  json: 'Okuyucunun cevabı çözülemedi.',
+  ret: 'Yapay zekâ bu belgeyi okumayı reddetti.',
+  ag: 'Okuyucu yapay zekâ servisine ulaşamadı.',
+};
+function alOkumaNedeni(s){
+  if (!s || typeof s !== 'object' || !s.neden) return null;
+  const n = s.neden, h = +s.http || 0, tur = String(s.hata_turu || '');
+  if (n === 'zaman_asimi' || n === 'sure_kalmadi') return AL_OKUMA_NEDEN.zaman_asimi;
+  if (n === 'http'){
+    if (h === 529 || tur === 'overloaded_error') return AL_OKUMA_NEDEN.mesgul;
+    if (h === 429 || tur === 'rate_limit_error') return AL_OKUMA_NEDEN.yogun;
+    if (h === 401 || h === 403) return AL_OKUMA_NEDEN.anahtar;
+    if (h >= 500) return AL_OKUMA_NEDEN.ariza;
+    return AL_OKUMA_NEDEN.ayar;
+  }
+  return AL_OKUMA_NEDEN[n] || null;
 }
 async function faturaOku(){
   const inp = document.getElementById('alFoto');
@@ -10164,6 +10394,12 @@ async function faturaOku(){
                : 'Kayıtlı belge okunuyor, 10-20 saniye sürebilir...','');
   if (ozet) ozet.innerHTML = '';
   AL_FIRMA_OKUNAN = null;                           // Y74 · onceki okumanin satici alanlari dusmez
+  /* Y77 · bu okumanin firma durumu sifirlanir; okuma surerken kullanici firmayi SECERSE model onu EZMEZ.
+     OCR_SON da sifirlanir: dusen okumada ONCEKI belgenin okumasi bu faturanin izi olarak kaydedilmesin. */
+  AL_PDF_SATICI = null; AL_PDF_ES = null; AL_FIRMA_KAYNAK = null; OCR_SON = null;
+  const selF = document.getElementById('alTedarikci');
+  const elleSecildi = () => { AL_FIRMA_KAYNAK = 'kullanici'; };
+  if (selF) selF.addEventListener('change', elleSecildi);
   try{
     const { data:{ session } } = await sb.auth.getSession();
     if (!session) throw new Error('Oturum bulunamadı, tekrar giriş yapın.');
@@ -10175,6 +10411,7 @@ async function faturaOku(){
         yaz('e-Fatura PDF\'i okunuyor...','');
         const c = await pdfMetinCikar(f);
         if (!c.yeterli) throw new Error('Bu PDF taranmış görünüyor (metin çıkmadı). Belgenin fotoğrafını çekip dene.');
+        if (AL_FIRMA_KAYNAK !== 'kullanici') alPdfFirmaUygula(alPdfSatici(c.metin));   // Y77 · D · okuyucu BEKLENMEDEN
         govde = { metin: c.metin }; yontem = 'PDF metni';
       } else {
         const k = await fotoKucult(f, 2000, 0.92);
@@ -10187,13 +10424,23 @@ async function faturaOku(){
     }
     OKUMA_YONTEMI = yontem;
 
-    const y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
-      method:'POST',
-      headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
-      body: JSON.stringify(govde)
-    });
-    const s = await y.json();
-    if (!y.ok || !s.ok) throw new Error(s?.hata || ('Okuma başarısız ('+y.status+')'));
+    /* Y77 · C · ust sure + ara mesaj; neden okuyucudan (v6) gelirse Turkce, gelmezse -80'in yolu */
+    const kes = new AbortController();
+    const ustSure = setTimeout(() => kes.abort(), AL_OKUMA_UST_SURE_MS);
+    const araMesaj = setTimeout(() => yaz('Okunuyor… uzun faturalarda 1-2 dakika sürebilir.', ''), AL_OKUMA_ARA_MESAJ_MS);
+    let y, s;
+    try {
+      y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
+        method:'POST',
+        headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
+        body: JSON.stringify(govde), signal: kes.signal
+      });
+      s = await y.json();
+    } catch (e) {
+      if (kes.signal.aborted){ const h = new Error('OKUMA_UST_SURE'); h.okumaNedeni = AL_OKUMA_NEDEN.zaman_asimi; throw h; }
+      throw e;
+    } finally { clearTimeout(ustSure); clearTimeout(araMesaj); }
+    if (!y.ok || !s.ok){ const h = new Error(s?.hata || ('Okuma başarısız ('+y.status+')')); h.okumaNedeni = alOkumaNedeni(s); throw h; }
     OCR_SON = { veri:s.veri, model:s.model };
 
     const v = s.veri || {}, dn = s.denetim || {};
@@ -10229,25 +10476,10 @@ async function faturaOku(){
     }
     // Belge türü
     if (v.belge_turu === 'irsaliye'){ const e=document.getElementById('alTur'); if(e){ e.value='irsaliye'; alTurNot(); } }
-    // Tedarikçi
-    const es = alTedarikciEslestir(v.tedarikci?.ad, v.tedarikci?.vkn);
-    let firmaNot = '';
-    if (es.t){
-      const sel = document.getElementById('alTedarikci');
-      if (sel){ sel.value = es.t.id; firmaBilgiGoster(); }
-      firmaNot = `<div class="bilgi-not" style="color:var(--ok)">✓ Firma eşleşti (${es.nasil}): <b>${esc(es.t.ad)}</b></div>`;
-      doldu.push('Firma');
-    } else {
-      /* ⚠ Y74 · ALICI KORUMASI: aliciyla ayni ad VEYA numara burada BASILMAZ, kartta DOLMAZ */
-      const ok = AL_FIRMA_OKUNAN = alSaticiOkunan(v);
-      firmaNot = `<div class="bilgi-not" style="color:var(--uyari)" id="alFirmaNot">⚠ Bu firma kayıtlı değil:
-        <b>${esc(ok.ad || (ok.aliciMi ? 'satıcının adı metinde yok' : '—'))}</b>${ok.vkn ? ' · VKN ' + esc(ok.vkn) : ''}<br>
-        ${AL_DUZENLE ? 'Tedarikçi sekmesinden ekleyip geri dön, ya da listeden doğru firmayı seç.'
-          : `Buradan ekleyebilir ya da listeden doğru firmayı seçebilirsin.
-        <button type="button" class="btn2" id="alFirmaEkleAc" aria-expanded="false" aria-controls="alFirmaKart"
-          style="display:block;margin-top:8px" onclick="alFirmaKartAc()">Firmayı ekle ›</button>`}</div>
-        ${AL_DUZENLE ? '' : '<div id="alFirmaKart"></div>'}`;
-    }
+    // Tedarikçi · Y77: PDF'in ya da okuma surerken kullanicinin secimi EZILMEZ; yoksa -80'in yolu AYNEN (alFirmaSonuc)
+    const firma = alFirmaSonuc(v);
+    const es = firma.es, firmaNot = firma.firmaNot;
+    if (es.t) doldu.push('Firma');
     /* Alıcı kontrolü — LTD faturası şahıs defterine girmesin.
        Eskiden alıcının VKN'si sabit TCKN ile karşılaştırılıyordu; o sabit
        kaldırıldı. Artık karşılaştırma yapılmıyor, alıcı GÖSTERİLİYOR ve
@@ -10286,7 +10518,11 @@ async function faturaOku(){
     if (matrahTamamlanan) denetimNot += `<div class="bilgi-not" style="color:var(--uyari)">
       ✎ ${matrahTamamlanan} KDV satırında matrah —
       ${esc(dilHesaplandi('satırın kendi KDV\'si ÷ oranı'))}. Belgeyle karşılaştır.</div>`;
-    if (ozet) ozet.innerHTML = aliciNot + firmaNot + denetimNot;
+    if (ozet){
+      ozet.innerHTML = aliciNot + (firma.korunan ? '<div id="alFirmaYer"></div>' : firmaNot) + denetimNot;
+      /* Y77 · acik kart ya da "eklendi" notu YERINDE kalir: kullanicinin yazdigi silinmez */
+      if (firma.korunan) document.getElementById('alFirmaYer').replaceWith(...firma.korunan);
+    }
     /* ⚠ ADIM 14 B · ONAY TABLOSU — alMatrahTamamla'dan SONRA cizilir:
        hesaplanan matrahin bayragi orada konuyor, tablo onu okuyor. */
     /* Y74 · satici aliciyla ayniysa tabloda "Tedarikçi" OKUNMAMIS gorunur (sahibin adi satici
@@ -10297,7 +10533,7 @@ async function faturaOku(){
       : v;
     axTabloCiz(document.getElementById('alOkuTablo'), alOkumaSatirlari(vTablo));
     // Faturadaki ürün satırları — tanınanlar otomatik, ilk kez görülenler sorulur
-    await alSatirlariKur(v.satirlar, es.t ? es.t.id : null);
+    await alSatirlariKur(v.satirlar, firma.firmaId);
 
     const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
     let msj = (OKUMA_YONTEMI === 'PDF metni' ? '✓ e-Fatura PDF\'inden okundu (rakamlar birebir) → ' : 'Okundu → ')
@@ -10306,9 +10542,11 @@ async function faturaOku(){
     if (v.uyari) msj += ' (' + gizle(v.uyari) + ')';     // Y74 · okuyucunun serbest metni de
     yaz(msj, doldu.length ? 'ok' : 'uyari');
   }catch(e){
-    yaz('Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
+    yaz('Okunamadı: ' + (e.okumaNedeni || hataTr(e.message)) + ' — alanları elle yaz.', 'uyari');
+    alOkumaDustuFirma();                              // Y77 · E + F (duzenleme kipinde YOK)
   }finally{
     btn.disabled = false; btn.textContent = eski;
+    if (selF) selF.removeEventListener('change', elleSecildi);
   }
 }
 let OCR_SON = null;         // son okuma — kayda denetim izi olarak gider
