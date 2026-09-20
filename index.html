@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-83">
+<meta name="surum" content="2026-08-27-84">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2826,6 +2826,21 @@ function hataTrIc(m){
   if (m.includes('MIKTAR_GECERSIZ')) return 'Bir satırda miktar sıfırdan büyük değil.';
   if (m.includes('SATIR_TUTARI_YOK')) return 'Bir satırın tutarı okunamadı.';
   if (m.includes('KALEM_GECERSIZ')) return 'Bir satırda geçersiz değer var (fiyat, KDV oranı, çarpan ya da iskonto).';
+  /* v147 · Y84 · rpc_alis_kdv_duzelt (KDV düzeltmesi) + rpc_urun_tanimla'nın karşılıksız kodları.
+     Alt dizge çakışması YOK: KDV_KIRILIM_* yukarıdaki KDV_TUTARSIZ'ı içermiyor, tersi de. */
+  if (m.includes('BELGE_TOPLAMI_TUTMUYOR')) return 'Belgedeki matrah + KDV faturanın toplamını tutmadı — faturayı aç, Düzenle → Belgeyi oku.';
+  if (m.includes('ORAN_TUTARSIZ')) return 'Belgede bir KDV oranı kendi matrahını tutmadı — faturayı aç, Düzenle → Belgeyi oku.';
+  if (m.includes('DEGISIKLIK_YOK')) return 'Faturanın KDV\'si zaten belgedekiyle aynı — düzeltilecek bir şey yok.';
+  if (m.includes('KALEM_TOPLAMI_TUTMUYOR')) return 'Bu faturanın ürün satırları var; KDV değişirse satır toplamı tutmaz — faturayı aç, Düzenle.';
+  if (m.includes('KDV_KIRILIM_YOK') || m.includes('KDV_KIRILIM_GECERSIZ')) return 'Belgedeki KDV dökümü okunamadı — faturayı aç, Düzenle → Belgeyi oku.';
+  if (m.includes('KDV_ORAN_GECERSIZ')) return 'Belgede geçersiz bir KDV oranı okundu (geçerli oranlar %0, %1, %8, %10, %20).';
+  if (m.includes('KDV_ORAN_TEKRAR')) return 'Belgede aynı KDV oranı iki kez okundu.';
+  if (m.includes('KDV_NEGATIF')) return 'KDV dökümünde eksi tutar var.';
+  if (m.includes('KDV_TOPLAMDAN_BUYUK')) return 'Belgedeki KDV faturanın toplamından büyük.';
+  if (m.includes('URUN_ADI_UZUN')) return 'Ürün adı çok uzun (en fazla 120 harf).';
+  if (m.includes('URUN_ADI_ZORUNLU')) return 'Yeni ürünün adı boş olamaz.';
+  if (m.includes('BIRIM_GECERSIZ')) return 'Stok birimi adet, kg ya da lt olmalı.';
+  if (m.includes('PAKET_ICI_GECERSIZ')) return 'Paket/koli içi adet sıfırdan büyük olmalı.';
   if (m.includes('Failed to fetch')) return 'İnternet bağlantısı sorunu.';
   /* ⚠ Y1 · DUSME SATIRI ARTIK HAM METIN VERMIYOR.
      Onceki hal `return m` idi: ceviremedigi her sey ekrana OLDUGU GIBI
@@ -10669,6 +10684,10 @@ async function alSatirlariKur(satirlar, tedarikciId){
   if (!Array.isArray(satirlar) || !satirlar.length){ kap.innerHTML=''; return; }
   const alias = tedarikciId ? await alAliasGetir(tedarikciId) : [];
   AL_SATIRLAR.push(...alSatirNesneleri(satirlar, alias));
+  /* Y84 · belgede fiyatlar KDV dahilse satirlar burada KDV'siz hale gelir — zemin
+     okumanin kendi kirilimi (OCR_SON), ekrandaki kutular DEGIL. */
+  const cev = alKdvDahilCevir(AL_SATIRLAR, alBelgeZemini(OCR_SON && OCR_SON.veri));
+  AL_KDV_NOT = cev.durum === 'gerekmedi' ? '' : cev.not;
   const yeniler = alBenzerGerekli(AL_SATIRLAR);
   if (yeniler.length) await alBenzerDoldur(yeniler, tedarikciId);
   alSatirCiz();
@@ -10724,6 +10743,102 @@ function alSatirNesneleri(satirlar, alias){
   });
   return L;
 }
+/* =====================================================================
+   Y84 · BELGENIN KENDI ZEMINI · KDV DAHIL SATIR CEVRIMI · KDV DUZELTME KIRILIMI
+   =====================================================================
+   KULLANICI: "bu kaydedilemez olayi nedir" — okunan faturalarin bir kismi "satirlar
+   tutmadi" diye dusuyordu. IKI AYRI SEBEP olculdu:
+     (a) Belgede satir fiyatlari KDV DAHIL yazilmis (perakende e-arsiv kalibi): satir
+         toplami matrahi degil, faturanin TOPLAMINI tutuyor.
+     (b) Toplu girisle kaydedilen bazi faturalarin BASLIK KDV'si eksik (ucunde sifir):
+         "KDV haric tutar" da yanlis oldugu icin karsilastirmanin HEDEFI bozuk.
+   ZEMIN ARTIK BELGEDEN: satir toplami, basliktaki KDV'den turetilen tutarla degil,
+   OKUMANIN KENDI matrahiyla karsilastirilir. Baslik KDV'si belgeden farkliysa fatura
+   "KDV duzeltmesi" listesine girer (v147 · rpc_alis_kdv_duzelt) ve kullanici onaylar.
+   ⚠ Tek tek giris ile "Urunleri oku" AYNI uc fonksiyondan gecer. */
+const alPara = (x) => { const n = +x; return Number.isFinite(n) ? n : null; };
+const alKurus = (x) => Math.round((+x || 0) * 100);
+function alBelgeZemini(v){
+  const kir = Array.isArray(v && v.kdv_kirilim) ? v.kdv_kirilim.filter(k => k && typeof k === 'object') : [];
+  const toplam = alPara(v && v.odenecek) ?? alPara(v && v.genel_toplam);
+  const kirK = +kir.reduce((a, k) => a + (alPara(k.kdv_tutar) || 0), 0).toFixed(2);
+  const kirM = +kir.reduce((a, k) => a + (alPara(k.matrah) || 0), 0).toFixed(2);
+  /* ⚠ BOS kirilim (satirlari var ama hepsi sifir) kirilim SAYILMAZ: yoksa belgenin
+     KDV'si "sifir" sanilir ve dogru bir baslik KDV'si "duzeltilir". */
+  const varKir = kir.length > 0 && (kirK > 0 || kirM > 0);
+  let kdv = varKir ? kirK : alPara(v && v.kdv_toplam);
+  let matrah = varKir && kirM > 0 ? kirM
+    : (kdv != null && toplam != null ? +(toplam - kdv).toFixed(2) : null);
+  return { toplam, kdv, matrah, kirilim: varKir ? kir : [], tam: kdv != null && matrah != null };
+}
+/* Satirlar KDV DAHIL mi: matrahi DEGIL, faturanin toplamini tutuyorlar mi. Oyleyse her
+   satir KENDI oraniyla KDV'siz hale getirilir.
+   ⚠ UYDURMA DEGIL: belgede yazan oran, belgede yazan tutara uygulanir (iskonto
+     duzeltmesiyle ayni ilke).
+   ⚠ YUVARLAMA: her satir 2 haneye yuvarlanir; belge matrahi ile arada kalan kurus farki
+     (pay: 5 kurus + satir basina 1 kurus) EN BUYUK satira yazilir. Pay ASILMAZSA fark
+     satira yazildigi icin sunucunun 5 kurus kapisi (v146) da tutar — o kapi satir
+     sayisina gore GENISLEMEZ, bu yuzden farki tasimak sart. */
+function alKdvDahilCevir(satirlar, z){
+  const yok = { durum: 'gerekmedi', not: '', fark: 0 };
+  if (!satirlar || !satirlar.length || !z || !z.tam) return yok;
+  const net = satirlar.reduce((a, s) => a + alKurus(s.satir_tutar), 0);
+  const hedef = alKurus(z.matrah), tumu = alKurus(z.matrah) + alKurus(z.kdv);
+  if (Math.abs(net - hedef) <= 5) return yok;                 // zaten KDV haric
+  if (Math.abs(net - tumu) > 5) return yok;                   // baska bir sebep var; cevrim degil
+  if (!satirlar.every(s => [0, 1, 8, 10, 20].includes(+s.kdv_orani)))
+    return { durum: 'oransiz', fark: 0,
+      not: 'Belgede fiyatlar KDV dahil görünüyor ama her satırda KDV oranı okunamadı.' };
+  const eski = satirlar.map(s => ({ t: s.satir_tutar, f: s.birim_fiyat, i: s.iskonto_tutar, b: s.brut }));
+  const geri = () => satirlar.forEach((s, i) => { s.satir_tutar = eski[i].t; s.birim_fiyat = eski[i].f;
+    s.iskonto_tutar = eski[i].i; s.brut = eski[i].b; delete s.kdvDahil; });
+  satirlar.forEach(s => {
+    const b = 1 + (+s.kdv_orani) / 100;
+    s.satir_tutar = +(s.satir_tutar / b).toFixed(2);
+    s.birim_fiyat = +(s.birim_fiyat / b).toFixed(4);
+    if (s.iskonto_tutar != null) s.iskonto_tutar = +(s.iskonto_tutar / b).toFixed(2);
+    if (s.brut != null) s.brut = +(s.brut / b).toFixed(2);
+    s.kdvDahil = true;
+  });
+  const fark = hedef - satirlar.reduce((a, s) => a + alKurus(s.satir_tutar), 0);
+  if (Math.abs(fark) > 5 + satirlar.length){
+    geri();
+    return { durum: 'tutmadi', fark,
+      not: 'Satırlar KDV\'siz hale çevrildi ama toplam belgenin matrahını tutmadı.' };
+  }
+  if (fark !== 0){
+    const en = satirlar.reduce((a, s) => alKurus(s.satir_tutar) > alKurus(a.satir_tutar) ? s : a, satirlar[0]);
+    en.satir_tutar = +(en.satir_tutar + fark / 100).toFixed(2);
+  }
+  return { durum: 'cevrildi', fark,
+    not: 'Belgede fiyatlar KDV dahil yazılmış — satırlar KDV\'siz hale çevrildi'
+       + (fark ? ' (' + Math.abs(fark) + ' kuruş yuvarlama farkı en büyük satıra yazıldı)' : '') + '.' };
+}
+/* v147'ye gidecek KDV kirilimi. Sunucunun kapilari ISTEMCIDE DE denetlenir: kullanici
+   ham sunucu hatasi degil, ne yapacagini soyleyen Turkce sebep gorsun. */
+function alKdvKirilimKur(z, toplam){
+  const ek = ' — faturayı aç, Düzenle → Belgeyi oku';
+  const red = (n) => ({ ok: false, neden: n + ek });
+  if (!z || !z.kirilim.length) return red('belgedeki KDV sistemdekinden farklı ama belgede KDV dökümü okunamadı');
+  const L = [];
+  for (const k of z.kirilim){
+    const oran = alPara(k.oran), t = alPara(k.kdv_tutar);
+    if (oran == null || !Number.isInteger(oran) || ![0, 1, 8, 10, 20].includes(oran))
+      return red('belgedeki KDV oranlarından biri okunamadı');
+    if (t == null || t < 0) return red('belgedeki KDV tutarlarından biri okunamadı');
+    let m = alPara(k.matrah);
+    if (m == null || m <= 0) m = oran > 0 ? +(t * 100 / oran).toFixed(2) : null;   // matrah = kendi KDV'si ÷ oranı
+    if (m == null || m < 0) return red('belgede %0 satırının matrahı okunamadı');
+    if (L.some(x => x.oran === oran)) return red('belgede aynı KDV oranı iki kez okundu');
+    L.push({ oran, matrah: +m.toFixed(2), kdv_tutar: +t.toFixed(2) });
+  }
+  const sm = L.reduce((a, x) => a + alKurus(x.matrah), 0), sk = L.reduce((a, x) => a + alKurus(x.kdv_tutar), 0);
+  if (Math.abs(sm + sk - alKurus(toplam)) > 5) return red('belgedeki matrah + KDV faturanın toplamını tutmadı');
+  if (L.some(x => Math.abs(alKurus(x.kdv_tutar) - Math.round(alKurus(x.matrah) * x.oran / 100)) > 6))
+    return red('belgede bir KDV oranı kendi matrahını tutmadı');
+  return { ok: true, kirilim: L, kdv: +(sk / 100).toFixed(2) };
+}
+let AL_KDV_NOT = '';               // tek tek giriste cevrim notu (alSatirDenetim yazar)
 function alSatirCiz(){
   const kap = document.getElementById('alSatirlar'); if(!kap) return;
   const urunler = (KATALOG.urunler||[]);
@@ -10809,12 +10924,14 @@ function alSatirDenetim(){
   const etiket = matrah > 0 ? 'fatura matrahı' : 'ödenecek tutar';
   const fark = +(satirT - hedef).toFixed(2);
   AL_SATIR_TUTUYOR = Math.abs(fark) <= 0.05;
-  el.innerHTML = AL_SATIR_TUTUYOR
+  /* Y84 · cevrim SESSIZ YAPILMAZ: ne yapildigi satirlarin altinda yazar */
+  const kdvNot = AL_KDV_NOT ? `<div class="bilgi-not" style="color:var(--ok)">✎ ${esc(AL_KDV_NOT)}</div>` : '';
+  el.innerHTML = kdvNot + (AL_SATIR_TUTUYOR
     ? `<div class="bilgi-not" style="color:var(--ok)">✓ Satır toplamı ${tl(satirT)} = ${etiket} ${tl(hedef)} — ürünler kaydedilebilir</div>`
     : `<div class="bilgi-not" style="color:var(--uyari)">⚠ Satır toplamı <b>${tl(satirT)}</b>,
         ${etiket} <b>${tl(hedef)}</b> — <b>${fark>0?'+':''}${tl(fark)}</b> fark var.<br>
         Eksik satır olabilir, bir rakam yanlış okunmuş olabilir ya da faturada iskonto vardır.
-        <b>Düzeltmeden ürün kaydı yapılmaz</b> — fatura, tutarı ve KDV'siyle yine kaydedilir.</div>`;
+        <b>Düzeltmeden ürün kaydı yapılmaz</b> — fatura, tutarı ve KDV'siyle yine kaydedilir.</div>`);
 }
 let AL_SATIR_TUTUYOR = true;
 /* Yeni ürünleri oluştur, eşleşmeyi hafızaya yaz, kalem listesini döndür */
@@ -10895,13 +11012,28 @@ const UO_PARALEL = 2;             // aynı anda en çok iki belge okunur
 const UO_IRSALIYE_GUN = 30;       // faturadan önceki 30 gün içinde kalemli irsaliye → elle bak
 let UO = null;                    // açık oturum
 let TP_SON_ALIS = [];             // toplu girişin bu turda kaydettiği alış faturaları
+/* ⚠ Y84 · SON DENEME IZI: pencere kapaninca neden kayboluyordu ("bir fatura kayitta
+   dustu, nedenini goremedik"). Her faturanin SON sonucu (kaydedildi · kaydedilemez ·
+   kayit hatasi + nedeni) BU OTURUMDA saklanir; liste yeniden acilinca satirda gorunur.
+   Sayfa yenilenince silinir: kalici kayit DEGIL, hafiza notu. */
+const UO_SON = new Map();
+function uoSonYaz(f){
+  if (!f || !f.id) return;
+  UO_SON.set(f.id, { durum: f.durum, neden: f.neden || '',
+    saat: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) });
+}
 const uoKurus = (x) => Math.round((+x || 0) * 100);
 const uoKendi = (m) => { HATA_CEVRILMIS.add(m); return new Error(m); };
 const uoTarih = (t) => t ? new Date(t + 'T00:00').toLocaleDateString('tr-TR') : '';
 function uoGunOnce(t, n){ const d = new Date(t + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); }
 /* sunucunun sakladığı gibi: her satır 2 haneye yuvarlanır, toplam kuruşla karşılaştırılır */
 const uoSatirKurus = (satirlar) => satirlar.reduce((a, s) => a + uoKurus(s.satir_tutar), 0);
-const uoTutuyor = (f, satirlar) => Math.abs(uoSatirKurus(satirlar) - uoKurus(f.toplam - f.kdv)) <= 5;
+/* ⚠ Y84 · HEDEF BELGEDEN: okuma yapildiysa satir toplami BELGENIN matrahiyla olculur.
+   Baslik KDV'si eksik kaydedilmis faturada (olculdu: ucunde sifir) `toplam - kdv` YANLIS
+   hedeftir ve saglam belgeyi "tutmadi" diye reddederdi. Duzeltme onaylanip yazildiginda
+   baslik zaten belgeyle ayni olur; okuma yoksa eski hedef gecerli. */
+const uoHedef = (f) => (f.zemin && f.zemin.tam) ? uoKurus(f.zemin.matrah) : uoKurus(f.toplam - f.kdv);
+const uoTutuyor = (f, satirlar) => Math.abs(uoSatirKurus(satirlar) - uoHedef(f)) <= 5;
 
 /* Aday faturalar · idler verilirse yalnız onlar (toplu girişten sonra) */
 async function uoAdaylar(idler){
@@ -10931,7 +11063,7 @@ async function uoAdaylar(idler){
     const f = { id: a.id, tarih: a.tarih, belge_no: a.belge_no, toplam: +a.toplam, kdv: +a.kdv_tutar || 0,
       firmaId: a.tedarikci_id, firmaAd: (a.tedarikci && a.tedarikci.ad) || '—',
       firmaNo: alRakam(a.tedarikci && a.tedarikci.vergi_no), yol: a.foto_path,
-      durum: 'bekliyor', neden: '', satirlar: [] };
+      durum: 'bekliyor', neden: '', satirlar: [], son: UO_SON.get(a.id) || null };
     const atla = (n) => { f.durum = 'atlandi'; f.neden = n; };
     if (!a.foto_path) atla('belgesi yok — faturayı açıp belgeyi ekle');
     else if (kapali.has(String(a.tarih).slice(0, 7))) atla('ay kapalı');
@@ -10981,14 +11113,35 @@ async function uoOku(o, f){
     /* ⚠ alias sorgusu düşerse HATA: sessizce boş sayılsa eşleşen ürün "yeni kart" diye sorulurdu */
     if (!o.alias[f.firmaId]) o.alias[f.firmaId] = alAliasGetir(f.firmaId, true);
     f.satirlar = alSatirNesneleri(Array.isArray(v.satirlar) ? v.satirlar : [], await o.alias[f.firmaId]);
-    const red = (n) => { f.durum = 'kaydedilemez'; f.neden = n; };
+    const red = (n) => { f.durum = 'kaydedilemez'; f.neden = n; uoSonYaz(f); };
+    /* ⚠ Y84 · ZEMIN KAPISI: belgenin kendi matrah + KDV'si faturanin toplamini tutmuyorsa
+       belge ile sistem uyusmuyor demektir — satir da KDV de yazilmaz. */
+    const z = alBelgeZemini(v);
+    f.zemin = z;
+    if (!z.tam || Math.abs(alKurus(z.matrah) + alKurus(z.kdv) - uoKurus(f.toplam)) > 5)
+      return red('belgedeki matrah + KDV faturanın toplamını tutmadı — faturayı aç, Düzenle → Belgeyi oku');
+    /* KDV duzeltmesi: belgedeki KDV baslikta kayitlidan farkliysa AYRI onayla duzeltilir.
+       ⚠ KDV beyana girer: sunucu (v147) YALNIZ owner'a izin verir; personelde satir da
+       yazilamaz (satir toplaminin hedefi yanlis KDV yuzunden yanlis) — sebebi burada yazar. */
+    if (Math.abs(alKurus(z.kdv) - uoKurus(f.kdv)) > 5){
+      const k = alKdvKirilimKur(z, f.toplam);
+      if (!k.ok) return red(k.neden);
+      if (!(PROFIL && PROFIL.rol === 'owner'))
+        return red('belgedeki KDV sistemdekinden farklı — düzeltmeyi yönetici yapmalı, ürünleri sonra kaydedilir');
+      f.kdvDuzelt = { eski: f.kdv, yeni: k.kdv, kirilim: k.kirilim, onay: true };
+    }
     if (!f.satirlar.length) return red('belgede ürün satırı okunamadı');
+    const cev = alKdvDahilCevir(f.satirlar, z);
+    if (cev.durum === 'tutmadi' || cev.durum === 'oransiz')
+      return red(cev.not.replace(/\.$/, '') + ' — faturayı aç, Düzenle → Belgeyi oku');
+    f.kdvNot = cev.durum === 'cevrildi' ? cev.not : '';
     const kusur = uoSatirKusuru(f.satirlar);
     if (kusur) return red(kusur + ' — faturayı aç, Düzenle → Belgeyi oku');
     if (!uoTutuyor(f, f.satirlar)) return red('satırlar tutmadı — faturayı aç, Düzenle → Belgeyi oku');
     f.durum = 'okundu';
   }catch(e){
     f.durum = 'hata'; f.neden = e.okumaNedeni || hataTr(e.message);         // rozet zaten "okunamadı" der
+    uoSonYaz(f);
   }finally{ uoCiz(); }
 }
 async function uoOkumayaBasla(){
@@ -11048,6 +11201,11 @@ async function uoOnayaGec(){
 }
 const uoKalan = (o, f) => f.satirlar.filter(s => !(s.anahtar && o.anahtarMap.get(s.anahtar).karar === 'atla'));
 function uoKayitEngeli(o, f){
+  /* Y84 · KDV duzeltmesi onaylanmadiysa satirlar da yazilamaz: sunucu satir toplamini
+     faturanin KDV HARIC tutarina gore denetler (v146), o tutar da yanlis KDV yuzunden
+     yanlis. Yani onay kaldirilinca fatura bu sefer KAYDEDILMEZ. */
+  if (f.kdvDuzelt && !f.kdvDuzelt.onay)
+    return 'KDV düzeltmesi onaylanmadı — belgedeki KDV sistemdekinden farklı olduğu için ürünleri kaydedilemez';
   const kalan = uoKalan(o, f);
   if (!kalan.length) return 'bütün satırları atlandı';
   if (!uoTutuyor(f, kalan)) return 'atlanan satır yüzünden satır toplamı tutmadı';
@@ -11135,6 +11293,31 @@ function uoAnahtarHtml(o, a, i){
     </div>
   </div>`;
 }
+/* ⚠ Y84 · KDV DUZELTME BOLUMU · FINANSAL: tek tek degil, TOPLU ve ONAYLI.
+   Belgedeki KDV baskaysa fatura burada listelenir; onay kutusu varsayilan ISARETLI,
+   kullanici kaldirabilir — kaldirirsa o faturanin urunleri de kaydedilmez (sunucu satir
+   toplamini faturanin KDV haric tutarina gore olcer). */
+const uoKdvListesi = (o) => o.faturalar.filter(f => f.durum === 'okundu' && f.kdvDuzelt);
+function uoKdvBolumHtml(o){
+  const L = uoKdvListesi(o); if (!L.length) return '';
+  return `<div class="kbaslik" style="margin:6px 0">KDV düzeltmesi (${L.length})</div>
+    <div class="bilgi-not" style="margin:0 0 8px">Belgeye göre indirilecek KDV değişir; onaylamazsan
+      bu faturanın ürünleri de kaydedilemez.</div>
+    ${L.map((f, i) => `<div class="fs-satir" style="padding:8px 10px;margin:0 0 6px">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.45">
+        <input type="checkbox" id="uoKdv_${i}" style="width:20px;height:20px;flex:none;margin-top:1px"
+          ${f.kdvDuzelt.onay ? 'checked' : ''}${o.asama === 'kaydediliyor' ? ' disabled' : ''} onchange="uoKdvOnay(${i}, this.checked)">
+        <span><b>${esc(f.firmaAd)}</b> · ${esc(f.belge_no || 'belge no yok')} · ${uoTarih(f.tarih)}<br>
+          KDV <b>${tl(f.kdvDuzelt.eski)}</b> → <b style="color:var(--ok)">${tl(f.kdvDuzelt.yeni)}</b>
+          <span class="k">(${f.kdvDuzelt.kirilim.map(k => '%' + k.oran).join(' + ')})</span></span>
+      </label></div>`).join('')}`;
+}
+function uoKdvOnay(i, deger){
+  const o = UO, f = o && uoKdvListesi(o)[i]; if (!f) return;
+  f.kdvDuzelt.onay = !!deger;
+  uoOnayOzetYaz();
+  o.anahtarlar.forEach((a, j) => { if (a.karar === 'atla') uoAnahtarYenile(j); });
+}
 function uoOnayOzetYaz(){
   const o = UO, el = document.getElementById('uoOnayOzet'); if (!o || !el) return;
   const okunan = o.faturalar.filter(f => f.durum === 'okundu');
@@ -11154,20 +11337,28 @@ function uoOnayOzetYaz(){
   });
   const yeniKart = yeniAd.size;
   const karsilasmayan = kayit.filter(f => !f.noKarsilasti).length;
+  const kdvOnay = uoKdvListesi(o).filter(f => f.kdvDuzelt.onay && ids.has(f.id)).length;
+  const kdvRet = uoKdvListesi(o).filter(f => !f.kdvDuzelt.onay).length;
   el.innerHTML = `Kaydedilecek: <b>${kayit.length} fatura</b> · ${satir} ürün satırı
       (${taninan} tanınan ürün).`
     + (gorulen.length ? `<br><b>${baglanan.size} ürün kayıtlı karta bağlanacak</b> · ${yeniKart} yeni kart.` : '')
-    + (okunan.length > kayit.length ? `<br>${okunan.length - kayit.length} okunan fatura atlanan satırlar yüzünden bu sefer kaydedilmez.` : '')
+    + (kdvOnay ? `<br><b>${kdvOnay} faturanın KDV'si belgeye göre düzeltilecek</b> (önce KDV, sonra ürünler).` : '')
+    + (kayit.filter(f => f.kdvNot).length
+        ? `<br>${kayit.filter(f => f.kdvNot).length} faturada belgede fiyatlar KDV dahil yazılmış — satırlar KDV'siz hale çevrildi.` : '')
+    + (kdvRet ? `<br>${kdvRet} faturanın KDV düzeltmesi onaylanmadı — o faturalar bu sefer kaydedilmez.` : '')
+    + (okunan.length - kayit.length - kdvRet > 0
+        ? `<br>${okunan.length - kayit.length - kdvRet} okunan fatura atlanan satırlar yüzünden bu sefer kaydedilmez.` : '')
     + (karsilasmayan ? `<br>${karsilasmayan} faturada belgedeki satıcı numarası firmanın kaydıyla karşılaştırılamadı
       (firmada numara yok ya da belgede okunamadı) — bu faturalarda tek denetim satır toplamı.` : '');
   const b = document.getElementById('uoKaydet');
   if (b){ b.disabled = !kayit.length;
     b.textContent = kayit.length ? kayit.length + ' faturanın ürünlerini kaydet' : 'Kaydedilecek fatura yok'; }
 }
-/* v146 yoksa PostgREST fonksiyonu bulamaz (PGRST202); varsa boş kimlik KAYIT_YOK döner — hiçbir şey yazılmaz */
-async function uoSunucuHazir(){
-  const { error } = await sb.rpc('rpc_alis_kalem_tamamla', { p_idem: 'yoklama', p_alis: null, p_kalemler: [] });
-  if (!error || /KAYIT_YOK/.test(error.message)) return true;
+/* v146/v147 yoksa PostgREST fonksiyonu bulamaz (PGRST202); varsa boş kimlik KAYIT_YOK
+   döner — hiçbir şey yazılmaz. Y84 · v147 YALNIZ KDV düzeltmesi gerekiyorsa yoklanır. */
+async function uoSunucuHazir(rpc, govde){
+  const { error } = await sb.rpc(rpc, govde);
+  if (!error || /KAYIT_YOK|YETKI_YOK/.test(error.message)) return true;   // kural işledi = fonksiyon VAR
   if (error.code === 'PGRST202' || /Could not find the function/i.test(error.message)) return false;
   throw new Error(error.message);
 }
@@ -11183,16 +11374,48 @@ async function uoKaydet(){
     uoAc(o.anahtarlar.indexOf(gereken[bos]), true); return;   // satır kapalıysa açılır, ad kutusuna gider
   }
   o.asama = 'kaydediliyor'; o.ilerleme = 'Sunucu yoklanıyor…'; uoCiz();
+  const kdvler = uoKdvListesi(o).filter(f => f.kdvDuzelt.onay && ids.has(f.id));
+  let v147 = true;
   try{
-    if (!(await uoSunucuHazir())){
+    if (!(await uoSunucuHazir('rpc_alis_kalem_tamamla', { p_idem: 'yoklama', p_alis: null, p_kalemler: [] }))){
       o.asama = 'onay'; uoCiz(); hata('Sunucu güncellemesi (v146) henüz uygulanmamış — hiçbir şey kaydedilmedi.'); return; }
+    /* ⚠ v147 YOKSA yalnız KDV düzeltmesi gereken faturalar düşer; ötekiler normal kaydedilir */
+    if (kdvler.length) v147 = await uoSunucuHazir('rpc_alis_kdv_duzelt', { p_idem: 'yoklama', p_alis: null, p_kdv_kirilim: [] });
   }catch(e){ o.asama = 'onay'; uoCiz(); hata(hataTr(e.message)); return; }
-  o.faturalar.forEach(f => { if (f.durum === 'okundu' && !ids.has(f.id)){ f.durum = 'kaydedilemez'; f.neden = uoKayitEngeli(o, f); } });
-  /* 1 · kartlar: yeni kart + elle seçilen eşleşme (alias hafızası) · alSatirKaydet'in parametreleri */
+  o.faturalar.forEach(f => { if (f.durum === 'okundu' && !ids.has(f.id)){ f.durum = 'kaydedilemez'; f.neden = uoKayitEngeli(o, f); uoSonYaz(f); } });
+  /* 0 · Y84 · KDV DUZELTMESI EN ONCE: faturanın KDV hariç tutarı düzelmeden satır toplamı
+     sunucunun kapısından geçemez (v146). Düşen faturanın SATIRLARI DA yazılmaz. */
+  const kdvDusen = new Set();
+  let kdvTamam = 0;
+  for (let n = 0; n < kdvler.length; n++){
+    const f = kdvler[n];
+    o.ilerleme = `KDV düzeltmesi ${n + 1}/${kdvler.length}…`; uoIlerlemeYaz();
+    if (!v147){ kdvDusen.add(f.id); f.durum = 'kayit_hata';
+      f.neden = 'sunucu güncellemesi (v147) henüz uygulanmamış — KDV de ürünler de kaydedilmedi'; uoSonYaz(f); continue; }
+    try{
+      const p_idem = await idemKararli('alis_kdv_duzelt', [f.id, JSON.stringify(f.kdvDuzelt.kirilim)]);
+      let son;
+      for (let d = 0; d < 2; d++){            // ağ koparsa AYNI anahtarla bir kez daha (sunucu ilk sonucu verir)
+        son = await sb.rpc('rpc_alis_kdv_duzelt', { p_idem, p_alis: f.id, p_kdv_kirilim: f.kdvDuzelt.kirilim });
+        if (!son.error || !/Failed to fetch|NetworkError|timeout/i.test(son.error.message)) break;
+        await new Promise(r => setTimeout(r, 1200));
+      }
+      if (son.error) throw new Error(son.error.message);
+      if (!son.data || !son.data.ok) throw uoKendi('sunucu onay vermedi');
+      f.kdv = +son.data.yeni_kdv; f.kdvDuzelt.yazildi = true; kdvTamam++;
+    }catch(e){
+      kdvDusen.add(f.id); f.durum = 'kayit_hata';
+      f.neden = 'KDV düzeltilemedi: ' + hataTr(e.message) + ' — ürünleri de kaydedilmedi'; uoSonYaz(f);
+    }
+  }
+  /* 1 · kartlar: yeni kart + elle seçilen eşleşme (alias hafızası) · alSatirKaydet'in parametreleri
+     ⚠ Y84 · KDV düzeltmesi düşen faturanın satırları yazılmayacak; YALNIZ o faturalarda geçen
+       satırlar için kart AÇILMAZ (yanlış açılan kart kalıcıdır, boşuna açılan da öyle). */
+  const kartlik = gereken.filter(a => [...a.faturalar].some(id => ids.has(id) && !kdvDusen.has(id)));
   let yeniKart = 0;
-  for (let n = 0; n < gereken.length; n++){
-    const a = gereken[n];
-    o.ilerleme = `Ürün kartları ${n + 1}/${gereken.length}…`; uoIlerlemeYaz();
+  for (let n = 0; n < kartlik.length; n++){
+    const a = kartlik[n];
+    o.ilerleme = `Ürün kartları ${n + 1}/${kartlik.length}…`; uoIlerlemeYaz();
     const yeni = a.karar === 'yeni';
     const pk = paraCoz(a.paketHam);
     const carpan = yeni ? (pk.deger > 0 ? pk.deger : 1) : a.carpan;
@@ -11216,10 +11439,11 @@ async function uoKaydet(){
   let tamam = 0, satirSay = 0;
   for (let n = 0; n < kayit.length; n++){
     const f = kayit[n];
+    if (kdvDusen.has(f.id)) continue;                       // KDV düzeltmesi düştü: satır da yazılmaz
     o.ilerleme = `Faturalar ${n + 1}/${kayit.length}…`; uoIlerlemeYaz();
     const kalan = uoKalan(o, f);
     const kartHata = kalan.map(s => s.anahtar && o.anahtarMap.get(s.anahtar)).find(a => a && a.hata);
-    if (kartHata){ f.durum = 'kayit_hata'; f.neden = kartHata.hata; continue; }
+    if (kartHata){ f.durum = 'kayit_hata'; f.neden = kartHata.hata; uoSonYaz(f); continue; }
     const kalemler = kalan.map(s => {
       const a = s.anahtar ? o.anahtarMap.get(s.anahtar) : null;
       return { urun_id: a ? a.cozulen : s.urun_id, miktar: s.miktar, birim_fiyat: s.birim_fiyat,
@@ -11240,8 +11464,9 @@ async function uoKaydet(){
       if (!son.data || !son.data.ok) throw uoKendi('sunucu onay vermedi');
       f.durum = 'kaydedildi'; f.kalemSay = kalemler.length; tamam++; satirSay += kalemler.length;
     }catch(e){ f.durum = 'kayit_hata'; f.neden = hataTr(e.message); }
+    uoSonYaz(f);
   }
-  o.sonuc = { tamam, satirSay, yeniKart }; o.kaydedilen = tamam > 0;
+  o.sonuc = { tamam, satirSay, yeniKart, kdvTamam }; o.kaydedilen = tamam > 0 || kdvTamam > 0;
   o.asama = 'bitti'; uoCiz();
 }
 function uoIlerlemeYaz(){ const el = document.getElementById('uoIlerleme'); if (el && UO) el.textContent = UO.ilerleme || ''; }
@@ -11257,6 +11482,9 @@ function uoFaturaHtml(f){
       <div class="b" style="overflow-wrap:anywhere">${esc(f.firmaAd)}</div>
       <div class="k" style="overflow-wrap:anywhere">${esc(f.belge_no || 'belge no yok')} · ${uoTarih(f.tarih)}</div>
       ${f.neden ? `<div class="k" style="color:var(--uyari);overflow-wrap:anywhere">${esc(f.neden)}</div>` : ''}
+      ${f.kdvNot ? `<div class="k" style="color:var(--ok);overflow-wrap:anywhere">✎ ${esc(f.kdvNot)}</div>` : ''}
+      ${(f.son && !f.neden) ? `<div class="k" style="overflow-wrap:anywhere">son denemede (${esc(f.son.saat)}):
+        ${esc((UO_DURUM[f.son.durum] || ['?'])[0])}${f.son.neden ? ' — ' + esc(f.son.neden) : ''}</div>` : ''}
     </div>
     <span class="rozet ${cls}" style="flex:none">${esc(et + ek)}</span></div>`;
 }
@@ -11295,6 +11523,7 @@ function uoCiz(){
     const disarda = F.filter(f => !['okundu', 'kaydedildi', 'kayit_hata'].includes(f.durum));
     g = `<div class="kart" style="margin:0 0 12px"><div class="kbaslik">Kaydetmeden önce</div>
         <div class="bilgi-not" id="uoOnayOzet" style="margin:0"></div></div>
+      ${uoKdvBolumHtml(o)}
       ${o.anahtarlar.length ? `<div class="kbaslik" style="margin:6px 0">İlk kez görülen ürünler (${o.anahtarlar.length})</div>
         <div class="bilgi-not" style="margin:0 0 8px">Adetler faturadan geliyor. Kutulara dokunman gerekmiyor;
           yanlış gördüğün satırı düzelt, sonra Kaydet. Satıra dokununca açılır.
@@ -11311,6 +11540,7 @@ function uoCiz(){
     const r = o.sonuc || {}, disarda = F.filter(f => f.durum !== 'kaydedildi');
     g = `<div class="kart" style="margin:0 0 12px"><div class="kbaslik">Sonuç</div>
         <div class="ok-msg" style="display:block">${r.tamam} fatura tamamlandı · ${r.satirSay} ürün satırı · ${r.yeniKart} yeni ürün kartı</div>
+        ${r.kdvTamam ? `<div class="ok-msg" style="display:block">${r.kdvTamam} faturanın KDV'si belgeye göre düzeltildi</div>` : ''}
         ${r.tamam ? '<div class="bilgi-not">Ürünler Stok sayfasında; ürüne dokununca fiyat geçmişi açılır.</div>' : ''}</div>
       ${disarda.length ? `<div class="kbaslik" style="margin:6px 0">Kaydedilmeyenler (${disarda.length})</div>
         ${disarda.map(f => uoFaturaHtml(f.durum === 'bekliyor' ? Object.assign({}, f, { durum: 'atlandi', neden: 'okunmadı (durduruldu)' }) : f)).join('')}` : ''}
