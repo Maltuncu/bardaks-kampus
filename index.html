@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-87">
+<meta name="surum" content="2026-08-27-89">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -8724,7 +8724,10 @@ async function duzenliSeritCiz(){
   if (!d.var){ el.innerHTML = ''; return; }
   if (!d.tanimlar.some(t => t.aktif)){
     el.innerHTML = sahip ? `<div class="kart dz-serit"><button type="button" class="dz-sr" onclick="duzenliTanimlaGit()">
-        <span class="dz-ad">Kira, elektrik, su, internet için hatırlatma yok</span>
+        ${/* ⚠ Y89 · "Kira" BU CUMLEDEN CIKTI: kira odeme takviminde (ucaylik) ve Sabit'te
+              takvimden okunan kendi satiri var; buradan tanim kurdurmak ayni odemeyi iki
+              yerden bekletirdi. */''}
+        <span class="dz-ad">Elektrik, su, internet için hatırlatma yok</span>
         <span class="dz-drm" style="color:var(--ana)">Düzenli ödeme tanımla ›</span></button></div>` : '';
     return;
   }
@@ -8863,8 +8866,52 @@ function duzenliOdemeYok(id){
      bolume de cizilir (#duzenliKart). Oneriye dokununca o formun alanlari dolar. */
 let SB_AY = null;                   // secili ay (Giderler'in oteki bolumlerinden bagimsiz)
 let SB_TANIM_ACIK = false;          // tanim karti acik mi (yalniz sahip)
-let SB_LISTE = [];                  // cizilen satirlar · "Gir" buradan okur
-const SB_ONERI = ['Kira', 'Elektrik', 'Su', 'İnternet', 'Tüp'];
+let SB_LISTE = [];                  // TANIMLI satirlar · "Gir" buradan okur · ozet sayaclari BUNU sayar
+let SB_IZ = [];                     // Y89 · izlenen kalemler (beklenti yok) · ozete GIRMEZ
+let SB_KIRA = null;                 // Y89 · takvimden okunan kira satiri (yalniz sahip) · ozete GIRMEZ
+/* ⚠ Y89 · "Kira" ve "Tüp" ONERIDEN CIKTI. Oneri dugmesi tanim formunu acar ve formun
+     varsayilan sikligi HER AY (dzPeriyot'un ilk secenegi) — dokunan kullanici istemeden
+     aylik hatirlatma kuruyordu. Kira ZATEN odeme takviminde (ucaylik, takvim_kod 'kira');
+     ikinci bir tanim ayni odemeyi IKI YERDEN bekletirdi. Tup'un ay gunu yok (asagida).
+     Yerine gercekten aylik olan bir kalem: "Muhasebeci Ücreti" kategorisi sistemde VAR. */
+const SB_ONERI = ['Elektrik', 'Su', 'İnternet', 'Muhasebeci Ücreti'];
+/* ===== Y89 · TAKVIMSIZ IZLENEN KALEM =====
+   KULLANICI: "tup dogalgaz gibi sabitte de olmasi lazim sadece kayit sekli sacma olur her
+   ay uyari verir", "tup icin ay gun adet miktari yok ki ben 2 gun once 20 adet aldim fatura
+   kestirdim ne zaman lazim olur bir daha bilmiyorum."
+   ⚠ TANIM KURULAMAZ, KURULMAMALI: `ck_duzenli_periyot` = aylik | ucaylik | yillik (olculdu,
+     kap). "Takvimsiz" diye bir periyot YOK; tup icin tanim kurulsa liste her ay "bekliyor /
+     eksik" derdi — kullanicinin istemedigi tam bu.
+   ⚠ BEKLENTI YOK: bu satirda durum rozeti (girildi/eksik/bekliyor) ve "kac aydir eksik"
+     sayaci CIKMAZ, ust ozetteki sayaclara da GIRMEZ (orada yalniz TANIMLI kalemler sayilir;
+     izlenen kalem girseydi baslik yalan soylerdi).
+   ⚠ IKI TARAFLI OKUNUR: kullanici ayni tupu hem gider (Tüp kategorisi) hem adetli FATURA
+     satiri olarak girebilir — ikisi de mesru. Satir ikisinin de EN YENISINI gosterir; bir
+     taraf okunamazsa satir bunu YAZAR (tek tarafa bakip "kayit yok" demek yalan olurdu).
+   ⚠ TEK YER: kullanici ileride "Doğalgaz" kategorisi acarsa buraya TEK SATIR eklenir
+     (olculdu: bugun boyle bir kategori YOK, Tüp VAR).
+   `urunDesen`: fatura satirinin ham adinda aranan kok. Iki yazim da aranir — klavyesinde
+   "ü" olmayan kullanici "TUP" yazabiliyor. Eslesme `urunAdAnahtar` ile (Y83): buyuk harfe
+   cevirirken Turkce İ/ı'yi dogru katlar, `/i` bayragi katlamaz. */
+const SB_IZLENEN = [
+  { ad: 'Tüp', kategori: 'Tüp', urunDesen: ['tüp', 'tup'],
+    aciklama: 'Ne zaman biteceği belli değil — hatırlatma kurulmaz, ne zaman ve kaç adet alındığı izlenir.' }
+];
+const sbIzlenenKat = (x) => ((KATALOG.kategoriler || [])
+  .find(k => desenAd(k.ad) === desenAd(x.kategori)) || {}).id || null;
+/* ham ad (veya urun karti adi) hangi izlenen kaleme ait — yoksa null */
+const sbIzlenenHangi = (ad) => { const a = urunAdAnahtar(ad); if (!a) return null;
+  return SB_IZLENEN.find(x => x.urunDesen.some(d => a.includes(urunAdAnahtar(d)))) || null; };
+const sbAdet = (n) => (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+/* "22.03.2027" · iki kolon da `date` (kapta olculdu) ama ilk 10 hane yine de kesilir:
+   bir gun timestamp'e donse "Invalid Date" yazmasin. */
+const sbTamTarih = (t) => { const s = String(t || '').slice(0, 10);
+  const g = s ? new Date(s + 'T00:00') : null;
+  return g && !isNaN(g) ? g.toLocaleDateString('tr-TR') : ''; };
+/* "10 koli (20 adet)" · carpan 1 ise yalniz "20 adet" · gider satirinda miktar YOKTUR */
+const sbMiktarMetni = (r) => (!r || r.miktar == null) ? null
+  : sbAdet(r.miktar) + ' ' + r.birim + (r.carpan > 1 ? ' (' + sbAdet(r.miktar * r.carpan) + ' adet)' : '');
+const SB_BELGE_AD = { fatura: 'fatura satırı', irsaliye: 'irsaliye satırı', bilgi_fisi: 'bilgi fişi satırı' };
 const sbAyKaydir = (ay, n) => { const t = new Date(ay + '-01T00:00'); t.setMonth(t.getMonth() + n);
   return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0'); };
 const sbBuAy = () => bugun().slice(0, 7);
@@ -8909,7 +8956,7 @@ async function sabitListeCiz(){
   const el = document.getElementById('sbListe'); if (!el) return;
   const ozetYaz = (t) => { const o = document.getElementById('sbOzet'); if (o) o.textContent = t || ''; };
   const ay = SB_AY || sbBuAy(), sahip = !!PROFIL && PROFIL.rol === 'owner';
-  SB_LISTE = [];
+  SB_LISTE = []; SB_IZ = []; SB_KIRA = null;
   if (toplamKipi() || !AKTIF_SUBE){
     el.innerHTML = '<div class="bilgi-not" style="margin:0">Sabit kalemler şube şube izlenir — üstten bir şube seç.</div>';
     ozetYaz(''); return;
@@ -8918,19 +8965,38 @@ async function sabitListeCiz(){
   if (!document.getElementById('sbListe')) return;                 // bu arada ekran degisti
   if (!d.var){ el.innerHTML = '<div class="bilgi-not" style="margin:0">Sabit kalem listesi açılamadı.</div>'; ozetYaz(''); return; }
   const tanimlar = (d.tanimlar || []).filter(t => t.aktif);
+  /* ⚠ Y89 · TANIM YOKKEN DE DEVAM EDILIR: izlenen kalem ve takvimden gelen kira TANIMA
+       BAGLI DEGIL. Eski kod burada donuyordu; kullanicinin bugunku hali tam bu (tanim 0). */
+  const izlenen = SB_IZLENEN.map(x => ({ x, kategori_id: sbIzlenenKat(x) })).filter(z => z.kategori_id);
+  /* ⚠ 12 ay geriye BIR sorgu: "kac aydir eksik" ancak gecmisle bilinir. Hata SUSTURULMAZ —
+     bos liste "hicbiri girilmemis" diye okunurdu. Izlenen kalemin kategorisi AYNI sorguya
+     eklenir; ikinci bir gider sorgusu ACILMAZ. */
+  const kats = [...new Set([...tanimlar.map(t => t.kategori_id), ...izlenen.map(z => z.kategori_id)].filter(Boolean))];
+  const bas = sbAyKaydir(ay, -11) + '-01', sonGunu = aySon(ay);
+  const [gr, fr, kr] = await Promise.all([
+    kats.length ? sb.from('gider').select('id,tarih,tutar,kategori_id,tedarikci_id')
+        .eq('is_deleted', false).in('kategori_id', kats)
+        .gte('tarih', bas).lte('tarih', sonGunu).order('tarih').limit(2000)
+      : Promise.resolve({ data: [] }),
+    sabitFaturaSorgu(izlenen, bas, sonGunu),
+    sabitKiraSorgu(sahip)
+  ]);
+  if (!document.getElementById('sbListe')) return;
+  const data = gr.data || [], error = gr.error;
+  SB_KIRA = sabitKiraSatiri(kr);
+  SB_IZ = sabitIzlenenSatirlar(izlenen, data, fr);
+  if (error){                                    // gider okunamadi: izlenen satirlar da guvenilmez
+    el.innerHTML = `<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`
+      + (SB_KIRA ? sabitKiraHtml(SB_KIRA) : '');
+    ozetYaz(''); return;
+  }
   if (!tanimlar.length){
-    el.innerHTML = sahip ? sabitBosHtml() : `<div class="bilgi-not" style="margin:0">Bu şubede tanımlı sabit kalem görünmüyor —
-      yönetici tanımlayınca kira, elektrik, su, internet ve tüp bu listede ay ay görünür.</div>`;
+    el.innerHTML = (sahip ? sabitBosHtml() : `<div class="bilgi-not" style="margin:0">Bu şubede tanımlı sabit kalem görünmüyor —
+        yönetici tanımlayınca elektrik, su, internet gibi her ay gelen kalemler bu listede ay ay görünür.</div>`)
+      + (SB_KIRA ? sabitKiraHtml(SB_KIRA) : '')
+      + SB_IZ.map((z, i) => sabitIzlenenHtml(z, i)).join('');
     ozetYaz(sahip ? 'tanım yok' : ''); return;
   }
-  /* ⚠ 12 ay geriye BIR sorgu: "kac aydir eksik" ancak gecmisle bilinir. Hata SUSTURULMAZ —
-     bos liste "hicbiri girilmemis" diye okunurdu. */
-  const kats = [...new Set(tanimlar.map(t => t.kategori_id).filter(Boolean))];
-  const { data, error } = await sb.from('gider').select('id,tarih,tutar,kategori_id,tedarikci_id')
-    .eq('is_deleted', false).in('kategori_id', kats)
-    .gte('tarih', sbAyKaydir(ay, -11) + '-01').lte('tarih', aySon(ay)).order('tarih').limit(2000);
-  if (!document.getElementById('sbListe')) return;
-  if (error){ el.innerHTML = `<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`; ozetYaz(''); return; }
   const b = bugun();
   SB_LISTE = tanimlar.map(t => {
     const uyar = (g) => g.kategori_id === t.kategori_id
@@ -8969,6 +9035,8 @@ async function sabitListeCiz(){
       : `${beklenen} kalemin ${giren}’${sbEk(giren)} girildi`)
     + (eksik ? ` · ${eksik} eksik` : ''));
   el.innerHTML = SB_LISTE.map((x, i) => sabitSatirHtml(x, i)).join('')
+    + (SB_KIRA ? sabitKiraHtml(SB_KIRA) : '')
+    + SB_IZ.map((z, i) => sabitIzlenenHtml(z, i)).join('')
     + (sahip ? `<div class="k" style="margin-top:6px">Kural: her satır kendi kategorisindeki giderlere bakar.
         Yeni kalem eklemek için <b>Tanımlar</b>.</div>` : '');
 }
@@ -8996,6 +9064,144 @@ function sabitSatirHtml(x, i){
       <span class="k">${kural} · ${esc(dzSiklikMetni(t))}</span>${drm}</div>
     <button type="button" class="btn2 dz-yok" onclick="sabitGir(${i})">Gir</button></div>`;
 }
+/* ---- Y89 · IZLENEN KALEMIN FATURA TARAFI ----
+   ⚠ `alis_kalem` SUBE SUZGECINDE DEGIL: tabloda `sube_id` kolonu YOK (Y78'de olculdu).
+     Dogrudan `sb.from('alis_kalem')` cekmek OTEKI SUBENIN satirlarini sizdirir. Okuma
+     `alis` uzerinden yapilir — `alis` suzgecte, gomulu kalem onun satirina bagli.
+   ⚠ DAR SORGU: `!inner` + gomulu OR ile yalniz izlenen kaleme benzeyen satirlar gelir;
+     12 ayin butun fatura kalemlerini cekmek telefonu bogardi. Urun KARTI eslesiyorsa
+     onun id'si de OR'a girer (ham ad bos ya da farkli yazilmis olabilir). */
+function sabitFaturaSorgu(izlenen, bas, son){
+  if (!izlenen.length) return Promise.resolve({ data: [] });
+  const sart = [];
+  for (const d of [...new Set(SB_IZLENEN.flatMap(x => x.urunDesen))]) sart.push(`ham_ad.ilike.*${d}*`);
+  const urunler = (KATALOG.urunler || []).filter(u => sbIzlenenHangi(u.ad)).map(u => u.id);
+  if (urunler.length) sart.push(`urun_id.in.(${urunler.join(',')})`);
+  return sb.from('alis')
+    .select('tarih,tur,alis_kalem!inner(ham_ad,urun_id,miktar,birim_ad,birim_carpani,is_deleted)')
+    .eq('is_deleted', false).eq('alis_kalem.is_deleted', false)
+    .or(sart.join(','), { referencedTable: 'alis_kalem' })
+    .gte('tarih', bas).lte('tarih', son).order('tarih').limit(500);
+}
+/* Iki tarafi TEK listede birlestirir: gider satiri (adet yok) + fatura kalemi (adet var). */
+function sabitIzlenenSatirlar(izlenen, gider, fr){
+  const faturaKalem = [];
+  const urunAdi = new Map((KATALOG.urunler || []).map(u => [u.id, u.ad]));
+  if (fr && !fr.error) for (const a of fr.data || [])
+    for (const k of a.alis_kalem || []){
+      const x = sbIzlenenHangi(k.ham_ad) || sbIzlenenHangi(urunAdi.get(k.urun_id));
+      if (!x) continue;
+      /* ⚠ MIKTAR BIRIMIYLE YAZILIR, CARPANLA CARPILIP BIRIMI KORUNMAZ: "10 koli × 2" 20 KOLI
+         degil 20 ADET eder (alSatirCiz ayni ayrimi yapiyor). Ikisi de yazilir. */
+      faturaKalem.push({ ad: x.ad, tarih: a.tarih, kaynak: SB_BELGE_AD[a.tur] || 'alış belgesi satırı',
+        miktar: +k.miktar || 0, birim: k.birim_ad || 'adet', carpan: +k.birim_carpani || 1 });
+    }
+  return izlenen.map(z => {
+    const hepsi = (gider || []).filter(g => g.kategori_id === z.kategori_id)
+      .map(g => ({ tarih: g.tarih, kaynak: 'gider kaydı', miktar: null, birim: null, carpan: 1 }))
+      .concat(faturaKalem.filter(f => f.ad === z.x.ad))
+      .sort((p, q) => String(p.tarih).localeCompare(String(q.tarih)));
+    /* ORTALAMA, TAHMIN DEGIL: ilk ile son kayit arasindaki gun / aradaki aralik sayisi.
+       Tek kayitla aralik YOKTUR — uydurulmaz. */
+    let aralik = null;
+    if (hepsi.length >= 2){
+      const gun = Math.round((new Date(hepsi[hepsi.length - 1].tarih + 'T00:00')
+                            - new Date(hepsi[0].tarih + 'T00:00')) / 864e5);
+      if (gun > 0) aralik = Math.max(1, Math.round(gun / (hepsi.length - 1)));
+    }
+    return { x: z.x, kategori_id: z.kategori_id, sayi: hepsi.length,
+      son: hepsi[hepsi.length - 1] || null, aralik, faturaHata: !!(fr && fr.error) };
+  });
+}
+function sabitIzlenenHtml(z, i){
+  const kok = z.x.urunDesen[0];
+  const kural = `${esc(sbKatAd(z.kategori_id))} kategorisi + adında “${esc(kok)}” geçen fatura satırı`;
+  const mik = sbMiktarMetni(z.son);
+  /* ⚠ Y89-d · YIL YAZILIR (BB_GG DEGIL · denetim buldu): bu satirdaki tarih secili ayin
+     kendisine ait DEGIL, pencere 11 ay geriye gidiyor — Eylul'e bakarken kasim tarihli
+     eski bir kayit "15.11" diye BU YILIN kasimi gibi, yani GELECEK gibi okunuyordu.
+     Kira satirinda ayni gerekce zaten yaziliydi. Tanimli kalem satirlari DEGISMEDI:
+     orada tarih secili ayin icinde, `BB_GG` dogru ve rozet dar kaliyor. */
+  const durum = !z.son
+    ? '<span class="dz-drm k">kayıt yok</span>'
+    : `<span class="dz-drm k">son ${sbTamTarih(z.son.tarih)}${mik ? ' · ' + esc(mik) : ''}</span>`;
+  const alt = !z.son
+    ? `Bu şubede ${esc(String(z.x.ad).toLocaleLowerCase('tr'))} alımı ne gider ne de fatura satırı olarak
+        girilmiş — <b>girildiği an burada görünür</b>.`
+    : `Son alım <b>${sbTamTarih(z.son.tarih)}</b>${mik ? ' · <b>' + esc(mik) + '</b>' : ''} · ${esc(z.son.kaynak)}${
+        z.son.miktar == null ? ' (adet yazmaz)' : ''}${z.aralik
+        ? ` · bu 12 ayda ${z.sayi} kayıt, <b>kabaca ${z.aralik} günde bir</b> (ortalama, tahmin değil)`
+        : ` · bu 12 ayda tek kayıt — aralık için ikinci kayıt gerekir`}`;
+  const eksikTaraf = z.faturaHata
+    ? `<div class="uyari-orta" style="margin:6px 0 0">Fatura tarafı okunamadı — bu satır şimdilik yalnız gider
+        kayıtlarını gösteriyor, eksik olabilir.</div>` : '';
+  /* ⚠ IKI DUGME, IKISI DE BIR YERE GIDIYOR: adet YALNIZ fatura satirinda tutulur
+     (gider formunda adet alani yok), ama kullanici tupu gider olarak da yazabiliyor.
+     Hangisinin nereye gittigi dugmenin uzerinde yazar. Satir dikey: 375 pikselde iki
+     dugme metnin yanina sigmiyor (olculdu). */
+  return `<div class="dz-sat" style="flex-direction:column;align-items:stretch;gap:0">
+    <div class="dz-ana" style="min-height:0"><span class="dz-ad">${esc(z.x.ad)}
+        <span class="k" style="font-weight:700"> · izlenen</span></span>
+      <span class="k">${kural} · seçili aya kadar son 12 ay</span>${durum}</div>
+    <div class="k" style="padding:0 0 4px">${alt}</div>
+    <div class="k" style="padding:0 0 6px">${esc(z.x.aciklama)}</div>
+    ${eksikTaraf}
+    <div class="dz-eylem" style="margin:0 0 8px">
+      <button type="button" class="btn2 dz-yok" onclick="sabitIzlenenGir(${i},'fatura')">Fatura olarak gir · adet tutulur</button>
+      <button type="button" class="btn2 dz-yok" onclick="sabitIzlenenGir(${i},'gider')">Gider olarak gir</button>
+    </div></div>`;
+}
+/* ---- Y89 · TAKVIMDEN GELEN KIRA (salt okunur) ----
+   ⚠ DUZENLI TANIM KURULMAZ: kira ZATEN odeme takviminde (takvim_kod 'kira', ucaylik).
+     Bir de `duzenli_odeme` tanimi kurulsa AYNI odeme iki yerden beklenirdi.
+   ⚠ YALNIZ SAHIP: `vade` uzerinde iki politika var (kapta olculdu) — sahibe hepsi,
+     sube sorumlusuna YALNIZ `duzenli_id IS NOT NULL` olan satirlar. Takvim vadesinin
+     duzenli_id'si yoktur, yani personelde RLS BOS DONER. Salt okunur bir satir cizmek
+     "kira yok" diye okunurdu; satir personelde HIC cizilmez.
+   ⚠ KAYNAK `vade`, `v_vade_liste` DEGIL: gorunumde `odendi_tarih` kolonu YOK (olculdu,
+     taban semasi) ve satirin "ne zaman odendi" kismi ondan geliyor. Ayni satirlar, ayni
+     sube suzgeci; Giderler'in ust seridi de kirayi bu tablodan okuyor. */
+function sabitKiraSorgu(sahip){
+  if (!sahip) return Promise.resolve({ data: [] });
+  return sb.from('vade').select('id,donem,vade_tarihi,durum,odendi_tarih,aciklama')
+    .eq('takvim_kod', 'kira').eq('is_deleted', false).order('vade_tarihi');
+}
+function sabitKiraSatiri(kr){
+  if (!kr || kr.error || !Array.isArray(kr.data) || !kr.data.length) return null;
+  const b = bugun();
+  const acik = kr.data.filter(v => v.durum === 'acik');
+  const odenen = kr.data.filter(v => v.durum === 'odendi');
+  return { siradaki: acik[0] || null, sonOdenen: odenen[odenen.length - 1] || null,
+    enSon: kr.data[kr.data.length - 1].vade_tarihi,
+    gecti: !!(acik[0] && acik[0].vade_tarihi < b), adet: kr.data.length };
+}
+function sabitKiraHtml(k){
+  const s = k.siradaki;
+  /* ⚠ YIL YAZILIR (BB_GG DEGIL): bu satirdaki tarihler secili aya bagli degil — siradaki
+     taksit gelecek yila, takvimin son taksiti iki yil sonrasina dusebiliyor. "22.03" o
+     halde bu yilin marti gibi okunurdu. */
+  const durum = s
+    ? `<span class="dz-drm ${k.gecti ? 'dz-gec' : 'dz-bek'}">${k.gecti ? 'GEÇTİ · ' : 'bekliyor · '}${sbTamTarih(s.vade_tarihi)}</span>`
+    : '<span class="dz-drm dz-ok">açık taksit yok</span>';
+  const odendi = k.sonOdenen
+    ? `Son ödenen: <b>${sbTamTarih(k.sonOdenen.vade_tarihi)}</b> vadesi${k.sonOdenen.odendi_tarih
+        ? ' · ödemesi ' + sbTamTarih(String(k.sonOdenen.odendi_tarih)) + ' tarihinde girildi' : ''}.` : '';
+  /* ⚠ SOZLESME BITISI SISTEMDE YOK: takvim ileri taksit uretmeye devam eder. Kullanicinin
+     soyledigi bitis tarihi BURAYA YAZILMAZ (beyan, kayit degil) — ekran yalnizca takvimde
+     en son hangi taksitin durdugunu soyler, kullanici kendi sozuyle karsilastirir. */
+  return `<div class="dz-sat" style="flex-direction:column;align-items:stretch;gap:0">
+    <div class="dz-ana" style="min-height:0"><span class="dz-ad">Kira
+        <span class="k" style="font-weight:700"> · ödeme takviminden</span></span>
+      <span class="k">3 ayda bir · taksitleri takvim üretir, buraya hatırlatma tanımlanmaz</span>${durum}</div>
+    ${odendi ? `<div class="k" style="padding:0 0 4px">${odendi}</div>` : ''}
+    <div class="k" style="padding:0 0 6px">Takvimde en son <b>${sbTamTarih(k.enSon)}</b> taksiti var;
+      sözleşmenin bitiş tarihi sistemde kayıtlı değil — takvim ileri aylara taksit üretmeye devam eder.</div>
+    ${s ? `<div class="dz-eylem" style="margin:0 0 8px">
+      ${/* ⚠ DUGME YAZISI NE YAPTIGINI SOYLER: dokununca vade KAPANMAZ, sadece secili gelir;
+            kapatan sey kaydin kendisi (sunucu, p_vade). "Vadeyi kapatır" yazsaydi yalan olurdu. */''}
+      <button type="button" class="btn2 dz-yok" onclick="sabitKiraGir()">Gir · taksit seçili gelir</button></div>` : ''}
+  </div>`;
+}
 /* "Gir" · MEVCUT gider formunu acar: kategori, tarih (secili ay) ve aciklama dolu;
    tanimda firma varsa o firma kayda da gider (rpc_gider_kaydet p_tedarikci — toplu
    girisin Gider satirinda kullandigi parametrenin AYNISI; gider firmasi cari borc
@@ -9017,6 +9223,86 @@ function sabitGir(i){
     if (d){ d.className = 'oku-durum'; d.textContent = 'Sabit kalem: ' + t.ad + ' · ' + sbKatAd(t.kategori_id) + ' kategorisi'
       + (t.tedarikci_id ? ' · firma: ' + sbTedAd(t.tedarikci_id) : '') + ' hazır geldi — tutarı yaz ve kaydet.'; }
     const tt = g('gdTutar'); if (tt){ tt.scrollIntoView({ block:'center', behavior:'auto' }); tt.focus(); }
+  }, 60);
+}
+/* ---- Y89 · IZLENEN KALEM "Gir" · iki yol, ikisi de GERCEKTEN bir yere gidiyor ----
+   'fatura' → Fatura bolumu, MAL dali: urun satirinda ADET yazilir, izleme adedi oradan
+              okur (gider formunda adet alani YOK).
+   'gider'  → mevcut gider formu, kategori hazir: adet tutulmaz, yalniz tarih ve tutar. */
+function sabitIzlenenGir(i, nereye){
+  const z = SB_IZ[i]; if (!z) return;
+  const ay = SB_AY || sbBuAy();
+  const tarih = ay === sbBuAy() ? bugun() : aySon(ay);
+  if (nereye === 'gider'){
+    GIDER_BOLUM = 'temel'; formTemiz(); vGider();
+    setTimeout(() => {
+      const g = (id) => document.getElementById(id);
+      if (g('gdTarih')) g('gdTarih').value = tarih;
+      if (g('gdKategori') && [...g('gdKategori').options].some(o => o.value === z.kategori_id)){
+        g('gdKategori').value = z.kategori_id; gdKatDegisti(); }
+      if (g('gdAciklama')) g('gdAciklama').value = String(z.x.ad).toLocaleLowerCase('tr') + ' alımı';
+      const d = g('gdOkuDurum');
+      if (d){ d.className = 'oku-durum'; d.textContent = z.x.ad + ' · ' + sbKatAd(z.kategori_id)
+        + ' kategorisi hazır geldi — burada ADET tutulmaz, tutarı yaz ve kaydet.'; }
+      const t = g('gdTutar'); if (t){ t.scrollIntoView({ block:'center', behavior:'auto' }); t.focus(); }
+    }, 60);
+    return;
+  }
+  GIDER_BOLUM = 'fatura'; formTemiz(); vGider();
+  setTimeout(() => {
+    const g = (id) => document.getElementById(id);
+    if (g('alTarih')) g('alTarih').value = tarih;
+    const d = g('alOkuDurum');
+    if (d){ d.className = 'oku-durum'; d.textContent = z.x.ad + ' · mal alımı olarak gir: ürün satırında '
+      + 'kaç adet aldığın yazar, Sabit listesindeki izleme adedi oradan okur.'; }
+    const t = g('alToplam'); if (t){ t.scrollIntoView({ block:'center', behavior:'auto' }); }
+  }, 60);
+}
+/* ---- Y89 · KIRA "Gir" (yalniz sahip) · gider formunu acar ve O VADEYI secer ----
+   Vade secimi `gdVade` → `p_vade`; vadeyi SUNUCU kapatir (istemci yalniz secer).
+   ⚠ `gdVadeDoldur` AG'DAN doluyor: secenek daha gelmemis olabilir, birkac kez denenir;
+     gelmezse hicbir sey secilmez (yanlis vade secmektense bos kalir).
+   ⚠ Y89-d · DURUM NOTUNU BU FONKSIYON YAZAR, CAGIRAN DEGIL (denetim buldu): eskiden
+     cagiran, secim tutsa da tutmasa da KOSULSUZ "taksit secildi" yaziyordu. Liste bir
+     saniyede gelmezse secim YAPILMIYOR ama not "secildi" demis oluyor; kullanici
+     kaydediyor, `p_vade` bos gidiyor, taksit ACIK KALIYOR ve Sabit satiri hala
+     "bekliyor" diyor — ekranla kayit birbirini tutmuyordu.
+   ⚠ DENEME SAYISINI ARTIRMAK COZUM DEGIL: sonsuza kadar beklenemez. Denemeler bitince
+     ekran secimin YAPILAMADIGINI soyler ve ne yapilacagini yazar — vade secicisi zaten
+     ekranda, kullanici taksiti kendi secebilir. */
+function sbVadeSec(id, etiket, kalan){
+  const not = (metin, sinif) => { const d = document.getElementById('gdOkuDurum');
+    if (d){ d.className = 'oku-durum' + (sinif ? ' ' + sinif : ''); d.textContent = metin; } };
+  const s = document.getElementById('gdVade');
+  if (s && [...s.options].some(o => o.value === id)){
+    if (s.value !== id){ s.value = id; if (s.onchange) s.onchange(); }
+    not(etiket + ' taksiti seçildi — kaydedince o vade kapanır.');
+    return;
+  }
+  if (kalan > 0){
+    not(etiket + ' taksiti için vade listesi bekleniyor…');
+    setTimeout(() => sbVadeSec(id, etiket, kalan - 1), 200);
+    return;
+  }
+  not(etiket + ' taksiti SEÇİLEMEDİ — vade listesi gelmedi. ' + (s
+      ? 'Kaydetmeden önce “Bu ödeme bir vadeye mi ait?” kutusundan taksiti kendin seç;'
+      : 'Bu ekranda vade seçici yok;')
+    + ' seçilmezse gider kaydedilir ama taksit açık kalır.', 'uyari');
+}
+function sabitKiraGir(){
+  const k = SB_KIRA; if (!k || !k.siradaki) return;
+  if (!PROFIL || PROFIL.rol !== 'owner') return;              // vade secimi zaten sahipte
+  const v = k.siradaki;
+  GIDER_BOLUM = 'temel'; formTemiz(); vGider();
+  setTimeout(() => {
+    const g = (id) => document.getElementById(id);
+    const kat = (KATALOG.kategoriler || []).find(c => desenAd(c.ad) === desenAd('Kira'));
+    if (g('gdTarih')) g('gdTarih').value = v.vade_tarihi > bugun() ? bugun() : v.vade_tarihi;
+    if (kat && g('gdKategori') && [...g('gdKategori').options].some(o => o.value === kat.id)){
+      g('gdKategori').value = kat.id; gdKatDegisti(); }
+    if (g('gdAciklama')) g('gdAciklama').value = ayAdi(String(v.vade_tarihi).slice(0, 7)) + ' kira';
+    sbVadeSec(v.id, 'Kira · ' + sbTamTarih(v.vade_tarihi), 5);   // durum notunu O yazar (Y89-d)
+    const t = g('gdTutar'); if (t){ t.scrollIntoView({ block:'center', behavior:'auto' }); t.focus(); }
   }, 60);
 }
 /* Oneri · MEVCUT tanim formunu acar ve ad + kategoriyi doldurur (kopya form YOK) */
