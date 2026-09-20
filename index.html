@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-84">
+<meta name="surum" content="2026-08-27-85">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -393,6 +393,13 @@ button{cursor:pointer;font-size:15px;border:none;border-radius:9px;font-weight:8
 /* Segment kontrolü — dört ayrı buton yerine tek şerit; hangisinde olduğun belli */
 .segment{display:flex;background:var(--kart);border:1.5px solid var(--cizgi);border-radius:11px;
   padding:3px;gap:3px;margin-bottom:12px;overflow:hidden}
+/* ⚠ Y87 · YALNIZ ALTI SEKMELI GIDERLER SEGMENTI: dar ekranda etiketler kirpilmasin diye
+   alt satira sarar (oteki segmentler `.cok` almaz, birebir kalir).
+   ⚠ OLCULDU (375 px): sarmasiz alti sekmede "Ödemeler" ve "Ay Sonu" kirpiliyor — besli
+     haliyle "Ödemeler" ZATEN kirpikti. `min-width` ile sarinca (3 + 3) hicbiri kirpik
+     degil. 1440'ta altisi da tek satira siger, yukseklik -84 ile ayni kalir. */
+.segment.cok{flex-wrap:wrap;overflow:visible}
+.segment.cok .sg-btn{flex:1 1 auto;min-width:96px}
 .sg-btn{flex:1;min-width:0;min-height:40px;padding:0 6px;background:none;color:var(--soluk);
   font-size:13px;font-weight:800;border-radius:8px;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;transition:background .12s,color .12s}
@@ -7025,12 +7032,17 @@ async function vGider(){
           varsayilan yol oydu — en kolay yol, yanlis yol. Ad artik
           YAPILAN ISI soyluyor. 375px'te bes sekme var, kisa kalmali;
           tasma olculdu. Oteki sekme adlarina dokunulmadi. */''}
-    <div class="segment">${sekBtn('temel','Gider')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
+    ${/* ⚠ Y87 · "Sabit" Gider ile Fatura ARASINA girdi (kullanici: "giderin yaninda ayri
+          bir sekme"). Sahipte sekme sayisi bese cikinca 375px'te etiketler kirpilir —
+          olculdu; segment o yuzden dar ekranda ALT SATIRA SARAR (`segment cok`), etiketler
+          kisaltilmadi ve oteki ekranlarin segmentine dokunulmadi. */''}
+    <div class="segment cok">${sekBtn('temel','Gider')}${sekBtn('sabit','Sabit')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
     ${/* ADIM 17 (B) · taslak seridi — gun sonundaki gsTaslakBar'in esi */''}
     <div id="ekTaslakBar"></div>
     <div id="gdIcerik"></div>
     <div id="gdListe"></div>`;
   if (GIDER_BOLUM==='temel') gdTemel();
+  else if (GIDER_BOLUM==='sabit') gdSabit();
   else if (GIDER_BOLUM==='fatura') gdFatura();
   else if (GIDER_BOLUM==='mutabakat') gdMutabakat();
   else if (GIDER_BOLUM==='odeme') gdOdeme();
@@ -8106,8 +8118,10 @@ function tpCiz(){
             ${r.oneri && !r.tur
               ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'alış' : 'gider'}</b>
                    olarak girilmişti — yine de sen seç</div>` : ''}
+            ${/* Y87 · ad ekrandaki bolumle AYNI kelime: "sabit gider". Gonderilen
+                  parametreler DEGISMEDI (tpKaydet'e dokunulmadi). */''}
             ${r.duzenli && r.tur === 'gider'
-              ? `<div class="k" style="color:var(--ana)">düzenli gider (<b>${esc(r.duzenli)}</b>) — <b>Gider</b> ve
+              ? `<div class="k" style="color:var(--ana)">sabit gider: <b>${esc(r.duzenli)}</b> — <b>Gider</b> ve
                    kategorisi hazır seçildi; işaretlemeyi sen yap</div>` : ''}
             ${!r.ted && r.esles === 'catisma'
               ? `<div class="k" style="color:var(--uyari)">Adı "${esc(r.ted && r.ted.ad || r.unvan || '')}" ile
@@ -8811,6 +8825,195 @@ function duzenliOdemeYok(id){
   });
 }
 
+/* =====================================================================
+   Y87 · GIDERLER → "SABIT" BOLUMU · "bu ay elektrik geldi mi"
+   =====================================================================
+   KULLANICI: "Giderlere butun faturalar girilsin ama kira, tup, internet gibi
+   sabitler giderin yaninda AYRI BIR SEKME olsun." Canli sikayet: "elektrik su
+   faturalari sisteme dusmesi lazim ama gozukmuyor."
+   OLCULDU (yedek kopyasi, 17 Eylul): v144 altyapisi (tanim + hatirlatma + FIFO
+   kapanma) DURUYOR ama TANIM SIFIR — o yuzden hicbir ekranda bu soru yok. Su
+   yalniz bir ayda girilmis; bir elektrik faturasi ay sonu toplu girisinden MAL
+   ALIMI olarak girip firmaya borc acmis.
+   ⚠ YENI SUNUCU YOK: tanimlar `duzenli_odeme` (v144), eslesme GIDER satirlarindan
+     OKUNUR, hatirlatmayi yine sunucu kapatir (rpc_gider_kaydet). Istemci GOSTERIR.
+   ⚠ ESLESME KURALI SATIRDA YAZAR: tanimin KATEGORISI + secili ay. Tanimda firma
+     varsa firmasi BASKA olan gider sayilmaz; firmasi BOS olan SAYILIR — olculdu:
+     gider satirlarinin cogunda firma bos (38 satirin 5'inde dolu) ve sunucunun
+     FIFO kapanmasi da yalniz sube + kategoriye bakiyor. Daha siki bir kural
+     girilmis gideri "eksik" gosterirdi.
+   ⚠ TANIM KURMA YALNIZ SAHIP; liste ve "Gir" gider yetkisi olan herkeste (sube
+     sorumlusu kendi subesini gorur — `duzenli_odeme` RLS'i zaten oyle suzuyor).
+   ⚠ TANIM FORMU KOPYALANMADI: Yonetim'deki kartin KENDISI (duzenliKartCiz) bu
+     bolume de cizilir (#duzenliKart). Oneriye dokununca o formun alanlari dolar. */
+let SB_AY = null;                   // secili ay (Giderler'in oteki bolumlerinden bagimsiz)
+let SB_TANIM_ACIK = false;          // tanim karti acik mi (yalniz sahip)
+let SB_LISTE = [];                  // cizilen satirlar · "Gir" buradan okur
+const SB_ONERI = ['Kira', 'Elektrik', 'Su', 'İnternet', 'Tüp'];
+const sbAyKaydir = (ay, n) => { const t = new Date(ay + '-01T00:00'); t.setMonth(t.getMonth() + n);
+  return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0'); };
+const sbBuAy = () => bugun().slice(0, 7);
+/* bu tanim o ayda BEKLENIYOR mu (baslangic + periyot) */
+const sbBeklenir = (t, ay) => ay >= String(t.baslangic_ay || '')
+  && (t.periyot === 'aylik' || (Array.isArray(t.aylar) && t.aylar.includes(+ay.slice(5, 7))));
+/* son odeme gunu · kisa ayda ayin son gunu (sunucunun vade uretimiyle AYNI kural) */
+const sbSonGun = (t, ay) => ay + '-' + String(Math.min(t.gun || 1, +aySon(ay).slice(8, 10))).padStart(2, '0');
+const sbSonraki = (t, ay) => { for (let i = 1; i <= 12; i++){ const a = sbAyKaydir(ay, i); if (sbBeklenir(t, a)) return a; } return null; };
+/* "3’ü girildi" · sayinin Turkce iyelik eki (ozet cumlesi tek satir kalsin diye kisa tablo) */
+const SB_EK = ['ı', 'i', 'si', 'ü', 'ü', 'i', 'sı', 'si', 'i', 'u'];
+const SB_EK10 = { 10:'u', 20:'si', 30:'u', 40:'ı', 50:'si', 60:'ı', 70:'i', 80:'i', 90:'ı' };
+const sbEk = (n) => (n >= 10 && n % 10 === 0) ? (SB_EK10[n % 100] || 'ı') : SB_EK[n % 10];
+const sbKatAd = (id) => ((KATALOG.kategoriler || []).find(k => k.id === id) || {}).ad || '—';
+const sbTedAd = (id) => ((KATALOG.tedarikciler || []).find(x => x.id === id) || {}).ad || '—';
+function sabitAyDegistir(n){
+  SB_AY = sbAyKaydir(SB_AY || sbBuAy(), n);
+  if (SB_AY > sbBuAy()) SB_AY = sbBuAy();
+  gdSabit();
+}
+function sabitTanimlar(){ SB_TANIM_ACIK = !SB_TANIM_ACIK; gdSabit(); }
+function gdSabit(){
+  const ay = SB_AY || sbBuAy(); SB_AY = ay;
+  const sahip = !!PROFIL && PROFIL.rol === 'owner';
+  document.getElementById('gdIcerik').innerHTML = `
+    <div class="ay-gez">
+      <button onclick="sabitAyDegistir(-1)" aria-label="Önceki ay">‹</button>
+      <div><div class="ay-ad">${ayAdi(ay)}</div><div class="ay-alt" id="sbOzet"></div></div>
+      <button onclick="sabitAyDegistir(1)"${ay >= sbBuAy() ? ' disabled' : ''} aria-label="Sonraki ay">›</button>
+    </div>
+    <div class="kart dz-serit">
+      <div class="dz-bas"><span>SABİT KALEMLER</span>${sahip
+        ? `<button type="button" class="bo-btn" onclick="sabitTanimlar()">${SB_TANIM_ACIK ? 'Listeye dön' : 'Tanımlar'}</button>` : ''}</div>
+      <div id="sbListe" class="k">Yükleniyor…</div>
+    </div>
+    <div id="duzenliKart"></div>`;
+  document.getElementById('gdListe').innerHTML = '';
+  sabitListeCiz();
+  if (sahip && SB_TANIM_ACIK) duzenliKartCiz();
+}
+async function sabitListeCiz(){
+  const el = document.getElementById('sbListe'); if (!el) return;
+  const ozetYaz = (t) => { const o = document.getElementById('sbOzet'); if (o) o.textContent = t || ''; };
+  const ay = SB_AY || sbBuAy(), sahip = !!PROFIL && PROFIL.rol === 'owner';
+  SB_LISTE = [];
+  if (toplamKipi() || !AKTIF_SUBE){
+    el.innerHTML = '<div class="bilgi-not" style="margin:0">Sabit kalemler şube şube izlenir — üstten bir şube seç.</div>';
+    ozetYaz(''); return;
+  }
+  const d = await duzenliYukle(true);
+  if (!document.getElementById('sbListe')) return;                 // bu arada ekran degisti
+  if (!d.var){ el.innerHTML = '<div class="bilgi-not" style="margin:0">Sabit kalem listesi açılamadı.</div>'; ozetYaz(''); return; }
+  const tanimlar = (d.tanimlar || []).filter(t => t.aktif);
+  if (!tanimlar.length){
+    el.innerHTML = sahip ? sabitBosHtml() : `<div class="bilgi-not" style="margin:0">Bu şubede tanımlı sabit kalem görünmüyor —
+      yönetici tanımlayınca kira, elektrik, su, internet ve tüp bu listede ay ay görünür.</div>`;
+    ozetYaz(sahip ? 'tanım yok' : ''); return;
+  }
+  /* ⚠ 12 ay geriye BIR sorgu: "kac aydir eksik" ancak gecmisle bilinir. Hata SUSTURULMAZ —
+     bos liste "hicbiri girilmemis" diye okunurdu. */
+  const kats = [...new Set(tanimlar.map(t => t.kategori_id).filter(Boolean))];
+  const { data, error } = await sb.from('gider').select('id,tarih,tutar,kategori_id,tedarikci_id')
+    .eq('is_deleted', false).in('kategori_id', kats)
+    .gte('tarih', sbAyKaydir(ay, -11) + '-01').lte('tarih', aySon(ay)).order('tarih').limit(2000);
+  if (!document.getElementById('sbListe')) return;
+  if (error){ el.innerHTML = `<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`; ozetYaz(''); return; }
+  const b = bugun();
+  SB_LISTE = tanimlar.map(t => {
+    const uyar = (g) => g.kategori_id === t.kategori_id
+      && (!t.tedarikci_id || !g.tedarikci_id || g.tedarikci_id === t.tedarikci_id);
+    const aylik = new Map();
+    (data || []).filter(uyar).forEach(g => {
+      const a = String(g.tarih).slice(0, 7), e = aylik.get(a) || { adet: 0, toplam: 0, ilk: g.tarih };
+      e.adet++; e.toplam = +(e.toplam + (+g.tutar || 0)).toFixed(2);
+      if (g.tarih < e.ilk) e.ilk = g.tarih;
+      aylik.set(a, e);
+    });
+    const bu = aylik.get(ay) || null, beklenir = sbBeklenir(t, ay), sonGun = sbSonGun(t, ay);
+    let geride = 0;                                                 // ARDI ARDINA eksik onceki aylar
+    for (let i = 1; i <= 12; i++){
+      const a = sbAyKaydir(ay, -i);
+      if (a < String(t.baslangic_ay || '')) break;
+      if (!sbBeklenir(t, a)) continue;
+      if (aylik.has(a) || sbSonGun(t, a) >= b) break;
+      geride++;
+    }
+    /* ⚠ ONCEKI AYLAR SAKLANMAZ: bu ay daha beklerken gecmis ay eksikse satir yine EKSIK
+       der (kullanicinin sikayeti tam buydu — agustos suyu hic gorunmuyordu). */
+    const durum = bu ? 'girildi'
+      : (geride > 0 || (beklenir && sonGun < b)) ? 'eksik'
+      : beklenir ? 'bekliyor' : 'beklenmiyor';
+    return { t, bu, durum, beklenir, sonGun, geride, eksikAy: geride + (beklenir && sonGun < b ? 1 : 0) };
+  });
+  const sira = { eksik: 0, bekliyor: 1, beklenmiyor: 2, girildi: 3 };
+  SB_LISTE.sort((x, y) => (sira[x.durum] - sira[y.durum]) || (y.eksikAy - x.eksikAy)
+    || String(x.t.ad).localeCompare(String(y.t.ad), 'tr'));
+  const beklenen = SB_LISTE.filter(x => x.beklenir).length;
+  const giren = SB_LISTE.filter(x => x.durum === 'girildi').length;
+  const eksik = SB_LISTE.filter(x => x.durum === 'eksik').length;
+  ozetYaz((!beklenen ? 'bu ay beklenen sabit kalem yok'
+      : !giren ? `${beklenen} kalemin hiçbiri girilmedi`
+      : `${beklenen} kalemin ${giren}’${sbEk(giren)} girildi`)
+    + (eksik ? ` · ${eksik} eksik` : ''));
+  el.innerHTML = SB_LISTE.map((x, i) => sabitSatirHtml(x, i)).join('')
+    + (sahip ? `<div class="k" style="margin-top:6px">Kural: her satır kendi kategorisindeki giderlere bakar.
+        Yeni kalem eklemek için <b>Tanımlar</b>.</div>` : '');
+}
+function sabitBosHtml(){
+  return `<div class="bilgi-not" style="margin:0 0 8px"><b>Sabit kalemlerini bir kez tanımla</b> — sonra her ay
+      "geldi mi, gelmedi mi" burada görünür. Tanımlayınca gideri girdiğin an hatırlatma kendiliğinden kapanır.</div>
+    <div class="dz-eylem">${SB_ONERI.map(ad =>
+      `<button type="button" class="btn2" onclick="sabitOneri('${esc(ad)}')">+ ${esc(ad)}</button>`).join('')}</div>
+    <div class="k" style="margin-top:6px">Dokununca tanım formu açılır; adı ve kategorisi hazır gelir.</div>`;
+}
+function sabitSatirHtml(x, i){
+  const t = x.t;
+  const kural = `${esc(sbKatAd(t.kategori_id))} kategorisi${t.tedarikci_id ? ' · firma: ' + esc(sbTedAd(t.tedarikci_id)) : ''}`;
+  const eksikMetni = !x.beklenir ? x.geride + ' aydır eksik · bu ay beklenmiyor'
+    : x.sonGun < bugun() ? (x.eksikAy > 1 ? x.eksikAy + ' aydır eksik' : 'girilmedi · son gün ' + BB_GG(x.sonGun))
+    : x.geride + ' aydır eksik · bu ay son gün ' + BB_GG(x.sonGun);
+  const drm = x.durum === 'girildi'
+      ? `<span class="dz-drm dz-ok">✓ girildi · ${BB_GG(x.bu.ilk)}${x.bu.adet > 1 ? ' · ' + x.bu.adet + ' kayıt' : ''} · ${tl(x.bu.toplam)}${
+          x.geride ? '<span class="dz-gec"> · önceki ' + x.geride + ' ay eksik</span>' : ''}</span>`
+    : x.durum === 'eksik' ? `<span class="dz-drm dz-gec">${eksikMetni}</span>`
+    : x.durum === 'bekliyor' ? `<span class="dz-drm dz-bek">bekliyor · son gün ${BB_GG(x.sonGun)}</span>`
+      : `<span class="dz-drm">bu ay beklenmiyor${sbSonraki(t, SB_AY) ? ' · sıradaki ' + ayKisa(sbSonraki(t, SB_AY)) : ''}</span>`;
+  return `<div class="dz-sat">
+    <div class="dz-ana"><span class="dz-ad">${esc(t.ad)}</span>
+      <span class="k">${kural} · ${esc(dzSiklikMetni(t))}</span>${drm}</div>
+    <button type="button" class="btn2 dz-yok" onclick="sabitGir(${i})">Gir</button></div>`;
+}
+/* "Gir" · MEVCUT gider formunu acar: kategori, tarih (secili ay) ve aciklama dolu;
+   tanimda firma varsa o firma kayda da gider (rpc_gider_kaydet p_tedarikci — toplu
+   girisin Gider satirinda kullandigi parametrenin AYNISI; gider firmasi cari borc
+   ACMAZ, olculdu: hicbir bakiye gorunumu bu kolona bakmiyor). */
+let GD_SABIT = null;
+function sabitGir(i){
+  const x = SB_LISTE[i]; if (!x) return;
+  const ay = SB_AY || sbBuAy(), t = x.t;
+  const tarih = ay === sbBuAy() ? bugun() : (x.sonGun < bugun() ? x.sonGun : aySon(ay));
+  GIDER_BOLUM = 'temel'; formTemiz(); vGider();
+  setTimeout(() => {
+    const g = (id) => document.getElementById(id);
+    GD_SABIT = { tanim: t.id, ad: t.ad, ted: t.tedarikci_id || null, ay };
+    if (g('gdTarih')) g('gdTarih').value = tarih;
+    if (g('gdKategori') && [...g('gdKategori').options].some(o => o.value === t.kategori_id)){
+      g('gdKategori').value = t.kategori_id; gdKatDegisti(); }
+    if (g('gdAciklama')) g('gdAciklama').value = ayAdi(ay) + ' ' + String(t.ad).toLocaleLowerCase('tr');
+    const d = g('gdOkuDurum');
+    if (d){ d.className = 'oku-durum'; d.textContent = 'Sabit kalem: ' + t.ad + ' · ' + sbKatAd(t.kategori_id) + ' kategorisi'
+      + (t.tedarikci_id ? ' · firma: ' + sbTedAd(t.tedarikci_id) : '') + ' hazır geldi — tutarı yaz ve kaydet.'; }
+    const tt = g('gdTutar'); if (tt){ tt.scrollIntoView({ block:'center', behavior:'auto' }); tt.focus(); }
+  }, 60);
+}
+/* Oneri · MEVCUT tanim formunu acar ve ad + kategoriyi doldurur (kopya form YOK) */
+async function sabitOneri(ad){
+  SB_TANIM_ACIK = true; DZ_DUZENLE = null;
+  await duzenliKartCiz();
+  const a = document.getElementById('dzAd'); if (a) a.value = ad;
+  const k = document.getElementById('dzKat');
+  if (k){ const o = [...k.options].find(x => desenAd(x.textContent) === desenAd(ad)); if (o) k.value = o.value; }
+  const f = document.getElementById('dzForm'); if (f) f.scrollIntoView({ block:'start', behavior:'auto' });
+  if (a) a.focus();
+}
 /* ---- F · FATURA → GIDER YONLENDIRMESI ----
    Secilen/okunan tedarikci aktif subenin bir duzenli tanimina bagliysa soyler.
    ⚠ ENGELLEMEZ (gdKatDegisti kalibi, uyari-orta). Mevcut faturayi duzenlerken cikmaz. */
@@ -8976,6 +9179,9 @@ async function duzenliKartCiz(){
     <div class="hata-msg" id="dzMsg"></div>
   </div>`;
   if (DZ_KARTA_GIT){ DZ_KARTA_GIT = false; el.scrollIntoView({ block:'start', behavior:'auto' }); }
+  /* Y87 · ayni kart Sabit bolumunde de cizilebiliyor: tanim degistiyse ustteki liste
+     de tazelensin (Yonetim ekraninda #sbListe yok, orada hicbir sey olmaz). */
+  if (document.getElementById('sbListe')) sabitListeCiz();
 }
 function duzenliDuzenle(id){
   DZ_DUZENLE = id;
@@ -9047,6 +9253,7 @@ async function duzenliUzat(){
 }
 
 function gdTemel(){
+  GD_SABIT = null;                 // Y87 · form yeniden cizildiyse "Sabit'ten geldi" bilgisi DUSER
   const katlar = KATALOG.kategoriler.filter(k=>k.ad!=='Fiş/Gündelik');
   document.getElementById('gdIcerik').innerHTML = `
     ${/* Y72 · "Bu ayın düzenli ödemeleri" seridi (duzenliSeritCiz). Migration yoksa BOS. */''}<div id="gdDuzenli"></div>
@@ -9437,7 +9644,9 @@ async function giderKaydet(mod){
     p_aciklama: document.getElementById('gdAciklama').value.trim()||null,
     p_tutar: tutar, p_kdv_orani: null, p_kdv_tutar: kdvT, p_foto: foto,
     p_kasadan: document.getElementById('gdKasadan').checked,
-    p_tedarikci: null, p_vade: vadeId,
+    /* Y87 · YALNIZ "Sabit → Gir" yolunda tanimin firmasi gider satirina yazilir (toplu
+       girisin Gider satirinin AYNI parametresi). Oteki yollarda -84'teki gibi null. */
+    p_tedarikci: (GD_SABIT && GD_SABIT.ted) || null, p_vade: vadeId,
     /* ===== Y18 · "KDV BILINMIYOR" HALI =====
        OLCULDU: bes ayri yol `p_kdv_orani: null` gonderiyor ve sunucu
        `coalesce(p_kdv_tutar,0)` yaziyor. Oran da yok, tutar da 0 —
@@ -9457,6 +9666,19 @@ async function giderKaydet(mod){
     if (vadeId){ const n = document.getElementById('gdVadeNot'); if (n) n.hidden = true; gdVadeDoldur(); }  // kapanan vade listeden duser
     /* Y72 · sunucu duzenli vadeyi kapattiysa SOYLER ve serit tazelenir. */
     if (data.kapanan_duzenli){ mesaj('gdMsg','ok','Kaydedildi ✓ · ' + duzenliKapanisMetni(data.kapanan_duzenli)); gdVadeDoldur(); }
+    /* Y87 · Sabit'ten gelindiyse bayrak duser (sonraki kayit firmasiz olsun) ve form
+       DOKUNULMAMIS haline doner: kategoriyi biz doldurduk, oyle birakirsak Sabit'e
+       donerken "formda dolu alan var" sorusu cikardi (doluAlanlar seciciyi de sayar).
+       Kullanici formda kalir — kaydetme ve vade kapanma mesaji ekranda durur. */
+    if (GD_SABIT){
+      GD_SABIT = null;
+      const ks = document.getElementById('gdKategori');
+      if (ks && ks.options.length){ ks.selectedIndex = 0; gdKatDegisti(); }
+      const td = document.getElementById('gdTarih');       // gecmis ay girildiyse tarih de dolu sayilirdi
+      if (td) td.value = td.defaultValue || bugun();
+      const od = document.getElementById('gdOkuDurum'); if (od){ od.className = 'oku-durum'; od.textContent = ''; }
+      sabitListeCiz();
+    }
     duzenliSeritCiz();
     giderListe(); }
 }
