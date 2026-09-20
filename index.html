@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-82">
+<meta name="surum" content="2026-08-27-83">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -285,6 +285,22 @@ button.dz-ana:active{background:var(--acik)}
 .fs-rozet.atla{background:#EFEFEF;color:var(--soluk)}
 .fs-detay{font-size:11.5px;color:var(--soluk);line-height:1.5;margin:0 0 8px}
 .fs-yeni{margin-top:8px;padding-top:8px;border-top:1px dashed var(--cizgi)}
+/* Ürünleri oku · onay satırı: kapalıyken TEK SATIR, dokununca açılır */
+.uo-satir{padding:6px 10px;margin:0 0 6px}
+.uo-satir.acik{padding:8px 12px;margin:0 0 10px;border-color:var(--ana)}
+.uo-b{display:flex;width:100%;gap:8px;align-items:flex-start;min-height:44px;padding:4px 0;margin:0;
+  background:none;border:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.uo-metin{flex:1;font-size:12.5px;line-height:1.45;overflow-wrap:anywhere}
+.uo-kim{color:var(--soluk)}
+.uo-k.bagli{color:var(--ok)}
+.uo-k.yeni{color:var(--uyari)}
+.uo-k.atla{color:var(--soluk)}
+.uo-not{font-size:11px;color:var(--soluk)}
+.uo-not.uyari{color:var(--uyari)}
+.uo-ok{flex:none;color:var(--soluk);font-size:12px;line-height:1.8;transition:transform .12s ease-out}
+.uo-satir.acik .uo-ok{transform:rotate(180deg)}
+.uo-d{margin-top:8px;padding-top:10px;border-top:1px dashed var(--cizgi)}
+.uo-d label .k{font-weight:600;color:var(--soluk)}
 /* ===== Sürüm uyarı çubuğu ===== */
 #surumBar{position:fixed;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;
   justify-content:space-between;gap:12px;padding:12px 14px;background:var(--uyari);color:#fff;
@@ -1442,6 +1458,21 @@ const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','
      alindi — ikinci bir normallestirici YAZILMADI. "İŞYERİ" yazan bir
      belgeyi "isyeri" arayan bulabilsin diye. */
 const desenAd = (s) => String(s || '').replace(/[ıİ]/g, 'i').toLowerCase();
+/* ⚠ Y83 · URUN ADI ANAHTARI — "ayni ad" TEK TANIM.
+   Kullanici canlida takildi: belgeden okunan "TABAKLI BONFİLE" ile kayitli
+   "Tabakli Bonfile" AYRI sayilip ikinci kart aciliyordu (sunucunun ad denetimi
+   upper(trim(ad)) ve orada İ ile I ayri harf). Yanlis acilan kart KALICI.
+   SIRA: kirp → bosluklari tekle → tr-TR buyuk harf → İ = I.
+   ⚠ Rakam ve noktalama KALIR: "1,5 KG" ile "15 KG" AYRI urundur.
+   ⚠ desenAd bunun yerine gecmez: o arama DESENI icin, kirpmaz ve bosluk teklemez.
+   Yeni ad ile rpc_urun_tanimla cagiran UC yer bu anahtardan gecer:
+   mfUrunBul (fisli mal alimi) · alSatirKaydet (tek tek giris) · uoKaydet (Urunleri oku). */
+const urunAdAnahtar = (ad) => String(ad ?? '').trim().replace(/\s+/g, ' ')
+  .toLocaleUpperCase('tr-TR').replace(/İ/g, 'I');
+const urunAdBul = (ad) => {
+  const a = urunAdAnahtar(ad);
+  return a ? (KATALOG.urunler || []).find(u => urunAdAnahtar(u.ad) === a) || null : null;
+};
 
 /* ===== GÖRSEL DİL YARDIMCILARI =====
    Tek satır deseni 34 farklı bilgi türüne uygulanmıştı. Her ekran artık bilgi türüne
@@ -5711,13 +5742,9 @@ async function zRaporuOku(k){
       govde = { yol: mevcutYol };
     }
 
-    const y = await fetch(SB_URL + '/functions/v1/z-raporu-oku', {
-      method:'POST',
-      headers:{ 'Authorization':'Bearer '+session.access_token, 'Content-Type':'application/json' },
-      body: JSON.stringify(govde)
-    });
-    const s = await y.json();
-    if (!y.ok || !s.ok) throw new Error(s?.hata || ('Okuma başarısız ('+y.status+')'));
+    /* Y81 · cagri ORTAK (alOkuyucuCagir): ust sure, ara mesaj, okuyucunun nedeni Turkce */
+    const s = await alOkuyucuCagir('z-raporu-oku', session.access_token, govde,
+      () => yaz('Okunuyor… bazen 1-2 dakika sürebilir.', ''));
 
     const v = s.veri || {};
     const dolduruldu = [];
@@ -5875,6 +5902,9 @@ async function zRaporuOku(k){
     const eksikHepsi = [...new Set([...eksik, ...bosKalan])];
     if (eksikHepsi.length) msj += ' ' + dilEksik(eksikHepsi);
     if (v.uyari) msj += ' (' + v.uyari + ')';
+    /* Y81 · yedek modelle okunduysa GORUNSUN (fatura okumadaki not): gun sonunda okuyan model
+       saklanmiyor, gercekte ne siklikla yedege dusuldugu ancak burada gorulur */
+    if (s.yedege_dusuldu) msj += ' Not: ana model okuyamadı, yedek modelle okundu — kontrolü daha dikkatli yap.';
     yaz(msj, (dolduruldu.length && !eksikHepsi.length) ? 'ok' : 'uyari');
   }catch(e){
     /* ⚠ Y67 EKI · -76 · KAYITLI FOTOGRAF BASKASININSA DEPO ACMAZ. Sube sorumlusu artik
@@ -5886,7 +5916,7 @@ async function zRaporuOku(k){
       && /indirilemedi/i.test(e?.message || '');
     yaz(kayitliAcilmadi
       ? 'Kayıtlı fotoğraf sende açılmıyor (yalnız yükleyen ve yönetici açabilir). Okutmak için fotoğrafı yeniden seç ya da rakamları elle düzelt.'
-      : 'Okunamadı: ' + hataTr(e.message) + ' — alanları elle yaz.', 'uyari');
+      : 'Okunamadı: ' + (e.okumaNedeni || hataTr(e.message)) + ' — alanları elle yaz.', 'uyari');
   }finally{
     btn.disabled = false; btn.textContent = eski;
   }
@@ -8353,7 +8383,7 @@ async function mutabakatCalistir(){
      şahıs defterine karışır — bu yüzden tahmin değil soru.
      Bedel: ZIP başına BİR onay. Ekran zaten owner'a özel. */
   if (!confirm('Bu ZIP hangi portaldan indirildi?\n\n'
-      + 'TAMAM  → KTÜ şahıs şirketinin portalı (devam et)\n'
+      + 'TAMAM  → şahıs şirketinin portalı (devam et)\n'
       + 'İPTAL  → başka bir işletmenin portalı / emin değilim (durdur)\n\n'
       + 'Yanlış portalın zipi yüklenirse başka işletmenin faturaları '
       + 'bu deftere karışır.')){
@@ -9247,11 +9277,9 @@ function gdFisMal(){
   document.getElementById('mfAd').addEventListener('input', mfUrunDurum);
   mfUrunDurum();
 }
-function mfUrunBul(ad){
-  const t = String(ad||'').trim().toLocaleLowerCase('tr');
-  if (!t) return null;
-  return KATALOG.urunler.find(u => String(u.ad||'').trim().toLocaleLowerCase('tr') === t) || null;
-}
+/* ⚠ Y83 · ayni ad denetimi ORTAK anahtardan (urunAdAnahtar): buyuk/kucuk harf,
+   İ/ı ve fazladan bosluk ayni urunu ikinci karta dusurmesin. */
+function mfUrunBul(ad){ return urunAdBul(ad); }
 function mfUrunDurum(){
   const ad = document.getElementById('mfAd').value;
   const yeni = !!ad.trim() && !mfUrunBul(ad);
@@ -10398,24 +10426,36 @@ function alOkumaNedeni(s){
 /* Y79 · OKUYUCU CAGRISI ORTAK: faturaOku ile Urunleri oku ayni yoldan gecer — ust sure
    (AL_OKUMA_UST_SURE_MS), istege bagli ara mesaj, okuyucunun nedeni (AL_OKUMA_NEDEN).
    Basarisizlikta atilan hatanin okumaNedeni'si Turkce (neden yoksa null: -80'in yolu).
-   Oturum anahtarini CAGIRAN verir (faturaOku oturumu okumanin basinda aliyor). */
-async function alOkuyucuCagir(anahtar, govde, araMesaj){
+   Oturum anahtarini CAGIRAN verir (faturaOku oturumu okumanin basinda aliyor).
+   Y81 · OKUYUCU ADI PARAMETRE (fatura-oku · z-raporu-oku): Z okumasi da ayni ust sureden,
+   ara mesajdan ve neden sozlugunden gecer. JSON OLMAYAN cevap (ag gecidi 504 ya da baska
+   ara katman sayfasi) genel cumleye degil Turkce nedene duser: 504 → zaman asimi, oteki →
+   cevap cozulemedi; JSON gelen 504 de okuyucunun kendi nedeni yoksa zaman asimi. Fatura
+   okumasinda degisen YALNIZ bu dal. */
+async function alOkuyucuCagir(okuyucu, anahtar, govde, araMesaj){
   const kes = new AbortController();
   const ustSure = setTimeout(() => kes.abort(), AL_OKUMA_UST_SURE_MS);
   const ara = araMesaj ? setTimeout(araMesaj, AL_OKUMA_ARA_MESAJ_MS) : null;
-  let y, s;
+  let y, s = null;
   try {
-    y = await fetch(SB_URL + '/functions/v1/fatura-oku', {
+    y = await fetch(SB_URL + '/functions/v1/' + okuyucu, {
       method:'POST',
       headers:{ 'Authorization':'Bearer '+anahtar, 'Content-Type':'application/json' },
       body: JSON.stringify(govde), signal: kes.signal
     });
-    s = await y.json();
+    const ham = await y.text();
+    try { s = JSON.parse(ham); } catch (e) { s = null; }
   } catch (e) {
     if (kes.signal.aborted){ const h = new Error('OKUMA_UST_SURE'); h.okumaNedeni = AL_OKUMA_NEDEN.zaman_asimi; throw h; }
     throw e;
   } finally { clearTimeout(ustSure); if (ara) clearTimeout(ara); }
-  if (!y.ok || !s.ok){ const h = new Error(s?.hata || ('Okuma başarısız ('+y.status+')')); h.okumaNedeni = alOkumaNedeni(s); throw h; }
+  if (!s || typeof s !== 'object'){
+    const h = new Error('Okuyucunun cevabı JSON değil (' + y.status + ')');
+    h.okumaNedeni = y.status === 504 ? AL_OKUMA_NEDEN.zaman_asimi : AL_OKUMA_NEDEN.json;
+    throw h;
+  }
+  if (!y.ok || !s.ok){ const h = new Error(s.hata || ('Okuma başarısız ('+y.status+')'));
+    h.okumaNedeni = alOkumaNedeni(s) || (y.status === 504 ? AL_OKUMA_NEDEN.zaman_asimi : null); throw h; }
   return s;
 }
 /* Y79 · KAYITLI BELGE: okuyucunun {yol} dali belgeyi GORSEL diye yolluyor (tur image/ degilse
@@ -10480,7 +10520,7 @@ async function faturaOku(){
 
     /* Y77 · C · ust sure + ara mesaj; neden okuyucudan (v6) gelirse Turkce, gelmezse -80'in yolu
        Y79 · cagri ORTAK (alOkuyucuCagir): Urunleri oku da ayni yoldan okur */
-    const s = await alOkuyucuCagir(session.access_token, govde,
+    const s = await alOkuyucuCagir('fatura-oku', session.access_token, govde,
       () => yaz('Okunuyor… uzun faturalarda 1-2 dakika sürebilir.', ''));
     OCR_SON = { veri:s.veri, model:s.model };
 
@@ -10533,10 +10573,10 @@ async function faturaOku(){
     if (v.alici?.ad || v.alici?.vkn){
       aliciNot = `<div class="bilgi-not" style="color:var(--uyari)"><b>Alıcıyı doğrula:</b>
         bu belge <b>${esc(gizle(v.alici?.ad || 'adı okunamayan bir alıcıya'))}</b> adına kesilmiş.
-        KTÜ şahıs şirketine ait DEĞİLSE buraya girme — LTD defterine aittir.</div>`;
+        Şahıs şirketine ait DEĞİLSE buraya girme — LTD defterine aittir.</div>`;
     } else {
       aliciNot = `<div class="bilgi-not" style="color:var(--uyari)"><b>Alıcı okunamadı.</b>
-        Belgenin KTÜ şahıs şirketine kesildiğini kendin doğrula.</div>`;
+        Belgenin şahıs şirketine kesildiğini kendin doğrula.</div>`;
     }
     // Denetim
     let denetimNot = '';
@@ -10794,6 +10834,9 @@ async function alSatirKaydet(tedarikciId){
       const pk = paraOku(document.getElementById('fsPaket_'+s.i));
       carpan = pk.deger > 0 ? pk.deger : 1;
       if (!ad) throw new Error('Yeni ürünün adı boş olamaz.');
+      /* Y83 · bu ad zaten kayitliysa YENI KART ACILMAZ, o urune baglanir (ad = null → p_urun_id) */
+      const ayni = urunAdBul(ad);
+      if (ayni){ urunId = ayni.id; ad = null; birim = ayni.birim || 'adet'; }
     }
     // Ürün + eşleşme TEK fonksiyonda. Personel tabloya doğrudan yazamaz (RLS),
     // bu fonksiyon üzerinden tanımlayabilir; açtığı ürün yöneticinin onayına düşer.
@@ -10804,11 +10847,11 @@ async function alSatirKaydet(tedarikciId){
       p_tedarikci: tedarikciId || null,
       p_ham_kod: s.ham_kod, p_ham_ad: s.ham_ad,
       p_carpan: carpan, p_birim_ad: s.birim,
-      p_urun_id: s.karar === 'yeni' ? null : urunId
+      p_urun_id: ad ? null : urunId          // ad null ise kayitli urune baglaniyoruz (Y83 ya da eslesmis satir)
     });
     if (re) throw new Error('Ürün tanımlanamadı: ' + hataTr(re.message));
     urunId = r.urun_id;
-    if (s.karar === 'yeni' && r.yeni){
+    if (ad && r.yeni){
       KATALOG.urunler.push({ id:r.urun_id, ad, birim, kod:r.kod, paket_ici_adet: carpan>1?carpan:null });
       YENI_URUN_UYARI.push(`${r.kod} ${ad}`);
     }
@@ -10929,7 +10972,7 @@ async function uoOku(o, f){
       if (!c.yeterli) throw uoKendi('PDF taranmış (metni yok) — faturayı aç, belgenin fotoğrafını çekip Düzenle → Belgeyi oku');
       metin = c.metin; govde = { metin };
     } else govde = { yol: f.yol };
-    const s = await alOkuyucuCagir(session.access_token, govde, null);
+    const s = await alOkuyucuCagir('fatura-oku', session.access_token, govde, null);
     const v = s.veri || {};
     const no = uoSaticiNo(metin, v);
     if (no && f.firmaNo && no !== f.firmaNo){
@@ -10986,6 +11029,19 @@ async function uoOnayaGec(){
     return y.length ? alBenzerDoldur(y, fid) : null;
   }));
   if (UO !== o) return;
+  /* ⚠ Y83 · VARSAYILAN KARAR: kullanici "her faturayi tek tek incelemem lazim" dedi.
+     Karari sistem verir, kullanici duzeltir:
+       1) ayni ad kayitliysa (urunAdAnahtar)        → o urun secili, rozet "kayitli"
+       2) degilse en iyi oneri %100 benzerse        → o urun secili, "degistirebilirsin"
+       3) ikisi de yoksa                            → yeni kart
+     Her satir degistirilebilir; %100'un altindaki oneriler KARAR VERMEZ, satir acilinca gorunur. */
+  o.anahtarlar.forEach(a => {
+    const ayni = urunAdBul(a.ad);
+    if (ayni){ a.karar = 'mevcut'; a.urun_id = ayni.id; a.varsayilan = 'ayni_ad'; return; }
+    const en = (a.benzer || []).slice().sort((x, y) => (y.skor || 0) - (x.skor || 0))[0];
+    if (en && en.urun_id && Math.round((en.skor || 0) * 100) >= 100){
+      a.karar = 'mevcut'; a.urun_id = en.urun_id; a.varsayilan = 'oneri'; }
+  });
   o.urunSecenek = (KATALOG.urunler || []).map(u =>
     `<option value="${u.id}">${esc(u.kod ? u.kod + ' — ' : '')}${esc(u.ad)}</option>`).join('');
   o.asama = 'onay'; uoCiz();
@@ -11001,6 +11057,7 @@ function uoKaydedilecek(o){ return o.faturalar.filter(f => f.durum === 'okundu' 
 function uoKarar(i){
   const o = UO, a = o && o.anahtarlar[i]; if (!a) return;
   const v = document.getElementById('uoU_' + i).value;
+  a.varsayilan = null;                                    // karar artık kullanıcının
   if (v === '__yeni'){ a.karar = 'yeni'; a.urun_id = null; }
   else if (v === '__atla'){ a.karar = 'atla'; a.urun_id = null; }
   else { a.karar = 'mevcut'; a.urun_id = v; }
@@ -11016,40 +11073,66 @@ function uoAnahtarYenile(i){
   const a = UO.anahtarlar[i];
   if (a.karar === 'mevcut'){ const s = document.getElementById('uoU_' + i); if (s) s.value = a.urun_id; }
 }
+/* seçili ürünün ekrandaki adı: katalogda yoksa öneri listesinden (ikisi de yoksa düz metin) */
+function uoUrunEtiket(a){
+  const u = (KATALOG.urunler || []).find(x => x.id === a.urun_id)
+         || (a.benzer || []).find(b => b.urun_id === a.urun_id);
+  return u ? ((u.kod ? u.kod + ' ' : '') + (u.ad || '')).trim() : 'kayıtlı ürün';
+}
+/* ⚠ Y83 · satır TEK SATIR: ham ad · firma · kaç faturada → karar. Dokununca açılır.
+     Kullanici: "her faturayi tek tek incelemem lazim, mantikli mi?" — hayir; adetler
+     faturadan gelir, kutulara dokunmak GEREKMEZ, yalniz yanlis goruneni duzeltirsin. */
+function uoAc(i, zorla){
+  const o = UO, a = o && o.anahtarlar[i]; if (!a) return;
+  a.acik = zorla ? true : !a.acik;
+  uoAnahtarYenile(i);
+  (document.getElementById(zorla ? 'uoAd_' + i : 'uoB_' + i) || document.getElementById('uoB_' + i))?.focus();
+}
 function uoAnahtarHtml(o, a, i){
   const etki = a.karar === 'atla'
     ? o.faturalar.filter(f => a.faturalar.has(f.id) && uoKayitEngeli(o, f)).length : 0;
-  const rozet = a.karar === 'atla' ? '<span class="fs-rozet atla">ATLANACAK</span>'
-    : a.karar === 'mevcut' ? '<span class="fs-rozet tam">✓ KAYITLI ÜRÜN SEÇİLDİ</span>'
-    : '<span class="fs-rozet yeni">+ YENİ KART</span>';
-  return `<div class="fs-satir" id="uoK_${i}">
-    <div class="fs-bas">${rozet}<span class="fs-ad">${esc(a.ham_ad || '(adsız)')}</span></div>
-    <div class="fs-detay">${esc(a.firmaAd)} · ${a.faturalar.size} faturada${a.satirSay > a.faturalar.size ? ' · ' + a.satirSay + ' satır' : ''}${a.ham_kod ? ' · kod ' + esc(a.ham_kod) : ''}</div>
-    ${(a.benzer && a.benzer.length && a.karar === 'yeni') ? `<div class="bilgi-not" style="color:var(--uyari);margin:0 0 6px">
-      ⚠ Bu ürün zaten kayıtlı olabilir — <b>aynıysa aşağıdan seç</b>, yeni açma:
-      ${a.benzer.map(b => `<br>• <b>${esc(b.kod || '')} ${esc(b.ad)}</b> (%${Math.round(b.skor * 100)} benzer)`).join('')}</div>` : ''}
-    <select id="uoU_${i}" aria-label="${esc(a.ham_ad || 'adsız satır')} için karar" onchange="uoKarar(${i})">
-      <option value="__yeni"${a.karar === 'yeni' ? ' selected' : ''}>+ Yeni ürün kartı aç</option>
-      ${(a.benzer && a.benzer.length) ? `<optgroup label="Benzer ürünler">
-        ${a.benzer.map(b => `<option value="${b.urun_id}"${a.urun_id === b.urun_id ? ' selected' : ''}>${esc(b.kod || '')} — ${esc(b.ad)} · %${Math.round(b.skor * 100)}</option>`).join('')}
-      </optgroup>` : ''}
-      <optgroup label="Tüm ürünler">${o.urunSecenek}</optgroup>
-      <option value="__atla"${a.karar === 'atla' ? ' selected' : ''}>Bu satırı atla</option>
-    </select>
-    ${a.karar === 'yeni' ? `<div class="fs-yeni">
-      <input type="text" id="uoAd_${i}" value="${esc(a.ad)}" placeholder="ürün adı (kısaltabilirsin)"
-        aria-label="Yeni ürünün adı" oninput="uoYaz(${i},'ad',this.value)">
-      <div class="satir">
-        <div><label for="uoBirim_${i}">Stok birimi</label>
-          <select id="uoBirim_${i}" onchange="uoYaz(${i},'birimSec',this.value)">
-            ${['adet', 'kg', 'lt'].map(b => `<option value="${b}"${a.birimSec === b ? ' selected' : ''}>${b}</option>`).join('')}
-          </select></div>
-        <div><label for="uoPaket_${i}">Paket/koli içi adet</label>
-          <input type="text" inputmode="decimal" autocomplete="off" id="uoPaket_${i}" value="${esc(a.paketHam)}"
-            placeholder="örn 80" oninput="uoYaz(${i},'paketHam',this.value)"></div>
-      </div></div>` : ''}
-    ${etki ? `<div class="bilgi-not" style="color:var(--uyari)">Atlanan satır yüzünden satır toplamı tutmayacak:
-      <b>${etki} fatura</b> bu sefer kaydedilmez.</div>` : ''}
+  const karar = a.karar === 'atla' ? '<b class="uo-k atla">→ atlanacak</b>'
+    : a.karar === 'mevcut' ? `<b class="uo-k bagli">→ ${esc(uoUrunEtiket(a))}</b>
+        <span class="uo-not">${a.varsayilan === 'oneri' ? '(kayıtlı ürün — değiştirebilirsin)' : '(kayıtlı)'}</span>`
+    : `<b class="uo-k yeni">→ yeni kart</b>${(a.benzer && a.benzer.length)
+        ? ' <span class="uo-not uyari">(benzeri olabilir, dokun)</span>' : ''}`;
+  return `<div class="fs-satir uo-satir${a.acik ? ' acik' : ''}" id="uoK_${i}">
+    <button type="button" class="uo-b" id="uoB_${i}" aria-expanded="${a.acik ? 'true' : 'false'}"
+      aria-controls="uoD_${i}" onclick="uoAc(${i})">
+      <span class="uo-metin"><b>${esc(a.ham_ad || '(adsız)')}</b>
+        <span class="uo-kim">· ${esc(a.firmaAd)} · ${a.faturalar.size} faturada</span> ${karar}</span>
+      <span class="uo-ok" aria-hidden="true">▾</span>
+    </button>
+    ${etki ? `<div class="bilgi-not" style="color:var(--uyari);margin:6px 0 0">Atlanan satır yüzünden satır toplamı
+      tutmayacak: <b>${etki} fatura</b> bu sefer kaydedilmez.</div>` : ''}
+    <div class="uo-d" id="uoD_${i}"${a.acik ? '' : ' hidden'}>
+      ${(a.satirSay > a.faturalar.size || a.ham_kod) ? `<div class="fs-detay">${
+        [a.satirSay > a.faturalar.size ? a.satirSay + ' satır' : '', a.ham_kod ? 'kod ' + esc(a.ham_kod) : ''].filter(Boolean).join(' · ')}</div>` : ''}
+      ${(a.benzer && a.benzer.length && a.karar === 'yeni') ? `<div class="bilgi-not" style="color:var(--uyari);margin:0 0 6px">
+        ⚠ Bu ürün zaten kayıtlı olabilir — <b>aynıysa aşağıdan seç</b>, yeni açma:
+        ${a.benzer.map(b => `<br>• <b>${esc(b.kod || '')} ${esc(b.ad)}</b> (%${Math.round(b.skor * 100)} benzer)`).join('')}</div>` : ''}
+      <select id="uoU_${i}" aria-label="${esc(a.ham_ad || 'adsız satır')} için karar" onchange="uoKarar(${i})">
+        <option value="__yeni"${a.karar === 'yeni' ? ' selected' : ''}>+ Yeni ürün kartı aç</option>
+        ${(a.benzer && a.benzer.length) ? `<optgroup label="Benzer ürünler">
+          ${a.benzer.map(b => `<option value="${b.urun_id}"${a.urun_id === b.urun_id ? ' selected' : ''}>${esc(b.kod || '')} — ${esc(b.ad)} · %${Math.round(b.skor * 100)}</option>`).join('')}
+        </optgroup>` : ''}
+        <optgroup label="Tüm ürünler">${o.urunSecenek}</optgroup>
+        <option value="__atla"${a.karar === 'atla' ? ' selected' : ''}>Bu satırı atla</option>
+      </select>
+      ${a.karar === 'yeni' ? `<div class="fs-yeni">
+        <input type="text" id="uoAd_${i}" value="${esc(a.ad)}" placeholder="ürün adı (kısaltabilirsin)"
+          aria-label="Yeni ürünün adı" oninput="uoYaz(${i},'ad',this.value)">
+        <div class="bilgi-not" style="margin:6px 0 0">Aşağıdaki ikisi <b>isteğe bağlı</b> — faturadan geldi, olduğu gibi bırakabilirsin.</div>
+        <div class="satir">
+          <div><label for="uoBirim_${i}">Stok birimi <span class="k">(isteğe bağlı)</span></label>
+            <select id="uoBirim_${i}" onchange="uoYaz(${i},'birimSec',this.value)">
+              ${['adet', 'kg', 'lt'].map(b => `<option value="${b}"${a.birimSec === b ? ' selected' : ''}>${b}</option>`).join('')}
+            </select></div>
+          <div><label for="uoPaket_${i}">Paket/koli içi adet <span class="k">(isteğe bağlı)</span></label>
+            <input type="text" inputmode="decimal" autocomplete="off" id="uoPaket_${i}" value="${esc(a.paketHam)}"
+              placeholder="örn 80" oninput="uoYaz(${i},'paketHam',this.value)"></div>
+        </div></div>` : ''}
+    </div>
   </div>`;
 }
 function uoOnayOzetYaz(){
@@ -11058,14 +11141,22 @@ function uoOnayOzetYaz(){
   const kayit = uoKaydedilecek(o), ids = new Set(kayit.map(f => f.id));
   const satir = kayit.reduce((n, f) => n + uoKalan(o, f).length, 0);
   const taninan = kayit.reduce((n, f) => n + uoKalan(o, f).filter(s => !s.anahtar).length, 0);
-  /* sunucu aynı adı TEK kart yapar (rpc_urun_tanimla ad tekilliği): iki firmadan aynı ad ya da
-     listede zaten olan bir ad yeni kart SAYILMAZ */
-  const mevcutAd = new Set((KATALOG.urunler || []).map(u => birimNorm(u.ad)));
-  const yeniKart = new Set(o.anahtarlar.filter(a => a.karar === 'yeni' && [...a.faturalar].some(id => ids.has(id)))
-    .map(a => birimNorm(a.ad)).filter(n => n && !mevcutAd.has(n))).size;
+  /* ⚠ Y83 · sayım kaydın YAPACAĞINI söyler (uoKaydet ile AYNI kural):
+       kayıtlı karta bağlanan = seçilmiş ürünler + adı zaten kayıtlı olanlar (urunAdAnahtar),
+       yeni kart = geri kalan AYRI adlar. Aynı ad iki firmadan gelse de TEK kart. */
+  const gorulen = o.anahtarlar.filter(a => a.karar !== 'atla' && [...a.faturalar].some(id => ids.has(id)));
+  const baglanan = new Set(), yeniAd = new Set();
+  gorulen.forEach(a => {
+    if (a.karar === 'mevcut'){ if (a.urun_id) baglanan.add(a.urun_id); return; }
+    const ayni = urunAdBul(a.ad);
+    if (ayni) baglanan.add(ayni.id);
+    else if (urunAdAnahtar(a.ad)) yeniAd.add(urunAdAnahtar(a.ad));
+  });
+  const yeniKart = yeniAd.size;
   const karsilasmayan = kayit.filter(f => !f.noKarsilasti).length;
   el.innerHTML = `Kaydedilecek: <b>${kayit.length} fatura</b> · ${satir} ürün satırı
-      (${taninan} tanınan ürün${yeniKart ? ' · ' + yeniKart + ' yeni kart' : ''}).`
+      (${taninan} tanınan ürün).`
+    + (gorulen.length ? `<br><b>${baglanan.size} ürün kayıtlı karta bağlanacak</b> · ${yeniKart} yeni kart.` : '')
     + (okunan.length > kayit.length ? `<br>${okunan.length - kayit.length} okunan fatura atlanan satırlar yüzünden bu sefer kaydedilmez.` : '')
     + (karsilasmayan ? `<br>${karsilasmayan} faturada belgedeki satıcı numarası firmanın kaydıyla karşılaştırılamadı
       (firmada numara yok ya da belgede okunamadı) — bu faturalarda tek denetim satır toplamı.` : '');
@@ -11089,7 +11180,7 @@ async function uoKaydet(){
   const bos = gereken.findIndex(a => a.karar === 'yeni' && !String(a.ad || '').trim());
   if (bos >= 0){
     hata('Yeni ürünün adı boş olamaz — adı yaz ya da "Bu satırı atla" seç.');
-    document.getElementById('uoAd_' + o.anahtarlar.indexOf(gereken[bos]))?.focus(); return;
+    uoAc(o.anahtarlar.indexOf(gereken[bos]), true); return;   // satır kapalıysa açılır, ad kutusuna gider
   }
   o.asama = 'kaydediliyor'; o.ilerleme = 'Sunucu yoklanıyor…'; uoCiz();
   try{
@@ -11103,18 +11194,22 @@ async function uoKaydet(){
     const a = gereken[n];
     o.ilerleme = `Ürün kartları ${n + 1}/${gereken.length}…`; uoIlerlemeYaz();
     const yeni = a.karar === 'yeni';
-    const ad = yeni ? String(a.ad).trim() : null, birim = yeni ? a.birimSec : 'adet';
     const pk = paraCoz(a.paketHam);
     const carpan = yeni ? (pk.deger > 0 ? pk.deger : 1) : a.carpan;
+    /* Y83 · yeni satırın adı zaten kayıtlıysa (urunAdAnahtar) kart AÇILMAZ, o ürüne bağlanır */
+    const ayni = yeni ? urunAdBul(a.ad) : null;
+    const ad = yeni && !ayni ? String(a.ad).trim() : null;
+    const birim = ad ? a.birimSec : 'adet';
+    const hedef = ayni ? ayni.id : a.urun_id;
     try{
       const { data:r, error } = await sb.rpc('rpc_urun_tanimla', {
         p_ad: ad, p_birim: birim, p_paket_ici: carpan > 1 ? carpan : null, p_kategori: null,
         p_tedarikci: a.firmaId || null, p_ham_kod: a.ham_kod, p_ham_ad: a.ham_ad,
-        p_carpan: carpan, p_birim_ad: a.birim, p_urun_id: yeni ? null : a.urun_id });
+        p_carpan: carpan, p_birim_ad: a.birim, p_urun_id: ad ? null : hedef });
       if (error) throw new Error(error.message);
       if (!r || !r.urun_id) throw uoKendi('sunucu onay vermedi');
       a.cozulen = r.urun_id; a.carpanSon = carpan;
-      if (yeni && r.yeni){ KATALOG.urunler.push({ id:r.urun_id, ad, birim, kod:r.kod, paket_ici_adet: carpan > 1 ? carpan : null }); yeniKart++; }
+      if (ad && r.yeni){ KATALOG.urunler.push({ id:r.urun_id, ad, birim, kod:r.kod, paket_ici_adet: carpan > 1 ? carpan : null }); yeniKart++; }
     }catch(e){ a.hata = 'ürün kartı açılamadı: ' + hataTr(e.message); }
   }
   /* 2 · faturalar: faturanın kendisine dokunulmaz, yalnız satır + stok hareketi */
@@ -11200,9 +11295,10 @@ function uoCiz(){
     const disarda = F.filter(f => !['okundu', 'kaydedildi', 'kayit_hata'].includes(f.durum));
     g = `<div class="kart" style="margin:0 0 12px"><div class="kbaslik">Kaydetmeden önce</div>
         <div class="bilgi-not" id="uoOnayOzet" style="margin:0"></div></div>
-      ${o.anahtarlar.length ? `<div class="kbaslik" style="margin:6px 0">Yeni ürün kartı açılacak satırlar (${o.anahtarlar.length})</div>
-        <div class="bilgi-not" style="margin:0 0 8px">Aynı ad ve firma bir kez sorulur. <b>Ürün birleştirme yok — yanlış açılan
-          kart kalıcıdır</b>: listede zaten olan bir ürünse aşağıdan onu seç. Tanınan satırlar sorulmaz.</div>
+      ${o.anahtarlar.length ? `<div class="kbaslik" style="margin:6px 0">İlk kez görülen ürünler (${o.anahtarlar.length})</div>
+        <div class="bilgi-not" style="margin:0 0 8px">Adetler faturadan geliyor. Kutulara dokunman gerekmiyor;
+          yanlış gördüğün satırı düzelt, sonra Kaydet. Satıra dokununca açılır.
+          <b>Ürün birleştirme yok — yanlış açılan kart kalıcıdır.</b></div>
         ${o.anahtarlar.map((a, i) => uoAnahtarHtml(o, a, i)).join('')}`
       : '<div class="bilgi-not">Yeni kart gerekmiyor — okunan bütün satırlar kayıtlı ürünlerle eşleşti.</div>'}
       ${disarda.length ? `<div class="kbaslik" style="margin:14px 0 6px">Kaydedilmeyecek faturalar (${disarda.length})</div>
