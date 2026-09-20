@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-85">
+<meta name="surum" content="2026-08-27-87">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2024,7 +2024,11 @@ async function katalogYukle(){
        odeme formu, toplu giris) bosalir. Ters sira GUVENLI DEGIL;
        provada olculdu ("column mal_alimi does not exist"). */
   const [k, t, u] = await Promise.all([
-    sb.from('gider_kategori').select('id,ad,mal_alimi').eq('aktif',true).eq('is_deleted',false).order('ad'),
+    /* Y88 · `kdv_indirilebilir` EKLENDI: hizmet faturasi gider tarafina yazilirken ekran
+       "bu kategori indirilecek KDV'ye girmiyor" diyebilsin. Kolon TABANDA var (v1'den
+       beri), yani Y3'teki sira riski YOK — yine de tek sorgu: kolon bir gun kalkarsa
+       butun kategori listeleri bosalir, bu yuzden bayrak OKUNAMAZSA uyari YAZILMAZ. */
+    sb.from('gider_kategori').select('id,ad,mal_alimi,kdv_indirilebilir').eq('aktif',true).eq('is_deleted',false).order('ad'),
     sb.from('tedarikci').select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres').eq('aktif',true).eq('is_deleted',false).order('ad'),
     sb.from('urun').select('id,ad,birim,kod,paket_ici_adet').eq('aktif',true).eq('is_deleted',false).order('kod')
   ]);
@@ -4330,9 +4334,11 @@ async function vOzet(){
   const FIN_DESEN = /faiz/i;
   /* ⚠ BIR KERELIK YATIRIM · ayni mekanizma, ikinci desen.
      "demirba" koku hem "demirbaş" hem "demirbas" yazimini yakalar —
-     bilerek boyle. Sistemde demirbas girecek ekran yok; kullanici bu
-     alimlari gider olarak yaziyor ve tek seferlik bir cikis o ayin
-     isletme sonucunu bozuyor. */
+     bilerek boyle. Y88'den beri ayri bir Demirbaş bolumu var, AMA o liste
+     yalnizca envanter: gider/fatura kaydi ACMAZ, bu tabloya da girmez.
+     Kullanici ayni alimi belge olarak yine gider yazabilir (cogu zaman
+     yazmasi da gerekir) ve tek seferlik bir cikis o ayin isletme sonucunu
+     bozar — desen bu yuzden duruyor. */
   const YATIRIM_DESEN = /demirba|ekipman|makine|mobilya|yatirim/i;
   /* ⚠ TURKCE HARF: JS'te 'ı' ile 'i', 'İ' ile 'i' AYRI karakterdir ve
      regex'in /i bayragi bunlari eslestirmez — olculdu:
@@ -7006,8 +7012,13 @@ async function gunSil(id, tarih){
   vGunSonu();
 }
 
-/* ================== GİDERLER (3 bölüm: Temel / Fatura / Fiş) ================== */
-let GIDER_BOLUM = 'temel';
+/* ================== GİDERLER (Fatura · Sabit · Fiş · Demirbaş · Ödemeler) ==================
+   ⚠ Y88 · "Gider" SEKMESI KALKTI, FORM DURUYOR. Kullanici: "gider kelimesine gerek yok,
+     sabit fatura fis odemeler o kadar yeterli". Form uc yerden acilir: Sabit → "Gir"
+     (Y87), Fatura → HIZMET dali (Y88) ve eski yonlendirmeler (duzenli uyarisi, SGK
+     komisyonu, Fatura → Gider'e gec). Bu yollarla acildiginda serit "Gider" dugmesini
+     GOSTERIR — yoksa kullanici hangi bolumde oldugunu goremez ve geri donemezdi. */
+let GIDER_BOLUM = 'fatura';
 let GD_ODEME_AY = null;                              // Ödemeler bölümünde hangi ay
 /* ⚠ ADIM 17 (B) · ALT SEKME DE "EKRAN DEGISIMI"DIR. Gider ile Fatura
    arasinda gecmek dolu formu ayni sekilde ucuruyordu; ust sekmeyle
@@ -7032,17 +7043,21 @@ async function vGider(){
           varsayilan yol oydu — en kolay yol, yanlis yol. Ad artik
           YAPILAN ISI soyluyor. 375px'te bes sekme var, kisa kalmali;
           tasma olculdu. Oteki sekme adlarina dokunulmadi. */''}
-    ${/* ⚠ Y87 · "Sabit" Gider ile Fatura ARASINA girdi (kullanici: "giderin yaninda ayri
-          bir sekme"). Sahipte sekme sayisi bese cikinca 375px'te etiketler kirpilir —
-          olculdu; segment o yuzden dar ekranda ALT SATIRA SARAR (`segment cok`), etiketler
-          kisaltilmadi ve oteki ekranlarin segmentine dokunulmadi. */''}
-    <div class="segment cok">${sekBtn('temel','Gider')}${sekBtn('sabit','Sabit')}${sekBtn('fatura','Fatura')}${sekBtn('fis','Fiş')}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
+    ${/* ⚠ Y87 · segment dar ekranda ALT SATIRA SARAR (`segment cok`): 375px'te besli seritte
+          "Ödemeler" ZATEN kirpiliyordu, olculdu. Etiketler kisaltilmadi, oteki ekranlarin
+          segmentine dokunulmadi.
+          ⚠ Y88 · SIRA: Fatura · Sabit · Fis · Demirbas · Odemeler (+ sahipte Ay Sonu).
+          "Gider" dugmesi YALNIZ o bolum aciksa cizilir (formun kendisi duruyor, dugmesi
+          kalkti). Demirbas YALNIZ sahipte: tablonun RLS politikasi owner-only, personele
+          dugme koymak gidecegi olmayan dugme olurdu. */''}
+    <div class="segment cok">${GIDER_BOLUM==='temel'?sekBtn('temel','Gider'):''}${sekBtn('fatura','Fatura')}${sekBtn('sabit','Sabit')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('demirbas','Demirbaş'):''}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
     ${/* ADIM 17 (B) · taslak seridi — gun sonundaki gsTaslakBar'in esi */''}
     <div id="ekTaslakBar"></div>
     <div id="gdIcerik"></div>
     <div id="gdListe"></div>`;
   if (GIDER_BOLUM==='temel') gdTemel();
   else if (GIDER_BOLUM==='sabit') gdSabit();
+  else if (GIDER_BOLUM==='demirbas') gdDemirbas();
   else if (GIDER_BOLUM==='fatura') gdFatura();
   else if (GIDER_BOLUM==='mutabakat') gdMutabakat();
   else if (GIDER_BOLUM==='odeme') gdOdeme();
@@ -9014,6 +9029,131 @@ async function sabitOneri(ad){
   const f = document.getElementById('dzForm'); if (f) f.scrollIntoView({ block:'start', behavior:'auto' });
   if (a) a.focus();
 }
+/* =====================================================================
+   Y88 · DEMIRBAS BOLUMU (yalniz sahip)
+   =====================================================================
+   KULLANICI: "en fazla demirbas sekmesi de olur, bu ay Samsuna yeni POS aldik onu da
+   ona yukleriz." POS, dolap, makine gibi seyler bugune kadar ya Gider'e yaziliyordu
+   (o ayin karini tek seferde dusuruyor) ya da hic girilmiyordu.
+   ⚠ MIGRATION YOK · TABLO HAZIR (olculdu, dokum kopyasi): `demirbas` (sube_id NOT NULL,
+     ad NOT NULL, alis_tarihi, tutar, foto_path, notlar, aktif, is_deleted); RLS ACIK ve
+     TEK politika `owner_all_demirbas` (ALL, `auth_rol() = 'owner'`, WITH CHECK ayni);
+     `authenticated` icin INSERT, SELECT, UPDATE var, DELETE YOK; `trg_audit_demirbas`
+     denetim izi yaziyor; tablo SUBE_SUZGEC haritasinda (okuma suzuluyor). Icinde 0 kayit.
+   ⚠ YAZMA YOLU: DOGRUDAN INSERT (dar RPC DEGIL). Gerekce: (a) bu tur migration icermiyor,
+     RPC eklemek migration ister; (b) yetki kapisi ZATEN veritabaninda — politika owner-only
+     ve DELETE grant'i yok, yani istemciye guvenilmiyor; (c) denetim izi tetikleyiciden
+     geliyor, RPC olmadan da yaziliyor. EKSIK KALAN: idem anahtari — dogrudan insert'te
+     mukerrer koruma sunucuda YOK. Bu yuzden istemci once AYNI kaydi (sube, ad, tarih,
+     tutar) arar ve sorar, dugmeyi kayit boyunca kapatir. Sunucu tarafi mukerrer kapisi
+     gerekirse AYRI MADDE (dar RPC + kismi tekil indeks).
+   ⚠ SILME YOK (grant de yok): "pasife al" ile `aktif = false`. Tabloda `pasif_neden`
+     kolonu YOK — neden `notlar`in sonuna eklenir, kim ve ne zaman denetim izinde durur.
+   ⚠ KAR TABLOSUNA GIRMEZ: demirbas maliyeti tek seferde gider yazilmaz; amortisman
+     muhasebecinin isidir. Ekran bunu YAZAR, sistem hesap iddia etmez. */
+let DB_LISTE = [];
+function gdDemirbas(){
+  if (!PROFIL || PROFIL.rol !== 'owner'){            // politika owner-only: gidecegi olmayan ekran cizilmez
+    document.getElementById('gdIcerik').innerHTML =
+      '<div class="bilgi-not">Demirbaş kayıtları yalnız yöneticide.</div>';
+    document.getElementById('gdListe').innerHTML = ''; return;
+  }
+  document.getElementById('gdIcerik').innerHTML = `
+    <div class="kart">
+      <div class="kbaslik">Demirbaş (POS, dolap, makine…)</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Uzun süre kullanılan, tek seferde tükenmeyen şeyler.
+        <b>Kâr tablosuna maliyet olarak yazılmaz</b> — amortismanı muhasebeci işler; burada listesi,
+        tarihi ve belgesi durur.</div>
+      <label>Ne aldın?</label>
+      <input type="text" id="dbAd" maxlength="80" placeholder="örn: POS cihazı">
+      ${tarihSecici('dbTarih')}
+      <label>Tutar (KDV dahil)</label>
+      <input type="text" inputmode="decimal" autocomplete="off" id="dbTutar" placeholder="0,00">
+      <label>Belge (fotoğraf veya PDF)</label>
+      <input type="file" id="dbFoto" accept="image/*,application/pdf,.pdf">
+      <label>Not</label><input type="text" id="dbNot" maxlength="200" placeholder="örn: Samsun şubesi kasa">
+      <button class="btn" id="dbKaydet" onclick="demirbasKaydet()">Demirbaşı kaydet</button>
+      <div class="hata-msg" id="dbMsg"></div>
+    </div>
+    <div class="kart">
+      <div class="kbaslik">Kayıtlı demirbaşlar</div>
+      <div id="dbListe">Yükleniyor…</div>
+    </div>`;
+  document.getElementById('gdListe').innerHTML = '';
+  paraBaglaHepsi(['dbTutar']);
+  demirbasListe();
+}
+async function demirbasListe(){
+  const el = document.getElementById('dbListe'); if (!el) return;
+  if (toplamKipi() || !AKTIF_SUBE){
+    el.innerHTML = '<div class="bilgi-not" style="margin:0">Demirbaş şube şube tutulur — üstten bir şube seç.</div>';
+    DB_LISTE = []; return;
+  }
+  const { data, error } = await sb.from('demirbas')
+    .select('id,sube_id,ad,alis_tarihi,tutar,foto_path,notlar,aktif')
+    .eq('is_deleted', false).order('alis_tarihi', { ascending: false }).limit(300);
+  if (!document.getElementById('dbListe')) return;
+  if (error){ el.innerHTML = `<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
+  DB_LISTE = data || [];
+  if (!DB_LISTE.length){
+    el.innerHTML = bosDurum('kutu', 'Demirbaş kaydı yok', 'POS, dolap, makine gibi uzun ömürlü alımları buraya gir.');
+    return;
+  }
+  const toplam = DB_LISTE.filter(x => x.aktif).reduce((a, x) => a + (+x.tutar || 0), 0);
+  el.innerHTML = `<div class="k" style="margin:0 0 6px">${DB_LISTE.filter(x => x.aktif).length} aktif demirbaş · toplam ${tl(toplam)}
+      <span class="k">(bu tutar kâr tablosuna girmez)</span></div>`
+    + DB_LISTE.map((x, i) => `<div class="dz-tanim">
+        <div class="b">${esc(x.ad)}${x.aktif ? '' : ' <span class="rozet rz-gri">pasif</span>'}${subeEtiketi(x.sube_id)}</div>
+        <div class="k">${x.alis_tarihi ? esc(new Date(x.alis_tarihi + 'T00:00').toLocaleDateString('tr-TR')) : 'tarih yok'}
+          · ${x.tutar != null ? tl(x.tutar) : 'tutar yok'}${x.notlar ? ' · ' + esc(x.notlar) : ''}</div>
+        <div class="dz-eylem">${belgeBtn(x.foto_path, 'Belge', x.ad)}
+          ${x.aktif ? `<button type="button" class="btn2" onclick="demirbasPasif(${i})">Pasife al</button>` : ''}</div>
+      </div>`).join('');
+}
+async function demirbasKaydet(){
+  const g = (id) => document.getElementById(id);
+  const ad = g('dbAd').value.trim();
+  const tarih = g('dbTarih').value;
+  const tutar = paraDeger('dbTutar');
+  if (!ad){ mesaj('dbMsg','hata','Ne aldığını yaz — örn: POS cihazı.'); return; }
+  if (!tarih){ mesaj('dbMsg','hata','Alış tarihi boş olamaz.'); return; }
+  if (!(tutar > 0)){ mesaj('dbMsg','hata','Tutar sıfırdan büyük olmalı.'); return; }
+  if (!AKTIF_SUBE || toplamKipi()){ mesaj('dbMsg','hata','Önce bir şube seç — demirbaş şubeye yazılır.'); return; }
+  /* mukerrer ON KONTROL: sunucuda idem yok (yukaridaki gerekce), ayni kayit iki kez
+     girilmesin diye once sorulur */
+  const { data: mv, error: me } = await sb.from('demirbas').select('id')
+    .eq('is_deleted', false).eq('ad', ad).eq('alis_tarihi', tarih).eq('tutar', tutar).limit(1);
+  if (me){ mesaj('dbMsg','hata','Kontrol yapılamadı: ' + hataTr(me.message)); return; }
+  if (mv && mv.length && !confirm('Aynı ad, tarih ve tutarla bir demirbaş zaten kayıtlı.\n\nYine de eklensin mi?')) return;
+  const btn = g('dbKaydet');
+  btn.disabled = true; btn.textContent = 'Belge yükleniyor...';
+  let foto = null;
+  try { foto = await fotoYukle('dbFoto','fatura'); }
+  catch(e){ mesaj('dbMsg','hata', hataTr(e.message)); btn.disabled = false; btn.textContent = 'Demirbaşı kaydet'; return; }
+  btn.textContent = 'Kaydediliyor...';
+  const { error } = await sb.from('demirbas').insert({
+    sube_id: AKTIF_SUBE, ad, alis_tarihi: tarih, tutar,
+    foto_path: foto, notlar: g('dbNot').value.trim() || null, aktif: true });
+  btn.disabled = false; btn.textContent = 'Demirbaşı kaydet';
+  if (error){ mesaj('dbMsg','hata', hataTr(error.message)); return; }
+  ['dbAd','dbTutar','dbNot'].forEach(i => { const e = g(i); if (e) e.value = ''; });
+  const f = g('dbFoto'); if (f) f.value = '';
+  mesaj('dbMsg','ok','Demirbaş kaydedildi ✓ — kâr tablosuna maliyet yazılmadı.');
+  demirbasListe();
+}
+async function demirbasPasif(i){
+  const x = DB_LISTE[i]; if (!x || !x.aktif) return;
+  const neden = await nedenSor(`"${x.ad}" pasife alınacak (silinmez, listede kalır)`,
+    'Neden? (örn: satıldı, bozuldu, kullanım dışı)', 1);
+  if (neden === null) return;
+  if (!neden.trim()){ bildir('Gerekçe zorunlu.', 'hata'); return; }
+  const not = [x.notlar, 'pasif: ' + neden.trim()].filter(Boolean).join(' · ').slice(0, 400);
+  const { error } = await sb.from('demirbas').update({ aktif: false, notlar: not }).eq('id', x.id);
+  if (error){ bildir('Pasife alınamadı: ' + hataTr(error.message), 'hata'); return; }
+  bildir(`"${x.ad}" pasife alındı ✓`, 'ok');
+  demirbasListe();
+}
+
 /* ---- F · FATURA → GIDER YONLENDIRMESI ----
    Secilen/okunan tedarikci aktif subenin bir duzenli tanimina bagliysa soyler.
    ⚠ ENGELLEMEZ (gdKatDegisti kalibi, uyari-orta). Mevcut faturayi duzenlerken cikmaz. */
@@ -9815,7 +9955,7 @@ async function alisDuzenle(id){
     .eq('id', id).maybeSingle();
   if (error || !data){ bildir('Fatura yüklenemedi: ' + hataTr(error?.message || 'bulunamadı'), 'hata'); return; }
   AL_DUZENLE = null;
-  gdFatura();                                        // formu temiz kur
+  gdFatura(true);                                    // formu temiz kur · DUZENLEME kipi (Y88-d)
   AL_DUZENLE = { id: data.id, foto: data.foto_path || null };
   const g = id2 => document.getElementById(id2);
   g('alTedarikci').value = data.tedarikci_id || '';  firmaBilgiGoster();
@@ -9853,11 +9993,37 @@ async function alisDuzenle(id){
   alHesapla();
   window.scrollTo(0,0);
 }
-function gdFatura(){
+/* ⚠ Y88-d · DUZENLEME BILGISI PARAMETREYLE GELIR (denetim buldu): `alisDuzenle` once
+     AL_DUZENLE'yi NULL yapip formu kuruyor, bayragi SONRA atiyor — sablon degerlendirilirken
+     bayrak hala bos oldugu icin "Ne geldi?" karti duzenleme kipinde de ciziliyordu ve
+     "Hizmet"e basilinca urun satirlari gizleniyor, geri donus yolu kalmiyordu. Cagiran artik
+     ne yaptigini SOYLUYOR; "once null, sonra ata" sirasina dokunulmadi.
+   ⚠ MOD HER CIZIMDE 'mal': secim formun basindadir, form yeniden cizildiginde varsayilana
+     doner. Duzenlemede zaten alis kaydi duzenleniyor, dal secimi anlamsiz. */
+function gdFatura(duzenlemeMi){
+  const duzenleme = !!(duzenlemeMi || AL_DUZENLE);
+  AL_MOD = 'mal';
   document.getElementById('gdIcerik').innerHTML = `
     <div id="alDuzenleBar"></div>
+    ${/* ⚠ Y88 · MAL / HIZMET · kullanici: "gelen hepsi fatura, faturalar stok demek".
+          Hizmet faturasi (tamir, nakliye, reklam, muhasebeci) bugune kadar iki arada
+          kaliyordu: Fatura'ya girilince stok ve mal maliyeti sisiyor, Gider'e girilince
+          belgesi ve firmasi kayboluyordu. Secim FORMUN BASINDA, varsayilan MAL —
+          bugunku akis (okuma, satirlar, stok, cari borc) AYNEN o dalda kalir.
+          Duzenleme kipinde secim CIKMAZ (Y88-d · olculdu): kayit zaten alis tarafinda. */''}
+    ${duzenleme ? '' : `<div class="kart" id="alModKart">
+      <div class="kbaslik">Ne geldi?</div>
+      <div class="segment">
+        <button class="sg-btn${AL_MOD==='mal'?' aktif':''}" onclick="alModSec('mal')">Mal alımı</button>
+        <button class="sg-btn${AL_MOD==='hizmet'?' aktif':''}" onclick="alModSec('hizmet')">Hizmet / masraf</button>
+      </div>
+      <div class="bilgi-not" style="margin:0">Sattığın ya da sattığının içine giren bir şeyse
+        <b>Mal alımı</b> — satırlar stoğa girer, firmaya borç yazılır. Tamir, nakliye, reklam,
+        muhasebeci gibi bir hizmetse <b>Hizmet / masraf</b>: ürün satırı sorulmaz, stok ve mal
+        maliyeti şişmez, kayıt gider tarafına yazılır.</div>
+    </div>`}
     <div class="kart">
-      <div class="kbaslik">Fatura (tedarikçiden gelen)</div>
+      <div class="kbaslik" id="alFormBaslik">Fatura (tedarikçiden gelen)</div>
       <div class="bilgi-not" style="margin:0 0 4px">Yoğunsan: şimdilik sadece belgenin FOTOĞRAFINI çek, akşam sakinken buradan gir — geçmiş tarihe kayıt serbest.</div>
       <label>Belge — e-Fatura PDF'i veya fotoğraf</label>
       <div class="bilgi-not" style="margin:0 0 6px">Luca portalından indirdiğin <b>PDF'i seçersen rakamlar birebir okunur</b>
@@ -9875,9 +10041,23 @@ function gdFatura(){
       <div id="firmaBilgi"></div>
       ${/* Y72 · firma duzenli gider tanimina bagliysa Gider'e yonlendirme (engellemez) */''}<div id="alDuzenliNot"></div>
       ${tarihSecici('alTarih')}
-      <label>Belge Türü</label>
-      <select id="alTur" onchange="alTurNot()"><option value="fatura">Fatura</option><option value="irsaliye">İrsaliye (mal geldi, faturası sonra)</option><option value="bilgi_fisi">Bilgi Fişi</option></select>
-      <div id="alTurNot"></div>
+      <div id="alTurBlok">
+        <label>Belge Türü</label>
+        <select id="alTur" onchange="alTurNot()"><option value="fatura">Fatura</option><option value="irsaliye">İrsaliye (mal geldi, faturası sonra)</option><option value="bilgi_fisi">Bilgi Fişi</option></select>
+        <div id="alTurNot"></div>
+      </div>
+      ${/* Y88 · HIZMET dali: "ne icin" gider kategorisidir. Fiş/Gündelik HARIC — o yol
+            fis formunun kendi kategorisi (gdTemel ile ayni suzgec). */''}
+      <div id="alHizmetBlok" hidden>
+        <label>Ne için? (gider kategorisi)</label>
+        ${/* ⚠ Y88-d · BOS SECENEK BASTA: kategori secilmeden kaydet basilirsa "Ne icin
+              oldugunu sec" uyarisi cikar. Bos secenek olmadan listenin ILK kategorisi
+              secili geliyordu; kullanici dokunmasa da fatura o kategoriye yazilirdi. */''}
+        <select id="alGiderKat" onchange="alHizmetKatDegisti()"><option value="">— seç —</option>${
+          (KATALOG.kategoriler || []).filter(k => k.ad !== 'Fiş/Gündelik')
+            .map(k => `<option value="${k.id}">${esc(k.ad)}</option>`).join('')}</select>
+        <div id="alHizmetNot"></div>
+      </div>
       <div class="satir">
         <div><label>Belge No</label><input type="text" id="alBelgeNo"></div>
         <div><label>Fiş No</label><input type="text" id="alFisNo"></div>
@@ -9892,19 +10072,22 @@ function gdFatura(){
       <button type="button" class="btn2" onclick="alKdvSatirEkle()">+ oran ekle</button>
       <div class="kp-ara"><span>İndirilecek KDV toplamı</span><b id="alKdvToplam">0,00 ₺</b></div>
       <div id="alTutarlilik"></div>
-      <label>Faturadaki Ürünler</label>
-      <div class="bilgi-not" style="margin:0 0 6px">Fotoğrafı okuttuysan satırlar aşağıda çıkar.
-        <b>İlk kez görülen ürünü bir kez tanımlarsın, sonraki faturalarda kendiliğinden eşleşir.</b>
-        Satır toplamı faturayla tutmuyorsa ürün kaydı yapılmaz — önce düzeltilir.</div>
-      <div id="alSatirlar"></div>
-      <div id="kalemSatirlari"></div>
-      <button class="btn2" onclick="kalemEkle()">+ Elle ürün ekle</button>
+      <div id="alMalBlok">
+        <label>Faturadaki Ürünler</label>
+        <div class="bilgi-not" style="margin:0 0 6px">Fotoğrafı okuttuysan satırlar aşağıda çıkar.
+          <b>İlk kez görülen ürünü bir kez tanımlarsın, sonraki faturalarda kendiliğinden eşleşir.</b>
+          Satır toplamı faturayla tutmuyorsa ürün kaydı yapılmaz — önce düzeltilir.</div>
+        <div id="alSatirlar"></div>
+        <div id="kalemSatirlari"></div>
+        <button class="btn2" onclick="kalemEkle()">+ Elle ürün ekle</button>
+      </div>
       <label>Not</label><input type="text" id="alNot">
       <label>Ödeme Durumu</label>
       <select id="alOdendi" onchange="alOdemeDurum()">
         <option value="0">ÖDENMEDİ — firmaya borç yazılsın</option>
         <option value="1">ÖDENDİ</option>
       </select>
+      <div id="alOdemeNot"></div>
       <div id="alVadeSatir">
         <label>Ödeme Vadesi (ne zaman ödenecek?)</label>
         <input type="date" id="alVade">
@@ -9919,6 +10102,18 @@ function gdFatura(){
           </div>
         </div>
       </div>
+      ${/* ⚠ Y88-d · HIZMET DALINDA YONTEM VE CEK ALANLARI CIKMAZ (denetim buldu): gider
+            tablosunda odeme yontemi ve cek kolonu YOK, o yuzden hizmet dalinda kart/havale/cek
+            HICBIR YERE yazilmiyordu — ekran soruyor, kayit atiyordu; kullanici cek yazsa cek
+            takibi ACILMAZDI. Yerine gider formunun kendi sorusu: tek kutu. Mal dalinda blok
+            AYNEN kalir, orada yontem ve cek GERCEKTEN kaydediliyor. */''}
+      <div id="alKasadanSatir" hidden>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;color:var(--metin);font-weight:700">
+          <input type="checkbox" id="alKasadan" style="width:20px;height:20px;flex:none"> Kasadan nakit ödendi
+        </label>
+        <div class="bilgi-not" style="margin:6px 0 0">Hizmet faturası gider olarak yazılır; gider kaydında
+          <b>ödeme yöntemi ve çek alanı yok</b>. Kasadan nakit çıktıysa işaretle — gün sonu sayımında eksik çıkar.</div>
+      </div>
       <button class="btn" id="alKaydet" onclick="alisKaydet()">Faturayı Kaydet</button>
       <div class="hata-msg" id="alMsg"></div>
     </div>`;
@@ -9926,8 +10121,71 @@ function gdFatura(){
   alKdvSatirEkle();
   firmaBilgiGoster(); alTurNot(); alOdemeDurum();
   if (KATALOG.urunler.length>0) kalemEkle();
+  alModCiz();                                  // Y88 · secili dala gore blok ve dugme yazisi
   alisListe();
   duzenliYukle(true).then(alDuzenliKontrol);   // Y72
+}
+/* ---- Y88 · MAL / HIZMET DALI ----
+   ⚠ FORM YENIDEN CIZILMEZ, bloklar gizlenir: kullanici tutari ve belgeyi girdikten
+     sonra dal degistirirse yazdigi kaybolmasin (gdFisModSec formu yeniden ciziyor,
+     orada henuz alan yok — burada var). */
+let AL_MOD = 'mal';                            // 'mal' | 'hizmet'
+function alModSec(m){
+  AL_MOD = m === 'hizmet' ? 'hizmet' : 'mal';
+  document.querySelectorAll('#gdIcerik .segment .sg-btn').forEach(b =>
+    b.classList.toggle('aktif', /Hizmet/.test(b.textContent) === (AL_MOD === 'hizmet')));
+  alModCiz();
+}
+function alModCiz(){
+  const hizmet = AL_MOD === 'hizmet';
+  const g = (id) => document.getElementById(id);
+  [['alMalBlok', hizmet], ['alTurBlok', hizmet], ['alHizmetBlok', !hizmet]].forEach(([id, gizle]) => {
+    const e = g(id); if (e) e.hidden = gizle;
+  });
+  const b = g('alFormBaslik'); if (b) b.textContent = hizmet ? 'Hizmet / masraf faturası' : 'Fatura (tedarikçiden gelen)';
+  const k = g('alKaydet'); if (k && !AL_DUZENLE) k.textContent = hizmet ? 'Hizmet faturasını kaydet' : 'Faturayı Kaydet';
+  if (hizmet) alHizmetKatDegisti();
+  const n = g('alHizmetNot'); if (n && !hizmet) n.innerHTML = '';
+  /* ⚠ Y88-d · ODEME SATIRLARI DALA GORE (denetim buldu): hizmet dalinda odeme yontemi ve
+       cek alanlari EKRANDA duruyor ama gider kaydinda boyle bir sutun yok — ekran soruyor,
+       kayit atiyordu. alOdemeDurum tek karar yeri: yontem/cek yalniz MAL'da, hizmette
+       yerine "Kasadan nakit odendi" kutusu. (alOdemeNotYaz'i o cagiriyor.) */
+  alOdemeDurum();
+}
+/* Secilen kategori indirilecek KDV'ye giriyor mu · mal alimi olarak isaretli mi.
+   ⚠ BAYRAGA DOKUNULMAZ, yalniz YAZILIR (kategori ayari Yonetim'in isi). */
+function alHizmetKatDegisti(){
+  const el = document.getElementById('alHizmetNot'); if (!el) return;
+  const s = document.getElementById('alGiderKat');
+  const k = (KATALOG.kategoriler || []).find(x => x.id === (s ? s.value : null));
+  if (!k){ el.innerHTML = ''; return; }
+  let h = '';
+  if (k.kdv_indirilebilir === false)
+    h += `<div class="uyari-orta" style="margin:8px 0 0"><b>${esc(k.ad)}</b> indirilecek KDV'ye
+      <b>girmiyor</b> — faturanın KDV'si beyanda indirim olarak sayılmaz. Tutarın tamamı gider yazılır.</div>`;
+  if (k.mal_alimi)
+    h += `<div class="uyari-orta" style="margin:8px 0 0"><b>${esc(k.ad)}</b> mal alımı olarak işaretli.
+      Bu belgede ürün satırı ve stok istiyorsan yukarıdan <b>Mal alımı</b>'na dön.</div>`;
+  /* ⚠ Y88-d · DEMIRBAS KATEGORISINDE YONLENDIRME (engellemez, yazar): bir kerelik alim
+       gider yazilirsa o ayin isletme sonucu bozulur — ayni desen sahibin sonuc tablosunda
+       bu kalemi zaten ayirmak icin duruyor. Artik ayri bir Demirbaş bolumu var, listeye
+       oradan girilir. Ad normallestirilir: /demirba/i "Demirbaş"i TUTMAZ (Turkce 'ş' degil,
+       'ı' sorunu — desenAd once ı/İ -> i cevirir). */
+  if (/demirba|ekipman/.test(desenAd(k.ad)))
+    h += `<div class="uyari-orta" style="margin:8px 0 0">Bu bir <b>demirbaş alımı</b>ysa faturayı buradan
+      gider yazmak o ayın kârını olduğundan düşük gösterir. <b>Demirbaş</b> bölümünden listeye ekle;
+      belgeyi yine de gider yazacaksan devam et.</div>`;
+  el.innerHTML = h;
+}
+/* Hizmet dalinda "odenmedi" FIRMAYA BORC ACMAZ: gider satirinin tedarikcisi cari
+   bakiyeye girmiyor (olculdu, Y87). Sessiz kalmak yerine YAZILIR. */
+function alOdemeNotYaz(){
+  const el = document.getElementById('alOdemeNot'); if (!el) return;
+  const odendi = (document.getElementById('alOdendi') || {}).value === '1';
+  el.innerHTML = (AL_MOD === 'hizmet' && !odendi)
+    ? `<div class="bilgi-not" style="color:var(--uyari);margin:6px 0 0">Hizmet faturası gider olarak yazılır;
+        <b>firmaya borç açılmaz</b>. Yazdığın ödeme tarihi açıklamaya not düşülür, takibini Ödemeler bölümünden yaparsın.</div>`
+    : '';
 }
 /* ===== FATURA KDV DÖKÜMÜ — bir belgede birden çok oran olabilir ===== */
 let AL_KDV_SAYAC = 0;
@@ -11854,15 +12112,92 @@ function alTurNot(){
 }
 function alOdemeDurum(){
   const odendi = document.getElementById('alOdendi').value==='1';
-  document.getElementById('alYontemSatir').style.display = odendi ? 'block' : 'none';
+  const hizmet = AL_MOD === 'hizmet';           // Y88-d · yontem/cek yalniz MAL dalinda
+  document.getElementById('alYontemSatir').style.display = (odendi && !hizmet) ? 'block' : 'none';
   document.getElementById('alVadeSatir').style.display = odendi ? 'none' : 'block';
-  if (odendi) alCekAlan();
+  const kk = document.getElementById('alKasadanSatir'); if (kk) kk.hidden = !(odendi && hizmet);
+  if (odendi && !hizmet) alCekAlan();
+  alOdemeNotYaz();                              // Y88 · hizmet dalinda borc acilmadigi yazar
 }
 function alCekAlan(){
   const cek = document.getElementById('alYontem').value==='cek';
   document.getElementById('alCekSatir').style.display = cek ? 'block' : 'none';
 }
+/* ---- Y88 · HIZMET FATURASI · kayit GIDER tarafina ----
+   NEDEN: hizmet faturasi Fatura'ya girilince stok ve mal maliyeti sisiyor, Gider'e
+   girilince belge, firma ve belge no kayboluyordu. Burada ikisi birlikte: gider satiri
+   firma (`p_tedarikci`), belge (`p_foto`) ve ACIKLAMADA BELGE NO ile yazilir.
+   ⚠ BELGE NO ACIKLAMAYA YAZILIR (zorunlu): ay sonu mutabakati gideri belge noyla esliyor
+     (`tpSiniflandir` aciklamanin icinde ariyor). Yazilmazsa fatura her ay "girilmemis"
+     gorunurdu. Bicim toplu girisin yazdigiyla AYNI: "<firma> · <belge no>".
+   ⚠ MUKERRER: alis tarafindaki `ux_alis_belge` kisiti gider tarafinda YOK. Ayni belge no
+     ile daha once gider girilmisse SORULUR, engellenmez (kullanicinin karari).
+   ⚠ BORC ACMAZ: gider satirinin tedarikcisi cari bakiyeye girmiyor (Y87'de olculdu).
+     "Odenmedi" secildiyse ekran bunu soyler ve planlanan tarih aciklamaya not dusulur —
+     `p_vade` UUID bekler (bir vadeyi KAPATIR), tarih oraya yazilamaz. */
+async function hizmetKaydet(){
+  const g = (id) => document.getElementById(id);
+  const pT = paraOku(g('alToplam'));
+  if (!pT.ok || pT.deger === 0){ mesaj('alMsg','hata','Ödenecek tutar geçersiz — örnek: 3750 veya 3750,00'); return; }
+  const toplam = pT.deger;
+  let kdvKirilim;
+  try { kdvKirilim = alKdvOku(); }
+  catch(e){ mesaj('alMsg','hata', hataTr(e.message)); return; }
+  const kdvT = +kdvKirilim.reduce((a,x)=>a+x.kdv_tutar,0).toFixed(2);
+  const ted = g('alTedarikci').value;
+  const kategori = (g('alGiderKat') || {}).value;
+  if (!ted){ mesaj('alMsg','hata','Firma seçilmedi.'); return; }
+  if (!kategori){ mesaj('alMsg','hata','Ne için olduğunu seç (gider kategorisi).'); return; }
+  if (kdvT > toplam){ mesaj('alMsg','hata',`KDV (${tl(kdvT)}) toplam tutardan (${tl(toplam)}) büyük olamaz.`); return; }
+  const belgeNo = g('alBelgeNo').value.trim();
+  const tedAd = ((KATALOG.tedarikciler || []).find(t => t.id === ted) || {}).ad || '';
+  if (belgeNo){
+    const { data: mv, error: me } = await sb.from('gider').select('id,tarih,tutar')
+      .eq('is_deleted', false).ilike('aciklama', '%' + belgeNo + '%').limit(1);
+    if (me){ mesaj('alMsg','hata','Mükerrer kontrolü yapılamadı: ' + hataTr(me.message)); return; }
+    if (mv && mv.length && !confirm('Bu belge no ile daha önce bir gider girilmiş görünüyor ('
+        + BB_GG(String(mv[0].tarih)) + ' · ' + tl(mv[0].tutar) + ').\n\nYine de kaydedilsin mi?')) return;
+  }
+  if (kdvT === 0 && !confirm('KDV dökümü BOŞ — bu fatura indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
+  const fotoVar = !!(g('alFoto') && g('alFoto').files && g('alFoto').files[0]);
+  if (!fotoVar && !confirm('Belge fotoğrafı yok. Ay sonunda muhasebeye giden arşivde bu belge eksik kalır.\n\nYine de kaydedilsin mi?')) return;
+  const btn = g('alKaydet');
+  btn.disabled = true; btn.textContent = 'Fotoğraf yükleniyor...';
+  let foto = null;
+  try { foto = await fotoYukle('alFoto','fatura'); }
+  catch(e){ mesaj('alMsg','hata',hataTr(e.message)); btn.disabled=false; btn.textContent='Hizmet faturasını kaydet'; return; }
+  const odendi = g('alOdendi').value === '1';
+  /* ⚠ Y88-d · KASA KUTUSUNDAN OKUNUR, alYontem'den DEGIL: gider tablosunda odeme yontemi
+       sutunu yok; eski kod ekrandaki yontemi okuyup "nakit mi" diye bakiyordu, kullanici
+       Kart secse de kayda girmiyordu. Simdi ekranda tek soru var, kayda giren de o.
+     ⚠ Deger BOOLEAN kalir (idem anahtarinin 5. elemani): gider formuyla ayni gun ayni
+       tutar girildiginde sunucunun mukerrer davranisi kaymasin. */
+  const kasadan = odendi && !!(g('alKasadan') && g('alKasadan').checked);
+  const plan = !odendi ? (g('alVade').value || '') : '';
+  const aciklama = [tedAd, belgeNo, g('alNot').value.trim(),
+    plan ? 'ödeme planı ' + new Date(plan + 'T00:00').toLocaleDateString('tr-TR') : '']
+    .filter(Boolean).join(' · ') || 'Hizmet faturası';
+  const tarih = g('alTarih').value;
+  const data = await rpcCagir('rpc_gider_kaydet', {
+    /* anahtar GIDER FORMUYLA AYNI bicimde: ayni gun, ayni kategori, ayni tutar ve ayni
+       odeme bicimi ikinci kez gonderilirse sunucu ayni kaydi oynatir */
+    p_idem: await idemKararli('gider', [AKTIF_SUBE, tarih, kategori, toplam, kasadan]),
+    p_sube: AKTIF_SUBE, p_tarih: tarih, p_kategori: kategori, p_aciklama: aciklama,
+    p_tutar: toplam, p_kdv_orani: kdvKirilim.length === 1 ? kdvKirilim[0].oran : null,
+    p_kdv_tutar: kdvT, p_foto: foto,
+    p_kasadan: kasadan,                          // kasadan nakit cikti (gider formuyla ayni soru)
+    p_tedarikci: ted, p_vade: null, p_kdv_bilinmiyor: false
+  }, 'alKaydet','alMsg','Hizmet faturası gider olarak kaydedildi ✓');
+  if (data && data.ok){
+    ekranTaslakSil();
+    const kap = data.kapanan_duzenli ? ' · ' + duzenliKapanisMetni(data.kapanan_duzenli) : '';
+    vGider();
+    mesaj('alMsg','ok','Hizmet faturası gider olarak kaydedildi ✓' + kap
+      + (belgeNo ? ' · belge no açıklamaya yazıldı (ay sonu eşleşmesi için)' : ''));
+  } else btn.textContent = 'Hizmet faturasını kaydet';
+}
 async function alisKaydet(){
+  if (!AL_DUZENLE && AL_MOD === 'hizmet') return hizmetKaydet();     // Y88
   const pT = paraOku(document.getElementById('alToplam'));
   if (!pT.ok){ mesaj('alMsg','hata','Ödenecek tutar geçersiz — örnek: 3750 veya 3750,00'); return; }
   const toplam = pT.deger;
