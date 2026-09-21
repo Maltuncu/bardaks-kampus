@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-89">
+<meta name="surum" content="2026-08-27-91">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -263,6 +263,23 @@ button.dz-ana:active{background:var(--acik)}
 .ud-graf{border:1px solid var(--cizgi);border-radius:12px;padding:14px 10px 8px;margin:0 0 18px}
 .ud-graf svg{display:block;width:100%;height:auto}
 .ud-bos{font-size:12.5px;color:var(--soluk);line-height:1.6;padding:6px 2px}
+/* ===== Y80 · STOK LISTESI KUTUCUK IZGARASI =====
+   KULLANICI: "kart kart olsun, kartlar kutu kutu gozuksun, urun adi sadece, karisikliga
+   gerek yok; icine girilince detaylari icinde olsun."
+   ⚠ `.sr` SATIR KALIBINA DOKUNULMADI: onu dosyada bircok ekran kullaniyor; bu izgara
+     YENI ve yalniz stok listesinde. Onek `ur-` dosyada baska hicbir yerde yok (tarandi).
+   ⚠ ON YUZDE YALNIZ AD: rakam, rozet, fiyat yok — onlar ustteki ozet kutularinda ve
+     urun kartinin icinde duruyor.
+   ⚠ <button>: dokunma alani ve klavye (Enter/Space) tarayicinin kendi isi olsun diye
+     div degil buton — kendi tus isleyicimizi yazmiyoruz.
+   ⚠ minmax(136px) OLCULEREK secildi: 375 piksel ekranda kartin ic genisligi 298 piksel,
+     iki kutu + 8 piksel bosluk 280 piksel tutuyor — 150 pikselle tek sutuna dusuyordu. */
+.ur-izgara{display:grid;grid-template-columns:repeat(auto-fill,minmax(136px,1fr));gap:8px;margin:4px 0 0}
+.ur-kt{display:flex;align-items:center;justify-content:center;text-align:center;min-height:74px;
+  padding:12px 10px;border:1.5px solid var(--cizgi);border-radius:14px;background:var(--kart);
+  font:inherit;font-size:13.5px;font-weight:800;line-height:1.3;color:var(--metin);
+  cursor:pointer;overflow-wrap:anywhere}
+.ur-kt:active{background:var(--acik)}
 .ud-satir{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:baseline;
   padding:11px 2px;border-bottom:1px solid var(--cizgi)}
 .ud-satir:last-child{border-bottom:none}
@@ -1576,7 +1593,11 @@ function subeAltToplamBlogu(satirlar, tutarAl, subeAl){
 function stokFiltre(q){
   const t = (q||'').toLocaleLowerCase('tr').trim();
   let gorunen = 0, toplam = 0;
-  document.querySelectorAll('#icerik .sr[data-ara]').forEach(el => {
+  /* ⚠ Y80 · IKI SECICI: stok listesi artik `.ur-kt` kutucuklari, ama secici SATIR
+     kalibini da tutmaya devam ediyor — `.sr[data-ara]` baska ekranlarda kullaniliyor ve
+     bu fonksiyon gunun birinde oralardan da cagrilabilir. Genel `[data-ara]` YAZILMADI:
+     o, ekranda bulunan baska her seyi de suzerdi. */
+  document.querySelectorAll('#icerik .sr[data-ara], #icerik .ur-kt[data-ara]').forEach(el => {
     toplam++;
     const uy = !t || el.dataset.ara.includes(t);
     el.style.display = uy ? '' : 'none';
@@ -2375,11 +2396,29 @@ let OZ_SCROLL = 0;   // BF · Ozet'e donunce ayni yerde kal, basa sarma
      pasifeAlAc'in "islem surerken kapanmaz" korumasini ATLARDI. */
 function acikModalKapat(){
   const d = document.querySelector('dialog[open]');
-  if (!d) return false;
-  /* Kendi 'cancel' handler'i calissin: odak iadesi ve isleniyor
-     korumasi orada. Handler yoksa duz close(). */
-  const engellendi = !d.dispatchEvent(new Event('cancel', { cancelable:true }));
-  if (!engellendi && d.open) d.close();
+  if (d){
+    /* Kendi 'cancel' handler'i calissin: odak iadesi ve isleniyor
+       korumasi orada. Handler yoksa duz close(). */
+    const engellendi = !d.dispatchEvent(new Event('cancel', { cancelable:true }));
+    if (!engellendi && d.open) d.close();
+    return true;
+  }
+  /* ⚠ Y80 · `.ud-ov` PENCERELERI DE KAPSANIR (olculdu: geri tusu bunlari kapatmiyor,
+       ALTTAKI SEKMEYI degistiriyor ya da uygulamadan cikiyordu). Bunlar <dialog> DEGIL,
+       duz div: urun karti / fatura detayi / firma karti ayni kabi kullaniyor (udOverlay)
+       ve "Urunleri oku" penceresi (uoOverlay).
+     ⚠ KAPATMA PENCERENIN KENDI YOLUNDAN GECER, sinif elle silinmez: `uoKapat` kayit
+       surerken kapanmiyor ve okunmus satirlar kaydedilmemisse ONCE SORUYOR. Sinifi
+       burada kaldirsaydik o koruma ATLANIRDI — <dialog> tarafinda ayni sebeple 'cancel'
+       olayi kullaniliyor. `uoKapat` async: soru acilirsa cevap sonra gelir, pencere
+       acik kalir; geri tusu yine sekmeyi DEGISTIRMEMIS olur (asagida konum geri konuyor).
+     ⚠ SIRA: en usttekinden basla — ikisi ayni anda acik olabiliyor (urun kartindan
+       fatura detayi acilabiliyor, "Urunleri oku" da stok ekranindan aciliyor). */
+  const ov = [...document.querySelectorAll('.ud-ov.acik')].pop();
+  if (!ov) return false;
+  if (ov.id === 'uoOverlay'){ uoKapat(); return true; }
+  if (ov.id === 'udOverlay'){ udKapat(); return true; }
+  ov.classList.remove('acik');                 // baska bir .ud-ov turerse: en azindan kapanir
   return true;
 }
 function sekmeGecmisineYaz(id, ilk){
@@ -12748,117 +12787,25 @@ async function vStok(){
         : '<div class="ipucu" id="stokIpucu">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>'}
       ${liste.length===0
         ? bosDurum('kutu','Ürün tanımlı değil','Fatura girdikçe ürünler kendiliğinden açılır. Elle eklemek için Yönetim sekmesini kullan.')
-        : liste.map(s=>{
+        : '<div class="ur-izgara">' + liste.map(s=>{
+            /* ⚠ Y80 · KUTUCUGUN ON YUZUNDE YALNIZ AD (kullanici: "urun adi sadece,
+               karisikliga gerek yok"). Buradan KALKAN uc sey ve NEREYE gittigi:
+                 · KRITIK / Yeterli rozeti  -> ustteki KRITIK URUN kutusu ve kirmizi
+                   uyari satiri (adlariyla birlikte) — tek kaynak artik orasi.
+                 · stok degeri              -> ustteki TOPLAM STOK DEGERI kutusu.
+                 · "Son alis X/birim · tarih · firma ▲%Z" -> urun kartinin icinde ayni
+                   sorunun MALIYET zeminli cevabi var (grafik + alim dokumu). ⚠ AMA AYNI
+                   RAKAM DEGIL: Y40/Y41 bu satiri v_urun_son_fiyat'in NET kolonlarina
+                   oturtmustu; o LISTE/NET karsilastirmasi su an baska hicbir ekranda
+                   basilmiyor. Bilgi kaybi KABUL EDILDI (kullanicinin acik istegi),
+                   SESSIZCE degil — kartin icine geri konmasi ayri bir karar.
+               ⚠ SORGU DURUYOR: v_urun_son_fiyat artik yalniz ARAMAYI besliyor —
+                 kullanici firma adiyla da ariyor, data-ara onu tasimaya devam ediyor. */
             const f = fiyatMap[s.urun_id];
-            const sev = +s.kritik_seviye > 0;
-            /* ⚠ SADELESTIRME · "seviye yok" ROZETI KALKTI (30 satirda 30 kez).
-               Rozet bir BEYANDIR; "seviye yok" bir beyan degil, bir EKSIK —
-               ve o eksik ustteki turuncu kutuda BIR KEZ, ne yapilacagiyla
-               birlikte yaziyor. Seviye TANIMLI olanlarda rozet DURUYOR
-               (KRITIK / Yeterli): orada gercek bilgi var. */
-            const rozet = s.kritik ? '<span class="rozet rz-hata">KRİTİK</span>'
-                        : sev ? '<span class="rozet rz-ok">Yeterli</span>' : '';
-            // SON ALIŞ — tedarikçi karşındayken karşılaştıracağın rakam.
-            // Ortalama maliyet geçmişin karışımı; adam sana bugünkü fiyatı söylüyor.
-            const zam = f && f.degisim_yuzde != null && Math.abs(+f.degisim_yuzde) >= 0.05;
-            /* ⚠ Bastaki <br> KALKTI: ustteki parca artik BOS olabiliyor
-               (seviye tanimsizsa) ve satir bos bir satirla basliyordu.
-               Birlestirme asagida, filter(Boolean).join('<br>') ile. */
-            /* ===== Y40 · "SON ALIS" ODENENI GOSTERIR =====
-               OLCULDU: burada `son_fiyat` basiliyordu — yani `birim_fiyat`,
-               LISTE fiyati, iskontodan ONCE. Y13 (grafik) ve Y37 (alim
-               dokumu) ayni hastaligi zaten kapatmisti; ucuncu yer burasi.
-               `son_net_fiyat` gercekten odeneni tasiyor (satir_tutar /
-               miktar) — v131'e kadar iskontoyu IKI KEZ dusuyordu, o
-               yuzden bu tur v131 UYGULANDIKTAN SONRA yayinlanir.
-             ⚠ BIRIM DEGISMIYOR: gorunumun `birim` kolonu da `birim_ad`,
-               yani ALIM birimi (koli/paket). Etiket "/koli" yazmaya
-               devam eder. Urun detayindaki grafik STOK birimi basina
-               calisiyor (Y39) — ikisi ayni sayi DEGIL, orani koli ici
-               adet kadar. Bu bilerek boyle: burasi "tedarikci karsinda
-               konusulan" rakam.
-             ⚠ GERI CEKILME: `son_net_fiyat` yoksa ya da 0 ise BUGUNKU
-               davranisa (liste fiyati) dusulur. Uydurma rakam basilmaz,
-               satir da sessizce bosaltilmaz. Gorunum zaten
-               `birim_fiyat > 0` suzuyor, yani geri cekilme her zaman
-               dolu bir sayi bulur. */
-            const sonOdenen = (f && +f.son_net_fiyat > 0)
-              ? +f.son_net_fiyat : (f ? f.son_fiyat : null);
-            /* ⚠ Y41 · ROZET ARTIK BASILAN RAKAMLA AYNI ZEMINDE.
-                 Y40 turunda su celiski OLCULMUSTU: `degisim_yuzde` ile
-                 `onceki_fiyat` gorunumde LISTE fiyatindan hesaplaniyordu,
-                 satirda basilan rakam ise ODENEN idi. Liste yukselmis ama
-                 iskonto sayesinde odenen dusmusken satir
-                 "Son alış <dusuk> ... ▲ %<artis> (önce <yuksek>)" diyordu —
-                 okuyan haklı olarak "basilan sayi kuculmus, ok neden
-                 yukari" diye sorar.
-                 O tur bilgi SAKLANMAMIS, ETIKETLENMISTI (yuzdenin basina
-                 "liste", yaniltici parantez duser). Bu bir DURDURUCUYDU.
-               ⚠ GERCEK COZUM v133'TE: gorunum `onceki_net_fiyat` kolonunu
-                 kazandi ve `degisim_yuzde` NET/NET hesaplaniyor. Iki zemin
-                 artik AYNI oldugu icin etiket de istisna da GEREKSIZ —
-                 satir tekrar sade: "▲ %X (önce Y)".
-               ⚠ SIRA: v133 UYGULANMADAN bu surum yayinlanirsa
-                 `onceki_net_fiyat` HIC GELMEZ; migration ONCE gider.
-               ⚠ O HALDE NE OLUR — OLCULDU, VARSAYILMADI: korumasiz
-                 hal parantezi bos BIRAKMIYOR, `tl(undefined)` ile
-                 "(önce 0,00 TL)" BASIYOR. Uydurma rakam, bu dosyanin
-                 acikca yasakladigi sey.
-               ⚠ ILK DENENEN GERI CEKILME YANLISTI, OLCUM GOSTERDI:
-                 `onceki_fiyat`a (liste) dusmek denendi; yuzde ile
-                 parantez birbiriyle uyuyor ama BASILAN "Son alış"
-                 rakami Y40'tan beri NET oldugu icin satir yine
-                 "Son alış <dusuk> ▲ %<artis> (önce <yuksek>)" oluyor
-                 — yani Y40 celiskisi, bu kez ETIKETSIZ. Daha kotu.
-               ⚠ SECILEN: kolon yoksa ROZET HIC CIKMAZ. Uydurma rakam
-                 da yok, celiski de yok; satir "Son alış X/birim ·
-                 tarih · firma"ya duser — degisim olmayan urunlerde
-                 zaten gorunen sekil. BILGI GECICI OLARAK EKSILIR,
-                 ama YANLIS BILGI VERILMEZ. Bu pencere yalnizca v133
-                 uygulanmadan yayin yapilirsa acilir; dogru sira
-                 migration ONCE.
-               ⚠ AYNI KAPI IKINCI UCU DA TUTUYOR: rozet ancak
-                 `son_net_fiyat` DOLU iken cikar. Cunku o bossa
-                 basilan rakam yukarida LISTEYE dusuyor (Y38 geri
-                 cekilmesi) ve rozet yine baska zemine bakmis olurdu —
-                 fiksturle uretildi: "Son alış 100,00 ... ▼ %20
-                 (önce 100,00)". Gorunumun WHERE'i `birim_fiyat > 0`
-                 suzdugu icin bu hal PRATIKTE OLUSMUYOR (provada her
-                 satirda dolu olculdu), ama kural baska dosyada duran
-                 bir WHERE'e degil, BURAYA yazili olsun. */
-            const sonSatir = !(owner && f) ? '' :
-              `<b>Son alış ${tl(sonOdenen)}</b>/${esc(f.birim||'')}`
-              + ` · ${new Date(f.son_tarih+'T00:00').toLocaleDateString('tr-TR')}`
-              + ` · ${esc(f.son_firma||'')}`
-              + (zam && f.onceki_net_fiyat != null && +f.son_net_fiyat > 0
-                     ? ` <span style="color:${+f.degisim_yuzde>0?'var(--hata)':'var(--ok)'};font-weight:800">`
-                       + `${+f.degisim_yuzde>0?'▲':'▼'} %${Math.abs(+f.degisim_yuzde)}</span>`
-                       + ` <span style="color:var(--soluk)">(önce ${tl(f.onceki_net_fiyat)})</span>` : '');
-            /* ==========================================================
-               ⚠ SADELESTIRME · URUN SATIRI DORT SATIRDAN IKIYE
-               ==========================================================
-               ONCE (olculdu, 375px): 129px yukseklik, dort satir —
-                 ad · "Kritik seviye girilmemiş · ort. maliyet X" ·
-                 "Son alış Y/birim · tarih · firma ▲%Z" · rozet+deger.
-               ⚠ NE CIKTI VE NEREDE DURUYOR:
-                 · "Kritik seviye girilmemiş" -> ustteki turuncu kutu
-                   (bir kez, ne yapilacagiyla). Seviye TANIMLIYSA
-                   satirda KALIYOR — orada bilgi var.
-                 · "ort. maliyet" -> urun detay penceresi; orada
-                   ELDEKI · BIRIM MALIYET · STOK DEGERI zaten duruyor.
-                   Satira dokunmak tek hareket.
-               ⚠ HICBIR RAKAM SILINMEDI, YER DEGISTIRMEDI: ikisi de
-                 zaten baska yerde vardi; buradan TEKRARI kalkti. */
-            return srSatir({
-              ad: (s.kod?esc(s.kod)+' · ':'') + esc(s.ad),
-              alt: [sev ? 'Kritik seviye '+s.kritik_seviye+' '+esc(s.birim) : '',
-                    sonSatir].filter(Boolean).join('<br>'),
-              tutar: `${s.mevcut} ${esc(s.birim)}`,
-              tutarAlt: rozet + (owner && +s.stok_degeri>0 ? ' ' + tl(s.stok_degeri) : ''),
-              tikla: `urunDetay('${s.urun_id}')`,
-              ara: (s.kod||'') + ' ' + (s.ad||'') + ' ' + (f?.son_firma||'')
-            });
-          }).join('')}
+            const ara = ((s.kod||'') + ' ' + (s.ad||'') + ' ' + (f?.son_firma||'')).toLocaleLowerCase('tr');
+            return `<button type="button" class="ur-kt" data-ara="${esc(ara)}"
+              onclick="urunDetay('${s.urun_id}')">${esc(s.ad)}</button>`;
+          }).join('') + '</div>'}
     </div>
 
     ${/* ==========================================================
@@ -13191,6 +13138,20 @@ async function faturaDetay(id){
       <button class="btn" onclick="udKapat();alisDuzenle('${a.id}')">Faturayı Düzenle</button>
     </div>`;
 }
+/* ⚠ Y80 · ODEME FATURA BASINADIR, URUN BASINA DEGIL: bir odeme BUTUN faturayi kapatir.
+   Kalem basina paylastirmak uydurma rakam uretirdi (fatura toplami ile urunun payi
+   arasinda sistemde bir bag YOK). Bu yuzden satir "bu urunun borcu" DEMEZ, "bu
+   faturanin durumu" der — cumle de oyle kurulur.
+   Vade gecti mi karari istemcide, `bugun()` ile: `alis` gorunumunde hazir bir bayrak
+   yok (vade gorunumundeki `gecti` VADE tablosuna ait, alis faturasina degil). */
+function alimOdemeEt(a){
+  if (a.odendi) return '<span style="color:var(--ok);font-weight:800">faturası ödendi</span>';
+  const v = a.vade ? String(a.vade).slice(0, 10) : null;
+  if (v && v < bugun())
+    return `<span style="color:var(--hata);font-weight:800">faturanın vadesi geçti · ${sbTamTarih(v)}</span>`;
+  return `<span style="color:var(--uyari);font-weight:800">faturası ödenmedi${
+    v ? ' · vade ' + sbTamTarih(v) : ''}</span>`;
+}
 async function urunDetay(urunId){
   /* Ipucu ogrenildi: bir daha gosterme (SADELESTIRME). */
   yerelYaz(STOK_IPUCU_ANAHTAR, '1');
@@ -13199,17 +13160,35 @@ async function urunDetay(urunId){
   ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Yükleniyor...</div></div>
     <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
   ov.classList.add('acik');
-  const [ur, kl, st] = await Promise.all([
+  const [ur, al, st] = await Promise.all([
     sb.from('urun').select('kod,ad,birim,paket_ici_adet,kategori,kritik_seviye').eq('id',urunId).maybeSingle(),
     /* ⚠ Y13 · EKLENEN ALANLAR HEPSI SKALER: kalemde `kdv_orani`,
          faturada `toplam` · `kdv_tutar` · `kdv_orani`. Gomme derinligi
-         DEGISMEDI (zaten `alis!inner(...tedarikci(ad))` iki kademeydi). */
-    sb.from('alis_kalem')
-      .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,kdv_orani,alis!inner(id,tarih,belge_no,is_deleted,toplam,kdv_tutar,kdv_orani,tedarikci(ad))')
-      .eq('urun_id',urunId).eq('is_deleted',false).eq('alis.is_deleted',false),
+         DEGISMEDI (zaten `alis!inner(...tedarikci(ad))` iki kademeydi).
+       ⚠ Y80 · SUBE SUZGECI (olculdu · Y78 sinifi kusur): bu sorgu `alis_kalem`den
+         okuyordu; o tabloda `sube_id` kolonu YOK ve SUBE_SUZGEC haritasinda DEGIL,
+         yani HICBIR sube suzgeci uygulanmiyordu. Ustteki kunye (`v_stok_durum`,
+         `sube_id` ile suzulu) TEK subeyi, altindaki grafik ve alim listesi IKI subeyi
+         anlatiyordu — kart kendi icinde celisiyor, oteki subenin alimlari siziyordu.
+         Okuma artik `alis` UZERINDEN: `alis` suzgecte oldugu icin sube kendiliginden
+         geliyor. Kalip Y89'da `sabitFaturaSorgu` icin kurulmustu; yenisi ICAT EDILMEDI.
+       ⚠ Y80 · `odendi` ve `vade_tarihi` EKLENDI (iki skaler): alim satiri faturanin
+         odeme durumunu yaziyor. Gomme derinligi yine DEGISMEDI. */
+    sb.from('alis')
+      .select('id,tarih,belge_no,toplam,kdv_tutar,kdv_orani,odendi,vade_tarihi,tedarikci(ad),alis_kalem!inner(miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,kdv_orani)')
+      .eq('is_deleted',false).eq('alis_kalem.urun_id',urunId).eq('alis_kalem.is_deleted',false),
     sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', AKTIF_SUBE).maybeSingle()
   ]);
   const u=ur.data, s=st.data;
+  /* ⚠ ESKI SEKLE DUZLESTIRILIR: asagidaki butun hesap `k.alis.*` okuyor. Sorgunun yonu
+     degisti diye o hesaplara (zemin denetimi, grafik, kiyas) DOKUNULMADI. */
+  const kalemler = [];
+  for (const a of (al.data || [])){
+    const fat = { id:a.id, tarih:a.tarih, belge_no:a.belge_no, toplam:a.toplam,
+      kdv_tutar:a.kdv_tutar, kdv_orani:a.kdv_orani, tedarikci:a.tedarikci,
+      odendi: a.odendi === true, vade_tarihi: a.vade_tarihi };
+    for (const k of (a.alis_kalem || [])) kalemler.push(Object.assign({}, k, { alis: fat }));
+  }
   if(!u){ ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Ürün bulunamadı</div></div>
     <button class="ud-kapat" onclick="udKapat()">✕</button></div>`; return; }
 
@@ -13263,7 +13242,7 @@ async function urunDetay(urunId){
        "BIRIM MALIYET" ve "STOK DEGERI" ile AYNI zemine oturuyor.
        "Odenen" zemini secseydik grafik, uzerindeki iki rakamla
        celisirdi. Liste fiyati kayip DEGIL: alim dokumunde duruyor. */
-  const alisIdler = [...new Set((kl.data||[]).map(k=>k.alis.id))];
+  const alisIdler = [...new Set(kalemler.map(k=>k.alis.id))];
   /* Faturanin zemini ARITMETIKLE bulunur, bayrakla degil: o faturanin
      BUTUN kalemlerinin toplami `toplam - kdv_tutar`a mi yoksa `toplam`a
      mi esit. Bu yuzden kardes kalemler ayrica cekilir. */
@@ -13295,7 +13274,7 @@ async function urunDetay(urunId){
     return 'tutmuyor';
   };
 
-  const alim=(kl.data||[]).map(k=>{
+  const alim=kalemler.map(k=>{
       const miktar = +k.miktar||0, tutar = +k.satir_tutar||0;
       const liste = +k.birim_fiyat||0;
       const carpan = +k.birim_carpani > 0 ? +k.birim_carpani : 1;
@@ -13321,6 +13300,7 @@ async function urunDetay(urunId){
         birim:k.birim_ad||u.birim, tutar, isk:+k.iskonto_orani||0,
         firma:k.alis.tedarikci?.ad||'—', belge:k.alis.belge_no,
         alisId:k.alis.id,                      // grafik ve satir buradan faturayi acar
+        odendi:k.alis.odendi, vade:k.alis.vade_tarihi,   // Y80 · FATURANIN odeme durumu
         kiyas, zemin, oran
       };
     }).sort((a,b)=>a.ts-b.ts);
@@ -13435,14 +13415,22 @@ async function urunDetay(urunId){
               ? `<div class="ud-alt" style="color:var(--${zam?'hata':'ok'});font-weight:800">
                   önceki ${tl(onc.kiyas)}/${esc(u.birim)} → ${(fark>0?'+':'')+fark.toFixed(1).replace('.',',')}%
                   (${(a.kiyas-onc.kiyas>0?'+':'')+tl(a.kiyas-onc.kiyas)})</div>` : '';
-            const tik=a.alisId?` onclick="faturaDetay('${a.alisId}')" style="cursor:pointer"`:'';
-            return `<div class="ud-satir"${tik}>
-              <div class="ud-trh">${new Date(a.ts).toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
+            /* ⚠ Y80 · TARIH YILLI (olculdu · Y89-d ile ayni sinif kusur): bu listede
+               PENCERE YOK, urunun butun gecmisi geliyor — "15.11" gecen yilin kasimini
+               BU YILIN kasimi gibi gosteriyordu. Tarih sutunu 52 piksel; yil sigmiyor
+               (olculdu), o yuzden sutun YALNIZ BU SATIRDA genisletildi (satir ici stil,
+               `.ud-satir` sinifina dokunulmadi — onu sekiz yerde baska liste kullaniyor;
+               ayni kalip 7118'de zaten var). */
+            const stil = `grid-template-columns:68px 1fr auto${a.alisId?';cursor:pointer':''}`;
+            const tik=a.alisId?` onclick="faturaDetay('${a.alisId}')"`:'';
+            return `<div class="ud-satir"${tik} style="${stil}">
+              <div class="ud-trh">${sbTamTarih(a.tarih)}</div>
               <div><div style="font-size:13px;font-weight:800">${a.miktar.toLocaleString('tr-TR')} ${esc(a.birim)}
                   × ${tl(a.fiyat)}${zam?' <span class="ud-zam">▲</span>':(ind?' <span class="ud-indi">▼</span>':'')}</div>
                 <div class="ud-alt">${esc(a.firma)}${a.isk?' · %'+a.isk+' iskonto':''}
                   ${a.carpan>1?' · '+(a.miktar*a.carpan).toLocaleString('tr-TR')+' '+esc(u.birim):''}
                   ${a.belge?' · '+esc(a.belge):''}${a.alisId?' ›':''}</div>
+                <div class="ud-alt">${alimOdemeEt(a)}</div>
                 ${farkEt}</div>
               <div class="ud-tut">${tl(a.tutar)}</div></div>`;
           }).join('')}
@@ -13558,12 +13546,29 @@ async function alimRaporu(){
   const son = yilMi ? yil+'-12-31'
                     : ay + '-' + String(new Date(+ay.slice(0,4), +ay.slice(5,7), 0).getDate()).padStart(2,'0');
 
-  const { data, error } = await sb.from('alis_kalem')
-    .select('miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,urun(id,kod,ad,birim),alis!inner(tarih,belge_no,is_deleted,tedarikci(ad))')
-    .eq('is_deleted', false).eq('alis.is_deleted', false)
-    .gte('alis.tarih', bas).lte('alis.tarih', son);
+  /* ⚠ Y80-d · SUBE SUZGECI (olculdu · Y78 sinifi kusur): bu sorgu `alis_kalem`den
+       okuyordu; o tabloda `sube_id` kolonu YOK ve SUBE_SUZGEC haritasinda DEGIL, yani
+       hicbir sube kisiti girmiyordu. Blok STOK EKRANININ ICINDE duruyor (#alimBolum):
+       Y80'den sonra ayni ekranin ustu tek sube, alti iki sube olurdu. Okuma artik `alis`
+       uzerinden — `alis` suzgecte, sube kendiliginden geliyor. Kalip Y89 ve Y80'de
+       kuruldu, yenisi ICAT EDILMEDI.
+     ⚠ DONEM SUZGECI TOP SEVIYEYE CIKTI: gomulu `alis.tarih` yerine dogrudan `tarih`.
+     ⚠ UC KADEME (`alis → alis_kalem → urun`) BIR IDDIA DEGIL, CALISAN KOD: `faturaDetay`
+       ayni yolu kullaniyor ve urun kod/ad/birim oradan basiliyor; semada iki FK de
+       duruyor (alis_kalem.alis_id → alis, alis_kalem.urun_id → urun) — PostgREST gomme
+       icin bunlara bakiyor. Bu soru FIKSTURLE CEVAPLANAMAZ (ne yazarsam onu doner). */
+  const { data: ham, error } = await sb.from('alis')
+    .select('tarih,belge_no,tedarikci(ad),alis_kalem!inner(miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,is_deleted,urun(id,kod,ad,birim))')
+    .eq('is_deleted', false).eq('alis_kalem.is_deleted', false)
+    .gte('tarih', bas).lte('tarih', son);
 
-  const satirlar = data || [];
+  /* eski DUZ listeye duzlestirilir: asagidaki gruplama, yuzde ve siralama hesabina
+     DOKUNULMADI (Y80'de `urunDetay` icin yapilanin aynisi). */
+  const satirlar = [];
+  for (const a of (ham || [])){
+    const alis = { tarih: a.tarih, belge_no: a.belge_no, tedarikci: a.tedarikci };
+    for (const k of (a.alis_kalem || [])) satirlar.push(Object.assign({}, k, { alis }));
+  }
   const g = {};
   satirlar.forEach(s=>{
     const u = s.urun; if(!u) return;
@@ -14083,9 +14088,14 @@ async function firmaDetay(id){
       .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}),
     sb.from('tedarikci_odeme').select('tarih,tutar,yontem,cek_no,cek_vade,aciklama')
       .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}),
-    sb.from('alis_kalem')
-      .select('miktar,birim_carpani,satir_tutar,urun_id,urun(ad,birim),alis!inner(tarih,tedarikci_id,is_deleted)')
-      .eq('is_deleted',false).eq('alis.is_deleted',false).eq('alis.tedarikci_id',id)
+    /* ⚠ Y80-d · SUBE SUZGECI (olculdu · Y78 sinifi kusur): bu sorgu `alis_kalem`den
+       okuyordu — sube kolonu olmayan, suzgec haritasinda bulunmayan tablo. Firmaya
+       baglaniyordu ama SUBEYE baglanmiyordu: ayni karttaki bakiye, fatura listesi ve
+       odemeler SUBELIYKEN urun dokumu IKI subeyi anlatiyordu. Okuma `alis` uzerinden,
+       firma suzgeci de top seviyede. Uc kademe icin bkz. `alimRaporu` notu. */
+    sb.from('alis')
+      .select('tarih,alis_kalem!inner(miktar,birim_carpani,satir_tutar,urun_id,is_deleted,urun(ad,birim))')
+      .eq('is_deleted',false).eq('tedarikci_id',id).eq('alis_kalem.is_deleted',false)
   ]);
 
   const b = bk.data ? +bk.data.bakiye : null;
@@ -14094,8 +14104,14 @@ async function firmaDetay(id){
   const bugunS = bugun();
 
   // Ürün bazında: kaç kez alındı, son birim fiyat ne, ilk fiyata göre ne oldu
+  /* Y80-d · duzlestirme: asagidaki dongu DEGISMEDI, `k.alis.tarih` yine ayni yerde. */
+  const firmaKalem = [];
+  for (const a of (kl.data || [])){
+    const alis = { tarih: a.tarih };
+    for (const k of (a.alis_kalem || [])) firmaKalem.push(Object.assign({}, k, { alis }));
+  }
   const urunler = {};
-  (kl.data||[]).forEach(k=>{
+  firmaKalem.forEach(k=>{
     if(!k.urun_id || !k.urun) return;
     const adet = (+k.miktar||0) * (+k.birim_carpani||1);
     if(adet <= 0) return;
