@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-91">
+<meta name="surum" content="2026-08-27-92">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2751,6 +2751,8 @@ function hataTrIc(m){
      SORULUYOR. Buraya dusmesi, onay akisinin atlandigi bir cagri yolu
      oldugu anlamina gelir — sessiz kalmasin. */
   if (m.includes('MUKERRER_SUPHESI')) return 'Aynı kayıt az önce girilmiş görünüyor. Listeyi kontrol et.';
+  /* v148 · Y85 · toplu giris sube kontrolu tek seferde en fazla 500 belge soruyor */
+  if (m.includes('GIRDI_FAZLA')) return 'Bir seferde en fazla 500 belge kontrol edilebilir — zip dosyasını bölerek yükle.';
   if (m.includes('RAPOR_SUBE_YOK')) return 'Şube belirlenemedi. Profilinizde şube tanımlı olmayabilir — yöneticinize bildirin.';
   /* v59 · BELGE_SUBE_YETKISIZ — belge yükleme, başka şubenin kaydına.
      KAYIT_YOK'tan AYRI tutuluyor: birincisi normal (kayıt silinmiş
@@ -7861,6 +7863,7 @@ function faTarihISO(s){
      eşleşen tedarikçi yoksa o satırda Alış seçeneği KAPALI; sebebi
      yazılı. Gider yolu açık kalır. */
 let TOPLU = [];
+let TP_SONUC_GOSTER = false;      // Y85 · kayittan sonra tablo bosalsa da sonuc karti cizilsin
 const tpBul = (i) => TOPLU[i];
 /* ==================================================================
    CY · KDV ARITMETIK KAPISI — GUVENMEDIGIN RAKAMI VERME
@@ -7980,8 +7983,39 @@ function tpKur(eksikler){
          firmasinin faturasi Alis'a girilmis ve tedarikci borcu acmis (Y72 olcumu). */
     const dzT = tpDuzenliTanim(ted);
     if (dzT){ satir.tur = 'gider'; satir.kategori = dzT.kategori_id; satir.duzenli = dzT.ad; }
+    /* Y85 · SATIR BASINA SUBE · oneri firmanin gecmisinden (v148 firma_sube), yoksa aktif sube */
+    const on = tpSubeOner(ted);
+    satir.sube = on.sube; satir.subeKaynak = on.kaynak; satir.subeAdet = on.adet;
     return satir;
   });
+}
+/* ===== Y85 · SATIR BASINA SUBE =====
+   KULLANICI: "Samsun faturalarini girerken hangisi Samsun'un hangisi KTU'nun ayrimini
+   sistem nasil yapacak?" Zip bir portaldan geliyor ama faturalar iki subeye ait olabilir.
+   ⚠ ONERI SIRASI: firmanin son 12 ayda COGUNLUKLA yazildigi sube (v148 firma_sube);
+     esitlikte aktif sube one gecer (keyfi bir alfabe sirasi degil). Gecmis yoksa aktif
+     sube. Belgedeki adresle esleme BU TURDA YOK: sube kaydinda adres kolonu yok ve ornek
+     belge gelmedi — tahmin yazilmaz.
+   ⚠ YALNIZ ACIK SUBELER onerilir (SUBELER · sahipte aktif olanlar). Tek sube varsa
+     secim hic cizilmez, satir aktif subeye yazilir (bugunku davranis). */
+function tpCokSube(){ return (SUBELER || []).length > 1 && !toplamKipi(); }
+function tpSubeOner(ted){
+  if (!tpCokSube()) return { sube: AKTIF_SUBE, kaynak: 'aktif', adet: 0 };
+  const acik = new Set(SUBELER.map(s => s.id));
+  const g = ((ted && TP_FIRMA_SUBE[ted.id]) || []).filter(x => acik.has(x.sube_id));
+  if (!g.length) return { sube: AKTIF_SUBE, kaynak: 'aktif', adet: 0 };
+  const enCok = g[0].adet;
+  const sec = g.find(x => x.adet === enCok && x.sube_id === AKTIF_SUBE) || g[0];
+  return { sube: sec.sube_id, kaynak: 'gecmis', adet: sec.adet };
+}
+const tpSubeAd = (id) => ((SUBELER || []).find(s => s.id === id) || {}).ad || (id === AKTIF_SUBE ? (SUBE_AD || 'bu şube') : 'şube ?');
+/* "Kalanların hepsini X yap" · kaydedilmis / isletme disi / az once girilmis satira dokunmaz */
+function tpHepsiSube(id){
+  if (!id) return;
+  TOPLU.forEach(r => { if (tpKilitli(r)) return;
+    if (r.sonuc) r.sonuc = null;                 // tpDegis ile ayni: dokunmak "duzelttim" demek
+    r.sube = id; r.subeKaynak = 'elle'; });
+  tpCiz();
 }
 let TP_GECMIS = {};
 async function tpGecmisYukle(){
@@ -8011,6 +8045,7 @@ function tpDegis(i, alan, deger){
   if (alan === 'sec') r.sec = !!deger;
   else if (alan === 'haric'){ r.haric = !!deger; if (r.haric) r.sec = false; }
   else if (alan === 'tur'){ r.tur = deger; if (deger !== 'gider') r.kategori = ''; if (!deger) r.sec = false; }
+  else if (alan === 'sube'){ r.sube = deger || AKTIF_SUBE; r.subeKaynak = 'elle'; }   // Y85
   else r[alan] = deger;
   tpCiz();
 }
@@ -8036,7 +8071,9 @@ function tpHepsi(alan, deger){
      açılmamıştan kötü. ted YALNIZ sunucu onay verirse bağlanır. */
 /* Kaydedilmiş / işletme dışı satır kilitlidir; hata alan satır DEĞİL —
    kullanıcı onu düzeltip tekrar deneyecek. */
-function tpKilitli(r){ return r.sonuc === 'ok' || r.sonuc === 'işletme dışı'; }
+/* Y85 · kaydetmeden hemen onceki kontrolde BASKA BIR YERDE girilmis bulunan satir da kilitli
+   (r.girilmis) — tekrar secilip yazilamaz. */
+function tpKilitli(r){ return r.sonuc === 'ok' || r.sonuc === 'işletme dışı' || !!r.girilmis; }
 function tpAcilacaklar(){
   const gorulen = new Set();
   return TOPLU.filter(r => {
@@ -8118,7 +8155,16 @@ function tpKaydedilebilir(r){
 }
 function tpCiz(){
   const el = document.getElementById('mtToplu'); if (!el) return;
-  if (!TOPLU.length){ el.innerHTML = ''; return; }
+  /* ⚠ Y85 · TABLO BOSALINCA SONUC MESAJI KAYBOLMAZ (olculdu): butun satirlar kaydedilince
+       tablo ciziminden dusuyor ve sonuc mesaji (tpMsg) tabloyla birlikte gidiyordu — yani
+       "N kaydedildi" de, "az once girilmis, tekrar yazilmadi" uyarisi da EN GEREKTIGI AN
+       gorunmuyordu (-89'da da boyleydi). Kayittan sonra bos tabloda yalniz sonuc karti
+       kalir; yeni karsilastirmada (TP_SONUC_GOSTER false) bugunku gibi hic cizilmez. */
+  if (!TOPLU.length){
+    el.innerHTML = TP_SONUC_GOSTER ? `<div class="kart" style="border-color:var(--ana)">
+      <div class="kbaslik">Toplu giriş</div><div class="hata-msg" id="tpMsg"></div></div>` : '';
+    return;
+  }
   const secili = TOPLU.filter(r => r.sec && tpKaydedilebilir(r)).length;
   const acilacak = tpAcilacaklar();
   const kat = KATALOG.kategoriler.map(k =>
@@ -8140,6 +8186,11 @@ function tpCiz(){
     <label>Seçili giderlere kategori ver</label>
     <select onchange="tpHepsi('kategori',this.value);this.value=''">
       <option value="">— kategori seç —</option>${kat}</select>
+    ${/* Y85 · birden cok sube varsa: kalanlarin hepsi tek dokunusla bir subeye */''}
+    ${tpCokSube() ? `<label>Kalanların hepsini şu şubeye yaz</label>
+    <select onchange="tpHepsiSube(this.value);this.value=''">
+      <option value="">— şube seç —</option>${SUBELER.map(s =>
+        `<option value="${s.id}">${esc(s.ad)}${s.id === AKTIF_SUBE ? ' (açık olan şube)' : ''}</option>`).join('')}</select>` : ''}
     ${TOPLU.map(r => {
       const kapali = r.haric || r.eksik.length || !r.tur
                   || (r.tur === 'gider' && !r.kategori) || (r.tur === 'alis' && !r.ted);
@@ -8150,9 +8201,14 @@ function tpCiz(){
          Kaydedilmiş ya da işletme dışı işaretlenmiş satır kilitli
          kalır; hatalı satır açık kalır, dokunulunca hata metni düşer. */
       const kilit = tpKilitli(r);
+      /* Y85 · "az once girilmis" hata DEGIL, bilgi: tekrar yazilmadi, satir kilitli */
       const sonucRz = r.sonuc === 'ok' ? '<span class="rozet rz-ok">kaydedildi</span>'
+        : r.girilmis ? '<span class="rozet">az önce girilmiş</span>'
         : r.sonuc ? `<span class="rozet rz-hata">${esc(String(r.sonuc).slice(0,40))}</span>` : '';
-      return `<div class="liste-satir" style="flex-direction:column;align-items:stretch;gap:6px">
+      /* Y85 · aktif subeden FARKLI subeye yazilacak satir ISARETLI (sol cizgi + cumle) */
+      const baskaSube = tpCokSube() && r.sube && r.sube !== AKTIF_SUBE;
+      return `<div class="liste-satir" style="flex-direction:column;align-items:stretch;gap:6px${
+          baskaSube ? ';border-left:4px solid var(--ana);padding-left:10px' : ''}">
         <div style="display:flex;gap:8px;align-items:flex-start">
           <input type="checkbox" style="width:22px;height:22px;flex:0 0 auto;margin-top:2px"
             ${r.sec ? 'checked' : ''} ${kapali || kilit ? 'disabled' : ''}
@@ -8165,6 +8221,23 @@ function tpCiz(){
             ${r.eksik.length
               ? `<div class="k" style="color:var(--hata)">${esc(dilEksik(r.eksik))} — bu satır
                    toplu kaydedilemez, <b>Tek tek gir</b> ile forma al</div>` : ''}
+            ${r.girilmis
+              ? `<div class="k" style="color:var(--ana)">Kaydetmeden hemen önce kontrol edildi:
+                   <b>${esc(r.girilmisMetin || 'başka bir yerde girilmiş')}</b> — tekrar yazılmadı.</div>` : ''}
+            ${baskaSube && !kilit
+              ? `<div class="k" style="color:var(--ana);font-weight:800">→ ${esc(tpSubeAd(r.sube))} şubesine yazılacak
+                   (açık olan şube ${esc(tpSubeAd(AKTIF_SUBE))})</div>` : ''}
+            ${tpCokSube() && !kilit && r.subeKaynak === 'gecmis'
+              ? `<div class="k" style="color:var(--soluk)">şube önerisi: bu firmanın son 12 aydaki
+                   ${r.subeAdet} belgesi ${esc(tpSubeAd(r.sube))} şubesinde — değiştirebilirsin</div>`
+              : tpCokSube() && !kilit && r.subeKaynak === 'aktif'
+              ? `<div class="k" style="color:var(--soluk)">şube önerisi: bu firmanın geçmişi yok — açık olan şube</div>` : ''}
+            ${r.mukerrer && !kilit
+              ? `<div class="k" style="color:var(--uyari)">Aynı gün, aynı kategori ve aynı tutarla 10 dakika içinde
+                   başka bir gider girilmiş. Bu fatura ondan <b>farklıysa</b> yine de kaydedebilirsin
+                   (onay denetim kaydına yazılır).
+                   <button type="button" class="btn2" style="min-height:44px;margin-left:6px"
+                     onclick="tpYineDeKaydet(${r.i})">Yine de kaydet</button></div>` : ''}
             ${r.kdvOkunamadi && !r.eksik.length
               ? `<div class="k" style="color:var(--uyari)">KDV okunamadı — bu satır
                    <b>KDV’siz</b> kaydedilir, indirilecek KDV’ye girmez.
@@ -8224,6 +8297,11 @@ function tpCiz(){
             <option value="">— kategori —</option>${KATALOG.kategoriler.map(k =>
               `<option value="${k.id}"${r.kategori === k.id ? ' selected' : ''}>${esc(k.ad)}</option>`).join('')}
           </select>` : ''}
+          ${tpCokSube() ? `<select style="flex:1;min-width:120px" ${kilit ? 'disabled' : ''}
+            aria-label="${esc(r.belge_no || r.firma || '')} hangi şubeye yazılsın"
+            onchange="tpDegis(${r.i},'sube',this.value)">
+            ${SUBELER.map(s => `<option value="${s.id}"${r.sube === s.id ? ' selected' : ''}>${esc(s.ad)}</option>`).join('')}
+          </select>` : ''}
           <label style="display:flex;gap:6px;align-items:center;min-height:44px;font-size:13px">
             <input type="checkbox" style="width:20px;height:20px" ${r.haric ? 'checked' : ''}
               ${kilit ? 'disabled' : ''} onchange="tpDegis(${r.i},'haric',this.checked)">
@@ -8253,38 +8331,130 @@ function tpCiz(){
    "DB'de var mı, foto_path dolu mu" diye SORMAK. PDF metni yeniden
    okunmaz — MUTABAKAT nesneleri zaten elimizde, değişen tek şey
    durum/tur/kayit alanları. */
+/* ===== Y85 · TOPLU GIRIS · "BU BELGE HERHANGI BIR SUBEDE VAR MI?" =====
+   KULLANICI: "Toplu giriste su da olmali: eklenen fatura tekrar eklenmesin, ona dikkat et."
+   ⚠ CEVAP SUNUCUDAN (v148 · rpc_toplu_sube_bilgi): istemcinin sube suzgeci yalniz AKTIF
+     subeyi gosteriyor; baska subede girilmis bir fatura "eksik" gorunup ikinci kez
+     yaziliyordu (gider tablosunda tekil kisit YOK). RPC hangi subede olursa olsun
+     "girilmis mi, nerede" der; TUTAR ve KAYIT KIMLIGI DONMEZ (Y86'da sube sorumlusuna
+     acilacak). Aktif subenin ayrintisi (belge bagli mi, kimligi) yine suzulmus sorgudan.
+   ⚠ RPC YOKSA ya da HATA VERIRSE: "yarim siniflandirma yapilmaz" — atilir, cagiran
+     yakalar; tablo kurulmaz, hicbir satir kaydedilmez. */
+const tpNo = (s) => String(s || '').trim().toUpperCase().replace(/[ıİ]/g, 'I');
+async function tpSubeBilgi(nolar, firmalar){
+  const { data, error } = await sb.rpc('rpc_toplu_sube_bilgi', {
+    p_belgeler: nolar || [], p_firmalar: firmalar || [] });
+  if (error){
+    /* kendi Turkce cumlemiz hataTr'den bir daha GECMEZ (tek ceviri kapisi) */
+    const kendi = (m) => { HATA_CEVRILMIS.add(m); return new Error(m); };
+    if (error.code === 'PGRST202' || /Could not find the function/i.test(error.message || ''))
+      throw kendi('Sunucu güncellemesi (v148) uygulanmamış — başka şubede girilmiş faturalar '
+        + 'kontrol edilemiyor. Toplu giriş durduruldu, hiçbir satır kaydedilmedi.');
+    const c = hataTr(error.message);
+    /* ag / sunucu hatasi: genel "islem tamamlanamadi" cumlesi NEDEN durdugunu soylemiyordu */
+    if (c === HATA_GENEL) throw kendi('Başka şubelerde girilmiş faturalar kontrol edilemedi '
+      + '(bağlantı ya da sunucu) — tekrar girişe karşı güvence olmadığı için devam edilmedi. Tekrar dene.');
+    throw kendi(c);
+  }
+  if (!data || !Array.isArray(data.kayitli) || !Array.isArray(data.firma_sube))
+    throw new Error('şube bilgisi okunamadı');
+  return data;
+}
+/* firma → sube gecmisi (son 12 ay, coktan aza) · satir basina sube ONERISININ kaynagi */
+let TP_FIRMA_SUBE = {};
+function tpFirmaSubeYaz(liste){
+  const yeni = {};
+  (liste || []).forEach(f => { (yeni[f.tedarikci_id] = yeni[f.tedarikci_id] || []).push(f); });
+  Object.assign(TP_FIRMA_SUBE, yeni);     // birlestir: kayittan sonraki kismi tazeleme oteki firmalari silmesin
+}
+/* belgenin tedarikcisi (tpKur'un AYNI eslestirmesi) — firma_sube sorusu icin */
+function tpTedarikciId(x){
+  const e = tedEslestir(x.vkn, faturaUnvan(x.metin, x.firma) || x.firma);
+  return e.durum === 'catisma' ? null : ((e.ted && e.ted.id) || null);
+}
+/* ⚠ GIDER SUNUCUDA SUZULUR: eskiden subenin BUTUN gider satirlari cekilip istemcide
+     aranıyordu — satir tavani asilinca eski satirlar SESSIZCE gelmez, o faturalar yine
+     "eksik" gorunurdu. Simdi yalniz aciklamasinda bu belge nolari gecen satirlar gelir
+     (Y89/Y80'deki `or` + `ilike` kalibi). 50'serli parca: adres cubugu uzamasin.
+   ⚠ Joker/virgul tasiyan belge no bu sorguya GIRMEZ (PostgREST `or` sozdizimini bozar);
+     ayristirici zaten yalniz A-Z/0-9 uretiyor, v148 onlari da ayrica sorgular. */
+async function tpGiderAra(kume){
+  const temiz = kume.filter(n => /^[A-Z0-9-]{3,40}$/.test(n));
+  const parcalar = [];
+  for (let i = 0; i < temiz.length; i += 50) parcalar.push(temiz.slice(i, i + 50));
+  const cevaplar = await Promise.all(parcalar.map(p => sb.from('gider')
+    .select('id,aciklama,tarih,tutar,foto_path').eq('is_deleted', false)
+    .or(p.map(n => `aciklama.ilike.*${n}*`).join(','))));
+  const kotu = cevaplar.find(r => r && r.error);
+  if (kotu) return { error: kotu.error };
+  const gor = new Set(), data = [];
+  cevaplar.forEach(r => (r.data || []).forEach(g => { if (!gor.has(g.id)){ gor.add(g.id); data.push(g); } }));
+  return { data };
+}
+/* "Samsun şubesinde alış olarak girilmiş · FİRMA" · baska subede ya da bu subede farkli
+   yazilmis kayit. ⚠ Ek sube adina YAPISTIRILMAZ ("Samsun'de" yanlis olurdu — unlu uyumu):
+   ek "şube" kelimesine gelir, her adla dogru okunur. */
+function tpYerMetni(x){
+  const y = (x.yer || [])[0]; if (!y) return '';
+  const tur = y.tur === 'haric' ? 'işletme dışı işaretlenmiş' : (y.tur === 'alis' ? 'alış olarak girilmiş' : 'gider olarak girilmiş');
+  const nerede = y.sube_id === AKTIF_SUBE ? 'bu şubede' : (y.sube_ad || 'başka bir') + ' şubesinde';
+  return nerede + ' ' + tur + (y.firma_ad ? ' · ' + y.firma_ad : '')
+    + (y.sube_id === AKTIF_SUBE ? ' (kayıtta belge no farklı yazılmış)' : '')
+    + (x.yer.length > 1 ? ' · +' + (x.yer.length - 1) + ' kayıt daha' : '');
+}
 async function tpSiniflandir(nolar){
   const kume = [...new Set((nolar || []).filter(Boolean))];
   if (!kume.length) return;
-  const hedef = MUTABAKAT.filter(x => x.belge_no && kume.includes(x.belge_no));
+  /* okunamayan (hata) belge yeniden siniflanmaz — "OKUNAMADI" kutusunda kalir */
+  const hedef = MUTABAKAT.filter(x => !x.hata && x.belge_no && kume.includes(x.belge_no));
   if (!hedef.length) return;
-  const [av, gv, hv] = await Promise.all([
+  const firmalar = [...new Set(hedef.map(tpTedarikciId).filter(Boolean))];
+  const [av, gv, hv, sv] = await Promise.all([
     sb.from('alis').select('id,belge_no,tarih,toplam,foto_path,tedarikci(ad)')
       .eq('is_deleted', false).in('belge_no', kume),
-    sb.from('gider').select('id,aciklama,tarih,tutar,foto_path').eq('is_deleted', false),
-    sb.from('belge_haric').select('belge_no,neden').eq('is_deleted', false)
+    tpGiderAra(kume),
+    /* ⚠ isletme disi da DAR: yalniz bu belgeler (gider ile ayni tavan derdi). Kayitta
+         farkli yazilmis bir no'yu v148 yakalar. */
+    sb.from('belge_haric').select('belge_no,neden').eq('is_deleted', false).in('belge_no', kume),
+    tpSubeBilgi(kume, firmalar).then(data => ({ data }), e => ({ error: { message: e.message } }))
   ]);
   /* ⚠ YARIM SINIFLANDIRMA YAPILMAZ. Supabase hata dönerse data null
      gelir; sessizce devam edilse alisMap boş kalır ve HER satır
      "eksik" sınıflanırdı — yani bu turda düzelttiğimiz "Girilmemiş 25"
      ekranının birebir aynısı, üstelik sebebi görünmeden. Bir sorgu bile
-     hatalıysa HİÇBİR durum değiştirilmeden atılır; çağıran yakalar. */
-  const kotu = [av, gv, hv].find(r => r && r.error);
+     hatalıysa HİÇBİR durum değiştirilmeden atılır; çağıran yakalar.
+     ⚠ Y85 · v148 cevabi da bu kapidan gecer: "baska subede var mi" sorusu
+       cevaplanamadiysa HICBIR belge "eksik" sayilmaz. */
+  const kotu = [av, gv, hv, sv].find(r => r && r.error);
   if (kotu) throw new Error(kotu.error.message || 'sınıflandırma sorgusu başarısız');
+  tpFirmaSubeYaz(sv.data.firma_sube);
+  const yerMap = {};
+  sv.data.kayitli.forEach(k => { (yerMap[tpNo(k.belge_no)] = yerMap[tpNo(k.belge_no)] || []).push(k); });
   const haricMap = {}; ((hv && hv.data) || []).forEach(h =>
     { haricMap[(h.belge_no || '').toUpperCase()] = h.neden; });
   const alisMap = {}; ((av && av.data) || []).forEach(a =>
     { alisMap[(a.belge_no || '').toUpperCase()] = a; });
   const giderler = (gv && gv.data) || [];
   hedef.forEach(x => {
+    x.yer = null;
     if (haricMap[x.belge_no]){ x.durum = 'haric'; x.neden = haricMap[x.belge_no];
       x.kayit = null; x.tur = ''; return; }
     const a = alisMap[x.belge_no];
+    /* sunucu `ilike` ile genis getirdi; eski kesin kural (buyuk harfle icinde geciyor mu)
+       istemcide AYNEN uygulanir */
     const g = giderler.find(z => (z.aciklama || '').toUpperCase().includes(x.belge_no));
     const k = a || g;
-    /* ⚠ Kayıt YOKSA 'eksik'e DOKUNULMAZ: sunucu hata verdiyse belge
-       hâlâ girilmemiştir, panelde de öyle görünmeli. */
-    if (!k){ x.durum = 'eksik'; x.kayit = null; x.tur = ''; return; }
+    if (!k){
+      /* ⚠ Y85 · AKTIF SUBEDE YOK ama v148 baska bir yerde buldu: "eksik" SAYILMAZ, toplu
+           giris listesine GIRMEZ, "Girilmemiş" sayisina katilmaz. Satirda nerede ve
+           kimin adina girildigi yazar. (Aktif subede ama belge nosu kayitta farkli
+           yazilmis kayit da buraya duser — o da girilmistir.) */
+      const yer = yerMap[tpNo(x.belge_no)];
+      if (yer && yer.length){ x.durum = 'baska_sube'; x.yer = yer; x.kayit = null; x.tur = ''; return; }
+      /* ⚠ Kayıt YOKSA 'eksik'e DOKUNULMAZ: sunucu hata verdiyse belge
+         hâlâ girilmemiştir, panelde de öyle görünmeli. */
+      x.durum = 'eksik'; x.kayit = null; x.tur = ''; return;
+    }
     x.kayit = k; x.tur = a ? 'alis' : 'gider';
     /* Toplu giriş p_foto:null ile kaydediyor -> beklenen normal sonuç
        'belge_eklenecek'; belgeler "BELGESİ EKSİK" kutusuna düşer ve
@@ -8292,12 +8462,21 @@ async function tpSiniflandir(nolar){
     x.durum = k.foto_path ? 'belgeli' : 'belge_eklenecek';
   });
 }
-async function tpKaydet(){
+/* Y85 · MUKERRER_SUPHESI alan tek satiri, kullanicinin onayiyla YALNIZ o satiri kaydeder */
+function tpYineDeKaydet(i){
+  const r = tpBul(i); if (!r || tpKilitli(r)) return;
+  r.mukerrerOnay = true; r.mukerrer = false; r.sonuc = null; r.sec = true;
+  tpKaydet(i);
+}
+async function tpKaydet(yalnizI){
   const btn = document.getElementById('tpKaydet');
   /* ⚠ Y72 · TARIH SIRASIYLA kaydedilir: sunucu duzenli hatirlatmayi EN ESKI acik aydan
        kapatiyor (v144). Zip sirasiyla Eylul faturasi Agustos'tan once girseydi Agustos'u
-       kapatir, Agustos faturasi da Eylul'e yetismezdi (pencere) — Eylul acik kalirdi. */
-  const secilenler = TOPLU.filter(r => r.sec && tpKaydedilebilir(r))
+       kapatir, Agustos faturasi da Eylul'e yetismezdi (pencere) — Eylul acik kalirdi.
+     Y85 · `yalnizI` verilirse YALNIZ o satir ("Yine de kaydet"); isletme disi satirlar
+       o cagrida islenmez. */
+  const tek = yalnizI != null;
+  const secilenler = TOPLU.filter(r => r.sec && tpKaydedilebilir(r) && (!tek || r.i === yalnizI))
     .sort((a, c) => String(a.tarih).localeCompare(String(c.tarih)));
   if (!secilenler.length) return;
   /* ⚠ İŞLETME DIŞI KALICI OLMALI: yalnız ekranda işaretlemek yetmez,
@@ -8307,7 +8486,7 @@ async function tpKaydet(){
      ⚠ Burada eskiden AYRI bir çağrı vardı ve p_sube/p_firma'yı
        göndermiyordu; yorumda "aynısı" yazdığı hâlde değildi. İki kopya
        zamanla ayrıştı, kullanıcı ekranda "İşlem tamamlanamadı" gördü. */
-  const haricler = TOPLU.filter(r => r.haric && !r.sonuc && r.belge_no);
+  const haricler = tek ? [] : TOPLU.filter(r => r.haric && !r.sonuc && r.belge_no);
   let haricNeden = null;
   if (haricler.length){
     haricNeden = await nedenSor(haricler.length + ' belge işletme dışı işaretlendi',
@@ -8316,24 +8495,76 @@ async function tpKaydet(){
     if (!haricNeden.trim()){ bildir('Gerekçe zorunlu.', 'hata'); return; }
   }
   btn.disabled = true;
+  /* ===== Y85 · KAYDETMEDEN HEMEN ONCE YENIDEN KONTROL =====
+     Siniflandirma ile kaydet arasinda baska subede (ya da bu subede, baska ekrandan) ayni
+     fatura girilmis olabilir. Yazilacak HER satirin belge nosu v148'e BIR KEZ sorulur;
+     herhangi bir yerde kayitli olan satir ATLANIR ve "az once girilmis (<sube>)" yazar.
+     ⚠ SORU CEVAPLANAMAZSA HICBIR SATIR KAYDEDILMEZ: sessizce devam etmek, korumanin tam
+       olmasi gereken anda devre disi kalmasi olurdu ("yarim siniflandirma yapilmaz"
+       ilkesinin aynisi). */
+  const yazilacak = [...haricler, ...secilenler];
+  let onKontrol;
+  try{
+    btn.textContent = 'Kontrol ediliyor...';
+    onKontrol = await tpSubeBilgi([...new Set(yazilacak.map(r => r.belge_no).filter(Boolean))], []);
+  }catch(e){
+    btn.disabled = false; tpCiz();
+    mesaj('tpMsg', 'hata', 'Kaydetmeden önceki kontrol yapılamadı: ' + hataTr(e.message)
+      + ' — hiçbir satır kaydedilmedi. Bağlantıyı kontrol edip tekrar dene.');
+    return;
+  }
+  const simdiVar = {};
+  onKontrol.kayitli.forEach(k => { (simdiVar[tpNo(k.belge_no)] = simdiVar[tpNo(k.belge_no)] || []).push(k); });
+  let atlananGirilmis = 0; const girilmisOzet = [];
+  yazilacak.forEach(r => {
+    const yer = r.belge_no && simdiVar[tpNo(r.belge_no)];
+    if (!yer || !yer.length) return;
+    r.girilmis = true; r.sec = false; r.mukerrer = false;
+    r.girilmisMetin = 'az önce girilmiş ('
+      + [...new Set(yer.map(y => y.sube_id === AKTIF_SUBE ? 'bu şube' : (y.sube_ad || 'başka şube')))].join(', ') + ')';
+    r.sonuc = r.girilmisMetin;
+    atlananGirilmis++; girilmisOzet.push(r.belge_no + ' ' + r.girilmisMetin);
+  });
   let ok = 0, haricOk = 0; const hatalar = [], dzKapanan = [];
   for (const r of haricler){
+    if (r.girilmis) continue;
     try{
-      await belgeHaricEkle(r.belge_no, r.firma, haricNeden.trim());
+      await belgeHaricEkle(r.belge_no, r.firma, haricNeden.trim(), r.sube || AKTIF_SUBE);   // Y85 · satirin subesi
       r.sonuc = 'işletme dışı'; haricOk++;
     }catch(e){ hatalar.push((r.belge_no||'') + ' (işletme dışı): ' + hataTr(e.message)); }
   }
+  /* ⚠ Y85 · AYNI TURDA AYNI BELGE IKI KEZ: zip'te ayni PDF iki kez varsa iki satir olur.
+       Ilki yazilinca ikincisi ATLANIR (gider anahtarinda belge no var: sunucu ikinciyi ILK
+       cevabin tekrari sayar ve "kaydedildi" derdi — iki kayit girmis sanilirdi). */
+  const buTurNo = new Set();
+  /* ⚠ Y85 · IKIZ GIDER ONAYI · bu turda AZ ONCE ayni sube + gun + kategori + tutarla BASKA
+       belge nolu bir gider yazildiysa sunucunun 10 dakikalik kapisi bu satiri "supheli"
+       diye REDDEDER — oysa iki fatura farkli (belge nolari farkli ve yukaridaki kontrol
+       ikisinin de hicbir yerde kayitli olmadigini az once dogruladi). YALNIZ bu durumda
+       p_mukerrer_onay gonderilir; onay sunucuda denetim izi birakir (tasarim bu). Kapi
+       baska bir sebeple (ornegin elle girilmis bir gider) tetiklenirse OTOMATIK ONAY YOK:
+       satir anlasilir bir cumle ve tek dokunusla "Yine de kaydet" verir. */
+  const buTurGider = new Set();
   for (let n = 0; n < secilenler.length; n++){
     const r = secilenler[n];
+    if (r.girilmis) continue;
     btn.textContent = `Kaydediliyor ${n+1}/${secilenler.length}...`;
+    const no = tpNo(r.belge_no);
+    if (no && buTurNo.has(no)){
+      r.girilmis = true; r.sec = false; r.girilmisMetin = 'aynı belge bu turda zaten kaydedildi';
+      r.sonuc = r.girilmisMetin; atlananGirilmis++; girilmisOzet.push(r.belge_no + ' ' + r.girilmisMetin); continue;
+    }
+    /* Y85 · satirin subesi: kayitta ve mukerrer anahtarinda AKTIF_SUBE DEGIL */
+    const sube = r.sube || AKTIF_SUBE;
+    const gAnahtar = sube + '|' + r.tarih + '|' + r.kategori + '|' + r.tutar;
     try{
       /* ⚠ TEK TEK ve DOĞRUDAN sb.rpc: rpcCagir tek düğme/tek mesaj
          varsayıyor, döngüde her satırda düğmeyi geri boyardı. Hata
          yutulmuyor — satıra yazılıyor ve döngü devam ediyor. */
       const p = r.tur === 'alis'
         ? ['rpc_alis_kaydet', {
-            p_idem: await idemKararli('alis', [AKTIF_SUBE, r.belge_no || '', r.tutar]),
-            p_sube: AKTIF_SUBE, p_tedarikci: r.ted.id, p_tarih: r.tarih, p_tur: 'fatura',
+            p_idem: await idemKararli('alis', [sube, r.belge_no || '', r.tutar]),
+            p_sube: sube, p_tedarikci: r.ted.id, p_tarih: r.tarih, p_tur: 'fatura',
             p_belge_no: r.belge_no, p_fis_no: null, p_toplam: r.tutar,
             p_kdv_orani: null, p_kdv_tutar: r.kdv, p_kdv_kirilim: [], p_kdv_dahil: true,
             p_ocr_ham: null, p_ocr_model: null, p_foto: null,
@@ -8341,20 +8572,40 @@ async function tpKaydet(){
             p_odendi: false, p_odeme_yontem: null, p_vade: null,
             p_cek_no: null, p_cek_vade: null }]
         : ['rpc_gider_kaydet', {
-            p_idem: await idemKararli('gider', [AKTIF_SUBE, r.tarih, r.kategori, r.tutar, false]),
-            p_sube: AKTIF_SUBE, p_tarih: r.tarih, p_kategori: r.kategori,
+            /* ⚠ Y85 · BELGE NO ANAHTARDA (alis anahtarinda oldugu gibi). Eskiden yoktu: ayni
+                 gun, ayni kategori, ayni tutarli IKI FARKLI fatura ayni anahtari aliyor,
+                 sunucu ikinciyi birincinin tekrari sayip YAZMIYOR ama ok donuyordu — ekran
+                 "kaydedildi" diyordu (kapta olculdu, v148 DOGRULAMA 1022). */
+            p_idem: await idemKararli('gider', [sube, r.tarih, r.kategori, r.tutar, false, r.belge_no || '']),
+            p_sube: sube, p_tarih: r.tarih, p_kategori: r.kategori,
             p_aciklama: (r.firma || '') + ' · ' + (r.belge_no || ''),
             p_tutar: r.tutar, p_kdv_orani: null, p_kdv_tutar: r.kdv, p_foto: null,
-            p_kasadan: false, p_tedarikci: r.ted ? r.ted.id : null, p_vade: null }];
+            p_kasadan: false, p_tedarikci: r.ted ? r.ted.id : null, p_vade: null,
+            p_mukerrer_onay: buTurGider.has(gAnahtar) || !!r.mukerrerOnay }];
       const { data, error } = await sb.rpc(p[0], p[1]);
       if (error) throw new Error(error.message);
       if (!data || !data.ok) throw new Error('sunucu onay vermedi');
-      r.sonuc = 'ok'; r.sec = false; ok++;
+      r.sonuc = 'ok'; r.sec = false; r.mukerrer = false; ok++;
+      if (no) buTurNo.add(no);
+      if (r.tur === 'gider') buTurGider.add(gAnahtar);
+      /* ⚠ Y85 · KIMLIK YALNIZ BASKA SUBEYE YAZILAN SATIR ICIN SAKLANIR: belgesi asagida
+           baglanacak. Aktif subenin kaydinin kimligi YINE DB'den (tpSiniflandir) okunur;
+           baska subenin kaydi aktif subenin suzulmus sorgusunda GORUNMEZ, v148 de kimlik
+           dondurmez — tek kaynak kaydin kendi cevabi (rpc_alis_kaydet `alis_id`,
+           rpc_gider_kaydet `gider_id`; kapta olculdu). */
+      r.digerSubeKayit = sube !== AKTIF_SUBE ? (data.alis_id || data.gider_id || null) : null;
       if (data.kapanan_duzenli) dzKapanan.push(duzenliKapanisMetni(data.kapanan_duzenli));   // Y72
     }catch(e){
-      const m = hataTr(e.message);
-      r.sonuc = m; hatalar.push((r.belge_no || r.firma) + ': ' + m);
+      if (/MUKERRER_SUPHESI/.test(e.message || '')){
+        r.mukerrer = true;
+        r.sonuc = '10 dakika içinde benzer gider var';
+        hatalar.push((r.belge_no || r.firma) + ': benzer gider (satırda "Yine de kaydet")');
+      } else {
+        const m = hataTr(e.message);
+        r.sonuc = m; hatalar.push((r.belge_no || r.firma) + ': ' + m);
+      }
     }
+    r.mukerrerOnay = false;
   }
   const atlanan = haricOk;
   const eksikli = TOPLU.filter(x => x.eksik.length).length;
@@ -8399,6 +8650,15 @@ async function tpKaydet(){
        sayisidir (zaten belgeli olan ya da dosyasi elde olmayan sayilmaz). */
     const baglanacak = MUTABAKAT.filter(x => x.durum === 'belge_eklenecek'
       && x.belge_no && dokunulan.includes(x.belge_no) && x.dosya && x.kayit);
+    /* ⚠ Y85 · BASKA SUBEYE YAZILAN SATIRIN BELGESI DE BAGLANIR. O kayit aktif subenin
+         suzulmus sorgusunda GORUNMEZ (x.kayit yok); baglanmasaydi Samsun'a yazilan her
+         fatura "PDF'ler kaydedilmiyor" sikayetini geri getirirdi (CX). Kimlik kaydin kendi
+         cevabindan (r.digerSubeKayit). Panel satiri "belgeli"ye CEVRILMEZ: o satir aktif
+         subenin "TAM" kutusuna ait degil, "baska subede girilmis" kutusunda kalir. */
+    const digerBaglanacak = secilenler.filter(r => r.sonuc === 'ok' && r.digerSubeKayit)
+      .map(r => ({ r, x: MUTABAKAT.find(m => m.belge_no && m.belge_no === r.belge_no && m.dosya) }))
+      .filter(o => o.x);
+    const topB = baglanacak.length + digerBaglanacak.length;
     /* ⚠ 25 fatura ~5 MB; telefonda bu 30 saniyeyi gecebiliyor. Ilerleme
        yazilmazsa dugme "Kaydediliyor 25/25..." de donmus gorunur,
        kullanici asili kaldi sanip sayfayi kapatir ve belgeler
@@ -8406,9 +8666,17 @@ async function tpKaydet(){
        Desen kayit dongusunun AYNISI. */
     for (let n = 0; n < baglanacak.length; n++){
       const x = baglanacak[n];
-      btn.textContent = `Belgeler bağlanıyor ${n+1}/${baglanacak.length}...`;
+      btn.textContent = `Belgeler bağlanıyor ${n+1}/${topB}...`;
       try{ await belgeBagla(x); belgeOk++; }
       catch(e){ belgeHata.push(x.belge_no + ': ' + hataTr(e.message)); }
+    }
+    for (let n = 0; n < digerBaglanacak.length; n++){
+      const o = digerBaglanacak[n];
+      btn.textContent = `Belgeler bağlanıyor ${baglanacak.length + n + 1}/${topB}...`;
+      /* belgeBagla gecici nesneyi degistirir (durum/foto_path) — panel satiri etkilenmez */
+      try{ await belgeBagla({ dosya: o.x.dosya, tur: o.r.tur, kayit: { id: o.r.digerSubeKayit } });
+           belgeOk++; o.x.baskaBelge = true; }
+      catch(e){ belgeHata.push(o.r.belge_no + ' (' + tpSubeAd(o.r.sube) + '): ' + hataTr(e.message)); }
     }
     mutabakatCiz();
     /* ⚠ HATA ALAN SATIRIN SEÇİMLERİ KAYBOLMAZ: tpKur tabloyu sıfırdan
@@ -8420,18 +8688,24 @@ async function tpKaydet(){
       { tur:r.tur, kategori:r.kategori, sonuc:r.sonuc, haric:r.haric, sec:r.sec,
         /* ⚠ CY · ELLE YAZILAN KDV DE KORUNUR: tpKur satiri sifirdan
            kuruyor ve okunan (yanlis) rakama geri donerdi. */
-        kdv:r.kdv, kdvDurum:r.kdvDurum, kdvNot:r.kdvNot, kdvKontrol:r.kdvKontrol }; });
+        kdv:r.kdv, kdvDurum:r.kdvDurum, kdvNot:r.kdvNot, kdvKontrol:r.kdvKontrol,
+        /* Y85 · kullanicinin sube secimi ve "yine de kaydet" durumu da korunur */
+        sube:r.sube, subeKaynak:r.subeKaynak, subeAdet:r.subeAdet, mukerrer:r.mukerrer,
+        girilmis:r.girilmis, girilmisMetin:r.girilmisMetin }; });
     await duzenliYukle();   // Y72 · tpKur duzenli tanimlara bakiyor
     tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
     TOPLU.forEach(r => { const o = r.belge_no && onceki[r.belge_no]; if (!o) return;
       r.tur = o.tur; r.kategori = o.kategori; r.haric = o.haric;
       r.kdv = o.kdv; r.kdvDurum = o.kdvDurum; r.kdvNot = o.kdvNot; r.kdvKontrol = o.kdvKontrol;
+      r.sube = o.sube || r.sube; r.subeKaynak = o.subeKaynak || r.subeKaynak; r.subeAdet = o.subeAdet || r.subeAdet;
+      r.mukerrer = !!o.mukerrer; r.girilmis = !!o.girilmis; r.girilmisMetin = o.girilmisMetin;
       /* 'ok' geri yazılmaz: o satır zaten tablodan düştü. Kalan satırda
          duran şey HATA metnidir, kullanıcı onu görmeli. */
       if (o.sonuc && o.sonuc !== 'ok' && o.sonuc !== 'işletme dışı') r.sonuc = o.sonuc;
       r.sec = o.sec && tpKaydedilebilir(r);
     });
   }catch(e){ tazeHata = hataTr(e.message); }
+  TP_SONUC_GOSTER = true;
   tpCiz();
   mesaj('tpMsg', hatalar.length ? 'hata' : ((tazeHata || belgeHata.length) ? 'uyari' : 'ok'),
     ok + ' kaydedildi'
@@ -8443,6 +8717,9 @@ async function tpKaydet(){
         + '"Belgeyi Kayıtlara Ekle" ile tekrar dene): ' + belgeHata[0] : '')
     + (hatalar.length ? ' · ' + hatalar.length + ' hata: ' + hatalar.slice(0,3).join(' | ') : '')
     + (atlanan ? ' · ' + atlanan + ' işletme dışı işaretlendi (bir daha sorulmaz)' : '')
+    /* Y85 · kaydetmeden hemen once baska yerde girilmis bulunanlar — tekrar YAZILMADI */
+    + (atlananGirilmis ? ' · ' + atlananGirilmis + ' fatura tekrar yazılmadı: ' + girilmisOzet.slice(0, 3).join(' | ')
+        + (girilmisOzet.length > 3 ? ' …' : '') : '')
     + (eksikli ? ' · ' + eksikli + ' eksik okundu (tek tek gir)' : '')
     /* ⚠ "kaydedilemedi" DENMEZ — kayıt olmuştur. Yalan uyarı kullanıcıyı
        ikinci kez girmeye zorlar; söylenen tek şey panelin bayat olduğu. */
@@ -8450,9 +8727,22 @@ async function tpKaydet(){
                 + ' düğmesine tekrar basınca doğrusunu görürsün' : ''));
   /* Y79 · "Ürünlerini de oku": YALNIZ bu turda kaydedilen alış faturaları. Kimlik DB'den
      (tpSiniflandir'in x.kayit'ı); tazeleme düştüyse kimlik yok, düğme de çıkmaz. */
-  const yeniNo = secilenler.filter(r => r.tur === 'alis' && r.sonuc === 'ok').map(r => r.belge_no).filter(Boolean);
-  TP_SON_ALIS = tazeHata ? [] : MUTABAKAT.filter(x => x.tur === 'alis' && x.kayit && x.kayit.id
+  const yeniNo = secilenler.filter(r => r.tur === 'alis' && r.sonuc === 'ok' && !r.digerSubeKayit)
+    .map(r => r.belge_no).filter(Boolean);
+  const yeniAlis = tazeHata ? [] : MUTABAKAT.filter(x => x.tur === 'alis' && x.kayit && x.kayit.id
     && yeniNo.includes(x.belge_no)).map(x => x.kayit.id);
+  /* Y85 · "Yine de kaydet" (tek satir) onceki turun listesini SILMEZ, ustune ekler; normal
+     kaydet bugunku gibi listeyi o turun faturalariyla yeniler. */
+  TP_SON_ALIS = tek ? [...new Set([...TP_SON_ALIS, ...yeniAlis])] : yeniAlis;
+  /* ⚠ Y85 · BASKA SUBEYE yazilan alislar "Urunleri oku"ya BURADAN GIRMEZ: o akis yalniz acik
+       subenin faturalarini okur ve urunleri ACIK SUBENIN stoguna yazar ("Önce bir şube seç —
+       ürünler o şubenin stoğuna girer"). Stok O subeye girer — ekran bunu soyler ve yolu
+       yazar: o subeyi sec, Stok ekranindaki bant belgesi bagli faturalari zaten gosteriyor. */
+  const diger = {};
+  if (tek) TP_DIGER_SUBE_ALIS.forEach(d => { diger[d.ad] = d.adet; });
+  secilenler.filter(r => r.tur === 'alis' && r.sonuc === 'ok' && r.digerSubeKayit)
+    .forEach(r => { const ad = tpSubeAd(r.sube); diger[ad] = (diger[ad] || 0) + 1; });
+  TP_DIGER_SUBE_ALIS = Object.entries(diger).map(([ad, adet]) => ({ ad, adet }));
   tpUrunOkuCiz();
 }
 
@@ -8475,7 +8765,8 @@ async function mutabakatCalistir(){
       'Durduruldu — doğru portalın zip dosyasıyla tekrar dene.';
     return;
   }
-  btn.disabled = true; MUTABAKAT = [];
+  btn.disabled = true; MUTABAKAT = []; TP_FIRMA_SUBE = {};   // Y85 · onceki zip'in sube gecmisi kalmasin
+  TP_SONUC_GOSTER = false;                                    // Y85 · yeni karsilastirma: eski sonuc karti kalkar
   document.getElementById('mtSonuc').innerHTML = '';
   try{
     const pdfler = await mutabakatDosyalari();
@@ -8513,32 +8804,18 @@ async function mutabakatCalistir(){
       }catch(e){ kayit.hata = e.message; }
       MUTABAKAT.push(kayit);
     }
-    // Sistemde ne var: alış belge_no + gider açıklamasındaki belge no
-    const nolar = MUTABAKAT.map(x=>x.belge_no).filter(Boolean);
-    const [av, gv] = await Promise.all([
-      sb.from('alis').select('id,belge_no,tarih,toplam,foto_path,tedarikci(ad)')
-        .eq('is_deleted',false).in('belge_no', nolar.length?nolar:['-']),
-      sb.from('gider').select('id,aciklama,tarih,tutar,foto_path').eq('is_deleted',false)
-    ]);
-    // Bilerek girilmeyenler (şahsi harcama vb) "eksik" sayılmasın
-    const { data: hd } = await sb.from('belge_haric').select('belge_no,neden').eq('is_deleted',false);
-    const haricMap = {}; (hd||[]).forEach(h=>{ haricMap[(h.belge_no||'').toUpperCase()] = h.neden; });
-    const alisMap = {}; (av.data||[]).forEach(a=>{ alisMap[(a.belge_no||'').toUpperCase()] = a; });
-    const giderler = gv.data || [];
-    MUTABAKAT.forEach(x=>{
-      if (x.hata){ x.durum='hata'; return; }
-      /* Otomatik "baska_alici" ayıklaması kaldırıldı (TCKN sabiti gitti).
+    /* ⚠ Y85 · TEK SINIFLANDIRICI: burada eskiden tpSiniflandir'in bir KOPYASI vardi —
+         subenin BUTUN giderlerini ceken sinirsiz sorguyla, hata denetimi OLMADAN (sorgu
+         duserse her belge "eksik" gorunurdu). Iki kopya zamanla ayrisir; ilk
+         siniflandirma da kayittan sonraki tazeleme de artik AYNI fonksiyondan gecer:
+         gider sunucuda suzulur, baska subede girilmis belge v148 ile ayrilir, bir sorgu
+         bile duserse karsilastirma HATA der ve tablo kurulmaz.
+       Otomatik "baska_alici" ayıklaması kaldırıldı (TCKN sabiti gitti).
          Artık her belge normal sınıflandırmadan geçiyor; bize ait olmayan
          bir belge "girilmemiş" olarak görünür ve operatör "İşletme dışı"
          diyerek gerekçesiyle dışlar. Sessiz eleme yerine görünür karar. */
-      if (x.belge_no && haricMap[x.belge_no]){ x.durum='haric'; x.neden=haricMap[x.belge_no]; return; }
-      const a = x.belge_no ? alisMap[x.belge_no] : null;
-      const g = x.belge_no ? giderler.find(z => (z.aciklama||'').toUpperCase().includes(x.belge_no)) : null;
-      const k = a || g;
-      if (!k){ x.durum='eksik'; return; }
-      x.kayit = k; x.tur = a ? 'alis' : 'gider';
-      x.durum = k.foto_path ? 'belgeli' : 'belge_eklenecek';
-    });
+    MUTABAKAT.forEach(x => { if (x.hata) x.durum = 'hata'; else if (!x.belge_no) x.durum = 'eksik'; });
+    await tpSiniflandir(MUTABAKAT.filter(x => !x.hata).map(x => x.belge_no));
     yaz(`${MUTABAKAT.length} belge okundu.`, 'ok');
     mutabakatCiz();
     /* CS · Toplu tablo YALNIZ sisteme girilmemiş belgelerle kurulur;
@@ -8562,12 +8839,15 @@ function mutabakatCiz(){
           ${x.kayit?' · '+tl(x.kayit.toplam ?? x.kayit.tutar):''}</div></div>
       <div class="l-sag">${sag}</div></div>`;
   const eksik = grup('eksik'), ekle = grup('belge_eklenecek'),
-        tamam = grup('belgeli'), baska = grup('baska_alici'), hata = grup('hata');
+        tamam = grup('belgeli'), baska = grup('baska_alici'), hata = grup('hata'),
+        digerSube = grup('baska_sube');                    // Y85
   el.innerHTML = `<div class="kart">
     <div class="kbaslik">Karşılaştırma Sonucu</div>
     <div class="gs-bant" style="margin:0 0 12px">
       <div class="kalem buyuk"><div class="gs-et">Portaldan gelen</div><div class="dg">${MUTABAKAT.length}</div></div>
       <div class="kalem"><div class="gs-et">Sistemde var</div><div class="dg">${tamam.length+ekle.length}</div></div>
+      ${/* Y85 · baska subede girilmis belge "Girilmemiş"e KATILMAZ; ayri sayilir */''}
+      ${digerSube.length ? `<div class="kalem"><div class="gs-et">Başka şubede</div><div class="dg">${digerSube.length}</div></div>` : ''}
       <div class="kalem"><div class="gs-et">Girilmemiş</div><div class="dg" style="color:${eksik.length?'var(--hata)':'var(--ok)'}">${eksik.length}</div></div>
     </div>
     ${eksik.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--hata)">
@@ -8580,6 +8860,14 @@ function mutabakatCiz(){
       <div class="bilgi-not" style="margin:0 0 6px">${eksik.length} belge sisteme girilmemiş.
         Aşağıdaki <b>toplu giriş</b> tablosundan tür seçip hepsini birden kaydedebilir,
         ya da bir satırı <b>Tek tek gir</b> ile forma alabilirsin.</div>`:''}
+    ${/* ⚠ Y85 · BASKA SUBEDE GIRILMIS: "eksik" degil, toplu giris listesine GIRMEZ, tekrar
+          yazilmaz. Satir nerede ve kimin adina girildigini soyler (v148 · tutar YOK). */''}
+    ${digerSube.length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--ana)">
+        BAŞKA ŞUBEDE GİRİLMİŞ (${digerSube.length}) — tekrar girilmez</div>
+      ${digerSube.map(x=>`<div class="liste-satir">
+        <div class="l-sol"><div class="b">${esc(x.belge_no||x.ad.slice(0,24))}</div>
+          <div class="k">${esc(tpYerMetni(x))}${x.baskaBelge ? ' · belgesi de bağlandı' : ''}</div></div>
+        <div class="l-sag"><span class="k">girilmiş</span></div></div>`).join('')}`:''}
     ${grup('haric').length?`<div style="margin:14px 0 4px;font-size:11px;font-weight:900;letter-spacing:.5px;color:var(--soluk)">
         İŞLETME DIŞI (${grup('haric').length}) — bilerek girilmiyor</div>
       ${grup('haric').map(x=>satir(x, `<span class="k">${esc((x.neden||'').slice(0,28))}</span>`)).join('')}`:''}
@@ -8652,9 +8940,11 @@ async function mutabakatBelgeEkle(){
    izinin "kim" alanı istemcinin söylediği şey olamaz.
    ux_belge_haric mükerrer koruması değişmedi; ihlal aynı kısıt adıyla
    yukarı çıkıyor ve hataTr onu çeviriyor. */
-async function belgeHaricEkle(belgeNo, firma, neden){
+/* Y85 · `sube` verilirse o subeye (toplu girisin satir basina subesi); verilmezse aktif sube
+   (tek tek akis — bugunku davranis AYNEN). */
+async function belgeHaricEkle(belgeNo, firma, neden, sube){
   const { error } = await sb.rpc('rpc_belge_haric_ekle', {
-    p_sube: AKTIF_SUBE, p_belge_no: belgeNo,
+    p_sube: sube || AKTIF_SUBE, p_belge_no: belgeNo,
     p_firma: (firma || '').slice(0, 80), p_neden: neden });
   if (error){
     console.error('rpc_belge_haric_ekle · ' + belgeNo + ' · ham hata:', error);
@@ -12416,18 +12706,23 @@ async function uoStokBandi(el){
   h2.insertAdjacentElement('afterend', d);
 }
 /* Toplu girişten sonra: YALNIZ bu turda kaydedilen alış faturaları (tpKaydet'in parametreleri DEĞİŞMEDİ) */
+let TP_DIGER_SUBE_ALIS = [];      // Y85 · bu turda BASKA subeye yazilan alislar [{ad, adet}]
 function tpUrunOkuCiz(){
   let el = document.getElementById('tpUrunOku');
-  if (!TP_SON_ALIS.length){ if (el) el.remove(); return; }
+  if (!TP_SON_ALIS.length && !TP_DIGER_SUBE_ALIS.length){ if (el) el.remove(); return; }
   if (!el){
     const t = document.getElementById('mtToplu'); if (!t) return;
     el = document.createElement('div'); el.id = 'tpUrunOku'; t.after(el);
   }
   el.innerHTML = `<div class="kart" style="border-color:var(--ana)">
     <div class="kbaslik">Ürünler</div>
-    <div class="bilgi-not" style="margin:0 0 8px">Toplu giriş faturaları <b>ürün satırı olmadan</b> kaydeder:
+    ${TP_SON_ALIS.length ? `<div class="bilgi-not" style="margin:0 0 8px">Toplu giriş faturaları <b>ürün satırı olmadan</b> kaydeder:
       az önce kaydedilen ${TP_SON_ALIS.length} faturanın ürünleri stoğa ve fiyat geçmişine girmedi.</div>
-    <button type="button" class="btn" style="margin-top:0" onclick="urunleriOku(TP_SON_ALIS)">Ürünlerini de oku</button></div>`;
+    <button type="button" class="btn" style="margin-top:0" onclick="urunleriOku(TP_SON_ALIS)">Ürünlerini de oku</button>` : ''}
+    ${TP_DIGER_SUBE_ALIS.map(d => `<div class="bilgi-not" style="margin:${TP_SON_ALIS.length ? '10px' : '0'} 0 0">
+      <b>${d.adet} alış faturası ${esc(d.ad)} şubesine yazıldı</b> — ürünleri <b>${esc(d.ad)} stoğuna</b> girer,
+      buradan okunmaz. Okumak için üstten ${esc(d.ad)} şubesini seç; Stok ekranındaki
+      "ürünleri okunmamış" bandı bu faturaları gösterir.</div>`).join('')}</div>`;
 }
 function alTurNot(){
   const tur = document.getElementById('alTur').value;
