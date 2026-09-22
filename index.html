@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-93">
+<meta name="surum" content="2026-08-27-94">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -4352,7 +4352,7 @@ async function vOzet(){
       ${ozSatir('Personel', tl(o.personel_toplam))}
       ${+o.personel_avans ? ozSatir('Personel avansı', tl(o.personel_avans)) : ''}
       ${ozSatir('TOPLAM ÇIKIŞ', tl(o.nakit_cikisi), true)}
-      ${+o.odenmeyen_alis > 0 ? `<div class="uyari-orta" style="margin-top:10px">Bu ayın alışlarından
+      ${+o.odenmeyen_alis > 0 ? `<div class="uyari-orta" style="margin-top:10px">Bu ayın mal alımlarından
         <b>${tl(o.odenmeyen_alis)}</b> henüz ödenmedi — sonraki aylarda çıkacak.</div>` : ''}`;
 
   /* ==================================================================
@@ -4960,9 +4960,9 @@ function sonucTablosuHtml(R, oncekiR, ad, toplam, ek){
     : 'faturası girilen her şey';
   const giderNot = ['Faturası girilen her şey gider — ödemesi o ay yapılmasa da. Tutarlar KDV dahil; indirilecek KDV aşağıda vergiden düşülüyor.'];
   if (o && !o.stok_bazli && o.kapanis_stok != null && o.acilis_stok == null)
-    giderNot.push('Bu ayın sayımı var, açılışı (önceki ayın sayımı) yok — stok farkı hesaplanamadı, alışların tamamı gider sayıldı.');
+    giderNot.push('Bu ayın sayımı var, açılışı (önceki ayın sayımı) yok — stok farkı hesaplanamadı, mal alımlarının tamamı gider sayıldı.');
   const gider = blok(SONUC_RENK.gider, 'Giderler', '−',
-      sat('Mal alışları', 'faturası girilen ürünler', t(R.gider.alis))
+      sat('Mal alımları', 'faturası girilen ürünler', t(R.gider.alis))
     + sat('Diğer giderler', finAlt, t(R.gider.diger))
     + sat('Personel', 'maaş · SGK · prim · yemek', t(R.gider.personel))
     + (R.gider.stok ? sat('Stok farkı', 'sayımla ölçülen: açılış deposu − kapanış deposu', t(R.gider.stok)) : '')
@@ -7534,7 +7534,7 @@ function trOnizle(){
   if (!r || r.hata || r.tutar == null){
     o.innerHTML = r && r.maliyet == null && r.urun
       ? '<div class="uyari-agir">Bu ürünün bu şubede maliyeti hesaplanamıyor '
-        + '(alış kaydı yok). Transfer kaydedilemez.</div>' : '';
+        + '(mal alımı kaydı yok). Transfer kaydedilemez.</div>' : '';
     btn.disabled = true; return;
   }
   const kaynakAd = SUBE_AD || 'bu şube';
@@ -8155,7 +8155,7 @@ async function tpTedarikciAc(hangi){
   mesaj('tpMsg', hatalar.length ? 'hata' : 'ok',
     ok + ' tedarikçi oluşturuldu'
     + (hatalar.length ? ' · ' + hatalar.length + ' hata: ' + hatalar.slice(0,2).join(' | ')
-       + ' — bu satırlar Alış için açılmadı' : ''));
+       + ' — bu satırlar Mal alımı için açılmadı' : ''));
 }
 async function tpVknYaz(i){
   const r = tpBul(i); if (!r || !r.ted || !r.kaynak.vkn) return;
@@ -8197,11 +8197,11 @@ function tpCiz(){
     `<option value="${k.id}">${esc(k.ad)}</option>`).join('');
   el.innerHTML = `<div class="kart" style="border-color:var(--ana)">
     <div class="kbaslik">Toplu giriş — ${TOPLU.length} fatura</div>
-    <div class="bilgi-not" style="margin:0 0 8px">Türü <b>sen seç</b>: <b>Alış</b> mal maliyetine
-      (SMM), <b>Gider</b> işletme masrafına girer — kâra farklı yerden etki ederler.
+    <div class="bilgi-not" style="margin:0 0 8px">Türü <b>sen seç</b>: <b>Mal alımı</b> satılan malın
+      maliyetine (SMM), <b>Gider</b> işletme masrafına girer — kâra farklı yerden etki ederler.
       Sistem tahmin etmiyor; seçilmemiş satır kaydedilmez.</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
-      <button type="button" class="btn2" onclick="tpHepsi('tur','alis')">Hepsi ALIŞ</button>
+      <button type="button" class="btn2" onclick="tpHepsi('tur','alis')">Hepsi MAL ALIMI</button>
       <button type="button" class="btn2" onclick="tpHepsi('tur','gider')">Hepsi GİDER</button>
       <button type="button" class="btn2" onclick="tpHepsi('sec',true)">Hepsini işaretle</button>
       <button type="button" class="btn2" onclick="tpHepsi('sec',false)">İşareti kaldır</button>
@@ -8279,7 +8279,7 @@ function tpCiz(){
                    <b>KDV’siz</b> kaydedilir, indirilecek KDV’ye girmez.
                    Faturada KDV varsa <b>Tek tek gir</b> ile forma al.</div>` : ''}
             ${r.oneri && !r.tur
-              ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'alış' : 'gider'}</b>
+              ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'mal alımı' : 'gider'}</b>
                    olarak girilmişti — yine de sen seç</div>` : ''}
             ${/* Y87 · ad ekrandaki bolumle AYNI kelime: "sabit gider". Gonderilen
                   parametreler DEGISMEDI (tpKaydet'e dokunulmadi). */''}
@@ -8294,7 +8294,7 @@ function tpCiz(){
               ? (r.unvan
                  ? `<div class="k" style="color:var(--soluk)">tedarikçi listesinde yok —
                       faturadaki unvan: <b>${esc(r.unvan)}</b></div>`
-                 : '<div class="k" style="color:var(--soluk)">tedarikçi listesinde yok ve unvan faturadan okunamadı — Alış için tedarikçiyi elle ekle</div>')
+                 : '<div class="k" style="color:var(--soluk)">tedarikçi listesinde yok ve unvan faturadan okunamadı — Mal alımı için tedarikçiyi elle ekle</div>')
               : ''}
             ${r.ted && r.esles === 'vknsiz' && r.kaynak.vkn
               ? `<div class="k" style="color:var(--uyari)">${esc(r.ted.ad)} kayıtlı ama VKN'si boş
@@ -8325,7 +8325,7 @@ function tpCiz(){
           <select style="flex:1;min-width:120px" ${kilit ? 'disabled' : ''}
             onchange="tpDegis(${r.i},'tur',this.value)">
             <option value=""${r.tur ? '' : ' selected'}>— tür seç —</option>
-            <option value="alis"${r.tur === 'alis' ? ' selected' : ''}${r.ted ? '' : ' disabled'}>Alış (SMM)</option>
+            <option value="alis"${r.tur === 'alis' ? ' selected' : ''}${r.ted ? '' : ' disabled'}>Mal alımı (SMM)</option>
             <option value="gider"${r.tur === 'gider' ? ' selected' : ''}>Gider</option>
           </select>
           ${r.tur === 'gider' ? `<select style="flex:1;min-width:120px" ${kilit ? 'disabled' : ''}
@@ -8435,7 +8435,7 @@ async function tpGiderAra(kume){
    ek "şube" kelimesine gelir, her adla dogru okunur. */
 function tpYerMetni(x){
   const y = (x.yer || [])[0]; if (!y) return '';
-  const tur = y.tur === 'haric' ? 'işletme dışı işaretlenmiş' : (y.tur === 'alis' ? 'alış olarak girilmiş' : 'gider olarak girilmiş');
+  const tur = y.tur === 'haric' ? 'işletme dışı işaretlenmiş' : (y.tur === 'alis' ? 'mal alımı olarak girilmiş' : 'gider olarak girilmiş');
   const nerede = y.sube_id === AKTIF_SUBE ? 'bu şubede' : (y.sube_ad || 'başka bir') + ' şubesinde';
   /* ⚠ Y86 · BU SUBEDE AMA LISTEDE GORUNMEYEN KAYIT: sahipte sebep cogunlukla kayitta farkli
        yazilmis belge no; sube sorumlusunda ise yalniz-sahip kategorisindeki gider (onun RLS'i
@@ -9477,7 +9477,7 @@ function sabitIzlenenSatirlar(izlenen, gider, fr){
       if (!x) continue;
       /* ⚠ MIKTAR BIRIMIYLE YAZILIR, CARPANLA CARPILIP BIRIMI KORUNMAZ: "10 koli × 2" 20 KOLI
          degil 20 ADET eder (alSatirCiz ayni ayrimi yapiyor). Ikisi de yazilir. */
-      faturaKalem.push({ ad: x.ad, tarih: a.tarih, kaynak: SB_BELGE_AD[a.tur] || 'alış belgesi satırı',
+      faturaKalem.push({ ad: x.ad, tarih: a.tarih, kaynak: SB_BELGE_AD[a.tur] || 'mal alımı belgesi satırı',
         miktar: +k.miktar || 0, birim: k.birim_ad || 'adet', carpan: +k.birim_carpani || 1 });
     }
   return izlenen.map(z => {
@@ -9786,7 +9786,7 @@ async function demirbasKaydet(){
   const tarih = g('dbTarih').value;
   const tutar = paraDeger('dbTutar');
   if (!ad){ mesaj('dbMsg','hata','Ne aldığını yaz — örn: POS cihazı.'); return; }
-  if (!tarih){ mesaj('dbMsg','hata','Alış tarihi boş olamaz.'); return; }
+  if (!tarih){ mesaj('dbMsg','hata','Alındığı tarih boş olamaz.'); return; }
   if (!(tutar > 0)){ mesaj('dbMsg','hata','Tutar sıfırdan büyük olmalı.'); return; }
   if (!AKTIF_SUBE || toplamKipi()){ mesaj('dbMsg','hata','Önce bir şube seç — demirbaş şubeye yazılır.'); return; }
   /* mukerrer ON KONTROL: sunucuda idem yok (yukaridaki gerekce), ayni kayit iki kez
@@ -10582,7 +10582,9 @@ async function giderSil(id, tutarMetni){
   vGider();
 }
 
-/* ================== ALIŞ ================== */
+/* ================== MAL ALIMI ==================
+   ⚠ Y90 · EKRAN KELIMESI "mal alımı"dır; tablo, durum degeri ve RPC adlari DEGISMEDI.
+     Yeni metin yazarken kullaniciya "alış" DEME. */
 let KALEM_SAYAC = 0;
 function kalemEkle(){
   KALEM_SAYAC++;
@@ -12655,7 +12657,7 @@ function uoCiz(){
   else if (o.asama === 'hata') g = `<div class="uyari-orta">Liste alınamadı: ${esc(o.hata)}</div>`;
   else if (o.asama === 'liste'){
     g = `<div class="bilgi-not" style="margin:0 0 10px">Ürün satırı olmayan faturaların belgesi okunur; ürünler karta,
-        alış stoğa girer (faturanın tarihiyle). <b>Faturanın tutarına, KDV'sine ve ödemesine dokunulmaz.</b>
+        mal alımı stoğa girer (faturanın tarihiyle). <b>Faturanın tutarına, KDV'sine ve ödemesine dokunulmaz.</b>
         Yeni ürün kartları kaydetmeden önce sana sorulur.</div>
       ${F.length ? F.map(uoFaturaHtml).join('') : bosDurum('kutu', 'Okunacak fatura yok', 'Bu şubede ürün satırı olmayan, belgesi olan fatura kalmadı.')}
       ${okunacak ? `<div class="bilgi-not">Her belge 10-60 saniye sürebilir; en çok iki belge aynı anda okunur, istediğin an durdurabilirsin.</div>
@@ -12785,7 +12787,7 @@ function tpUrunOkuCiz(){
       az önce kaydedilen ${TP_SON_ALIS.length} faturanın ürünleri stoğa ve fiyat geçmişine girmedi.</div>
     <button type="button" class="btn" style="margin-top:0" onclick="urunleriOku(TP_SON_ALIS)">Ürünlerini de oku</button>` : ''}
     ${TP_DIGER_SUBE_ALIS.map(d => `<div class="bilgi-not" style="margin:${TP_SON_ALIS.length ? '10px' : '0'} 0 0">
-      <b>${d.adet} alış faturası ${esc(d.ad)} şubesine yazıldı</b> — ürünleri <b>${esc(d.ad)} stoğuna</b> girer,
+      <b>${d.adet} mal alımı faturası ${esc(d.ad)} şubesine yazıldı</b> — ürünleri <b>${esc(d.ad)} stoğuna</b> girer,
       buradan okunmaz. Okumak için üstten ${esc(d.ad)} şubesini seç; Stok ekranındaki
       "ürünleri okunmamış" bandı bu faturaları gösterir.</div>`).join('')}</div>`;
 }
@@ -13016,7 +13018,7 @@ async function alisListe(){
 
   el.innerHTML = `<div class="kart">
     ${/* ⚠ Y67 · Bayrakli personelde 7 gun penceresi KALKTI (v142 politikasi). */''}
-    ${kbaslik(PROFIL.rol==='personel' && !subeVerisiAcik() ? 'SON 7 GÜN':'ALIŞ FATURALARI', ayBasligi,
+    ${kbaslik(PROFIL.rol==='personel' && !subeVerisiAcik() ? 'SON 7 GÜN':'MAL ALIMI FATURALARI', ayBasligi,
       PROFIL.rol==='owner'
         ? `<input type="month" id="alListeAy" value="${ay}" onchange="alAyDegisti()"
              style="width:auto;margin:0;min-height:44px;font-size:13px">` : '')}
@@ -13027,7 +13029,7 @@ async function alisListe(){
             ? 'Fatura girdikçe burada birikir. Ay sonunda <b>Ay Sonu</b> sekmesinden portal zipini bırakıp gözden kaçan var mı kontrol edebilirsin.'
             : 'Fatura girdikçe burada görünür.')
       : `
-    ${ozSatir('Alış toplamı', tl(tTop))}
+    ${ozSatir('Mal alımı toplamı', tl(tTop))}
     ${ozSatir('İndirilecek KDV', tl(tKdv))}
     ${ozSatir('Ödenmemiş', tl(tAcik), true)}
     <div style="height:14px"></div>
@@ -14129,7 +14131,7 @@ const syTarihOner = donem => {
      "... günü". Anlam birebir ayni, cumle her ayda dogru kuruluyor. */
 const syDonemMetni = (donem, tarih) =>
   gunAyAdi(tarih) + ' günü saydığın rafları ' + ayKisa(donem)
-  + ' ayına bağlıyorsun. Aradaki alış ve tüketim hareketleri sayımı bozar — '
+  + ' ayına bağlıyorsun. Aradaki mal alımı ve tüketim hareketleri sayımı bozar — '
   + ayKisa(donem) + ' sonundaki depo bu değildi.';
 /* ⚠ SOYLER, DURDURMAZ (ADIM 06 kurali): kayit ENGELLENMEZ.
    ⚠ TARIH DONEM ICINDEYSE HICBIR SEY CIKMAZ (ADIM 15 dersi: isaret
@@ -14298,7 +14300,7 @@ async function vTedarikci(){
     <div class="kart">
       <div class="kbaslik">Açılış Bakiyesi Gir</div>
       <div class="bilgi-not" style="margin:0 0 8px">Sisteme geçmeden önce firmaya olan mevcut borcun varsa buraya gir — bakiye doğru başlasın.
-        Açılış borcu <b>ayın alışı sayılmaz</b>, kârı etkilemez. Bir firmanın açılışı tektir: yenisi eskisinin yerine geçer.</div>
+        Açılış borcu <b>ayın mal alımı sayılmaz</b>, kârı etkilemez. Bir firmanın açılışı tektir: yenisi eskisinin yerine geçer.</div>
       <label>Firma</label>
       <select id="abTedarikci">${KATALOG.tedarikciler.map(t=>`<option value="${t.id}">${esc(t.ad)}</option>`).join('')}</select>
       <label>Mevcut Borç (açılış)</label><input type="text" inputmode="decimal" id="abTutar" placeholder="0,00">
@@ -16008,7 +16010,7 @@ function kisiSubeVerisiAnahtari(k){
 }
 async function kisiSubeVerisiDegistir(profil, acik, ad, etkisiz){
   if (!await onaySor(`${ad} · şube sorumlusu ${acik ? 'AÇILACAK' : 'KAPATILACAK'}.`,
-    acik ? 'Kendi şubesinde:\n\n• GÖRÜR: gün sonu kayıtları (senin girdiklerin ve eski günler dahil), gider/alış/ödeme listeleri ve Özet ekranındaki grafik, sonuç tablosu ve dönem rakamları — SENİN GÖRDÜĞÜN gibi. Kâr tablosundaki toplamlar şubenin bütün giderlerini içerir.\n\n• DÜZELTİR: şubenin HER gün sonu kaydını — kimin girdiğine ve kaç gün geçtiğine bakılmaz; ay kapatılmışsa düzeltemez. Her düzeltme kayıt defterine onun adıyla düşer. Silme yetkisi değişmez (yalnız kendi girdiği, 3 günden yeni kayıt).\n\nDiğer şube, borç ekranları ve senin yönetim ekranların KAPALI kalır.\n\nOnaylıyor musun?'
+    acik ? 'Kendi şubesinde:\n\n• GÖRÜR: gün sonu kayıtları (senin girdiklerin ve eski günler dahil), gider/mal alımı/ödeme listeleri ve Özet ekranındaki grafik, sonuç tablosu ve dönem rakamları — SENİN GÖRDÜĞÜN gibi. Kâr tablosundaki toplamlar şubenin bütün giderlerini içerir.\n\n• DÜZELTİR: şubenin HER gün sonu kaydını — kimin girdiğine ve kaç gün geçtiğine bakılmaz; ay kapatılmışsa düzeltemez. Her düzeltme kayıt defterine onun adıyla düşer. Silme yetkisi değişmez (yalnız kendi girdiği, 3 günden yeni kayıt).\n\nDiğer şube, borç ekranları ve senin yönetim ekranların KAPALI kalır.\n\nOnaylıyor musun?'
          : etkisiz ? 'Rolü Personel değil; anahtar şu an etkisiz. Kapatılmazsa, yeniden Personel yapıldığında şube rakamları ve gün sonu düzeltme kendiliğinden açılır.\n\nOnaylıyor musun?'
          : 'Özet ekranındaki şube rakamları ve geçmiş gün sonu kayıtları bu kişiye kapanır; başkasının girdiği ya da 3 günden eski gün sonunu artık düzeltemez. Girdiği satırlar ve yaptığı düzeltmeler silinmez.\n\nOnaylıyor musun?',
     acik ? 'Aç' : 'Kapat')) return;
@@ -16163,7 +16165,7 @@ async function vYonetim(){
     </div>
     <div class="kart">
       <div class="kbaslik">Aylık Arşiv (PDF)</div>
-      <div class="bilgi-not" style="margin:0 0 8px">Seçilen ayın tüm Z raporları + alış/gider belgeleri tarih ve kasa etiketiyle tek PDF'te birleşir — muhasebeciye/ERP'ye tek dosya.
+      <div class="bilgi-not" style="margin:0 0 8px">Seçilen ayın tüm Z raporları + mal alımı/gider belgeleri tarih ve kasa etiketiyle tek PDF'te birleşir — muhasebeciye/ERP'ye tek dosya.
         Bir kasa o gün birden fazla Z bastıysa hepsi ayrı sayfa olarak girer.</div>
       <label>Ay</label><input type="month" id="arsivAy" value="${bugun().slice(0,7)}">
       <button class="btn" id="arsivBtn" onclick="arsivPdf()">PDF Oluştur ve İndir</button>
@@ -18114,7 +18116,7 @@ async function arsivPdf(){
       }
     }
     for (const a of (al.data||[])) if (a.foto_path)
-      ogeler.push({ b:`ALIS — ${a.tarih} — ${a.tedarikci?.ad||''} — ${tl(a.toplam)}`, p:a.foto_path });
+      ogeler.push({ b:`MAL ALIMI — ${a.tarih} — ${a.tedarikci?.ad||''} — ${tl(a.toplam)}`, p:a.foto_path });
     for (const x of (gd.data||[])) if (x.foto_path)
       ogeler.push({ b:`GIDER — ${x.tarih} — ${x.gider_kategori?.ad||''} — ${tl(x.tutar)}`, p:x.foto_path });
     // PDF belgeler bu birleştirmeye giremez (jsPDF yalnız görsel ekler) — ayrı say ve söyle
