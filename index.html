@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-92">
+<meta name="surum" content="2026-08-27-93">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -7091,7 +7091,7 @@ async function vGider(){
           "Gider" dugmesi YALNIZ o bolum aciksa cizilir (formun kendisi duruyor, dugmesi
           kalkti). Demirbas YALNIZ sahipte: tablonun RLS politikasi owner-only, personele
           dugme koymak gidecegi olmayan dugme olurdu. */''}
-    <div class="segment cok">${GIDER_BOLUM==='temel'?sekBtn('temel','Gider'):''}${sekBtn('fatura','Fatura')}${sekBtn('sabit','Sabit')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('demirbas','Demirbaş'):''}${sekBtn('odeme','Ödemeler')}${PROFIL.rol==='owner'?sekBtn('mutabakat','Ay Sonu'):''}</div>
+    <div class="segment cok">${GIDER_BOLUM==='temel'?sekBtn('temel','Gider'):''}${sekBtn('fatura','Fatura')}${sekBtn('sabit','Sabit')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('demirbas','Demirbaş'):''}${sekBtn('odeme','Ödemeler')}${(PROFIL.rol==='owner' || subeVerisiAcik())?sekBtn('mutabakat','Ay Sonu'):''}</div>
     ${/* ADIM 17 (B) · taslak seridi — gun sonundaki gsTaslakBar'in esi */''}
     <div id="ekTaslakBar"></div>
     <div id="gdIcerik"></div>
@@ -7986,8 +7986,30 @@ function tpKur(eksikler){
     /* Y85 · SATIR BASINA SUBE · oneri firmanin gecmisinden (v148 firma_sube), yoksa aktif sube */
     const on = tpSubeOner(ted);
     satir.sube = on.sube; satir.subeKaynak = on.kaynak; satir.subeAdet = on.adet;
+    /* Y86 · SUBE SORUMLUSUNDA SUBE KILIDI (asagida) */
+    const kl = tpSubeKilidi(ted);
+    satir.subeKilit = !!kl; satir.subeKilitAd = kl ? kl.ad : null; satir.subeKilitAdet = kl ? kl.adet : 0;
+    satir.subeOnay = false;
     return satir;
   });
+}
+/* ===== Y86 · SUBE SORUMLUSU · SUBE SECIMI YOK, KILIT VAR =====
+   Sube sorumlusunun her satiri KENDI subesine yazilir (sunucu da zorluyor: personelde
+   p_sube = auth_sube()). Ama zip bir portaldan geliyor ve baska subenin faturasi da
+   icinde olabilir. Firmanin son 12 ayi (v149 firma_sube) COGUNLUKLA BASKA bir subeyi
+   gosteriyorsa satir KILITLI gelir; kilidi YALNIZ satir basina acik bir onay acar
+   ("Bu fatura <kendi sube> şubesinin"). Toplu acma YOK.
+   ⚠ GEREKCE (kullanici): bazi firmalar iki subeye de satiyor. Sert kilit mesru faturayi
+     engellerdi, kilitsiz hal yanlis subeye yazdirirdi.
+   ⚠ Esitlikte kilit YOK (kendi subesi de o kadar alis yapmis). Gecmisi olmayan firma acik.
+   ⚠ Sahipte bu kilit CIKMAZ: sahibin satir basina sube secimi var (Y85). */
+function tpSubeKilidi(ted){
+  if (!subeVerisiAcik() || !ted) return null;
+  const g = TP_FIRMA_SUBE[ted.id] || [];
+  if (!g.length || g[0].sube_id === AKTIF_SUBE) return null;
+  const kendi = g.find(x => x.sube_id === AKTIF_SUBE);
+  if (kendi && kendi.adet >= g[0].adet) return null;          // esitlik: kendi subesi de o kadar
+  return { ad: g[0].sube_ad || 'başka bir', adet: g[0].adet };
 }
 /* ===== Y85 · SATIR BASINA SUBE =====
    KULLANICI: "Samsun faturalarini girerken hangisi Samsun'un hangisi KTU'nun ayrimini
@@ -8046,11 +8068,14 @@ function tpDegis(i, alan, deger){
   else if (alan === 'haric'){ r.haric = !!deger; if (r.haric) r.sec = false; }
   else if (alan === 'tur'){ r.tur = deger; if (deger !== 'gider') r.kategori = ''; if (!deger) r.sec = false; }
   else if (alan === 'sube'){ r.sube = deger || AKTIF_SUBE; r.subeKaynak = 'elle'; }   // Y85
+  else if (alan === 'subeOnay'){ r.subeOnay = !!deger; if (!r.subeOnay) r.sec = false; }   // Y86 · satir basina
   else r[alan] = deger;
   tpCiz();
 }
 function tpHepsi(alan, deger){
   TOPLU.forEach(r => { if (r.haric || r.eksik.length) return;
+    /* Y86 · "Hepsini işaretle" KILITLI satiri isaretlemez — kilit YALNIZ satir basina onayla acilir */
+    if (alan === 'sec' && r.subeKilit && !r.subeOnay) return;
     if (alan === 'tur' && deger === 'alis' && !r.ted) return;     // tedarikçisiz alış olmaz
     /* ⚠ CU · toplu dokunuş da hata kilidini açar (tpDegis ile aynı gerekçe) */
     if (r.sonuc && !tpKilitli(r)) r.sonuc = null;
@@ -8151,7 +8176,8 @@ async function tpVknYaz(i){
 }
 function tpKaydedilebilir(r){
   return !r.haric && !r.eksik.length && !!r.tur && !r.sonuc
-      && (r.tur !== 'gider' || !!r.kategori) && (r.tur !== 'alis' || !!r.ted);
+      && (r.tur !== 'gider' || !!r.kategori) && (r.tur !== 'alis' || !!r.ted)
+      && (!r.subeKilit || !!r.subeOnay);                      // Y86 · kilitli satir onaysiz yazilmaz
 }
 function tpCiz(){
   const el = document.getElementById('mtToplu'); if (!el) return;
@@ -8193,7 +8219,8 @@ function tpCiz(){
         `<option value="${s.id}">${esc(s.ad)}${s.id === AKTIF_SUBE ? ' (açık olan şube)' : ''}</option>`).join('')}</select>` : ''}
     ${TOPLU.map(r => {
       const kapali = r.haric || r.eksik.length || !r.tur
-                  || (r.tur === 'gider' && !r.kategori) || (r.tur === 'alis' && !r.ted);
+                  || (r.tur === 'gider' && !r.kategori) || (r.tur === 'alis' && !r.ted)
+                  || (r.subeKilit && !r.subeOnay);            // Y86 · sube kilidi
       /* ⚠ SATIRI YALNIZ BAŞARI KİLİTLER. Önce "r.sonuc varsa disabled"
          deniyordu; hata metni de bir sonuç olduğu için HATA ALAN SATIR
          da kilitleniyordu — kullanıcı düzeltip tekrar deneyemiyordu
@@ -8224,6 +8251,15 @@ function tpCiz(){
             ${r.girilmis
               ? `<div class="k" style="color:var(--ana)">Kaydetmeden hemen önce kontrol edildi:
                    <b>${esc(r.girilmisMetin || 'başka bir yerde girilmiş')}</b> — tekrar yazılmadı.</div>` : ''}
+            ${/* Y86 · sube sorumlusunda sube kilidi: YALNIZ satir basina acik onay acar */''}
+            ${r.subeKilit && !kilit
+              ? `<div class="k" style="color:var(--uyari)">Bu firma son 12 ayda çoğunlukla
+                   <b>${esc(r.subeKilitAd)} şubesine</b> yazılmış (${r.subeKilitAdet} belge). Bu satır
+                   ${esc(tpSubeAd(AKTIF_SUBE))} şubesine yazılır — faturanın gerçekten bu şubenin olduğundan emin ol.</div>
+                 <label style="display:flex;gap:8px;align-items:center;min-height:44px;font-size:13px;font-weight:700">
+                   <input type="checkbox" style="width:22px;height:22px;flex:none" ${r.subeOnay ? 'checked' : ''}
+                     onchange="tpDegis(${r.i},'subeOnay',this.checked)">
+                   Bu fatura ${esc(tpSubeAd(AKTIF_SUBE))} şubesinin</label>` : ''}
             ${baskaSube && !kilit
               ? `<div class="k" style="color:var(--ana);font-weight:800">→ ${esc(tpSubeAd(r.sube))} şubesine yazılacak
                    (açık olan şube ${esc(tpSubeAd(AKTIF_SUBE))})</div>` : ''}
@@ -8302,10 +8338,13 @@ function tpCiz(){
             onchange="tpDegis(${r.i},'sube',this.value)">
             ${SUBELER.map(s => `<option value="${s.id}"${r.sube === s.id ? ' selected' : ''}>${esc(s.ad)}</option>`).join('')}
           </select>` : ''}
-          <label style="display:flex;gap:6px;align-items:center;min-height:44px;font-size:13px">
+          ${/* ⚠ Y86 · ISLETME DISI YALNIZ SAHIPTE: rpc_belge_haric_ekle owner-only (sunucu). Sube
+                sorumlusuna kutu CIZILMEZ — gidecegi olmayan kutu olurdu; yerine kim yapacagi yazar. */''}
+          ${PROFIL.rol === 'owner' ? `<label style="display:flex;gap:6px;align-items:center;min-height:44px;font-size:13px">
             <input type="checkbox" style="width:20px;height:20px" ${r.haric ? 'checked' : ''}
               ${kilit ? 'disabled' : ''} onchange="tpDegis(${r.i},'haric',this.checked)">
-            işletme dışı</label>
+            işletme dışı</label>`
+            : `<span class="k" style="color:var(--soluk)">İşletme dışı işaretlemeyi yönetici yapar</span>`}
           ${!r.ted && r.unvan && r.esles !== 'catisma' && !kilit
             ? `<button type="button" class="btn2" style="min-height:44px"
                  onclick="tpTedarikciAc(${r.i})">Tedarikçi olarak ekle</button>` : ''}
@@ -8398,8 +8437,12 @@ function tpYerMetni(x){
   const y = (x.yer || [])[0]; if (!y) return '';
   const tur = y.tur === 'haric' ? 'işletme dışı işaretlenmiş' : (y.tur === 'alis' ? 'alış olarak girilmiş' : 'gider olarak girilmiş');
   const nerede = y.sube_id === AKTIF_SUBE ? 'bu şubede' : (y.sube_ad || 'başka bir') + ' şubesinde';
+  /* ⚠ Y86 · BU SUBEDE AMA LISTEDE GORUNMEYEN KAYIT: sahipte sebep cogunlukla kayitta farkli
+       yazilmis belge no; sube sorumlusunda ise yalniz-sahip kategorisindeki gider (onun RLS'i
+       o satiri gostermiyor). Iki sebebe de uyan NOTR cumle — tahmin yazilmaz.
+     ⚠ Sube sorumlusuna firma adi DONMEZ (v149): `firma_ad` yoksa ek de yazilmaz. */
   return nerede + ' ' + tur + (y.firma_ad ? ' · ' + y.firma_ad : '')
-    + (y.sube_id === AKTIF_SUBE ? ' (kayıtta belge no farklı yazılmış)' : '')
+    + (y.sube_id === AKTIF_SUBE ? ' (kaydın ayrıntısı bu listede görünmüyor)' : '')
     + (x.yer.length > 1 ? ' · +' + (x.yer.length - 1) + ' kayıt daha' : '');
 }
 async function tpSiniflandir(nolar){
@@ -8486,7 +8529,9 @@ async function tpKaydet(yalnizI){
      ⚠ Burada eskiden AYRI bir çağrı vardı ve p_sube/p_firma'yı
        göndermiyordu; yorumda "aynısı" yazdığı hâlde değildi. İki kopya
        zamanla ayrıştı, kullanıcı ekranda "İşlem tamamlanamadı" gördü. */
-  const haricler = tek ? [] : TOPLU.filter(r => r.haric && !r.sonuc && r.belge_no);
+  /* Y86 · isletme disi yolu YALNIZ sahipte (rpc_belge_haric_ekle owner-only): sube sorumlusunda
+     bir satir bir sekilde isaretli kalmissa bile YAZILMAZ — gerekce de sorulmaz. */
+  const haricler = (tek || PROFIL.rol !== 'owner') ? [] : TOPLU.filter(r => r.haric && !r.sonuc && r.belge_no);
   let haricNeden = null;
   if (haricler.length){
     haricNeden = await nedenSor(haricler.length + ' belge işletme dışı işaretlendi',
@@ -8902,9 +8947,19 @@ async function belgeBagla(x){
   const { error: ue } = await sb.storage.from('belgeler')
     .upload(yol, x.dosya, { upsert:false, contentType:'application/pdf' });
   if (ue) throw new Error(ue.message);
-  const tablo = x.tur === 'alis' ? 'alis' : 'gider';
-  const { error: ge } = await sb.from(tablo).update({ foto_path: yol }).eq('id', x.kayit.id);
-  if (ge) throw new Error(ge.message);
+  /* ⚠ Y86 · BAGLAMA rpc_belge_ekle ILE (olculdu · SESSIZ KAYIP): eskiden dogrudan
+       `update alis/gider set foto_path` yapiliyordu. Sube sorumlusunun bu tablolarda
+       GUNCELLEME politikasi YOK — sorgu sifir satira dokunuyor, HATA DONMUYOR, istemci
+       basari sayiyordu: PDF depoya yukleniyor ama kayda BAGLANMIYOR, ekran "bağlandı"
+       diyordu. rpc_belge_ekle Belgeler ekraninin zaten kullandigi yol: sahip her subeye,
+       sube sorumlusu yalniz kendi subesine (aksi halde BELGE_SUBE_YETKISIZ); dokunacak
+       satir yoksa KAYIT_YOK ile DUSER — sessiz basari kalmadi. Iki rolde de bu yol.
+     ⚠ Hata HAM firlatilir; ceviri gosterim aninda (Y2 kurali). Satir "belgeli"ye ancak
+       sunucu ok dedikten sonra cevrilir. */
+  const { data, error: be } = await sb.rpc('rpc_belge_ekle', {
+    p_tur: x.tur === 'alis' ? 'fatura' : 'gider', p_kayit_id: x.kayit.id, p_yol: yol });
+  if (be) throw new Error(be.message);
+  if (!data || !data.ok) throw new Error('sunucu belgeyi bağlamadı');
   x.durum = 'belgeli'; x.kayit.foto_path = yol;
   return yol;
 }
@@ -12221,8 +12276,10 @@ async function uoOku(o, f){
     if (Math.abs(alKurus(z.kdv) - uoKurus(f.kdv)) > 5){
       const k = alKdvKirilimKur(z, f.toplam);
       if (!k.ok) return red(k.neden);
+      /* Y86 · sube sorumlusu: KDV duzeltmesi YAPILMAZ, fatura kaydedilemez olur; cumle kimin
+         yapacagini ve siradakini soyler (duzeltme bolumu onda hic dolmaz, cagri hic gitmez) */
       if (!(PROFIL && PROFIL.rol === 'owner'))
-        return red('belgedeki KDV sistemdekinden farklı — düzeltmeyi yönetici yapmalı, ürünleri sonra kaydedilir');
+        return red('KDV’si belgeyle tutmuyor — düzeltmeyi yönetici yapar; ürünleri ondan sonra okunur');
       f.kdvDuzelt = { eski: f.kdv, yeni: k.kdv, kirilim: k.kirilim, onay: true };
     }
     if (!f.satirlar.length) return red('belgede ürün satırı okunamadı');
@@ -12392,7 +12449,10 @@ function uoAnahtarHtml(o, a, i){
    Belgedeki KDV baskaysa fatura burada listelenir; onay kutusu varsayilan ISARETLI,
    kullanici kaldirabilir — kaldirirsa o faturanin urunleri de kaydedilmez (sunucu satir
    toplamini faturanin KDV haric tutarina gore olcer). */
-const uoKdvListesi = (o) => o.faturalar.filter(f => f.durum === 'okundu' && f.kdvDuzelt);
+/* Y86 · KDV duzeltme listesi YALNIZ sahipte: sube sorumlusunda uoOku kdvDuzelt KURMUYOR, burada da
+   rol kapisi var — iki kapi, cunku bu liste rpc_alis_kdv_duzelt cagrisinin TEK kaynagi. */
+const uoKdvListesi = (o) => (PROFIL && PROFIL.rol === 'owner')
+  ? o.faturalar.filter(f => f.durum === 'okundu' && f.kdvDuzelt) : [];
 function uoKdvBolumHtml(o){
   const L = uoKdvListesi(o); if (!L.length) return '';
   return `<div class="kbaslik" style="margin:6px 0">KDV düzeltmesi (${L.length})</div>
@@ -12661,7 +12721,12 @@ function uoKutu(){
   return ov;
 }
 async function urunleriOku(idler){
-  if (!PROFIL || PROFIL.rol !== 'owner'){ bildir('Ürün okuma yalnız yöneticiye açık.', 'hata'); return; }
+  /* ⚠ Y86 · SUBE SORUMLUSUNA DA ACIK: toplu girisi o da yapiyor ve kaydettigi faturalarin
+       urunlerini okumasi gerekiyor. Sunucu kapilari zaten yerinde: rpc_alis_kalem_tamamla
+       personele YALNIZ kendi subesinde acik; belge okuyucu (fatura-oku v4) personele acik;
+       KDV duzeltmesi (rpc_alis_kdv_duzelt) owner-only ve personelde HIC cagrilmaz (uoOku ve
+       uoKaydet). Bayraksiz personel hala giremez. */
+  if (!PROFIL || !(PROFIL.rol === 'owner' || subeVerisiAcik())){ bildir('Ürün okuma yalnız yöneticiye ve şube sorumlusuna açık.', 'hata'); return; }
   if (toplamKipi()){ bildir('Önce bir şube seç — ürünler o şubenin stoğuna girer.', 'uyari'); return; }
   if (UO) return;
   const ov = uoKutu(); ov.classList.add('acik');
