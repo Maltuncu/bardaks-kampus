@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-95">
+<meta name="surum" content="2026-08-27-96">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -11788,8 +11788,14 @@ async function faturaOku(){
     alHesapla();
     // Matrahı olmayan KDV satırlarını toplamdan geri hesapla (satır karşılaştırması buna dayanıyor)
     /* Y92 · oran başına matrah önce belgenin kendi satırlarından; satır nesneleri SAF kurucudan
-       (alias gerekmiyor — burada yalnız tutar ve oran kullanılıyor, eşleştirme sonra yapılıyor) */
-    const matrahTamamlanan = alMatrahTamamla(alSatirNesneleri(Array.isArray(v.satirlar) ? v.satirlar : [], []));
+       (alias gerekmiyor — burada yalnız tutar ve oran kullanılıyor, eşleştirme sonra yapılıyor)
+       ⚠ Y92-e · SIRA ONEMLI: iskonto sınavı BURADA DA koşar. Koşmazsa oran başına matrah,
+         yanlış düşülmüş satırlardan türetilemez ve KDV ÷ oran yedeğine düşerdi; sonra satırlar
+         düzeltilince ekran "matrah tutmuyor" derdi (ölçüldü: ikinci belgede kuruş farkı çıktı). */
+    const geciciSatirlar = alSatirNesneleri(Array.isArray(v.satirlar) ? v.satirlar : [], []);
+    const zForm = alBelgeZemini(v);
+    alIskontoSinavi(geciciSatirlar, zForm && zForm.tam ? zForm.matrah : null);
+    const matrahTamamlanan = alMatrahTamamla(geciciSatirlar);
     /* ⚠ RENK YEŞİLDEN UYARIYA ALINDI (B05): "hesaplandı" ile "belgeden okundu"
        aynı şey değil. Yeşil, kullanıcıya doğrulanmış izlenimi veriyordu.
        Ayrıca metin artık nereden türetildiğini doğru söylüyor: matrah
@@ -11875,7 +11881,14 @@ async function alSatirlariKur(satirlar, tedarikciId){
   AL_SATIRLAR.push(...alSatirNesneleri(satirlar, alias));
   /* Y84 · belgede fiyatlar KDV dahilse satirlar burada KDV'siz hale gelir — zemin
      okumanin kendi kirilimi (OCR_SON), ekrandaki kutular DEGIL. */
-  const cev = alKdvDahilCevir(AL_SATIRLAR, alBelgeZemini(OCR_SON && OCR_SON.veri));
+  const z = alBelgeZemini(OCR_SON && OCR_SON.veri);
+  /* Y92-e · ONCE iskonto duzeltmesi matrahla sinanir (gereksizse geri alinir), SONRA cevrim:
+     yanlis dusulmus satirlarla cevrim kapisi da yanlis karar verirdi. */
+  const sinav = alIskontoSinavi(AL_SATIRLAR, z && z.tam ? z.matrah : null);
+  AL_ISK_NOT = sinav
+    ? sinav.satir + ' satırda iskonto sanılan değerler uygulanmadı — belgenin matrahı uygulanmadan tutuyor'
+    : '';
+  const cev = alKdvDahilCevir(AL_SATIRLAR, z);
   AL_KDV_NOT = cev.durum === 'gerekmedi' ? '' : cev.not;
   const yeniler = alBenzerGerekli(AL_SATIRLAR);
   if (yeniler.length) await alBenzerDoldur(yeniler, tedarikciId);
@@ -11937,6 +11950,9 @@ function alSatirNesneleri(satirlar, alias){
       i, ham_ad:(s.ad||'').toString().trim(), ham_kod:kod||null,
       miktar, birim:(s.birim||'').toString().trim()||null,
       birim_fiyat:liste, satir_tutar:net, brut,
+      /* Y92-e · BELGEDE YAZAN tutar ayrica saklanir: iskonto duzeltmesi uygulandiginda
+         satir_tutar degisiyor, geri almak icin okumanin kendi rakami lazim. */
+      yazan: +s.satir_tutar || 0,
       iskonto_orani: iskAtlandi ? null : (iskO || null), iskonto_tutar: iskT,
       kdv_orani:s.kdv_orani ?? null,
       carpan, paketCakisma, duzeltme, iskAtlandi,
@@ -11991,6 +12007,41 @@ function alBelgeZemini(v){
    ⚠ %0 ICIN TURETIM YOK: "matrah x 0 = 0" esitligi her sayiyi dogrular, yani sinanamaz.
    ⚠ BELGENIN TOPLAM MATRAHI (alBelgeZemini) BURADAN GELMEZ: satirlarin hedefi
      satirlardan turetilirse karsilastirma kendini dogrular. Zemin belgeden kalir. */
+/* =====================================================================
+   Y92-e · IKI YORUMU MATRAHLA SINA (iskonto duzeltmesi gercekten gerekli mi)
+   =====================================================================
+   OLCULDU (ikinci gercek belge · tek satir): okuyucu bu kez iskonto_orani'na o satirin
+   KDV ORANINI, iskonto_tutar'ina da KDV TUTARINI yazdi. Y92-d'nin oran kapisi
+   "iskonto tutari yoksa" sartini tasidigi icin devreye girmedi; istemci brutten iskonto
+   dustu ve satir toplami matrahtan tam FATURANIN KDV'si kadar eksik kaldi.
+   ⚠ O belgede iki yorum AYNI sayiyi veriyor (%1'de brut x 0,99 ile brut - KDV esit), yani
+     hangi alanin uygulandigi SAYIDAN ayirt edilemez — kapi ikisini birden kapsamali.
+   KAPI: satirlar kurulduktan sonra iki toplam var — duzeltme UYGULANMIS (A) ve
+   UYGULANMAMIS (B, belgede yazan tutarlar). Hedef belgenin kendi matrahi.
+     · B tutuyor, A tutmuyorsa  -> duzeltmeler GERI ALINIR, sebebi satirda yazar
+     · A tutuyor, B tutmuyorsa  -> bugunku davranis (gercek iskontolu belge)
+     · ikisi de tutuyor / ikisi de tutmuyorsa -> bugunku davranis; satir toplami kapisi
+       zaten konusur (yeni bir esik ICAT EDILMEDI, pay o kapinin payi)
+   ⚠ Hedef matrah bilinmiyorsa kapi CALISMAZ. */
+const AL_SATIR_PAYI = 5;       // kuruş · satır toplamı kapısıyla AYNI pay (uoTutuyor · alSatirDenetim)
+function alIskontoSinavi(satirlar, hedefMatrah){
+  if (!Array.isArray(satirlar) || !satirlar.length || hedefMatrah == null) return null;
+  const uygulanan = satirlar.filter(s => s.duzeltme);
+  if (!uygulanan.length) return null;
+  const hedef = alKurus(hedefMatrah);
+  const A = satirlar.reduce((a, s) => a + alKurus(s.satir_tutar), 0);
+  const B = satirlar.reduce((a, s) => a + alKurus(s.yazan != null ? s.yazan : s.satir_tutar), 0);
+  const aTut = Math.abs(A - hedef) <= AL_SATIR_PAYI, bTut = Math.abs(B - hedef) <= AL_SATIR_PAYI;
+  if (aTut || !bTut) return null;                      // bugünkü davranış
+  uygulanan.forEach(s => {
+    s.satir_tutar = s.yazan;
+    /* iskonto alanlari da DUSER: satir tutari brutken "iskonto var" demek kendi icinde
+       celisir ve o oran/tutar kayda giderdi. */
+    s.iskonto_orani = null; s.iskonto_tutar = null; s.duzeltme = null;
+    s.iskSinav = 'iskonto sanılan değerler uygulanmadı: belgenin matrahı uygulanmadan tutuyor';
+  });
+  return { satir: uygulanan.length };
+}
 const AL_ORAN_PAYI = 6;        // kuruş · satır yuvarlamaları (alKdvKirilimKur'un satır kapısıyla AYNI pay)
 function alOranMatrahi(satirlar, oran, kdvTutar){
   /* ⚠ alPara BURADA YETMEZ: `+null` 0'dir, yani alPara(null) sıfır döner — okunamayan oran
@@ -12076,6 +12127,7 @@ function alKdvKirilimKur(z, toplam, satirlar){
   return { ok: true, kirilim: L, kdv: +(sk / 100).toFixed(2) };
 }
 let AL_KDV_NOT = '';               // tek tek giriste cevrim notu (alSatirDenetim yazar)
+let AL_ISK_NOT = '';               // Y92-e · iskonto düzeltmesi geri alındıysa sebebi (alSatirDenetim yazar)
 function alSatirCiz(){
   const kap = document.getElementById('alSatirlar'); if(!kap) return;
   const urunler = (KATALOG.urunler||[]);
@@ -12099,6 +12151,9 @@ function alSatirCiz(){
     /* Y92-d · sessiz atlama YOK: oran uygulanmadıysa satırda yazar */
     const atlandiNot = s.iskAtlandi
       ? `<br><span style="color:var(--uyari)">⚠ ${esc(s.iskAtlandi)} — satır tutarı belgede yazan <b>${tl(s.satir_tutar)}</b> olarak alındı</span>` : '';
+    /* Y92-e · matrah sınavında geri alınan düzeltme */
+    const sinavNot = s.iskSinav
+      ? `<br><span style="color:var(--uyari)">⚠ ${esc(s.iskSinav)} — satır tutarı <b>${tl(s.satir_tutar)}</b></span>` : '';
     // İskonto bildirilmemiş ama çarpım net tutardan büyükse: sütun atlanmış olabilir
     const gizliIsk = !iskVar && brut > s.satir_tutar + 0.05
       ? `<br><span style="color:var(--uyari)">⚠ ${s.miktar} × ${tl(s.birim_fiyat)} = ${tl(brut)} ama satır ${tl(s.satir_tutar)} —
@@ -12110,7 +12165,7 @@ function alSatirCiz(){
     return `<div class="fs-satir" id="fsS_${s.i}">
       <div class="fs-bas">${rozet}<span class="fs-ad">${esc(s.ham_ad||'(adsız)')}</span></div>
       <div class="fs-detay">${s.ham_kod?'kod '+esc(s.ham_kod)+' · ':''}${s.miktar} ${esc(s.birim||'adet')}
-        × ${tl(s.birim_fiyat)}${iskNot} = <b>${tl(s.satir_tutar)}</b>${s.kdv_orani!=null?' · %'+s.kdv_orani:''}${carpanNot}${duzNot}${atlandiNot}${gizliIsk}${paketNot}</div>
+        × ${tl(s.birim_fiyat)}${iskNot} = <b>${tl(s.satir_tutar)}</b>${s.kdv_orani!=null?' · %'+s.kdv_orani:''}${carpanNot}${duzNot}${atlandiNot}${sinavNot}${gizliIsk}${paketNot}</div>
       ${(s.benzer&&s.benzer.length&&s.karar==='yeni') ? `<div class="bilgi-not" style="color:var(--uyari);margin:0 0 6px">
         ⚠ Bu ürün zaten kayıtlı olabilir — <b>aynıysa aşağıdan seç</b>, yeni açma:
         ${s.benzer.map(b=>`<br>• <b>${esc(b.kod||'')} ${esc(b.ad)}</b> (%${Math.round(b.skor*100)} benzer)`).join('')}</div>` : ''}
@@ -12165,7 +12220,9 @@ function alSatirDenetim(){
   const fark = +(satirT - hedef).toFixed(2);
   AL_SATIR_TUTUYOR = Math.abs(fark) <= 0.05;
   /* Y84 · cevrim SESSIZ YAPILMAZ: ne yapildigi satirlarin altinda yazar */
-  const kdvNot = AL_KDV_NOT ? `<div class="bilgi-not" style="color:var(--ok)">✎ ${esc(AL_KDV_NOT)}</div>` : '';
+  const kdvNot = AL_KDV_NOT ? `<div class="bilgi-not" style="color:var(--ok)">✎ ${esc(AL_KDV_NOT)}</div>` : ''
+    /* Y92-e · geri alınan iskonto düzeltmesi de SESSİZ kalmaz */
+    + (AL_ISK_NOT ? `<div class="bilgi-not" style="color:var(--uyari)">⚠ ${esc(AL_ISK_NOT)}</div>` : '');
   el.innerHTML = kdvNot + (AL_SATIR_TUTUYOR
     ? `<div class="bilgi-not" style="color:var(--ok)">✓ Satır toplamı ${tl(satirT)} = ${etiket} ${tl(hedef)} — ürünler kaydedilebilir</div>`
     : `<div class="bilgi-not" style="color:var(--uyari)">⚠ Satır toplamı <b>${tl(satirT)}</b>,
@@ -12356,6 +12413,7 @@ async function uoOku(o, f){
     /* Y92-d · sutun karismasi burada da SESSIZ kalmaz: kac satirda oran uygulanmadi, listede yazar */
     const atlanan = f.satirlar.filter(s => s.iskAtlandi).length;
     f.oranNot = atlanan ? atlanan + ' satırda iskonto sanılan oran KDV oranıyla aynıydı — uygulanmadı, belgede yazan tutar alındı' : '';
+    f.iskSinavNot = '';
     const red = (n) => { f.durum = 'kaydedilemez'; f.neden = n; uoSonYaz(f); };
     /* ⚠ Y84 · ZEMIN KAPISI: belgenin kendi matrah + KDV'si faturanin toplamini tutmuyorsa
        belge ile sistem uyusmuyor demektir — satir da KDV de yazilmaz. */
@@ -12363,6 +12421,12 @@ async function uoOku(o, f){
     f.zemin = z;
     if (!z.tam || Math.abs(alKurus(z.matrah) + alKurus(z.kdv) - uoKurus(f.toplam)) > 5)
       return red('belgedeki matrah + KDV faturanın toplamını tutmadı — faturayı aç, Düzenle → Belgeyi oku');
+    /* Y92-e · iskonto duzeltmesi GERCEKTEN gerekli mi: iki yorum belgenin matrahiyla sinanir.
+       KDV duzeltmesinden ONCE: oran basina matrah (alOranMatrahi) da bu satirlardan turuyor. */
+    const iskSinav = alIskontoSinavi(f.satirlar, z.matrah);
+    f.iskSinavNot = iskSinav
+      ? iskSinav.satir + ' satırda iskonto sanılan değerler uygulanmadı — belgenin matrahı uygulanmadan tutuyor'
+      : '';
     /* KDV duzeltmesi: belgedeki KDV baslikta kayitlidan farkliysa AYRI onayla duzeltilir.
        ⚠ KDV beyana girer: sunucu (v147) YALNIZ owner'a izin verir; personelde satir da
        yazilamaz (satir toplaminin hedefi yanlis KDV yuzunden yanlis) — sebebi burada yazar. */
@@ -12732,6 +12796,7 @@ function uoFaturaHtml(f){
       ${f.neden ? `<div class="k" style="color:var(--uyari);overflow-wrap:anywhere">${esc(f.neden)}</div>` : ''}
       ${f.kdvNot ? `<div class="k" style="color:var(--ok);overflow-wrap:anywhere">✎ ${esc(f.kdvNot)}</div>` : ''}
       ${f.oranNot ? `<div class="k" style="color:var(--uyari);overflow-wrap:anywhere">⚠ ${esc(f.oranNot)}</div>` : ''}
+      ${f.iskSinavNot ? `<div class="k" style="color:var(--uyari);overflow-wrap:anywhere">⚠ ${esc(f.iskSinavNot)}</div>` : ''}
       ${(f.son && !f.neden) ? `<div class="k" style="overflow-wrap:anywhere">son denemede (${esc(f.son.saat)}):
         ${esc((UO_DURUM[f.son.durum] || ['?'])[0])}${f.son.neden ? ' — ' + esc(f.son.neden) : ''}</div>` : ''}
     </div>
