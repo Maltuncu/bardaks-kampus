@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-96">
+<meta name="surum" content="2026-08-27-97">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -1603,10 +1603,25 @@ function stokFiltre(q){
     el.style.display = uy ? '' : 'none';
     if (uy) gorunen++;
   });
+  /* Y93 · ARAMA LISTEDEN KALDIRILANLARI DA BULUR: kutu kapali dursa bile eslesme varken
+     kendiliginden acilir (kullanici "yok" sanmasin), arama silininde yine kapanir. */
+  const pk = document.getElementById('stokPasifKutu');
+  let pasifEslesen = 0;
+  if (pk){
+    pasifEslesen = [...pk.querySelectorAll('.sr[data-ara]')].filter(el => el.style.display !== 'none').length;
+    if (t && pasifEslesen){ pk.style.display = 'block'; gorunen += pasifEslesen; }
+    else if (!t) pk.style.display = 'none';
+  }
   const b = document.getElementById('stokAraBos');
   if (b){
     b.style.display = (t && gorunen === 0) ? '' : 'none';
     b.textContent = t && gorunen === 0 ? `"${q}" için ürün bulunamadı.` : '';
+  }
+  const pb = document.getElementById('stokPasifNot');
+  if (pb){
+    pb.style.display = (t && pasifEslesen) ? '' : 'none';
+    pb.textContent = (t && pasifEslesen)
+      ? `"${q}" için ${pasifEslesen} kayıt listeden kaldırılanlar arasında — yeniden açabilirsin.` : '';
   }
 }
 function ozSatir(et, dg, vurgu){
@@ -12749,6 +12764,7 @@ async function uoKaydet(){
   }
   /* 2 · faturalar: faturanın kendisine dokunulmaz, yalnız satır + stok hareketi */
   let tamam = 0, satirSay = 0;
+  const kaydedilenUrun = [];                  // Y93 · kapalı kart yeniden açılsın diye
   for (let n = 0; n < kayit.length; n++){
     const f = kayit[n];
     if (kdvDusen.has(f.id)) continue;                       // KDV düzeltmesi düştü: satır da yazılmaz
@@ -12775,10 +12791,14 @@ async function uoKaydet(){
       if (son.error) throw new Error(son.error.message);
       if (!son.data || !son.data.ok) throw uoKendi('sunucu onay vermedi');
       f.durum = 'kaydedildi'; f.kalemSay = kalemler.length; tamam++; satirSay += kalemler.length;
+      kaydedilenUrun.push(...kalemler.map(k => k.urun_id));          // Y93
     }catch(e){ f.durum = 'kayit_hata'; f.neden = hataTr(e.message); }
     uoSonYaz(f);
   }
-  o.sonuc = { tamam, satirSay, yeniKart, kdvTamam }; o.kaydedilen = tamam > 0 || kdvTamam > 0;
+  /* Y93 · bu turda yazilan satirlarin arasinda listeden kaldirilmis kart varsa yeniden acilir */
+  const kartGeri = await urunKapaliAc(kaydedilenUrun);
+  o.sonuc = { tamam, satirSay, yeniKart, kdvTamam, kartGeri: kartGeri ? kartGeri.not : '' };
+  o.kaydedilen = tamam > 0 || kdvTamam > 0;
   o.asama = 'bitti'; uoCiz();
 }
 function uoIlerlemeYaz(){ const el = document.getElementById('uoIlerleme'); if (el && UO) el.textContent = UO.ilerleme || ''; }
@@ -12855,6 +12875,7 @@ function uoCiz(){
     g = `<div class="kart" style="margin:0 0 12px"><div class="kbaslik">Sonuç</div>
         <div class="ok-msg" style="display:block">${r.tamam} fatura tamamlandı · ${r.satirSay} ürün satırı · ${r.yeniKart} yeni ürün kartı</div>
         ${r.kdvTamam ? `<div class="ok-msg" style="display:block">${r.kdvTamam} faturanın KDV'si belgeye göre düzeltildi</div>` : ''}
+        ${r.kartGeri ? `<div class="bilgi-not" style="color:var(--uyari)">⚠ ${esc(r.kartGeri)}</div>` : ''}
         ${r.tamam ? '<div class="bilgi-not">Ürünler Stok sayfasında; ürüne dokununca fiyat geçmişi açılır.</div>' : ''}</div>
       ${disarda.length ? `<div class="kbaslik" style="margin:6px 0">Kaydedilmeyenler (${disarda.length})</div>
         ${disarda.map(f => uoFaturaHtml(f.durum === 'bekliyor' ? Object.assign({}, f, { durum: 'atlandi', neden: 'okunmadı (durduruldu)' }) : f)).join('')}` : ''}
@@ -13140,9 +13161,13 @@ async function alisKaydet(){
   if (data && data.ok){
     ekranTaslakSil();          // ADIM 17 · basarida taslak DUSER
     const yeni = YENI_URUN_UYARI.slice();
+    /* Y93 · listeden kaldirilmis kart yeni faturada geldiyse KOPYA ACILMAZ, kart yeniden acilir */
+    const geri = await urunKapaliAc((kalemler || []).map(k => k.urun_id));
     vGider();
-    if (yeni.length) mesaj('alMsg','ok',
-      `Fatura kaydedildi ✓ · ${yeni.length} yeni ürün stok kartı açıldı: ${yeni.join(', ')}`);
+    const notlar = [];
+    if (yeni.length) notlar.push(`${yeni.length} yeni ürün stok kartı açıldı: ${yeni.join(', ')}`);
+    if (geri && geri.not) notlar.push(geri.not);
+    if (notlar.length) mesaj('alMsg','ok', 'Fatura kaydedildi ✓ · ' + notlar.join(' · '));
   }
 }
 let AL_AY = null;
@@ -13219,7 +13244,7 @@ async function alisListe(){
 async function vStok(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
-  const [{ data: stok }, cikis, fiyat] = await Promise.all([
+  const [{ data: stok }, cikis, fiyat, pasif] = await Promise.all([
     sb.from('v_stok_durum').select('*').eq('sube_id', AKTIF_SUBE).order('ad'),
     // Son sayım/tüketim ne zaman? Hiç yoksa "mevcut" stok değil, toplam alımdır.
     // Bir kez sayıp bırakmak da yetmez: sayım eskidikçe rakam yine gerçeklikten kopar.
@@ -13227,7 +13252,11 @@ async function vStok(){
       .eq('is_deleted',false).in('tur',['tuketim','sayim_duzeltme'])
       .order('tarih',{ascending:false}).limit(1),
     // Tedarikçi karşındayken lazım olan rakam ORTALAMA değil SON fatura fiyatıdır
-    sb.from('v_urun_son_fiyat').select('*')
+    sb.from('v_urun_son_fiyat').select('*'),
+    /* Y93 · listeden kaldirilan kartlar: `urun` SUBE_SUZGEC'te DEGIL (sube_id tasimiyor),
+       yani sorgu butun subeler icin ayni listeyi verir. Yalniz sahip: yeniden acmayi o yapar. */
+    owner ? sb.from('urun').select('id,kod,ad,birim,notlar').eq('aktif', false).eq('is_deleted', false).order('ad')
+          : Promise.resolve({ data: [] })
   ]);
   const fiyatMap = {};
   (fiyat.data||[]).forEach(f => fiyatMap[f.urun_id] = f);
@@ -13245,6 +13274,7 @@ async function vStok(){
   SY_LISTE = liste.map(x => ({ id:x.urun_id, ad:x.ad, birim:x.birim,
                                mevcut:+x.mevcut||0,
                                mal:+(x.maliyet_tam ?? x.ort_maliyet)||0 }));
+  const pasifListe = (pasif && pasif.data) || [];        // Y93 · listeden kaldırılanlar (yalnız sahip)
   const kritikler = liste.filter(s=>s.kritik);
   // Kritik seviyesi 0 olan ürün için "Yeterli" demek yanlış bilgi: seviye tanımlı değilse
   // sistem uyaramaz. Bunu "Yeterli" diye göstermek yerine açıkça tanımsız yazıyoruz.
@@ -13255,7 +13285,8 @@ async function vStok(){
     ${liste.length ? `<input type="search" id="stokAra" placeholder="Ürün ara — örn: su, kahve, bardak"
        oninput="stokFiltre(this.value)" autocomplete="off"
        style="margin:0 0 10px">
-       <div id="stokAraBos" class="bilgi-not" style="display:none;margin:0 0 10px"></div>` : ''}
+       <div id="stokAraBos" class="bilgi-not" style="display:none;margin:0 0 10px"></div>
+       <div id="stokPasifNot" class="bilgi-not" style="display:none;margin:0 0 10px;color:var(--uyari)"></div>` : ''}
     ${liste.length ? `<div class="ozet-grid">
       ${owner ? `<div class="ozet-kut"><div class="e">${cikisVar?'TOPLAM STOK DEĞERİ':'ALINAN MAL DEĞERİ'}</div>
         <div class="d">${tl(toplamDeger)}</div>
@@ -13326,6 +13357,27 @@ async function vStok(){
               onclick="urunDetay('${s.urun_id}')">${esc(s.ad)}</button>`;
           }).join('') + '</div>'}
     </div>
+
+    ${/* ==========================================================
+         Y93 · LISTEDEN KALDIRILANLAR · GERI DONUS YOLU
+         ==========================================================
+         ⚠ BULUNAMAYAN KART, GERI DONUSU OLMAYAN YOL DEMEKTIR: kaldirilan urun burada
+           duruyor, tek dokunusla yeniden aciliyor. Arama da buluyor (stokFiltre kutuyu
+           eslesme varken kendiliginden aciyor).
+         ⚠ Kutu KAPALI baslar: gunluk isde gurultu yapmasin. */''}
+    ${pasifListe.length ? `
+    <div class="kart" id="stokPasif">
+      ${kbaslik('', 'Listeden kaldırılanlar', `<button class="btn2" onclick="katlaAc('stokPasifKutu',this)">Aç</button>`)}
+      <div id="stokPasifKutu" style="display:none">
+        <div class="ipucu">Bu ürünler stok kutucuklarında ve ürün listelerinde görünmüyor; kayıtları,
+          fatura satırları ve geçmişleri duruyor. Yeniden açtığında eldeki miktarıyla geri gelir.</div>
+        ${pasifListe.map(u => `<div class="sr" data-ara="${esc(((u.kod||'') + ' ' + (u.ad||'')).toLocaleLowerCase('tr'))}">
+            <div><div class="sr-ad">${esc(u.ad)}</div>
+              <div class="sr-alt">${esc(u.kod ? u.kod + ' · ' : '')}${esc(u.birim || '')}${u.notlar ? ' · ' + esc(u.notlar) : ''}</div></div>
+            <button type="button" class="btn2 dz-yok" onclick="urunYenidenAc('${u.id}')">Yeniden aç</button>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
 
     ${/* ==========================================================
          ADIM 4 · SUBELER ARASI TRANSFER
@@ -13680,7 +13732,9 @@ async function urunDetay(urunId){
     <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
   ov.classList.add('acik');
   const [ur, al, st] = await Promise.all([
-    sb.from('urun').select('kod,ad,birim,paket_ici_adet,kategori,kritik_seviye').eq('id',urunId).maybeSingle(),
+    /* Y93 · `aktif` ve `notlar` da okunur: kart "artık alınmıyor" durumunu gösterir ve
+       gerekçe notun SONUNA eklenir (demirbaştaki kalıp). */
+    sb.from('urun').select('kod,ad,birim,paket_ici_adet,kategori,kritik_seviye,aktif,notlar').eq('id',urunId).maybeSingle(),
     /* ⚠ Y13 · EKLENEN ALANLAR HEPSI SKALER: kalemde `kdv_orani`,
          faturada `toplam` · `kdv_tutar` · `kdv_orani`. Gomme derinligi
          DEGISMEDI (zaten `alis!inner(...tedarikci(ad))` iki kademeydi).
@@ -13860,6 +13914,21 @@ async function urunDetay(urunId){
         <div><div class="ud-et">BİRİM MALİYET</div><div class="ud-dg">${s&&+s.ort_maliyet?tl(s.ort_maliyet):'—'}</div></div>
         <div><div class="ud-et">STOK DEĞERİ</div><div class="ud-dg">${s?tl(s.stok_degeri):'—'}</div></div>
       </div>
+      ${/* ===== Y93 · ARTIK ALINMAYACAK URUN =====
+            KULLANICI: "tekrar alinmayacak seyler var sonucta". SILME YOK: `is_deleted`e
+            DOKUNULMAZ, gecmis (fatura satirlari, fiyat grafigi, stok hareketleri) aynen kalir.
+            `aktif=false` olan kart `v_stok_durum`dan ve katalog sorgusundan (ikisi de `aktif`
+            suzuyor) duser; yani kutucuklardan ve urun listelerinden cikar.
+            ⚠ YALNIZ SAHIP: personelin `urun` tablosunda yazma izni YOK (politika), dugme
+              konulsaydi gidecegi olmayan dugme olurdu. */''}
+      ${PROFIL.rol === 'owner' ? (u.aktif === false
+        ? `<div class="bilgi-not" style="color:var(--uyari);margin:0 0 10px">⚠ Bu ürün <b>listeden kaldırılmış</b> —
+             stok kutucuklarında ve ürün listelerinde görünmüyor. Geçmişi burada duruyor.
+             <button type="button" class="btn2" style="margin-top:8px"
+               onclick="urunYenidenAc('${urunId}')">Yeniden aç</button></div>`
+        : `<div style="margin:0 0 10px"><button type="button" class="btn2"
+             onclick="urunArtikAlinmiyor('${urunId}')">Artık alınmıyor</button>
+             <span class="k" style="display:block;margin-top:4px">Listeden kaldırır; kayıtlar ve geçmiş durur.</span></div>`) : ''}
 
       ${/* ⚠ Y13 · BASLIK "FIYAT" DEGIL "MALIYET": cizilen sey artik
             faturanin liste fiyati degil, maliyete giren tutar. Baslik
@@ -13992,6 +14061,89 @@ async function urunDetay(urunId){
      kaydirma yerinde kaliyor. */
   UD_ALIM = alim; UD_BIRIM = u.birim; UD_KIRILIM_MOD = 'yil';
   udKirilimCiz();
+}
+
+/* ==================================================================
+   Y93 · ARTIK ALINMAYACAK URUN KARTI · LISTEDEN KALDIRMA
+   ==================================================================
+   KULLANICI: "bazi stok kartlarini silmek istiyorum ama bu mumkun degil sanirim" ·
+   "tekrar alinmayacak seyler var sonucta".
+   ⚠ SILME YOK: `is_deleted`e DOKUNULMAZ. Eski fatura satirlari, fiyat grafigi ve stok
+     hareketleri OLDUGU GIBI kalir; yalniz `aktif` duser. `v_stok_durum` ve katalog
+     sorgusu (`.eq('aktif',true)`) bu bayragi suzdugu icin kart stok kutucuklarindan ve
+     butun urun listelerinden cikar. Ekran metinlerinde "sil" DEMEZ.
+   ⚠ SONUC ONCEDEN YAZILIR: stogu olan urun kaldirilinca o degeri toplam stok degerinden
+     DUSER — onay penceresi kac birim kaldigini ve degerin azalacagini soyler.
+   ⚠ GERI DONUSU VAR: Stok ekraninin "Listeden kaldirilanlar" bolumunden ya da kartin
+     kendisinden yeniden acilir; ayrica ayni urun yeni bir faturada gelirse kart
+     KENDILIGINDEN yeniden acilir (kopya kart ACILMAZ — urunKapaliAc).
+   ⚠ YALNIZ SAHIP: `urun` tablosunda personelin yazma izni yok. */
+async function urunArtikAlinmiyor(urunId){
+  if (!PROFIL || PROFIL.rol !== 'owner'){ bildir('Bu işlem yalnız yöneticide.', 'hata'); return; }
+  if (toplamKipi()){ bildir('Önce bir şube seç — elde ne kaldığını göstermeden kaldırmam.', 'uyari'); return; }
+  const [{ data: u, error: ue }, { data: st }] = await Promise.all([
+    sb.from('urun').select('ad,notlar,aktif').eq('id', urunId).maybeSingle(),
+    sb.from('v_stok_durum').select('mevcut,birim,stok_degeri').eq('urun_id', urunId).eq('sube_id', AKTIF_SUBE).maybeSingle()
+  ]);
+  if (ue || !u){ bildir('Ürün okunamadı: ' + hataTr((ue && ue.message) || 'kayıt bulunamadı'), 'hata'); return; }
+  if (u.aktif === false){ bildir('Bu ürün zaten listeden kaldırılmış.', 'uyari'); return; }
+  const mevcut = +(st && st.mevcut) || 0, deger = +(st && st.stok_degeri) || 0;
+  const stokCumlesi = mevcut > 0
+    ? `Bu şubede elde ${mevcut.toLocaleString('tr-TR')} ${esc(st.birim || u.birim || '')} var — stok değeri ${tl(deger)} azalacak. `
+    : 'Bu şubede eldeki miktar sıfır. ';
+  const neden = await nedenSor(`"${u.ad}" listeden kaldırılacak (silinmez, geçmişi durur)`,
+    stokCumlesi + 'Kart bütün şubelerde stok kutucuklarından ve ürün listelerinden düşer; '
+    + 'aynı ürün yeni bir faturada gelirse kart kendiliğinden yeniden açılır. '
+    + 'Neden? (örn: artık alınmıyor, tedarikçi bıraktı)', 1);
+  if (neden === null) return;
+  if (!neden.trim()){ bildir('Gerekçe zorunlu.', 'hata'); return; }
+  const not = [u.notlar, 'listeden kaldırıldı: ' + neden.trim()].filter(Boolean).join(' · ').slice(0, 400);
+  const { error } = await sb.from('urun').update({ aktif: false, notlar: not }).eq('id', urunId);
+  if (error){ bildir('Kaldırılamadı: ' + hataTr(error.message), 'hata'); return; }
+  bildir(`"${u.ad}" listeden kaldırıldı ✓ — geçmişi duruyor`, 'ok');
+  await katalogYukle();
+  udKapat();
+  if (AKTIF_SEKME === 'stok') vStok();
+}
+/* Kartin ya da stok ekranindaki listenin "Yeniden ac" dugmesi */
+async function urunYenidenAc(urunId){
+  if (!PROFIL || PROFIL.rol !== 'owner'){ bildir('Bu işlem yalnız yöneticide.', 'hata'); return; }
+  const { data: u, error: ue } = await sb.from('urun').select('ad,notlar,aktif').eq('id', urunId).maybeSingle();
+  if (ue || !u){ bildir('Ürün okunamadı: ' + hataTr((ue && ue.message) || 'kayıt bulunamadı'), 'hata'); return; }
+  if (u.aktif !== false){ bildir('Bu ürün zaten listede.', 'uyari'); return; }
+  if (!await onaySor(`"${u.ad}" yeniden açılacak`,
+    'Ürün stok kutucuklarında ve ürün listelerinde yeniden görünür; eldeki miktarı ve stok değeri geri gelir.', 'Yeniden aç')) return;
+  const not = [u.notlar, 'yeniden açıldı'].filter(Boolean).join(' · ').slice(0, 400);
+  const { error } = await sb.from('urun').update({ aktif: true, notlar: not }).eq('id', urunId);
+  if (error){ bildir('Açılamadı: ' + hataTr(error.message), 'hata'); return; }
+  bildir(`"${u.ad}" yeniden açıldı ✓`, 'ok');
+  await katalogYukle();
+  udKapat();
+  if (AKTIF_SEKME === 'stok') vStok();
+}
+/* ⚠ AYNI URUN YENI FATURADA: eslesme kapali karti BULUYOR (urun_alias'ta `aktif` suzgeci
+   YOK; rpc_urun_tanimla ad eslesmesinde de yalniz `is_deleted` bakiyor — olculdu). Kart
+   kapali kalirsa satir yazilir ama urun stokta GORUNMEZ: sessiz kayip. Bu yuzden kayittan
+   sonra kapali kartlar yeniden acilir ve ekranda YAZAR.
+   ⚠ Personelde yazma izni yok: cagri YAPILMAZ, cumle "yonetici acacak" der. */
+async function urunKapaliAc(idler){
+  const L = [...new Set((idler || []).filter(Boolean))];
+  if (!L.length) return null;
+  const { data, error } = await sb.from('urun').select('id,ad,notlar')
+    .in('id', L).eq('aktif', false).eq('is_deleted', false);
+  if (error || !data || !data.length) return null;
+  if (!(PROFIL && PROFIL.rol === 'owner'))
+    return { acilan: [], kapali: data.map(u => u.ad),
+      not: data.length + ' ürün listeden kaldırılmıştı — yeniden açmayı yönetici yapar' };
+  const acilan = [];
+  for (const u of data){
+    const not = [u.notlar, 'yeni faturada geldi, yeniden açıldı'].filter(Boolean).join(' · ').slice(0, 400);
+    const { error: ge } = await sb.from('urun').update({ aktif: true, notlar: not }).eq('id', u.id);
+    if (!ge) acilan.push(u.ad);
+  }
+  if (!acilan.length) return null;
+  await katalogYukle();
+  return { acilan, kapali: [], not: acilan.length + ' ürün listeden kaldırılmıştı, yeni faturada geldiği için yeniden açıldı: ' + acilan.join(', ') };
 }
 
 /* ==================================================================
