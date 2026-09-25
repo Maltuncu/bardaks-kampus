@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-97">
+<meta name="surum" content="2026-08-27-98">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -280,6 +280,17 @@ button.dz-ana:active{background:var(--acik)}
   font:inherit;font-size:13.5px;font-weight:800;line-height:1.3;color:var(--metin);
   cursor:pointer;overflow-wrap:anywhere}
 .ur-kt:active{background:var(--acik)}
+/* Y94 · stok kutucuklari kategori basliklari altinda gruplanir. Baslik kutunun DISINDA:
+   Y80'in "kutucugun on yuzunde yalniz urun adi" kurali bozulmasin. */
+.st-grup{margin:14px 0 0}
+.st-grup:first-child{margin-top:4px}
+.st-grup-bas{display:flex;align-items:baseline;gap:6px;font-size:11px;font-weight:900;
+  letter-spacing:.5px;text-transform:uppercase;color:var(--soluk);margin:0 0 2px;overflow-wrap:anywhere}
+.st-grup-say{font-size:11px;font-weight:800;color:var(--soluk);letter-spacing:0;text-transform:none}
+/* kategorisiz kutuda hizli atama secicisi kutunun ALTINDA (select, button icine konamaz) */
+.ur-sar{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ur-sar .ur-kt{width:100%}
+.ur-kat{margin:0;min-height:36px;font-size:12px;padding:6px 8px}
 .ud-satir{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:baseline;
   padding:11px 2px;border-bottom:1px solid var(--cizgi)}
 .ud-satir:last-child{border-bottom:none}
@@ -1600,8 +1611,17 @@ function stokFiltre(q){
   document.querySelectorAll('#icerik .sr[data-ara], #icerik .ur-kt[data-ara]').forEach(el => {
     toplam++;
     const uy = !t || el.dataset.ara.includes(t);
-    el.style.display = uy ? '' : 'none';
+    /* Y94 · kutucuk bir sarmalayicinin icindeyse (kategorisiz gruptaki hizli atama secicisi)
+       gizlenecek olan SARMALAYICIDIR; yoksa secici ortada kalir. */
+    const hedef = el.closest('.ur-sar') || el;
+    hedef.style.display = uy ? '' : 'none';
     if (uy) gorunen++;
+  });
+  /* Y94 · BOS BASLIK KALMAZ: icinde gorunen kutu kalmayan grup basligiyla birlikte gizlenir */
+  document.querySelectorAll('#icerik .st-grup').forEach(g => {
+    const acik = [...g.querySelectorAll('.ur-kt[data-ara]')]
+      .some(x => (x.closest('.ur-sar') || x).style.display !== 'none');
+    g.style.display = acik ? '' : 'none';
   });
   /* Y93 · ARAMA LISTEDEN KALDIRILANLARI DA BULUR: kutu kapali dursa bile eslesme varken
      kendiliginden acilir (kullanici "yok" sanmasin), arama silininde yine kapanir. */
@@ -2066,7 +2086,9 @@ async function katalogYukle(){
        butun kategori listeleri bosalir, bu yuzden bayrak OKUNAMAZSA uyari YAZILMAZ. */
     sb.from('gider_kategori').select('id,ad,mal_alimi,kdv_indirilebilir').eq('aktif',true).eq('is_deleted',false).order('ad'),
     sb.from('tedarikci').select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres').eq('aktif',true).eq('is_deleted',false).order('ad'),
-    sb.from('urun').select('id,ad,birim,kod,paket_ici_adet').eq('aktif',true).eq('is_deleted',false).order('kod')
+    /* Y94 · `kategori` TEK ALAN olarak eklendi: stok ekrani kutucuklari buna gore grupluyor.
+       Yeni sorgu YOK, gorunum degismedi (v_stok_durum kategoriyi zaten dondurmuyor). */
+    sb.from('urun').select('id,ad,birim,kod,paket_ici_adet,kategori').eq('aktif',true).eq('is_deleted',false).order('kod')
   ]);
   KATALOG.kategoriler = k.data||[]; KATALOG.tedarikciler = t.data||[]; KATALOG.urunler = u.data||[];
 }
@@ -13241,6 +13263,97 @@ async function alisListe(){
 }
 
 /* ================== STOK ================== */
+/* ==================================================================
+   Y94 · STOK EKRANI KATEGORIYE GORE GRUPLANIR
+   ==================================================================
+   KULLANICI: "stok icerisini de duzenleme mi yapsak kral, temizlik mesrubatlar
+   sut urunleri tarzinda".
+   ⚠ KATEGORI KATALOGDAN: `v_stok_durum` bu kolonu DONDURMUYOR (olculdu); katalog
+     sorgusuna TEK ALAN eklendi. Yeni sorgu, yeni gorunum, migration YOK.
+   ⚠ SERBEST METIN: "Süt ürünleri" ile "Süt Ürünleri" AYRI grup olur. Bu yuzden
+     secici HER YERDE mevcut yazimlari onerir; yeni ad yazmak istisnadir ve yeni ad
+     mevcut birine benziyorsa UYARILIR (engellenmez — kullanici bilerek ayirabilir).
+   ⚠ TAHMIN YOK: kategori firmadan ya da urun adindan UYDURULMAZ; faturadan kart acan
+     akislara da kategori sorusu EKLENMEDI (o akisin uzunlugundan sikayet vardi).
+   ⚠ Y80 KURALI DURUYOR: kutucugun on yuzunde yalniz urun adi var; kategori basligi
+     kutunun DISINDA, grubun ustunde. */
+const katNorm = (s) => String(s || '').toLocaleLowerCase('tr').replace(/\s+/g, ' ').trim();
+/* "mesrubat" ile "mesrubatlar" gibi: biri otekiyle basliyor ve fark kucukse benzer sayilir */
+function katYakinMi(a, b){
+  const x = katNorm(a), y = katNorm(b);
+  if (!x || !y || x === y) return x === y;
+  const uzun = x.length >= y.length ? x : y, kisa = x.length >= y.length ? y : x;
+  return uzun.startsWith(kisa) && uzun.length - kisa.length <= 3;
+}
+const urunKategoriHaritasi = () => {
+  const m = new Map(); (KATALOG.urunler || []).forEach(u => m.set(u.id, (u.kategori || '').trim())); return m; };
+/* ekranda TEK yazim gorunsun: ayni kategori farkli yazilmissa ilk yazim temsil eder */
+function urunKategorileri(){
+  const m = new Map();
+  (KATALOG.urunler || []).forEach(u => { const k = (u.kategori || '').trim();
+    if (k && !m.has(katNorm(k))) m.set(katNorm(k), k); });
+  return [...m.values()].sort((a, b) => a.localeCompare(b, 'tr'));
+}
+function katSecenekleri(secili){
+  const L = urunKategorileri();
+  const secNorm = katNorm(secili);
+  const listede = L.some(k => katNorm(k) === secNorm);
+  return `<option value=""${secili ? '' : ' selected'}>— kategorisiz —</option>`
+    + L.map(k => `<option value="${esc(k)}"${katNorm(k) === secNorm ? ' selected' : ''}>${esc(k)}</option>`).join('')
+    + (secili && !listede ? `<option value="${esc(secili)}" selected>${esc(secili)}</option>` : '')
+    + '<option value="__yeni">+ yeni kategori…</option>';
+}
+/* Stok kutucuklari: kategoriler alfabetik, KATEGORISIZ EN ALTTA; baslikta ad ve adet */
+function stokGruplariHtml(liste, fiyatMap, owner){
+  const kat = urunKategoriHaritasi();
+  const grup = new Map();
+  liste.forEach(s => { const k = (kat.get(s.urun_id) || '').trim();
+    if (!grup.has(k)) grup.set(k, []); grup.get(k).push(s); });
+  const adlar = [...grup.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b, 'tr'));
+  if (grup.has('')) adlar.push('');
+  const kutu = (s, atama) => {
+    /* ⚠ Y80 · KUTUCUGUN ON YUZUNDE YALNIZ AD (kullanici: "urun adi sadece, karisikliga gerek
+       yok"). Kritik rozeti ustteki kutuda, stok degeri ozet kutusunda, son alis satiri urun
+       kartinin icinde. ⚠ SORGU DURUYOR: v_urun_son_fiyat yalniz ARAMAYI besliyor — kullanici
+       firma adiyla da ariyor, data-ara onu tasimaya devam ediyor. */
+    const f = fiyatMap[s.urun_id];
+    const ara = ((s.kod || '') + ' ' + (s.ad || '') + ' ' + (f?.son_firma || '')).toLocaleLowerCase('tr');
+    const dugme = `<button type="button" class="ur-kt" data-ara="${esc(ara)}"
+      onclick="urunDetay('${s.urun_id}')">${esc(s.ad)}</button>`;
+    if (!atama) return dugme;
+    /* ⚠ KART ACTIRMADAN: kirk urun icin kirk kez kart acmak yerine kutunun altinda secici */
+    return `<div class="ur-sar">${dugme}
+      <select class="ur-kat" aria-label="${esc(s.ad)} kategorisi"
+        onchange="urunKategoriSec('${s.urun_id}', this.value, 'stok')">${katSecenekleri('')}</select></div>`;
+  };
+  return adlar.map(ad => `<div class="st-grup" data-grup="${esc(ad || 'kategorisiz')}">
+      <div class="st-grup-bas">${esc(ad || 'Kategorisiz')}<span class="st-grup-say">${grup.get(ad).length}</span></div>
+      <div class="ur-izgara">${grup.get(ad).map(s => kutu(s, ad === '' && owner)).join('')}</div>
+    </div>`).join('');
+}
+/* Hizli atama ve karttan degistirme AYNI kapidan gecer */
+async function urunKategoriSec(urunId, deger, kaynak){
+  if (!PROFIL || PROFIL.rol !== 'owner'){ bildir('Bu işlem yalnız yöneticide.', 'hata'); return; }
+  const tazele = () => { if (kaynak === 'kart') urunDetay(urunId); else if (AKTIF_SEKME === 'stok') vStok(); };
+  let kat = deger;
+  if (deger === '__yeni'){
+    const ad = await nedenSor('Yeni kategori adı',
+      'Örn: Temizlik · Meşrubat · Süt ürünleri. Listede varsa onu seç — aynı şeyin iki yazımı iki ayrı grup demek.', 1);
+    if (ad === null || !String(ad).trim()){ tazele(); return; }      // vazgeçti: seçici eski hâline döner
+    kat = String(ad).trim();
+    const benzer = urunKategorileri().find(x => katYakinMi(x, kat) && katNorm(x) !== katNorm(kat));
+    const ayniYazim = urunKategorileri().find(x => katNorm(x) === katNorm(kat));
+    if (ayniYazim) kat = ayniYazim;                                  // yalnız büyük/küçük harf farkı: mevcut yazım
+    else if (benzer && await onaySor(`"${kat}" listede olana çok benziyor`,
+      `Listede "${benzer}" var. Aynı şeyse onu kullan — iki ayrı yazım iki ayrı grup demek.`, `"${benzer}" olsun`))
+      kat = benzer;
+  }
+  const { error } = await sb.from('urun').update({ kategori: kat || null }).eq('id', urunId);
+  if (error){ bildir('Kategori yazılamadı: ' + hataTr(error.message), 'hata'); tazele(); return; }
+  await katalogYukle();
+  bildir(kat ? `Kategori: ${kat} ✓` : 'Kategori kaldırıldı ✓', 'ok');
+  tazele();
+}
 async function vStok(){
   const el = document.getElementById('icerik');
   const owner = PROFIL.rol === 'owner';
@@ -13275,6 +13388,8 @@ async function vStok(){
                                mevcut:+x.mevcut||0,
                                mal:+(x.maliyet_tam ?? x.ort_maliyet)||0 }));
   const pasifListe = (pasif && pasif.data) || [];        // Y93 · listeden kaldırılanlar (yalnız sahip)
+  const katHarita = urunKategoriHaritasi();              // Y94 · kategori katalogdan
+  const katsizSay = liste.filter(s => !(katHarita.get(s.urun_id) || '').trim()).length;
   const kritikler = liste.filter(s=>s.kritik);
   // Kritik seviyesi 0 olan ürün için "Yeterli" demek yanlış bilgi: seviye tanımlı değilse
   // sistem uyaramaz. Bunu "Yeterli" diye göstermek yerine açıkça tanımsız yazıyoruz.
@@ -13335,27 +13450,12 @@ async function vStok(){
             cikiyor; kaybolmasi bir OGRENME isareti. */''}
       ${yerelOku(STOK_IPUCU_ANAHTAR) ? ''
         : '<div class="ipucu" id="stokIpucu">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>'}
+      ${/* Y94 · kategorisi olmayan urun sayisi TEK SATIR; sifirsa hic yazmaz */''}
+      ${katsizSay ? `<div class="bilgi-not" style="margin:0 0 8px">${katsizSay} ürünün kategorisi yok${
+        owner ? ' — aşağıdaki <b>Kategorisiz</b> grubunda kutunun altından verebilirsin.' : '.'}</div>` : ''}
       ${liste.length===0
         ? bosDurum('kutu','Ürün tanımlı değil','Fatura girdikçe ürünler kendiliğinden açılır. Elle eklemek için Yönetim sekmesini kullan.')
-        : '<div class="ur-izgara">' + liste.map(s=>{
-            /* ⚠ Y80 · KUTUCUGUN ON YUZUNDE YALNIZ AD (kullanici: "urun adi sadece,
-               karisikliga gerek yok"). Buradan KALKAN uc sey ve NEREYE gittigi:
-                 · KRITIK / Yeterli rozeti  -> ustteki KRITIK URUN kutusu ve kirmizi
-                   uyari satiri (adlariyla birlikte) — tek kaynak artik orasi.
-                 · stok degeri              -> ustteki TOPLAM STOK DEGERI kutusu.
-                 · "Son alis X/birim · tarih · firma ▲%Z" -> urun kartinin icinde ayni
-                   sorunun MALIYET zeminli cevabi var (grafik + alim dokumu). ⚠ AMA AYNI
-                   RAKAM DEGIL: Y40/Y41 bu satiri v_urun_son_fiyat'in NET kolonlarina
-                   oturtmustu; o LISTE/NET karsilastirmasi su an baska hicbir ekranda
-                   basilmiyor. Bilgi kaybi KABUL EDILDI (kullanicinin acik istegi),
-                   SESSIZCE degil — kartin icine geri konmasi ayri bir karar.
-               ⚠ SORGU DURUYOR: v_urun_son_fiyat artik yalniz ARAMAYI besliyor —
-                 kullanici firma adiyla da ariyor, data-ara onu tasimaya devam ediyor. */
-            const f = fiyatMap[s.urun_id];
-            const ara = ((s.kod||'') + ' ' + (s.ad||'') + ' ' + (f?.son_firma||'')).toLocaleLowerCase('tr');
-            return `<button type="button" class="ur-kt" data-ara="${esc(ara)}"
-              onclick="urunDetay('${s.urun_id}')">${esc(s.ad)}</button>`;
-          }).join('') + '</div>'}
+        : stokGruplariHtml(liste, fiyatMap, owner)}
     </div>
 
     ${/* ==========================================================
@@ -13929,6 +14029,13 @@ async function urunDetay(urunId){
         : `<div style="margin:0 0 10px"><button type="button" class="btn2"
              onclick="urunArtikAlinmiyor('${urunId}')">Artık alınmıyor</button>
              <span class="k" style="display:block;margin-top:4px">Listeden kaldırır; kayıtlar ve geçmiş durur.</span></div>`) : ''}
+      ${/* Y94 · KATEGORI KARTTAN DA DEGISIR: mevcut deger secili gelir, bosaltilabilir,
+            yeni ad yazilabilir (secenekler mevcut yazimlardan — ayni sey iki grup olmasin). */''}
+      ${PROFIL.rol === 'owner' ? `<div style="margin:0 0 12px">
+        <div class="ud-et" style="margin:0 0 4px">KATEGORİ</div>
+        <select class="ur-kat" aria-label="Ürün kategorisi"
+          onchange="urunKategoriSec('${urunId}', this.value, 'kart')">${katSecenekleri((u.kategori||'').trim())}</select>
+      </div>` : ''}
 
       ${/* ⚠ Y13 · BASLIK "FIYAT" DEGIL "MALIYET": cizilen sey artik
             faturanin liste fiyati degil, maliyete giren tutar. Baslik
