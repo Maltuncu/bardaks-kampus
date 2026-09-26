@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-98">
+<meta name="surum" content="2026-08-27-99">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -13318,11 +13318,13 @@ function stokGruplariHtml(liste, fiyatMap, owner){
        firma adiyla da ariyor, data-ara onu tasimaya devam ediyor. */
     const f = fiyatMap[s.urun_id];
     const ara = ((s.kod || '') + ' ' + (s.ad || '') + ' ' + (f?.son_firma || '')).toLocaleLowerCase('tr');
-    const dugme = `<button type="button" class="ur-kt" data-ara="${esc(ara)}"
+    /* Y94-d · `data-urun`: atamadan sonra kutuyu SAYFAYI YENIDEN CIZMEDEN bulup tasimak icin
+       (ekran imzasi degismez: imza tag + id + class okuyor, data alanlarini DEGIL). */
+    const dugme = `<button type="button" class="ur-kt" data-urun="${s.urun_id}" data-ara="${esc(ara)}"
       onclick="urunDetay('${s.urun_id}')">${esc(s.ad)}</button>`;
     if (!atama) return dugme;
     /* ⚠ KART ACTIRMADAN: kirk urun icin kirk kez kart acmak yerine kutunun altinda secici */
-    return `<div class="ur-sar">${dugme}
+    return `<div class="ur-sar" data-urun="${s.urun_id}">${dugme}
       <select class="ur-kat" aria-label="${esc(s.ad)} kategorisi"
         onchange="urunKategoriSec('${s.urun_id}', this.value, 'stok')">${katSecenekleri('')}</select></div>`;
   };
@@ -13331,10 +13333,88 @@ function stokGruplariHtml(liste, fiyatMap, owner){
       <div class="ur-izgara">${grup.get(ad).map(s => kutu(s, ad === '' && owner)).join('')}</div>
     </div>`).join('');
 }
+/* ==================================================================
+   Y94-d · ATAMADAN SONRA EKRAN BASA SARMAZ
+   ==================================================================
+   KULLANICI: "kategorisi olmayanlari her sectigimde ekranda neden yukariya cikiyor".
+   OLCULDU: atama `vStok()` cagiriyordu; o `#icerik`i bastan kuruyor (dort sorgu), sayfa
+   yuksekligi bir an dusuyor ve tarayici kaydirmayi basa cekiyor. Kirk urunu dagitirken
+   her atamadan sonra kullanici yerini yeniden ariyordu.
+   COZUM SIRASI:
+     1) YENIDEN CIZME YOK — kutu yerinde tasinir, sayilar ve "N urunun kategorisi yok"
+        satiri guncellenir; kaydirma KUTUNUN KARTI ayni pikselde kalacak sekilde duzeltilir.
+     2) Tasima yapilamazsa (kutu ekranda degil, baska ekran) `vStok()` cagrilir ama
+        kaydirma ONCE saklanip SONRA geri verilir — Ozet'in OZ_SCROLL kalibinin aynisi;
+        yeni kalip ICAT EDILMEDI. */
+function stokKatsizNotYaz(sayi){
+  const el = document.getElementById('stokKatsizNot'); if (!el) return;
+  if (!sayi){ el.remove(); return; }
+  el.innerHTML = sayi + ' ürünün kategorisi yok'
+    + (PROFIL && PROFIL.rol === 'owner' ? ' — aşağıdaki <b>Kategorisiz</b> grubunda kutunun altından verebilirsin.' : '.');
+}
+function stokGrupSayisiYaz(grup){
+  if (!grup) return;
+  const say = grup.querySelectorAll('.ur-kt').length;
+  const et = grup.querySelector('.st-grup-say'); if (et) et.textContent = say;
+  return say;
+}
+/* true donerse sayfa yeniden CIZILMEDI.
+   ⚠ BILDIRIM DE KAYDIRIYOR (olculdu): `bildir` kutuyu `#icerik`in BASINA ekliyor ve
+     `scrollIntoView` cagiriyor — sayfayi yukari ceken asil sey buydu, `vStok` tek basina
+     degil. Bu yuzden bildirim BU FONKSIYONUN ICINDE, capa olculdukten SONRA veriliyor;
+     duzeltme hem DOM degisimini hem bildirimin kaydirmasini kapatiyor. */
+function stokKutuYerindeTasi(urunId, kategori, mesaj){
+  const kok = document.getElementById('icerik'); if (!kok) return false;
+  const sar = kok.querySelector('.ur-sar[data-urun="' + urunId + '"]'); if (!sar) return false;
+  const katsiz = sar.closest('.st-grup'); if (!katsiz) return false;
+  /* ⚠ CAPA "KATEGORISIZ" GRUBUDUR, kart DEGIL: kullanici oraya bakiyor. Hedef grup YUKARIDA
+     bir satir buyurse kart yerinde kalsa bile kategorisiz grup asagi kayar — olculdu, 82 px
+     (bir kutucuk satiri). Grup tek kutucukla bittiginde kendisi kalkacagi icin capa karta duser. */
+  const kart = (katsiz.querySelectorAll('.ur-kt').length > 1) ? katsiz : (katsiz.closest('.kart') || katsiz);
+  const oncekiUst = kart.getBoundingClientRect().top;        // ⚠ OLCUT PIKSEL
+  if (mesaj) bildir(mesaj, 'ok');
+  const dugme = sar.querySelector('.ur-kt');
+  const hedef = [...kok.querySelectorAll('.st-grup')].find(g => g.dataset.grup === kategori);
+  if (hedef && dugme){
+    /* hedef grup ekrandaysa kutu GORUNUR sekilde oraya gecer; degilse listeden duser ve
+       nereye gittigini bildirim soyler (sayfa yenilenince dogru grupta cikar) */
+    const izgara = hedef.querySelector('.ur-izgara');
+    if (izgara) izgara.appendChild(dugme);
+  }
+  sar.remove();
+  const kalan = stokGrupSayisiYaz(katsiz);
+  if (!kalan) katsiz.remove();
+  stokGrupSayisiYaz(hedef);
+  stokKatsizNotYaz(kalan || 0);
+  window.scrollBy(0, kart.getBoundingClientRect().top - oncekiUst);
+  return true;
+}
+/* Kaydirmayi koruyarak yeniden ciz (yerinde guncelleme yapilamayan yollar).
+   ⚠ `kaydirma` BILDIRIMDEN ONCE olculup verilmeli: bildirim kendisi sayfayi yukari cekiyor. */
+async function stokTazeleKorumali(kaydirma){
+  if (AKTIF_SEKME !== 'stok') return;
+  const y = kaydirma == null ? window.scrollY : kaydirma;
+  await vStok();
+  /* ⚠ TEK SEFER YETMIYOR (olculdu): pencere kapanip odak geri verilirken tarayici kendi
+     basina kaydiriyor ve hemen yazilan konumu eziyordu. Konum bir de sira bosalinca
+     yaziliyor. rAF KULLANILMADI — gizli sekmede atesLENMIYOR (Ozet'te olculmustu). */
+  window.scrollTo(0, y);
+  setTimeout(() => window.scrollTo(0, y), 0);
+  setTimeout(() => window.scrollTo(0, y), 150);
+}
 /* Hizli atama ve karttan degistirme AYNI kapidan gecer */
 async function urunKategoriSec(urunId, deger, kaynak){
   if (!PROFIL || PROFIL.rol !== 'owner'){ bildir('Bu işlem yalnız yöneticide.', 'hata'); return; }
-  const tazele = () => { if (kaynak === 'kart') urunDetay(urunId); else if (AKTIF_SEKME === 'stok') vStok(); };
+  /* ⚠ Y94-d · KAYDIRMA EN BASTA OLCULUR: hem bildirim hem de acilan pencere (nedenSor /
+     onaySor) sayfayi kendiliginden kaydiriyor — olculdu: pencere acilinca konum degisiyor
+     ve sonradan olculen deger o kaymis hali tasiyordu. Karttan gelen degisiklikte kullanici
+     karti acmadan onceki yerine doner. */
+  const kaydirma = kaynak === 'kart' && UD_STOK_SCROLL != null ? UD_STOK_SCROLL : window.scrollY;
+  /* Y94-d · vazgecme/hata yolunda da EKRAN BASA SARMAZ: kaydirma korunur */
+  const tazele = async (y) => {
+    await stokTazeleKorumali(y);
+    if (kaynak === 'kart') urunDetay(urunId);
+  };
   let kat = deger;
   if (deger === '__yeni'){
     const ad = await nedenSor('Yeni kategori adı',
@@ -13349,10 +13429,17 @@ async function urunKategoriSec(urunId, deger, kaynak){
       kat = benzer;
   }
   const { error } = await sb.from('urun').update({ kategori: kat || null }).eq('id', urunId);
-  if (error){ bildir('Kategori yazılamadı: ' + hataTr(error.message), 'hata'); tazele(); return; }
-  await katalogYukle();
-  bildir(kat ? `Kategori: ${kat} ✓` : 'Kategori kaldırıldı ✓', 'ok');
-  tazele();
+  if (error){ bildir('Kategori yazılamadı: ' + hataTr(error.message), 'hata'); await tazele(kaydirma); return; }
+  await katalogYukle();                      // öteki ekranlar doğru görsün (arka planda)
+  const mesaj = kat ? `Kategori: ${kat} ✓` : 'Kategori kaldırıldı ✓';
+  /* Y94-d · ONCE YERINDE TASIMA: sayfa yeniden cizilmez, kaydirma kipirdamaz.
+     Yalniz stok ekranindaki hizli atama bu yolu kullanabilir (kutu orada). */
+  if (kaynak === 'stok' && kat && AKTIF_SEKME === 'stok'){
+    window.scrollTo(0, kaydirma);            // pencerenin kaydırdığını geri al, sonra yerinde taşı
+    if (stokKutuYerindeTasi(urunId, kat, mesaj)) return;
+  }
+  bildir(mesaj, 'ok');
+  await tazele(kaydirma);
 }
 async function vStok(){
   const el = document.getElementById('icerik');
@@ -13451,7 +13538,7 @@ async function vStok(){
       ${yerelOku(STOK_IPUCU_ANAHTAR) ? ''
         : '<div class="ipucu" id="stokIpucu">Bir ürüne dokun — fiyat geçmişi ve alım dökümü açılır.</div>'}
       ${/* Y94 · kategorisi olmayan urun sayisi TEK SATIR; sifirsa hic yazmaz */''}
-      ${katsizSay ? `<div class="bilgi-not" style="margin:0 0 8px">${katsizSay} ürünün kategorisi yok${
+      ${katsizSay ? `<div class="bilgi-not" id="stokKatsizNot" style="margin:0 0 8px">${katsizSay} ürünün kategorisi yok${
         owner ? ' — aşağıdaki <b>Kategorisiz</b> grubunda kutunun altından verebilirsin.' : '.'}</div>` : ''}
       ${liste.length===0
         ? bosDurum('kutu','Ürün tanımlı değil','Fatura girdikçe ürünler kendiliğinden açılır. Elle eklemek için Yönetim sekmesini kullan.')
@@ -13823,7 +13910,12 @@ function alimOdemeEt(a){
   return `<span style="color:var(--uyari);font-weight:800">faturası ödenmedi${
     v ? ' · vade ' + sbTamTarih(v) : ''}</span>`;
 }
+let UD_STOK_SCROLL = null;   // Y94-d · kart AÇILIRKEN sayfanın kaydırması (kapanınca oraya dönülür)
 async function urunDetay(urunId){
+  /* ⚠ Y94-d · kart kendi icinde yeniden cizilirken (kategori degisimi) DEGER EZILMEZ:
+     yalniz pencere KAPALIYKEN olculur. */
+  const acikPencere = document.getElementById('udOverlay');
+  if (!acikPencere || !acikPencere.classList.contains('acik')) UD_STOK_SCROLL = window.scrollY;
   /* Ipucu ogrenildi: bir daha gosterme (SADELESTIRME). */
   yerelYaz(STOK_IPUCU_ANAHTAR, '1');
   const ip = document.getElementById('stokIpucu'); if (ip) ip.remove();
@@ -14188,6 +14280,10 @@ async function urunDetay(urunId){
 async function urunArtikAlinmiyor(urunId){
   if (!PROFIL || PROFIL.rol !== 'owner'){ bildir('Bu işlem yalnız yöneticide.', 'hata'); return; }
   if (toplamKipi()){ bildir('Önce bir şube seç — elde ne kaldığını göstermeden kaldırmam.', 'uyari'); return; }
+  /* ⚠ Y94-d · KULLANICININ KART ACMADAN ONCEKI YERI: kart acilisi ve gerekce penceresi
+     sayfayi kendiliginden kaydiriyor (olculdu), o yuzden anlik deger degil kart acilisinda
+     saklanan deger kullanilir. */
+  const kaydirma = UD_STOK_SCROLL != null ? UD_STOK_SCROLL : window.scrollY;
   const [{ data: u, error: ue }, { data: st }] = await Promise.all([
     sb.from('urun').select('ad,notlar,aktif').eq('id', urunId).maybeSingle(),
     sb.from('v_stok_durum').select('mevcut,birim,stok_degeri').eq('urun_id', urunId).eq('sube_id', AKTIF_SUBE).maybeSingle()
@@ -14210,11 +14306,12 @@ async function urunArtikAlinmiyor(urunId){
   bildir(`"${u.ad}" listeden kaldırıldı ✓ — geçmişi duruyor`, 'ok');
   await katalogYukle();
   udKapat();
-  if (AKTIF_SEKME === 'stok') vStok();
+  await stokTazeleKorumali(kaydirma);  // Y94-d · kart kapaninca sayfa BASA SARMAZ
 }
 /* Kartin ya da stok ekranindaki listenin "Yeniden ac" dugmesi */
 async function urunYenidenAc(urunId){
   if (!PROFIL || PROFIL.rol !== 'owner'){ bildir('Bu işlem yalnız yöneticide.', 'hata'); return; }
+  const kaydirma = UD_STOK_SCROLL != null ? UD_STOK_SCROLL : window.scrollY;   // Y94-d · aynı kaynak
   const { data: u, error: ue } = await sb.from('urun').select('ad,notlar,aktif').eq('id', urunId).maybeSingle();
   if (ue || !u){ bildir('Ürün okunamadı: ' + hataTr((ue && ue.message) || 'kayıt bulunamadı'), 'hata'); return; }
   if (u.aktif !== false){ bildir('Bu ürün zaten listede.', 'uyari'); return; }
@@ -14226,7 +14323,7 @@ async function urunYenidenAc(urunId){
   bildir(`"${u.ad}" yeniden açıldı ✓`, 'ok');
   await katalogYukle();
   udKapat();
-  if (AKTIF_SEKME === 'stok') vStok();
+  await stokTazeleKorumali(kaydirma);  // Y94-d · aynı koruma
 }
 /* ⚠ AYNI URUN YENI FATURADA: eslesme kapali karti BULUYOR (urun_alias'ta `aktif` suzgeci
    YOK; rpc_urun_tanimla ad eslesmesinde de yalniz `is_deleted` bakiyor — olculdu). Kart
