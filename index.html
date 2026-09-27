@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-99">
+<meta name="surum" content="2026-08-27-100">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -291,6 +291,10 @@ button.dz-ana:active{background:var(--acik)}
 .ur-sar{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ur-sar .ur-kt{width:100%}
 .ur-kat{margin:0;min-height:36px;font-size:12px;padding:6px 8px}
+/* Y95 · urun kartinda son mal alimi satiri (kunyenin alti, grafigin ustu).
+   ⚠ DOKUNULABILIR GORUNMEZ: buton degil, imlec degismez — dokununca bir sey acmiyor. */
+.ud-son{font-size:12.5px;line-height:1.5;margin:0 0 12px;overflow-wrap:anywhere}
+.ud-son-alt{font-size:11.5px;color:var(--soluk);line-height:1.45;margin-top:2px}
 .ud-satir{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:baseline;
   padding:11px 2px;border-bottom:1px solid var(--cizgi)}
 .ud-satir:last-child{border-bottom:none}
@@ -13923,7 +13927,7 @@ async function urunDetay(urunId){
   ic.innerHTML=`<div class="ud-ust"><div style="flex:1"><div class="ud-ad">Yükleniyor...</div></div>
     <button class="ud-kapat" onclick="udKapat()" aria-label="Kapat">✕</button></div>`;
   ov.classList.add('acik');
-  const [ur, al, st] = await Promise.all([
+  const [ur, al, st, sf] = await Promise.all([
     /* Y93 · `aktif` ve `notlar` da okunur: kart "artık alınmıyor" durumunu gösterir ve
        gerekçe notun SONUNA eklenir (demirbaştaki kalıp). */
     sb.from('urun').select('kod,ad,birim,paket_ici_adet,kategori,kritik_seviye,aktif,notlar').eq('id',urunId).maybeSingle(),
@@ -13942,7 +13946,10 @@ async function urunDetay(urunId){
     sb.from('alis')
       .select('id,tarih,belge_no,toplam,kdv_tutar,kdv_orani,odendi,vade_tarihi,tedarikci(ad),alis_kalem!inner(miktar,birim_fiyat,birim_ad,birim_carpani,satir_tutar,iskonto_orani,kdv_orani)')
       .eq('is_deleted',false).eq('alis_kalem.urun_id',urunId).eq('alis_kalem.is_deleted',false),
-    sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', AKTIF_SUBE).maybeSingle()
+    sb.from('v_stok_durum').select('mevcut,ort_maliyet,stok_degeri,kritik').eq('urun_id',urunId).eq('sube_id', AKTIF_SUBE).maybeSingle(),
+    /* Y95 · SON MAL ALIMI SATIRI · `v_urun_son_fiyat` (sube suzgecinde; acik subenin son alimi).
+       DORDUNCU SORGU AYNI Promise.all ICINDE: yeni tur YOK, kart yine tek beklemede aciliyor. */
+    sb.from('v_urun_son_fiyat').select('*').eq('urun_id',urunId).eq('sube_id', AKTIF_SUBE).maybeSingle()
   ]);
   const u=ur.data, s=st.data;
   /* ⚠ ESKI SEKLE DUZLESTIRILIR: asagidaki butun hesap `k.alis.*` okuyor. Sorgunun yonu
@@ -14091,6 +14098,36 @@ async function urunDetay(urunId){
   const toplamTutar=alim.reduce((a,x)=>a+x.tutar,0);
   const toplamAdet=alim.reduce((a,x)=>a+x.miktar*x.carpan,0);
 
+  /* ---- Y95 · son mal alımı satırının parçaları (kurallar yukarıdaki blokta) ---- */
+  const sonAlim = (sf && sf.data) ? sf.data : null;
+  const sonOdenen = !sonAlim ? null
+    : (+sonAlim.son_net_fiyat > 0 ? +sonAlim.son_net_fiyat
+       : (sonAlim.son_fiyat != null ? +sonAlim.son_fiyat : null));
+  const sonGun = sonAlim && sonAlim.gun_once != null ? +sonAlim.gun_once : null;
+  const sonGunMetni = sonGun == null ? ''
+    : (sonGun <= 0 ? ' (bugün)' : sonGun === 1 ? ' (dün)' : ` (${sonGun} gün önce)`);
+  /* Y41 · rozet: NET ile NET; iki uçtan biri boşsa rozet YOK */
+  const sonRozet = (sonAlim && sonAlim.degisim_yuzde != null && +sonAlim.degisim_yuzde !== 0
+      && sonAlim.onceki_net_fiyat != null && +sonAlim.son_net_fiyat > 0)
+    ? ` <span style="color:${+sonAlim.degisim_yuzde > 0 ? 'var(--hata)' : 'var(--ok)'};font-weight:800">`
+      + `${+sonAlim.degisim_yuzde > 0 ? '▲' : '▼'} %${Math.abs(+sonAlim.degisim_yuzde).toString().replace('.', ',')}</span>`
+      /* ⚠ "ONCEKI ALIM" ACIKCA YAZILIR: hemen altindaki grafik rozeti ILK→SON degisimi
+         gosteriyor; iki yuzde farkli sorulara cevap veriyor, hangisi oldugu yazmazsa
+         celisik gorunur (olculdu: ayni kartta %12,5 ile %20 yan yana cikti). */
+      + ` <span style="color:var(--soluk)">(bir önceki alım ${tl(sonAlim.onceki_net_fiyat)}`
+      + `${sonAlim.onceki_tarih ? ' · ' + new Date(sonAlim.onceki_tarih + 'T00:00').toLocaleDateString('tr-TR') : ''})</span>`
+    : '';
+  /* ⚠ ALIM BIRIMI ile STOK BIRIMI AYRI OLCEK (Y39): koli basina odenen ile adet basina
+     maliyet birbirine karistirildigi olculdu. Birimler farkliysa ekran bunu SOYLER. */
+  const sonBirim = (sonAlim && sonAlim.birim) ? String(sonAlim.birim).trim() : '';
+  const stokBirim = String(u.birim || '').trim();
+  const sonBirimFarkli = sonBirim && stokBirim
+    && sonBirim.toLocaleLowerCase('tr') !== stokBirim.toLocaleLowerCase('tr');
+  const sonBirimNotu = !sonBirimFarkli ? '' :
+    `<div class="ud-son-alt">${esc(sonBirim)} başına ödenen — üstteki <b>birim maliyet</b> ve
+      grafik ${esc(stokBirim)} başına${+u.paket_ici_adet > 1
+        ? ` (kartta 1 ${esc(sonBirim)} = ${(+u.paket_ici_adet).toLocaleString('tr-TR')} ${esc(stokBirim)})` : ''}.</div>`;
+
   ic.innerHTML=`
     <div class="ud-ust">
       <div style="flex:1">
@@ -14106,6 +14143,28 @@ async function urunDetay(urunId){
         <div><div class="ud-et">BİRİM MALİYET</div><div class="ud-dg">${s&&+s.ort_maliyet?tl(s.ort_maliyet):'—'}</div></div>
         <div><div class="ud-et">STOK DEĞERİ</div><div class="ud-dg">${s?tl(s.stok_degeri):'—'}</div></div>
       </div>
+      ${/* ==================================================================
+            Y95 · SON MAL ALIMI SATIRI · KUNYENIN ALTI, GRAFIGIN USTU
+            ==================================================================
+            KULLANICI: "son alis kartin icinde olmazsa grafik nasil olusacak" → ayrim
+            anlatildi, "olsun mantikli". Y80'de stok kutucuklari yalniz urun adina
+            inince bu satir dusmustu; o turda "kartin icine geri konmasi AYRI bir
+            karar" yazilmisti — karar verildi.
+            ⚠ GRAFIK BU SATIRDAN BAGIMSIZ: grafik faturalarin kendi satirlarindan
+              STOK birimi basina maliyeti ciziyor; bu satir gorunumden geliyor ve
+              ALIM birimi (koli/paket) basina ODENENI soyluyor. Ikisi FARKLI olcek.
+            ⚠ Y40 · BASILAN RAKAM ODENEN (`son_net_fiyat`); yoksa ya da sifirsa liste
+              fiyatina duser, UYDURMA rakam basilmaz.
+            ⚠ Y41 · ROZET YALNIZ NET ile NET karsilastirmasindan cikar: `onceki_net_fiyat`
+              yoksa rozet HIC CIKMAZ (yuzde uydurulmaz).
+            ⚠ Kayit yoksa satir HIC cizilmez; satir dokunulabilir DEGIL (bir sey acmiyor).
+            ⚠ Y90 · ekran kelimesi "mal alimi" (kod adi `alis` degismedi). */''}
+      ${(PROFIL.rol === 'owner' && sonAlim) ? `<div class="ud-son" aria-label="Son mal alımı">
+        <div><b>Son mal alımı ${tl(sonOdenen)}</b>/${esc(sonAlim.birim || u.birim || '')}
+          · ${new Date(sonAlim.son_tarih + 'T00:00').toLocaleDateString('tr-TR')}${sonGunMetni}
+          · ${esc(sonAlim.son_firma || '—')}${sonRozet}</div>
+        ${sonBirimNotu}
+      </div>` : ''}
       ${/* ===== Y93 · ARTIK ALINMAYACAK URUN =====
             KULLANICI: "tekrar alinmayacak seyler var sonucta". SILME YOK: `is_deleted`e
             DOKUNULMAZ, gecmis (fatura satirlari, fiyat grafigi, stok hareketleri) aynen kalir.
