@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-100">
+<meta name="surum" content="2026-08-27-102">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -5884,6 +5884,20 @@ async function zRaporuOku(k){
     koy('gsZNo_'+k,   v.z_no,          'Z No', true);
     koy('gsKart_'+k,  v.kart_toplam,   'Kart');
     koy('gsNakit_'+k, v.nakit_toplam,  'Nakit');
+    /* ⚠ Y96 · KART ISLEM ADEDI (okuyucu v3): alan formda ZATEN vardi ama okuyucu semasinda
+       adet YOKTU, bu yuzden ayin butun kasa satirlarinda bos kaliyordu. Okunamazsa okuyucu
+       null doner ve buraya HICBIR SEY yazilmaz — uydurma sayi yok.
+       ⚠ Y96-d · TAM SAYI DEGILSE HIC YAZILMAZ: `koy` para kurali uyguluyor (noktayi virgule
+         cevirir) ve kayit tarafindaki tamSayi() rakam disini siliyor — olculdu: 72,5 alana
+         "72,5" girip kayda 725 olarak gidiyordu, yani adet SESSIZCE ON KATINA cikiyordu.
+         Yuvarlamak da fiste YAZMAYAN bir sayi yazmak olurdu; bu yuzden deger tam sayi
+         degilse alan BOS kalir ve ekran onu okunamayan gibi soyler. */
+    const adetOkunamadi = [];
+    {
+      const a = v.kart_adet;
+      if (a != null && Number.isFinite(+a) && Number.isInteger(+a) && +a >= 0) koy('gsKAdet_'+k, +a, 'Kart adedi');
+      else if (a != null) adetOkunamadi.push('kart_adet');
+    }
     /* ================================================================
        Y49 · NAKIT SATIRI BASILMAMIS Z'DE NAKIT SIFIRDIR
        ================================================================
@@ -5996,8 +6010,9 @@ async function zRaporuOku(k){
 
     /* ⚠ Y68 · 0 aritmetikle yazildiysa okuyucunun nakit bildirimi DUSER: alan
        dolu, eksik degil. Okuyucunun diger bildirimleri aynen kalir. */
-    const eksik = (Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [])
-      .filter(x => !(nakitAritmetikle && nakitAdiMi(x)));
+    const eksik = [...new Set((Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [])
+      .filter(x => !(nakitAritmetikle && nakitAdiMi(x)))
+      .concat(adetOkunamadi))];        /* Y96-d · tam sayi olmayan adet de OKUNAMADI sayilir */
     /* ⚠ ADIM 14 · OKUYUCUNUN DOLDURAMADIGI ALAN ADIYLA YAZILIR ve
        durum YESIL VERILMEZ. Eskiden yalniz `dolduruldu.length`e
        bakiliyordu: nakit okunamamis bir Z'de satir yine yesil
@@ -6759,6 +6774,131 @@ async function gunSonuKaydet(){
     if (x.satis_toplam > 0 && Math.abs(x.kdv_tutar - beklenen) > Math.max(5, beklenen*0.15) &&
         !confirm(`KDV kontrolü: %${x.oran} için ${tl(x.satis_toplam)} satışın KDV'si yaklaşık ${tl(beklenen)} olmalı, siz ${tl(x.kdv_tutar)} girdiniz.\nZ kağıdındaki TOPKDV satırıyla karşılaştırın. Yine de kaydedilsin mi?`)) { onayIptal(); return; }
   }
+  /* ==================================================================
+     Y96 · GUN SONU Z KAPILARI · yalniz EKRAN, sunucuya dokunulmaz
+     ==================================================================
+     OLAY (Agustos · KTU): 31 gunun 30'u kusursuz girilmis; bir gunde bir ONCEKI gunun
+     Z'si ikinci kez kaydedilmis, o gunun cirosu ve KDV'si eksik kalmis ve uygulama
+     HICBIR SEY DEMEMIS. Hatayi bulmak bes betik, yedi Z fotografi ve cihazdan mali
+     hafiza dokumu gerektirdi. Asagidaki kapilar ayni hatayi GIRILDIGI ANDA yakalar.
+     ⚠ HICBIRI ENGELLEMEZ, hicbiri rakam DUZELTMEZ: sorar, kullanici karar verir.
+     ⚠ YER TUTUCU Z NUMARASI SESSIZ GECER: satissiz ikinci kasa satirinda Z no "0" ya da
+       bos gelebiliyor (veride olculdu) — tekrar sayilsaydi her gun bosuna soru sorulurdu.
+     ⚠ DUZENLEME KIPINDE KAYDIN KENDISI HARIC TUTULUR.
+     ⚠ SORGU DUSERSE KAPI SESSIZ KALIR: kayit durmaz, uydurma iddia edilmez. */
+  const zYerTutucu = (z) => { const s = String(z == null ? '' : z).trim(); return !s || /^0+$/.test(s); };
+  const zSayi = (z) => { const s = String(z == null ? '' : z).replace(/\D/g, ''); return s ? +s : null; };
+  const gsTarihTr = (t) => String(t).slice(8,10) + '.' + String(t).slice(5,7) + '.' + String(t).slice(0,4);
+  const gsTarih = document.getElementById('gsTarih').value;
+  const atlananNotlar = [];
+  {
+    /* ⚠ Y96-d · KARSILASTIRMA SAYISAL OLDU. Alanin kendi normallestiricisi (zNoCoz) binlik
+       ayracini temizliyor ama BASA SIFIR EKLEMIYOR: "0295" ile "295" ayni cihazin ayni Z'si
+       oldugu halde metin olarak eslesmiyor ve kapi SESSIZ kaliyordu (olculdu). Kapi 2 zaten
+       sayisal karsilastiriyordu; iki kapi artik AYNI olcutu kullaniyor.
+       ⚠ SUNUCU SUZGECI DE METIN ESITLIGI KURUYOR — bu yuzden IKI KAYNAK birlestirildi:
+         · hedefli `.in()` sorgusuna ham yazimin yani sira rakam-disi temizlenmis ve 3-6 haneye
+           sifirla tamamlanmis bicimler de konur (dar, tekillestirilmis liste): ESKI bir gun
+           farkli yazimla da yakalanir.
+         · Kapi 2'nin zaten cektigi SON 30 GUN kumesi ayni sayisal olcutle taranir: son gunler
+           yazim ne olursa olsun yakalanir, ek sorgu maliyeti YOK.
+       ⚠ YER TUTUCU SESSIZLIGI DURUYOR: zSayi('0') = 0 oldugu icin bos/sifir degerler once
+         zYerTutucu ile elenir, sayisal karsilastirmaya HIC girmez. */
+    const zVariant = (z) => {
+      const ham = String(z == null ? '' : z).trim();
+      const rakam = ham.replace(/\D/g, '');
+      const L = new Set([ham]);
+      if (rakam){ L.add(rakam); for (let n = 3; n <= 6; n++) if (rakam.length < n) L.add(rakam.padStart(n, '0')); }
+      return [...L];
+    };
+    const znolar = [...new Set(kasalar.filter(k => !zYerTutucu(k.zno)).flatMap(k => zVariant(k.zno)))];
+    /* Kapi 1 ve Kapi 2'nin ORTAK kaynagi: bu gunden onceki son gunler (tek sorgu) */
+    let sonGunler = null;
+    try{
+      const { data, error } = await sb.from('gun_sonu')
+        .select('id,tarih,gun_sonu_kasa(kasa_no,sira,z_no,is_deleted)')
+        .eq('is_deleted', false).lt('tarih', gsTarih)
+        .order('tarih', { ascending: false }).limit(30);
+      if (error) throw new Error(error.message);
+      sonGunler = data || [];
+    }catch(e){ sonGunler = null; }
+    /* --- KAPI 1 · AYNI Z NUMARASI BASKA BIR GUNE GIRILMIS --- */
+    if (znolar.length){
+      try{
+        const { data, error } = await sb.from('gun_sonu')
+          .select('id,tarih,gun_sonu_kasa!inner(kasa_no,sira,z_no,is_deleted)')
+          .eq('is_deleted', false).in('gun_sonu_kasa.z_no', znolar)
+          .order('tarih', { ascending: false }).limit(50);
+        if (error) throw new Error(error.message);
+        const kume = [...(data || []), ...(sonGunler || [])]
+          .filter((g, i, l) => l.findIndex(x => x.id === g.id) === i);       // ayni gun iki kaynakta
+        for (const k of kasalar){
+          if (zYerTutucu(k.zno)) continue;
+          const aranan = zSayi(k.zno);
+          if (aranan == null) continue;
+          const gunler = kume
+            .filter(g => (!DUZENLE || g.id !== DUZENLE.id) && g.tarih !== gsTarih
+              && (g.gun_sonu_kasa || []).some(x => !x.is_deleted && +x.kasa_no === +k.n
+                   && !zYerTutucu(x.z_no) && zSayi(x.z_no) === aranan))
+            .map(g => gsTarihTr(g.tarih));
+          if (!gunler.length) continue;
+          if (!confirm(`KASA ${k.n} · Z ${k.zno} zaten ${gunler.join(', ')} gününe kayıtlı.\n\n`
+            + 'Aynı Z\'yi iki güne yazarsan bir günün cirosu ve KDV\'si eksik kalır — '
+            + 'geçen ay tam olarak bu oldu.\n\nZ numarasını kontrol et. Yine de kaydedilsin mi?')) { onayIptal(); return; }
+        }
+      }catch(e){ /* okunamadi: kapi sessiz, kayit surer */ }
+    }
+    /* --- KAPI 2 · ATLANAN Z NUMARASI · YALNIZ BILGI (engellemez) ---
+       Z numaralari cihazda kesintisiz ilerler; arada numara kalmasi MESRU olabilir
+       (satissiz Z, gun ici ikinci Z — ikisi de gercek veride olculdu). Bu yuzden not
+       ozetin icinde gorunur, kapi kurmaz. */
+    try{
+      const data = sonGunler;                    // Y96-d · yukarida bir kez cekildi
+      if (!data) throw new Error('son günler okunamadı');
+      for (const n of [...new Set(kasalar.map(k => k.n))]){
+        /* bu kasanin ONCEKI gunlerdeki son numarasi (en yeni gun, o gunun en buyuk sirasi) */
+        let sonZ = null;
+        for (const g of (data || [])){
+          const satir = (g.gun_sonu_kasa || []).filter(x => !x.is_deleted && +x.kasa_no === +n
+              && !zYerTutucu(x.z_no))
+            .sort((a, b) => (a.sira || 1) - (b.sira || 1)).pop();
+          if (satir){ sonZ = { z: satir.z_no, tarih: g.tarih }; break; }
+        }
+        /* aynı gönderimdeki bloklar da zincire girer: 1. Z → 2. Z */
+        const bloklar = kasalar.filter(k => k.n === n).sort((a, b) => a.s - b.s);
+        let onceki = sonZ;
+        for (const b of bloklar){
+          if (!zYerTutucu(b.zno) && onceki && !zYerTutucu(onceki.z)){
+            const yeni = zSayi(b.zno), eski = zSayi(onceki.z);
+            if (yeni != null && eski != null && yeni > eski + 1)
+              atlananNotlar.push(`Kasa ${n}: ${onceki.tarih ? gsTarihTr(onceki.tarih) + ' gününde' : 'önceki Z'} `
+                + `Z ${onceki.z} vardı, şimdi Z ${b.zno} — arada ${yeni - eski - 1} numara var`);
+          }
+          if (!zYerTutucu(b.zno)) onceki = { z: b.zno, tarih: null };
+        }
+      }
+    }catch(e){ /* okunamadi: not yok, kayit surer */ }
+  }
+  /* --- KAPI 3 · KDV SATIRLARI GUN TOPLAMIYLA TUTMUYORSA SOR ---
+     Dort ayri Z fisiyle dogrulandi: vergi dokumunun toplami NET SATIS'a, o da kart + nakit
+     toplamina esittir. Bugunku hata tam burada gorunurdu: kullanici kart ve nakdi elle
+     duzeltti, KDV satiri okuyucunun ONCEKI fisten doldurdugu haliyle kaldi, ekran sustu.
+     ⚠ ENGELLEME, ONAY SOR: karma oranli ya da istisnali bir gun bu esitligi bozabilir ve
+       elimizde aksini gosteren kanit YOK. */
+  for (const k of kasalar){
+    if (!k.kdv.length) continue;                       // bos KDV'nin kendi onayi yukarida
+    const zToplam = +(k.kart + k.nakit).toFixed(2);
+    if (zToplam <= 0) continue;
+    const satisToplam = +k.kdv.reduce((a, x) => a + x.satis_toplam, 0).toFixed(2);
+    const fark = +(satisToplam - zToplam).toFixed(2);
+    if (Math.abs(fark) <= 0.05) continue;
+    const et = `KASA ${k.n}${ZLISTE[k.n].length > 1 ? ' / ' + k.s + '. Z' : ''}`;
+    if (!confirm(`${et} · Z ${k.zno}\n\nKDV dökümündeki satış toplamı ${tl(satisToplam)},\n`
+      + `bu Z'nin kart + nakit toplamı ${tl(zToplam)}.\nFark: ${fark > 0 ? '+' : ''}${tl(fark)}\n\n`
+      + 'Z fişinde vergi dökümünün toplamı, kart + nakit toplamına eşittir.\n'
+      + 'Kart/nakit elle düzeltilip KDV satırı eski fişten kalmış olabilir — Z\'yi kontrol et.\n\n'
+      + 'Yine de kaydedilsin mi?')) { onayIptal(); return; }
+  }
   const pKasa = paraOku(document.getElementById('gsKasa'));
   if (!pKasa.ok){ mesaj('gsMsg','hata','Kasada sayılan alanı geçersiz — örnek: 4400 veya 4400,50'); return; }
   const kasa = pKasa.deger;
@@ -6788,7 +6928,12 @@ async function gunSonuKaydet(){
     const et = `Kasa ${k.n}${ZLISTE[k.n].length>1?' ('+k.s+'. Z)':''}`;
     return `${et} — Z ${k.zno}: ${tl(k.kart+k.nakit)}   KDV ${tl(kv)}`;
   }).join('\n');
-  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nKasada sayılan: ${tl(kasa)}\n(gün sonunda kasadan sayılan para)\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) { onayIptal(); return; }
+  /* Y96 · KAPI 2'nin BILGI notu ozetin icinde: engellemez, ama kullanici gormeden gecmez */
+  const atlananMetin = atlananNotlar.length
+    ? '\n\nZ NUMARASI SIRASI:\n' + atlananNotlar.map(x => '· ' + x).join('\n')
+      + '\n(satışsız Z ya da gün içinde alınan ikinci Z ise normaldir)'
+    : '';
+  if (!confirm(`GÜN SONU KAYDEDİLECEK\n\n${ozet}\n──────────────\nGenel Toplam: ${tl(toplam)}\nTOPLAM KDV (beyana giden): ${tl(kdvToplamTutar)}\n\nKasada sayılan: ${tl(kasa)}\n(gün sonunda kasadan sayılan para)${atlananMetin}\n\nKayıttan sonra gün kilitlenir. Onaylıyor musun?`)) { onayIptal(); return; }
   { const m = document.getElementById('gsMsg');
     if (m && m.textContent === IPTAL_MESAJI){ m.textContent = ''; m.style.display = 'none'; } }
 
