@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-102">
+<meta name="surum" content="2026-08-27-103">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -3871,12 +3871,27 @@ function tarihSecici(id, deger){
    Grafiğin çizdiği sütunlar, başlıktaki toplam ve ortalama çizgisi TEK kaynaktan
    (bu fonksiyonun döndürdüğü seri) hesaplanır — üçü ayrı yerden gelirse tutmaz.
      kart         = gun_sonu.kart_toplam
-     TOPLAM NAKİT = gun_sonu.kasa_nakit + o gün kasadan ödenen
+     TOPLAM NAKİT = gun_sonu.kasa_nakit          (kasadan ödenen EKLENMEZ)
+                    ⚠ Y98 · KASADAN ÖDENEN CİROYA EKLENMİYOR. Ölçüldü ve
+                    kullanıcı kesinleştirdi: kasadan yapılan ödeme o günün
+                    kasasından ÇIKMIYOR, kenarda biriken nakitten yapılıyor.
+                    O para geldiği gün zaten sayılıp ciroya girmişti;
+                    harcanırken bir daha eklenmesi AYNI PARAYI İKİ KEZ gelir
+                    yapıyordu. Kasaya giren nakit = o gün SAYILAN.
+                    ⚠ AŞAĞIDAKİ v62 NOTU SİLİNMEDİ. Bu karar onu bilerek geri
+                    çeviriyor; gerekçesi görünmezse ileride aynı döngüde bir
+                    daha çevrilir. v62'nin dayandığı varsayım — "para o günün
+                    kasasından çıkıyor, o yüzden sayımda eksik kalır" — geçerli
+                    değil. Gider tarafı parayı zaten düşüyor, ciro tarafı onu
+                    geldiği gün BİR KEZ sayıyor; iki taraf da doğru.
                     ⚠ v62: "kasadan ödenen EKLENMEZ (zaten gider)" YANLIŞTI.
                     Gider tarafı o parayı zaten düşüyor; ciroya koymayınca
                     kâr o kadar EKSİK çıkıyordu. Kasaya giren nakit =
                     sayılan + ödenen. Aynı dosyanın :2464'teki yorumu bunu
                     baştan beri doğru tarif ediyordu, kod uygulamıyordu.
+                    ⚠ SQL İLE BİREBİR: v150 · _aylik_ozet_ic · z_disi_nakit
+                    artık kh.kasadan_dahil'i eklemiyor. İkisi AYNI turda
+                    değişti; yalnız biri çıkarsa ekran ile görünüm ayrışır.
      SAHİP HAREKETİ  kasaya koyduğu/çektiği para SATIŞ DEĞİL — düşülür.
      gerçek ciro  = kart + toplam nakit
      Z'deki nakit (gun_sonu.nakit_toplam) toplam nakdi DEĞİŞTİRMEZ; tek işi
@@ -3898,7 +3913,7 @@ function gunlukCiro(gunler, ayStr, kasaCikis, sahipNakit){
   const yil=+ayStr.slice(0,4), ayNo=+ayStr.slice(5,7);
   const gunSayisi=new Date(yil, ayNo, 0).getDate();
   const seri=[];
-  let tResmi=0, tKart=0, tNakit=0, tKdvNakit=0, tZDisi=0, tGercek=0, kayitli=0, acikGun=0, bilinmeyen=0;
+  let tResmi=0, tKart=0, tNakit=0, tKdvNakit=0, tZDisi=0, tGercek=0, tKasadan=0, kayitli=0, acikGun=0, bilinmeyen=0;
   const bugunS=bugun();
   for(let d=1; d<=gunSayisi; d++){
     const ts=ayStr+'-'+String(d).padStart(2,'0');
@@ -3915,19 +3930,29 @@ function gunlukCiro(gunler, ayStr, kasaCikis, sahipNakit){
     if(k.kasa_nakit===null || k.kasa_nakit===undefined){
       g.durum='kasa_sayilmadi'; g.nakitToplam=null; g.zDisi=null; gercekK=resmiK; g.gercek=g.resmi; bilinmeyen++;
     }else{
-      // v62 · Kasaya GİREN nakit = sayılan + o gün kasadan ödenen.
+      // Y98 · Kasaya GİREN nakit = o gün SAYILAN. Kasadan ödenen EKLENMEZ
+      // (v150 · z_disi_nakit de eklemiyor). Harita duruyor: aylık okuma
+      // satırı "toplanan − kasadan ödenen" için bu toplamı kullanıyor.
       // Sahibin koyduğu/çektiği para satış değil, düşülür (SQL zaten öyle
       // yapıyordu; JS yapmıyordu — iki taraf tek tanıma bağlandı).
       const cikanK = (kasaCikis && kasaCikis[ts]) || 0;      // KURUS
       const sahipK = (sahipNakit && sahipNakit[ts]) || 0;    // KURUS
-      nakitToplamK = kr(k.kasa_nakit) + cikanK;
+      nakitToplamK = kr(k.kasa_nakit);
+      // ⚠ YALNIZ KASASI SAYILAN GÜNDE toplanır — v_aylik_ozet.kasadan_nakit
+      //   de aynı kapıdan geçiyor (sayılmayan gün kapsam_disi_nakit'e gider).
+      tKasadan += cikanK;
       zDisiK = nakitToplamK - zNakitK - sahipK;
       gercekK = kartK + nakitToplamK - sahipK;
       g.nakitToplam = nakitToplamK/100;
       g.zDisi = zDisiK/100;
       g.gercek = gercekK/100;
-      // KASA AÇIĞI eşiği: artık kasadan ödenen düşülmüş DEĞİL, dahil.
-      // Eski hâlde meşru bir ödeme günü yapay olarak "açık" işaretleniyordu.
+      /* KASA AÇIĞI eşiği: Z dışı nakit artık yalnız (sayılan − Z nakdi) − sahip.
+         ⚠ Y98 · KASADAN ÖDENEN GÜNÜ AÇIK GÖSTERMEZ, çünkü o ödeme kasadan
+           değil kenardaki nakitten yapılıyor — sayım zaten onu içermiyor
+           değil. Bu eşik v62'de "meşru ödeme günü yapay açık yanıyordu"
+           diye kasadan ödeneni dahil ediyordu; kasadan ödeme kenardan
+           yapıldığı için o sebep de düştü. Kasa açığı = sayım Z'nin
+           dediğinden AZ. */
       g.durum = zDisiK<0 ? 'kasa_acigi' : 'tam';
       if(zDisiK<0) acikGun++;
     }
@@ -3942,8 +3967,28 @@ function gunlukCiro(gunler, ayStr, kasaCikis, sahipNakit){
            toplamZDisi:tZDisi/100,        // KDV'ye girmeyen kısım = toplamNakit − toplamKdvNakit
            toplamResmi:tResmi/100,        // Z toplamı (kart + KDV'ye dahil nakit)
            toplamGercek:tGercek/100,      // kart + elle girilen nakit
+           toplamKasadan:tKasadan/100,    // Y98 · o ay kasadan ödenen (ciroya GİRMEZ, okuma satırı kullanıyor)
            kayitliGun:kayitli, ortalama: kayitli? (tGercek/kayitli)/100 : 0,
            kasaAcigiGun:acikGun, kasaSayilmayanGun:bilinmeyen };
+}
+/* ⚠ Y98 · ELDE KALMASI GEREKEN NAKİT — TEK OKUMA SATIRI, TEK TANIM.
+     toplanan nakit (kasada sayılan) − kasadan ödenen = elde kalması gereken.
+     Üç rakam da gunlukCiro'nun döndürdüğü seriden geliyor; ikisi ayrı yerden
+     hesaplanırsa aynı ekranın iki yanı ayrışır (bu dosyanın tekrar eden dersi).
+   ⚠ KESİNLİK İDDİA ETMEZ: şube sorumlusunun sahibe yolladığı para HİÇBİR
+     YERDE kayıtlı değil. Cümle "ne kadar yollanmış olmalı"yı söyler, "kasada
+     şu kadar kaldı" DEMEZ. Kasası sayılmayan gün varsa kapsam da eksiktir;
+     o zaman ayrıca yazılır (uydurma kesinlik verilmez). */
+function nakitOkumaSatiri(GC){
+  if(!GC || !GC.kayitliGun) return '';
+  const kalan = GC.toplamNakit - GC.toplamKasadan;
+  return `<div class="ipucu" style="margin:0 0 8px">
+      Toplanan nakit <b>${tl(GC.toplamNakit)}</b> − kasadan ödenen <b>${tl(GC.toplamKasadan)}</b>
+      = <b>${tl(kalan)}</b> elde kalması gereken.
+      <div style="margin-top:4px;color:var(--soluk)">Sahibe yollanan para hiçbir yerde kayıtlı değil —
+      bu rakam <b>ne kadar yollanmış olması gerektiğini</b> söyler, kasada o kadar kaldığını DEMEZ.${
+        GC.kasaSayilmayanGun ? ` ${GC.kasaSayilmayanGun} günde kasa sayılmadı, o günler bu hesaba girmedi.` : ''}</div>
+    </div>`;
 }
 function ciroGrafigi(v){
   if(!v || !v.kayitliGun) return '';
@@ -4075,7 +4120,10 @@ async function gunDetay(tarih){
   }
   const cikisT=(kg.data||[]).reduce((a,x)=>a+ +x.tutar,0)+(no.data||[]).reduce((a,x)=>a+ +x.tutar,0);
   const kasa=g.kasa_nakit===null?null:+g.kasa_nakit;
-  const zDisi=kasa===null?null:(kasa-(+g.nakit_toplam||0)+cikisT);
+  /* ⚠ Y98 · AYNI HESABIN ÜÇÜNCÜ KOPYASI. Kasadan ödenen buraya da
+     ekleniyordu; gunlukCiro ve v150 eklemeyi bıraktığına göre bu panel de
+     bırakmalı, yoksa aynı gün Özet'te başka, panelde başka rakam gösterir. */
+  const zDisi=kasa===null?null:(kasa-(+g.nakit_toplam||0));
   const gercek=(+g.toplam)+(zDisi||0);
   const ks=(g.gun_sonu_kasa||[]).filter(x=>!x.is_deleted).sort((a,b)=>a.kasa_no-b.kasa_no||(a.sira||1)-(b.sira||1));
   const kd=(g.gun_sonu_kdv||[]).filter(x=>!x.is_deleted);
@@ -4334,6 +4382,7 @@ async function vOzet(){
         Bunun <b>${tl(GC.toplamKdvNakit)}</b>'i Z raporunda; ${ayAdi(ay)} KDV'si
         o rakamdan hesaplanıp gelecek ay ödenecek.
       </div>`}
+      ${!sahip ? '' : nakitOkumaSatiri(GC)}
       ${ciroGrafigi(GC)}
       <div class="ipucu" style="margin-top:6px">Bir güne dokun — o günün gün sonu kaydı açılır.</div>
       ${sahip && GC.kasaAcigiGun ? `<div class="uyari-agir">${GC.kasaAcigiGun} günde kasada Z raporunun
@@ -4648,6 +4697,7 @@ async function vOzetSubeVerisi(){
         Bunun <b>${tl(GC.toplamKdvNakit)}</b>'i Z raporunda; ${ayAdi(ay)} KDV'si
         o rakamdan hesaplanıp gelecek ay ödenecek.
       </div>
+      ${nakitOkumaSatiri(GC)}
       ${ciroGrafigi(GC)}
       ${GC.kasaAcigiGun ? `<div class="uyari-agir">${GC.kasaAcigiGun} günde kasada Z raporunun
         dediğinden AZ para sayılmış. Bu Z dışı satış değil <b>kasa açığı</b> — grafikte koyu
@@ -7080,7 +7130,8 @@ async function gunSonuListe(){
        sorgu o gunun "Gerçek / Z dışı nakit" satirini KISMI gosterirdi (Y65'te kapatilan
        kusurun aynisi). Gun basina kasa cikisi rpc_sube_ozet'ten kurus olarak geliyor. */
   const svR = sahip ? null : await subeOzetVerisi(ay);
-  // Kasadan ödenen giderler: sayım o kadar eksik çıkar, gerçek ciroya geri eklenir
+  // Kasadan ödenen giderler: Y98'den beri ciroya GERİ EKLENMİYOR (kenardaki
+  // nakitten ödeniyor, günün sayımından çıkmıyor). Satırda bilgi olarak yazılır.
   const kasadanMap = {};
   const [kg, no, kapali, ilkGunSonu, kilit] = await Promise.all([
     sahip ? sb.from('gider').select('tarih,tutar').eq('kasadan',true).eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
@@ -7189,8 +7240,10 @@ async function gunSonuListe(){
     ${gunler.length===0?bosDurum('belge','Bu ayda gün sonu kaydı yok','Yukarıdan başka ay seçebilir veya bugünün Z raporlarını girebilirsin.'):gunler.map(g=>{
       const kasa = g.kasa_nakit===null ? null : +g.kasa_nakit;
       const kasadan = kasadanMap[g.tarih]||0;
-      const gercek = kasa===null ? null : +g.kart_toplam + kasa + kasadan;
-      const fark = kasa===null ? null : kasa + kasadan - g.nakit_toplam;
+      /* ⚠ Y98 · kasadan ödenen ARTIK EKLENMİYOR (gunlukCiro ve v150 ile aynı
+         tanım). Satırda BİLGİ olarak yazılmaya devam ediyor. */
+      const gercek = kasa===null ? null : +g.kart_toplam + kasa;
+      const fark = kasa===null ? null : kasa - g.nakit_toplam;
       return `
       <div class="liste-satir">
         <div class="l-sol"><div class="b">${new Date(g.tarih+'T00:00').toLocaleDateString('tr-TR')} ${g.kilitli?'🔒':'🔓'}</div>
@@ -10702,7 +10755,7 @@ async function giderListe(){
            artik "SON 7 GÜN" demiyor — ekran ne gosteriyorsa onu soylemeli. */''}
     ${kbaslik(PROFIL.rol==='personel' && !subeVerisiAcik() ? 'SON 7 GÜN':'SON KAYITLAR', 'Giderler',
        buAy.length?`<div class="kb-sag">${tl(ayToplam)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${ayAdi(ay)}</span></div>`:'')}
-    ${kasadanToplam>0?`<div class="ipucu">Bu ayın <b>${tl(kasadanToplam)}</b> tutarı kasadan nakit ödendi — gün sonu sayımında eksik çıkar, gerçek ciroya geri eklenir.</div>`:''}
+    ${kasadanToplam>0?`<div class="ipucu">Bu ayın <b>${tl(kasadanToplam)}</b> tutarı kasadan nakit ödendi — elde biriken nakitten çıktı, ciroya geri EKLENMEZ (o para geldiği gün zaten sayıldı).</div>`:''}
     ${/* ⚠ ADIM 2b · ALT TOPLAM CIZILEN AYNI `list`TEN — ayri sorgu YOK. */''}
     ${subeAltToplamBlogu(list, g=>+g.tutar, g=>g.sube_id)}
     ${list.length===0
