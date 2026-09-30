@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-103">
+<meta name="surum" content="2026-08-27-105">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -7012,17 +7012,37 @@ async function gunSonuKaydet(){
   window.__sonRpcHataHam = '';
   // DÜZENLEME: kaydı silmeden güncelle
   if (DUZENLE){
-    const gData = await rpcCagir('rpc_gun_sonu_guncelle', {
-      /* ⚠ GUNCELLEME kaydin KIMLIGINE baglanir, ICERIGINE degil. Icerik
+    /* ⚠ Y99 · ANAHTAR ARTIK ICERIGI DE TASIYOR. Asagidaki eski not SILINMEDI;
+       niyeti dogruydu, sonucu yanlisti — bu turun olcumu:
+         anahtar yalniz kaydin KIMLIGINDEN uretiliyordu, yani ayni gunu ayni
+         kullanici ancak BIR KEZ duzeltebiliyordu. Ikinci duzeltmede sunucunun
+         tekrar korumasi ilk seferin sonucunu geri veriyor, o sonuc ok oldugu
+         icin ekran "Degisiklikler kaydedildi ✓" yaziyor ve HICBIR SEY
+         kaydedilmiyordu (kayitli sonuc yoksa 'tekrar' donuyor, o dalda ekran
+         hic mesaj yazmiyordu — iki yol da sessiz). Gercek olay: bir gun sonu
+         uc kez duzeltilmek istendi, ikincisi ve ucuncusu sessizce kayboldu.
+       ⚠ KORUMA KAYBOLMAZ, DOGRU CALISIR: ayni istek tekrar giderse (agin
+         yeniden denemesi — rpcCagir ayni params nesnesiyle iki kez deniyor)
+         yuk ayni, anahtar ayni, sunucu ikinci kez UYGULAMAZ. Gercekten farkli
+         bir duzeltme geldiginde anahtar degisir ve gecer. Cift tiklama zaten
+         gonderim basinda dugmenin pasiflesmesiyle engelli.
+       ⚠ ANAHTARA RPC'YE GIDENIN AYNISI GIRER: not, kasa sayimi, kasalar dizisi
+         ve icindeki KDV satirlari. Yuk TEK YERDE kuruluyor ki anahtar ile
+         gonderilen govde ayrisamasin.
+       ⚠ GUNCELLEME kaydin KIMLIGINE baglanir, ICERIGINE degil. Icerik
          anahtara girseydi kullanici rakami duzeltip tekrar gonderdiginde
          anahtar degisir ve koruma bosa cikardi. */
-      p_idem: await idemKararli('gun_sonu_guncelle',[DUZENLE.id]), p_id: DUZENLE.id,
+    const yuk = {
+      p_id: DUZENLE.id,
       p_not: document.getElementById('gsNot').value.trim()||null,
       p_kasa: kasaGonder,
       p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
         kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
         z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
-    }, 'gsKaydet','gsMsg','Değişiklikler kaydedildi ✓');
+    };
+    const gData = await rpcCagir('rpc_gun_sonu_guncelle', Object.assign({
+      p_idem: await idemKararli('gun_sonu_guncelle',[DUZENLE.id, JSON.stringify(yuk)])
+    }, yuk), 'gsKaydet','gsMsg','Değişiklikler kaydedildi ✓');
     if (gData && gData.ok){ taslakSil(); DUZENLE = null; vGunSonu(); mesaj('gsMsg','ok','Değişiklikler kaydedildi ✓'); }
     else {
       btn.textContent = eskiBtnMetin;
@@ -17124,20 +17144,33 @@ function vergiDekontDoldur(dk, yaz){
       if (s && [...s.options].some(o => o.value === k.tur)){
         s.value = k.tur; s.classList.add('oku-dolu'); d.push('Tür'); } }
     const nt = g('voNot');
-    if (nt){ nt.value = k.kod + ' ' + k.ad; nt.classList.add('oku-dolu'); d.push('Not'); }
+    /* ⚠ GECIKME ZAMMI TUTARA EKLENMEZ, NOTA YAZILIR. Belgede ayri kolon:
+       odenen vergi ile zammi ayri kalemlerdir, toplayip vergi diye yazmak
+       vergiyi sisirir (SGK dekontundaki komisyon dersinin aynisi). */
+    const gecikmeVar = +(k.gecikme || 0) > 0;
+    if (nt){ nt.value = k.kod + ' ' + k.ad + (gecikmeVar ? ' · gecikme zammı ' + tl(k.gecikme) : '');
+      nt.classList.add('oku-dolu'); d.push('Not'); }
     /* ⚠ Mesaj k.tur'e DEGIL, turun forma GERCEKTEN yazilip yazilmadigina
        bakar. Eskiden k.tur doluysa "kontrol et, Kaydet" diyordu; yukaridaki
        varlik sinamasi eklenince bu ikisi ayrisabilir hale geldi ve mesaj
        bos bir Tur alani icin "hazir" diyebilirdi. */
     const turYazildi = d.indexOf('Tür') >= 0;
+    /* ⚠ DONEM DE SOYLENIR. "Ödeme Detay Bilgileri" belgesinde dönem HİÇ
+       yazmıyor (ölçüldü); eskiden mesaj yalnız türe bakıyordu ve tür
+       biliniyorsa "kontrol et, Kaydet" diyordu — dönem varsayılan aydan
+       (içinde bulunulan ay) gider, vade kapanmazdı. Alındı yolunda dönem
+       zaten dolduğu için o yolun metni DEĞİŞMEZ. */
+    const donemYazildi = d.indexOf('Dönem') >= 0;
+    const eksik = [turYazildi ? null : 'TÜRÜ', donemYazildi ? null : 'DÖNEMİ'].filter(Boolean);
     /* ⚠ Belgenin tasinacagi SOYLENIR. Sessiz davranis, dosya alani bos
        gorundugu icin "belgesiz kaydediyorum" sanilmasina yol acardi. */
     VO_AYNI_DEKONT = true;
     const belgeNotu = VO_DEKONT_YOL ? ' · belge ilk kayıttan taşınacak' : '';
+    const gecikmeNotu = gecikmeVar ? ' · gecikme zammı ' + tl(k.gecikme) + ' TUTARA EKLENMEDİ, nota yazıldı' : '';
     yaz('Dolduruldu: ' + d.join(', ')
-      + (turYazildi ? ' · kontrol et, Kaydet.' : ' · TÜRÜ sen seç, sonra kaydet.')
-      + belgeNotu,
-      turYazildi ? 'ok' : 'uyari');
+      + (eksik.length ? ' · ' + eksik.join(' ve ') + ' sen seç, sonra kaydet.' : ' · kontrol et, Kaydet.')
+      + gecikmeNotu + belgeNotu,
+      eksik.length ? 'uyari' : 'ok');
     digerleriCiz(k);
   };
   /* kalan kalemler: her biri ayri kayit — tek tek doldurulur */
@@ -17206,6 +17239,69 @@ function vergiDekontCoz(metin){
     if (m) toplam = say(m[1]);
   }
   return { tarih, donem, kalemler, toplam };
+}
+
+/* =====================================================================
+   GIB · "ODEME DETAY BILGILERI" OKUYUCUSU (alindinin IKINCI kalibi)
+   =====================================================================
+   ⚠ NEDEN AYRI KALIP: internet vergi dairesinden alinan bu cikti, tahsil
+     alindisiyla AYNI odemeyi anlatir ama bambaska dizilir. Alindi
+     "NN KOD AD TUTAR" satirlari ve "02 tarih 03 donem" basligi tasir;
+     bu belgede SIRA / VERGI TURU / ODENEN TUTAR / GECIKME ZAMMI / TAKSIT /
+     SIRA NO tablosu var, KOD ile AD arasinda TIRE var ve DONEM HIC YOK.
+     vergiDekontCoz bu belgede null doner (basligi "ALINDISI" degil) ve
+     okuma fatura okuyucusuna dusuyordu: o da TOPLAMI tek tutar diye
+     yaziyordu — uc kalemli bir odeme tek satir gibi kaydedilirdi
+     (olculdu: belgenin TOPLAMI tek basina forma yaziliyor, damga stopaja karisiyor).
+   ⚠ BICIM GERCEK BELGEDEN OLCULDU (uygulamanin kendi pdfMetinCikar'i);
+     asagidaki rakamlar UYDURMA, dizilim gercektekiyle ayni:
+       "Ödeme Detay Bilgileri 12-05-2026 09:10"
+       "Sıra Vergi Türü Ödenen Tutar Gecikme Zammı Taksit Sıra No"
+       "1 0003-GELİR VERGİSİ S. 1.234,56 0,00 1 1"
+       "(MUHTASAR)"                      <- ADIN DEVAMI ALT SATIRDA
+       "Toplam 1.246,90 0,00"
+     Baslik iskelette "DEMEDETAYBILGILERI" olur (VD_ISKELET ASCII disini
+     SILER, cevirmez; "Ö" ve "İ" duser) — capa bu yuzden "DETAYBILGILERI".
+   ⚠ TUR SOZLUGU ORTAK: VD_KOD. Yeni kod TAHMINLE eklenmez.
+   ⚠ DONEM URETILMEZ: belgede yok. Tahmin etmek (ornegin "bir onceki ay")
+     YANLIS vadeyi kapatirdi; alan bos kalir ve ekran donemi kullanicinin
+     secmesini SOYLER.
+   ⚠ GECIKME ZAMMI AYRI KOLON: tutara eklenmez, nota yazilir (doldurucuda).
+   Doner: null ya da { tarih, donem:null, kalemler:[{kod,ad,tur,tutar,gecikme}], toplam } */
+function vergiOdemeDetayCoz(metin){
+  const satirlar = String(metin || '').split('\n');
+  if (!satirlar.some(s => VD_ISKELET(s).indexOf('DETAYBILGILERI') >= 0)) return null;
+  const say = (t) => { const r = paraCoz(t); return r.ok ? r.deger : null; };
+  const PARA = '\\d{1,3}(?:\\.\\d{3})*,\\d{2}';
+  /* "1 0003-AD ... 1.234,56 0,00 1 1" (uydurma rakam) — taksit ve sira no OLMAYABILIR.
+     Para deseni virgul + iki hane sart oldugu icin sinir belirsiz kalmaz. */
+  const kalemRe = new RegExp('^\\s*(\\d{1,2})\\s+(\\d{4})-(.+?)\\s+(' + PARA + ')\\s+(' + PARA + ')(?:\\s+\\d+\\s+\\d+)?\\s*$');
+  const kalemler = [];
+  satirlar.forEach((s, i) => {
+    const m = s.match(kalemRe);
+    if (!m) return;
+    const tutar = say(m[4]);
+    if (tutar == null || tutar <= 0) return;
+    /* adin devami alt satirda olabilir: rakamla BASLAMAYAN, kalem ya da
+       toplam satiri OLMAYAN bir satir varsa ada eklenir. */
+    const alt = String(satirlar[i + 1] || '').trim();
+    const devam = alt && !kalemRe.test(alt) && !/^Toplam\b/i.test(alt) && /^[^0-9]/.test(alt) ? ' ' + alt : '';
+    kalemler.push({ kod: m[2], ad: (m[3] + devam).replace(/\s+/g, ' ').trim(),
+                    tur: VD_KOD[m[2]] || null, tutar, gecikme: say(m[5]) || 0 });
+  });
+  if (!kalemler.length) return null;
+  let tarih = null;
+  for (const s of satirlar){
+    const t = s.match(/(\d{2})-(\d{2})-(\d{4})/);      // baslik: "30-09-2026 15:49"
+    if (t){ tarih = t[3] + '-' + t[2] + '-' + t[1]; break; }
+  }
+  let toplam = null;
+  for (const s of satirlar){
+    const m = s.match(new RegExp('^\\s*Toplam\\s+(' + PARA + ')(?:\\s+' + PARA + ')?\\s*$', 'i'));
+    if (m) toplam = say(m[1]);
+  }
+  return { tarih, donem: null, kalemler,
+           toplam: toplam != null ? toplam : kalemler.reduce((a, k) => a + k.tutar, 0) };
 }
 
 /* =====================================================================
@@ -17909,6 +18005,12 @@ async function vergiBelgeOku(){
          mevcut yol AYNEN calisir — fatura akisi degismedi. */
       const dk = vergiDekontCoz(c.metin);
       if (dk){ vergiDekontDoldur(dk, yaz); return; }
+      /* ⚠ GIB'IN IKINCI KALIBI: "Ödeme Detay Bilgileri". Alindi kalibindan
+         SONRA denenir; ikisi ayni belgeyi gormez (biri "ALINDISI", oteki
+         "DETAY BILGILERI" basligina bakiyor). Ayni doldurucuya gider —
+         cok kalemli akis, "Bunu doldur" ve TEK BELGE YUKLEME aynen calisir. */
+      const od = vergiOdemeDetayCoz(c.metin);
+      if (od){ vergiDekontDoldur(od, yaz); return; }
       /* ⚠ SGK · TAHSILAT DEKONTU YOLU. GIB alindisi kalibindan SONRA
          denenir: GIB okuyucusu once sinanirsa mevcut davranis bit bit
          korunur (olculdu — SGK dekontunda kalem tablosu yok, GIB
