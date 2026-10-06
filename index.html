@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-105">
+<meta name="surum" content="2026-08-27-106">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -10759,27 +10759,68 @@ async function giderKaydet(mod){
       sabitListeCiz();
     }
     duzenliSeritCiz();
+    /* ⚠ Y105 · KAYDEDILEN AYA GECILIR. Liste artik SECILI AYI gosteriyor; secili ay
+       baska bir ayken kayit girilirse kayit listeye HIC dusmezdi ve "gitmedi" sanilirdi
+       (gun sonu duzeltmesindeki sessiz kaybolmanin aynisi). Tarih alanindan okunur:
+       gecmis tarihli bir gider girildiyse de o ay acilir. */
+    { const t = document.getElementById('gdTarih');
+      const a = t && /^\d{4}-\d{2}/.test(t.value) ? t.value.slice(0,7) : null;
+      if (a) GD_AY = a;
+      const s = document.getElementById('gdListeAy'); if (s && a) s.value = a; }
     giderListe(); }
 }
+/* ⚠ Y105 · GIDER LISTESINDE AY SECICI (alisListe'deki AL_AY kalibinin aynisi).
+     ESKI HAL: sorgu tarihe gore tersten siralanip 30 kayitla sinirliydi, tarih
+     suzgeci YOKTU; baslikdaki aylik toplam da BUGUNUN ayini sabit okuyordu.
+     Yani "secili ay" diye bir sey yoktu: gecmis aya bakmanin yolu olmadigi gibi,
+     liste 30 kaydi astiginda basliktaki rakam da sessizce eksiliyordu.
+     Secicinin kosulu fatura listesiyle AYNI: owner ya da bayrakli sorumlu.
+     Bayraksiz personelde secici CIZILMEZ, gorunumu aynen kalir. */
+let GD_AY = null;
+function gdAyDegisti(){ GD_AY = document.getElementById('gdListeAy').value; giderListe(); }
 async function giderListe(){
-  const { data } = await sb.from('gider').select('*, gider_kategori(ad)').eq('is_deleted',false)
-    .order('tarih',{ascending:false}).limit(30);
+  /* ⚠ AY SUZGECI YALNIZ SECICI CIZILEN YOLDA. Bayraksiz personelde secici yok;
+     ona ay suzgeci koymak gorunumunu DEGISTIRIRDI — ustelik gorebildigi pencere
+     sunucuda 7 gun oldugu icin ay basinda o pencerenin onceki aya dusen gunleri
+     listeden SILINIRDI. Onun sorgusu, basligi ve toplami ESKISIYLE AYNI kaliyor. */
+  const seciliAyVar = (PROFIL.rol==='owner' || subeVerisiAcik());
+  const ay  = seciliAyVar ? (GD_AY || bugun().slice(0,7)) : bugun().slice(0,7);
+  const bas = ay + '-01';
+  const sonGun = new Date(+ay.slice(0,4), +ay.slice(5,7), 0).getDate();
+  const son = ay + '-' + String(sonGun).padStart(2,'0');
+  let sorgu = sb.from('gider').select('*, gider_kategori(ad)').eq('is_deleted',false);
+  // AY BAZLI: limit yok — ayin tamami gelir (alisListe'de ayni karar verilmisti)
+  if (seciliAyVar) sorgu = sorgu.gte('tarih',bas).lte('tarih',son);
+  sorgu = sorgu.order('tarih',{ascending:false});
+  if (!seciliAyVar) sorgu = sorgu.limit(30);
+  const { data, error } = await sorgu;
   const el = document.getElementById('gdListe'); if(!el) return;
   const list = data||[];
-  const ay = bugun().slice(0,7);
-  const buAy = list.filter(g=>String(g.tarih).slice(0,7)===ay);
-  const ayToplam = buAy.reduce((a,g)=>a+ +g.tutar,0);
-  const kasadanToplam = buAy.filter(g=>g.kasadan).reduce((a,g)=>a+ +g.tutar,0);
+  /* Secili ay yolunda liste ZATEN o ay; bayraksiz yolda eski davranis: listedeki
+     BU AY satirlari toplanir. */
+  const toplamKume = seciliAyVar ? list : list.filter(g=>String(g.tarih).slice(0,7)===ay);
+  const ayToplam = toplamKume.reduce((a,g)=>a+ +g.tutar,0);
+  const kasadanToplam = toplamKume.filter(g=>g.kasadan).reduce((a,g)=>a+ +g.tutar,0);
+  const secici = seciliAyVar
+    ? `<input type="month" id="gdListeAy" value="${ay}" onchange="gdAyDegisti()"
+         style="width:auto;margin:0;min-height:44px;font-size:13px">` : '';
   el.innerHTML = `<div class="kart">
     ${/* ⚠ Y67 · Bayrakli personelde 7 gun penceresi KALKTI (v142 politikasi): baslik da
            artik "SON 7 GÜN" demiyor — ekran ne gosteriyorsa onu soylemeli. */''}
-    ${kbaslik(PROFIL.rol==='personel' && !subeVerisiAcik() ? 'SON 7 GÜN':'SON KAYITLAR', 'Giderler',
-       buAy.length?`<div class="kb-sag">${tl(ayToplam)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${ayAdi(ay)}</span></div>`:'')}
-    ${kasadanToplam>0?`<div class="ipucu">Bu ayın <b>${tl(kasadanToplam)}</b> tutarı kasadan nakit ödendi — elde biriken nakitten çıktı, ciroya geri EKLENMEZ (o para geldiği gün zaten sayıldı).</div>`:''}
+    ${seciliAyVar
+      ? kbaslik('GİDERLER', ayAdi(ay), secici)
+      : kbaslik(PROFIL.rol==='personel' ? 'SON 7 GÜN':'SON KAYITLAR', 'Giderler',
+          toplamKume.length?`<div class="kb-sag">${tl(ayToplam)}<span class="k" style="display:block;font-size:10.5px;font-weight:700;color:var(--soluk)">${ayAdi(ay)}</span></div>`:'')}
+    ${error?`<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`:''}
+    ${seciliAyVar && list.length?ozSatir(ayAdi(ay)+' gider toplamı', tl(ayToplam), true):''}
+    ${/* ⚠ Bayraksiz personelde cumle de ESKISI GIBI ("Bu ayın"): onun listesi her zaman
+         icinde bulunulan ay oldugu icin dogru, ve gorunumu bu turda DEGISMEYECEK. */''}
+    ${kasadanToplam>0?`<div class="ipucu">${seciliAyVar?`<b>${ayAdi(ay)}</b> ayının`:'Bu ayın'} <b>${tl(kasadanToplam)}</b> tutarı kasadan nakit ödendi — elde biriken nakitten çıktı, ciroya geri EKLENMEZ (o para geldiği gün zaten sayıldı).</div>`:''}
     ${/* ⚠ ADIM 2b · ALT TOPLAM CIZILEN AYNI `list`TEN — ayri sorgu YOK. */''}
     ${subeAltToplamBlogu(list, g=>+g.tutar, g=>g.sube_id)}
     ${list.length===0
-      ? bosDurum('belge','Gider kaydı yok','Elektrik, su, tüp gibi düzenli giderleri "Temel", ufak alımları "Fiş" bölümünden gir.')
+      ? bosDurum('belge', seciliAyVar ? 'Bu ayda gider kaydı yok' : 'Gider kaydı yok',
+          'Elektrik, su, tüp gibi düzenli giderleri "Temel", ufak alımları "Fiş" bölümünden gir.')
       : list.map(g=>srSatir({
           sube: g.sube_id,
           /* ⚠ Y18 · "KDV bilinmiyor" rozeti `belgesiz` ile AYNI kalip:
@@ -13444,8 +13485,13 @@ async function alisListe(){
 
   el.innerHTML = `<div class="kart">
     ${/* ⚠ Y67 · Bayrakli personelde 7 gun penceresi KALKTI (v142 politikasi). */''}
+    ${/* ⚠ Y105 · SECICININ KOSULU BASLIKLA AYNI OLMALI. Baslik metni bayragi okuyordu
+         (Y67), secici hala yalniz owner'a ciziliyordu: bayrakli sorumlu icinde
+         bulunulan ayda KILITLIYDI, onceki aya gecmenin hicbir yolu yoktu. Kosul
+         Ay Sonu sekmesi ve gun sonu listesindeki kalibin AYNISI; yeni yardimci
+         yazilmadi. Bayraksiz personelde secici YINE CIZILMEZ. */''}
     ${kbaslik(PROFIL.rol==='personel' && !subeVerisiAcik() ? 'SON 7 GÜN':'MAL ALIMI FATURALARI', ayBasligi,
-      PROFIL.rol==='owner'
+      (PROFIL.rol==='owner' || subeVerisiAcik())
         ? `<input type="month" id="alListeAy" value="${ay}" onchange="alAyDegisti()"
              style="width:auto;margin:0;min-height:44px;font-size:13px">` : '')}
     ${error?`<div class="uyari-agir">Liste yüklenemedi: ${esc(hataTr(error.message))}</div>`:''}
