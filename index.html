@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-106">
+<meta name="surum" content="2026-08-27-107">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -74,6 +74,11 @@
 .kp-ad{font-weight:800;font-size:13px;letter-spacing:.6px;text-transform:uppercase;color:var(--ana)}
 .kp-drm{font-size:11px;font-weight:700;text-align:right}
 .kp-drm.bos{color:var(--soluk)}.kp-drm.eksik{color:var(--uyari)}.kp-drm.tam{color:var(--ok)}
+/* v151 · "calismadi" UCUNCU HALDIR: bos (gri) ve tam (yesil) ile karismasin */
+.kp-drm.calismadi{color:var(--ana);font-style:italic}
+.kp-cal{display:flex;align-items:center;gap:8px;min-height:44px;margin:0 0 6px;font-size:13px;cursor:pointer}
+.kp-cal input{width:20px;height:20px;margin:0;flex:none}
+.kasa-panel.kp-pasif .z-blok,.kasa-panel.kp-pasif .kp-ara{opacity:.45}
 .kp-ara{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--cizgi);border-bottom:1px solid var(--cizgi);padding:8px 0;margin:12px 0}
 .kp-ara span{font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--soluk)}
 .kp-ara b{font-size:18px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -6114,7 +6119,7 @@ function duzenlemeIptal(){
 }
 async function gunSonuDuzenle(id){
   const { data, error } = await sb.from('gun_sonu')
-    .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,z_foto_path,pos_slip_foto_path,notlar,is_deleted), gun_sonu_kdv(kasa_no,sira,oran,satis_toplam,kdv_tutar,is_deleted)')
+    .select('*, gun_sonu_kasa(kasa_no,sira,z_no,kart_toplam,nakit_toplam,z_foto_path,pos_slip_foto_path,notlar,calismadi,is_deleted), gun_sonu_kdv(kasa_no,sira,oran,satis_toplam,kdv_tutar,is_deleted)')
     .eq('id', id).maybeSingle();
   if (error || !data){ bildir('Kayıt yüklenemedi: ' + hataTr(error?.message || 'bulunamadı'), 'hata'); return; }
   const ks = (data.gun_sonu_kasa||[]).filter(k=>!k.is_deleted);
@@ -6153,6 +6158,14 @@ async function gunSonuDuzenle(id){
       else kdvSatirEkle(key, 10, null, null, true);
     }
   }));
+  /* ⚠ v151 · BEYAN GERI YUKLENIR. Yuklenmezse duzenlemeye girilen gunde kasa
+     yine "bos" gorunur, kullanici ayni engele toslar ve kutucugu her seferinde
+     yeniden isaretlemek zorunda kalirdi — yani beyan kaydedilmemis sayilirdi. */
+  KASA_NO().forEach(n=>{
+    const cal = ks.some(x=>x.kasa_no===n && x.calismadi);
+    const e = document.getElementById('gsCalismadi'+n);
+    if (e){ e.checked = cal; kasaCalismadiDegisti(n); }
+  });
   const bar = document.getElementById('gsDuzenleBar');
   if (bar) bar.innerHTML = `<div class="kart" style="border-color:var(--uyari);background:#FFF8EC">
     <div class="kbaslik" style="color:var(--uyari)">DÜZENLEME MODU — ${new Date(data.tarih+'T00:00').toLocaleDateString('tr-TR')}</div>
@@ -6212,11 +6225,47 @@ function kasaPanelHtml(n){
           panel sagdan bosluklu, ucuncu kasa yanlis dolgulu cizilirdi. */''}
     <div class="kasa-panel${KASA_NO().length<2?'' : n===1?' sol' : n===KASA_NO().length?' sag':' sol sag'}${n===1?' aktif':''}" id="kasaPanel${n}">
       <div class="kp-bas"><span class="kp-ad">Kasa ${n}</span><span class="kp-drm bos" id="kpDrm${n}">○ Başlanmadı</span></div>
+      ${/* ⚠ v151 · BOS BIRAKMAK ILE "CALISMADI" AYRI IKI HALDIR.
+            Bos = dokunulmadi; "bozuktu" ile "girmeyi unuttuk" ayirt edilemez,
+            o yuzden kayit YINE DURUR. Calismadi = kullanici ACIKCA beyan etti;
+            Z no ve fotograf aranmaz, tutarlar sifir gider. Eskiden bu gunler
+            ikinci kasaya Z no "0" yazilip bir fotograf yuklenerek asiliyordu:
+            kayit "sifir Z basti" diyordu, gercek "kasa calismadi"di. */''}
+      <label class="kp-cal" for="gsCalismadi${n}">
+        <input type="checkbox" id="gsCalismadi${n}" onchange="kasaCalismadiDegisti(${n})">
+        <span>Bu kasa bugün <b>çalışmadı</b></span>
+      </label>
       <div id="gsZBloklar${n}">${(ZLISTE[n]||[1]).map(s=>zBlokHtml(n,s)).join('')}</div>
       <button type="button" class="btn2 z-ekle" onclick="zBlokEkle(${n})">+ Bu kasa bugün 2. Z bastıysa ekle</button>
       <div class="kp-ara"><span>Kasa ${n} toplamı</span><b id="gsAra${n}">0,00 ₺</b></div>
       <div class="kp-ara"><span>Kasa ${n} KDV</span><b id="gsKdv${n}">0,00 ₺</b></div>
     </div>`;
+}
+/* v151 · "Bu kasa bugün çalışmadı" — tek okuma yeri. Kutucuk yoksa (eski
+   taslak, kaçan çağrı) false döner: beyan YOKTUR, eski kapılar işler. */
+function kasaCalismadiMi(n){
+  const e = document.getElementById('gsCalismadi' + n);
+  return !!(e && e.checked);
+}
+/* Kutucuk değişince o kasanın alanları pasifleşir/açılır ve durum yeniden
+   hesaplanır. ⚠ ALANLAR TEMIZLENMEZ: kullanıcı yanlışlıkla işaretlerse
+   geri aldığında yazdıkları yerinde durur (gün sonu formunda veri kaybı
+   en pahalı hatadır). Kayıt yüküne zaten sıfır ve null gider. */
+function kasaCalismadiDegisti(n){
+  const cal = kasaCalismadiMi(n);
+  const panel = document.getElementById('kasaPanel' + n);
+  if (panel) panel.classList.toggle('kp-pasif', cal);
+  (ZLISTE[n] || []).forEach(s => {
+    const k = n + '_' + s;
+    ['gsZNo_', 'gsKart_', 'gsNakit_', 'gsKAdet_', 'gsIAdet_', 'gsITutar_', 'gsZFoto_', 'gsKNot_']
+      .forEach(p => { const e = document.getElementById(p + k); if (e) e.disabled = cal; });
+    const kap = document.getElementById('kdvSatirlari_' + k);
+    if (kap) kap.querySelectorAll('input,select,button').forEach(e => { e.disabled = cal; });
+    const ek = document.getElementById('kdvEkle_' + k); if (ek) ek.disabled = cal;
+  });
+  const zEkle = document.querySelector('#kasaPanel' + n + ' .z-ekle');
+  if (zEkle) zEkle.disabled = cal;
+  kasaHesapla();
 }
 /* Aynı kasaya ikinci/üçüncü Z — cihaz arızasında gün kaydedilebilsin diye */
 function zBlokEkle(n){
@@ -6306,6 +6355,17 @@ function zDurum(n, s){
     return { k, n, s, zno:'', kart:0, nakit:0, ara:0, kdv:0,
              kadet:null, iadet:null, itutar:null,
              eksik:[], gecersiz:[], bekleyen:[], bos:true };
+  /* ⚠ v151 · "CALISMADI" BEYANI · `bos` ILE KARISTIRILMAZ.
+       bos      = dokunulmadi → Z no ve fotograf YINE istenir, kayit durur.
+       calismadi = kullanici acikca beyan etti → iki kapi ARANMAZ, satir
+                   sifir tutarla GONDERILIR (atilmaz; sunucu KASA_EKSIK verir).
+     Donen sekil zDurum'un geri kalaniyla ayni alanlari tasir; `bos:false`
+     cunku bu kasa "baslanmamis" degil, BEYAN EDILMIS bir hal. */
+  if (kasaCalismadiMi(n))
+    return { k, n, s, zno:'', kart:0, nakit:0, ara:0, kdv:0,
+             kadet:null, iadet:null, itutar:null,
+             eksik:[], gecersiz:[], bekleyen:[], bos:false, calismadi:true,
+             araGecerli:true, gecerli:true };
   const zno=(document.getElementById('gsZNo_'+k)?.value||'').trim();
   const pk=paraOku(document.getElementById('gsKart_'+k));
   const pn=paraOku(document.getElementById('gsNakit_'+k));
@@ -6438,7 +6498,10 @@ function kasaHesapla(){
     const drm=document.getElementById('kpDrm'+n), ks=document.getElementById('ksDrm'+n);
     const zEk = ZLISTE[n].length>1 ? ` · ${ZLISTE[n].length} Z` : '';
     let sinif, metin, sembol;
-    if(d.bos){ sinif='bos'; metin='○ Başlanmadı'; sembol='○'; }
+    /* ⚠ v151 · UCUNCU HAL · 'bos' ve 'tam'dan AYRI GORUNUR: ekranda
+       "başlanmadı" ile "bugün çalışmadı" ayni sey sanilmamali. */
+    if(kasaCalismadiMi(n)){ sinif='calismadi'; metin='— Çalışmadı'; sembol='—'; }
+    else if(d.bos){ sinif='bos'; metin='○ Başlanmadı'; sembol='○'; }
     /* ⚠ ADIM 14 · YESIL EKSIKTEN HABERSIZ OLMAZ. "✓ Tamamlandı" yalniz
        HEM sert eksik HEM bekleyen bosken verilir. Eskiden yalniz
        eksik[]'e bakiyordu ve KDV dokumu okunamamis bir Z "Tamamlandı"
@@ -6531,6 +6594,9 @@ function taslakYaz(){
   try{ localStorage.setItem(taslakAnahtar(), JSON.stringify({
     zaman: Date.now(), zliste: Object.fromEntries(KASA_NO().map(n => [n, (ZLISTE[n]||[1]).slice()])),
     kasa: document.getElementById('gsKasa').value, not: document.getElementById('gsNot').value,
+    /* v151 · "calismadi" beyani de taslaga girer: sekme kapanip geri
+       yuklenince kullanici kutucugu yeniden isaretlemek zorunda kalmasin. */
+    calismadi: Object.fromEntries(KASA_NO().map(n => [n, kasaCalismadiMi(n)])),
     bloklar: b, foto })); }catch(e){}
 }
 function taslakEskileriAt(){
@@ -6643,6 +6709,12 @@ function taslakGeriYukle(){
     [['gsKAdet_','kadet'],['gsIAdet_','iadet'],['gsITutar_','itutar']].forEach(([p,a]) => {
       const e = document.getElementById(p+n+'_'+s); if (e) e.value = v[a] || ''; });
   }));
+  /* v151 · beyan da geri gelir (eski taslaklarda alan YOK: o zaman false) */
+  KASA_NO().forEach(n => {
+    const e = document.getElementById('gsCalismadi'+n); if (!e) return;
+    e.checked = !!(t.calismadi && t.calismadi[n]);
+    kasaCalismadiDegisti(n);
+  });
   kasaHesapla(); formKirlendi();
   document.getElementById('gsTaslakBar').innerHTML = '';
   mesaj('gsMsg','ok','Taslak geri yüklendi. Kontrol edip kaydet.');
@@ -6792,6 +6864,36 @@ async function gunSonuKaydet(){
       mesaj('gsMsg','hata', `KASA ${n} — ` + [dilEksik(d.eksik),
         dilGecersiz(d.gecersiz)].filter(Boolean).join(' · '));
       return; }
+    /* ⚠ v151 · BEYAN EDILMIS KASA · SATIR ATILMAZ, SIFIRLA GONDERILIR.
+         Atilsaydi sunucu KASA_EKSIK derdi (beklenen her kasa icin en az bir
+         satir arar). Tek satir, sira 1, tutarlar SIFIR, Z no ve fotograf
+         null, KDV yok; sunucu tarafinda tutar>0 ise KASA_CALISMADI_TUTARLI_DEGIL. */
+    if (kasaCalismadiMi(n)){
+      /* ⚠ v151 EK · BEYAN ILE ALANDAKI YAZI CELISIYORSA BIR KEZ SORULUR.
+           Kutucuk isaretlendiginde alanlar PASIFLESIR ama TEMIZLENMEZ (yanlislikla
+           isaretleyen veri kaybetmesin). Sonuc: icinde rakam duran bir kasa
+           "calismadi" diye kaydedilebilir ve o rakamlar sessizce DUSER.
+         ⚠ OLCUT HAM METIN, DEGER DEGIL: "0" yazilmasi da yazidir — degere bakan
+           bir olcut onu "bos" sayar ve soru hic cikmazdi (ADIM 14'un dersi).
+         ⚠ ALANLAR YINE TEMIZLENMEZ: soru sorulur, karar kullanicinin. */
+      const ham = (id) => (document.getElementById(id)?.value || '').trim();
+      const kartYazan = [], nakitYazan = []; let yaziVar = false;
+      (ZLISTE[n] || []).forEach(s => {
+        const k = n + '_' + s;
+        const z = ham('gsZNo_' + k), kt = ham('gsKart_' + k), nk = ham('gsNakit_' + k);
+        if (z) yaziVar = true;
+        if (kt){ yaziVar = true; kartYazan.push(kt); }
+        if (nk){ yaziVar = true; nakitYazan.push(nk); }
+      });
+      if (yaziVar && !confirm(`KASA ${n} için "çalışmadı" işaretli ama alanlarda yazı var`
+          + ` (kart ${kartYazan.join(' + ') || '—'}, nakit ${nakitYazan.join(' + ') || '—'}).`
+          + `\n\nBu tutarlar KAYDEDİLMEYECEK. Yine de devam edilsin mi?`)){
+        onayIptal(); return;
+      }
+      kasalar.push({ n, s:1, k:n+'_1', zno:null, kart:0, nakit:0, kdv:[],
+        kadet:null, iadet:null, itutar:null, knot:null, calismadi:true });
+      continue;
+    }
     for (const b of d.bloklar){
       let kdvSatir;
       try { kdvSatir = kdvOku(b.k); }
@@ -6993,6 +7095,10 @@ async function gunSonuKaydet(){
   const yuklenen = [];
   try{
     for (const k of kasalar){
+      /* ⚠ v151 · BEYAN EDILMIS KASANIN FOTOGRAFI YOKTUR. Alan pasif, dosya
+         secili olamaz; duzenleme kipinde ESKI fotograf da TASINMAZ, cunku
+         o fotograf "calisan kasa" halinden kalmadir ve beyani yalanlar. */
+      if (k.calismadi){ k.zf = null; k.sf = null; continue; }
       const mev = (DUZENLE && DUZENLE.foto[k.k]) || {};
       const yeniZ = document.getElementById('gsZFoto_'+k.k);
       const zSecili = !!(yeniZ && yeniZ.files && yeniZ.files[0]);
@@ -7038,7 +7144,8 @@ async function gunSonuKaydet(){
       p_kasa: kasaGonder,
       p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
         kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
-        z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
+        z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv,
+          calismadi: !!k.calismadi }))   /* v151 */
     };
     const gData = await rpcCagir('rpc_gun_sonu_guncelle', Object.assign({
       p_idem: await idemKararli('gun_sonu_guncelle',[DUZENLE.id, JSON.stringify(yuk)])
@@ -7066,7 +7173,8 @@ async function gunSonuKaydet(){
     p_kasa: kasaGonder,          /* ⚠ IKINCI KAYIT YOLU — biri unutulmasin */
     p_kasalar: kasalar.map(k=>({ kasa_no:k.n, sira:k.s, z_no:k.zno, kart_toplam:k.kart, nakit_toplam:k.nakit,
       kart_adet:k.kadet, fis_iptal_adet:k.iadet, fis_iptal_tutar:k.itutar,
-      z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv }))
+      z_foto_path:k.zf, pos_slip_foto_path:k.sf, notlar:k.knot, kdv:k.kdv,
+        calismadi: !!k.calismadi }))   /* v151 */
   }, 'gsKaydet','gsMsg','Gün sonu kaydedildi ✓');
   if (data && data.ok){
     taslakSil();                    // ⚠ YALNIZ basarida. Basarisizlikta taslak DURUR.
@@ -7080,8 +7188,13 @@ async function gunSonuKaydet(){
        ⚠ `kasalar.length` DEGIL: o Z BLOGU sayisi. Bir kasa o gun ikinci
          Z bastiysa iki satir olur ve tek kasali sube "2 kasa" derdi.
          Sayilan sey TEKIL kasa numarasi. */
+    /* ⚠ v151 · "CALISMADI" BEYAN EDILEN KASA SAYILMAZ: satir gonderiliyor
+         ama o kasa o gun calismadi; "2 kasa" demek kullaniciya girmedigi
+         bir kasayi girmis gibi gosterirdi (Y47'de kapatilan kusurun aynisi). */
+    const calisanKasa = new Set(kasalar.filter(k=>!k.calismadi).map(k=>k.n)).size;
+    const calismayan = new Set(kasalar.filter(k=>k.calismadi).map(k=>k.n)).size;
     mesaj('gsMsg','ok', duzenlemeydi ? 'Değişiklikler kaydedildi ✓'
-      : `Gün sonu kaydedildi ✓ (${new Set(kasalar.map(k=>k.n)).size} kasa)`);
+      : `Gün sonu kaydedildi ✓ (${calisanKasa} kasa${calismayan?` · ${calismayan} kasa çalışmadı`:''})`);
   } else {
     btn.textContent = eskiBtnMetin;
     // Ağ belirsizse kayıt gitmiş OLABİLİR -> fotoğrafları SİLME. Kesin hatada temizle.
