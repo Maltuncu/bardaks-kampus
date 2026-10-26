@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-34">
+<meta name="surum" content="borc-2026-08-27-35">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1793,10 +1793,33 @@ const sonFiyat = (fiyatlar, tur) => fiyatAsOf(fiyatlar, tur, '9999-12-31');
         DEGIL; bu yuzden ekranda "tahmini" diye ISARETLENIR.
      3. ikisi de yoksa -> BILINMIYOR. 0 gosterilmez, uydurulmaz.
 
-   `kaynak` alani ekranin hangi durumu gosterecegini soyler. */
-function madenDeger(m, fiyatlar){
+   `kaynak` alani ekranin hangi durumu gosterecegini soyler.
+
+   ⚠ v152 · BUGUNKU DEGER KALAN GRAMDAN HESAPLANIR, BASTA ALINAN GRAMDAN
+     DEGIL. Eskiden odeme girilse de bugunku deger ve toplam borc hic
+     dusmuyordu: tamamen odenmis bir maden borcu ekranda sonsuza kadar
+     duruyordu. Sunucu tarafi (v_toplam_borc 'maden' dali) AYNI TURDA
+     duzeltildi; ikisi ayri kalirsa "sunucu ve ekran ayni rakami vermiyor"
+     banti calar.
+   ⚠ KALAN BILGISI YOKSA (v_maden_kalan okunamadi: yetki, gorunum yok)
+     ESKI DAVRANIS surer — kalan yerine tam gram kullanilir. 0 gostermek
+     "borc bitti" sanilmasina yol acardi; ekranin baska yerinde bu halin
+     uyarisi zaten var.
+   ⚠ ALIS DEGERI DEGISMEDI: `alisKurus` hala kaydin TAMAMININ maliyetidir
+     (olgu ya da tahmin). Ekranda yazan "Alis degeri" / "maliyet" rakamlari
+     bu yuzden aynidir.
+   ⚠ `alisKalanKurus` AYRI BIR ALAN olarak eklendi: rayic farki artik
+     ayni tabandan hesaplanabilsin diye KALAN kismin maliyeti. Bolusturme
+     kurali ICAT EDILMEDI — sunucunun kendi kurali (v_maden_kalan.
+     odenen_alis_maliyeti = alis_tutar / gram * odenen_gram) kurusa
+     cevrildi. Odeme girilmemis kayitta alisKalanKurus === alisKurus,
+     yani o kayitlarda HICBIR rakam degismez. */
+function madenDeger(m, fiyatlar, kl){
   const bugunF = sonFiyat(fiyatlar, m.tur);
   const gram   = Number(m.gram) || 0;
+  const kalanBilgisi = !!kl;
+  const odenenGram = kl ? Math.max(0, Math.min(Number(kl.odenen_gram) || 0, gram)) : 0;
+  const kalanGram  = kl ? Math.max(0, Number(kl.kalan_gram) || 0) : gram;
 
   let alisKurus = null, kaynak = 'yok', alisF = null;
   if (m.alis_tutar !== null && m.alis_tutar !== undefined && Number(m.alis_tutar) > 0){
@@ -1806,9 +1829,18 @@ function madenDeger(m, fiyatlar){
     alisF = fiyatAsOf(fiyatlar, m.tur, m.tarih);
     if (alisF){ alisKurus = Math.round(gram * kr(alisF.gram_fiyat)); kaynak = 'tahmin'; }
   }
+  const alisKalanKurus = (alisKurus === null) ? null
+    : (gram > 0 ? alisKurus - Math.round(alisKurus * odenenGram / gram) : alisKurus);
   return {
-    gram, kaynak, alisKurus, alisF, bugunF,
-    bugunKurus: bugunF ? Math.round(gram * kr(bugunF.gram_fiyat)) : null
+    gram, kalanGram, odenenGram, kalanBilgisi, kaynak, alisKurus, alisKalanKurus, alisF, bugunF,
+    bugunKurus: bugunF ? Math.round(kalanGram * kr(bugunF.gram_fiyat)) : null,
+    /* ⚠ v152 · YUVARLANMAMIS hali TOPLAM icin: sunucu butun kayitlarin
+       carpimini TOPLAYIP BIR KEZ yuvarliyor (::numeric(18,2)). Istemci her
+       kaydi ayri yuvarlayip toplarsa kalan gram ondalikliysa toplam bir iki
+       KURUS ayrisir — ve bant kiyasi TAM ESITLIK aradigi icin "SUNUCU ve
+       EKRAN AYNI RAKAMI VERMIYOR" banti bosa calardi. Satir basinda
+       gosterilen rakam yine yuvarlanmistir; yalniz TOPLAM bu alandan. */
+    bugunHam: bugunF ? kalanGram * kr(bugunF.gram_fiyat) : null
   };
 }
 
@@ -2279,17 +2311,20 @@ async function bantVerisi(){
      alis fiyati bilinmeyen bir kayit farki SISIRIYORDU (bugunku degeri
      sayiliyor, alisi sayilmiyordu). Ust banttaki en onemli rakam bu —
      sisirilmis hali yanlis karar verdirirdi. */
-  let madenBugun = 0;                       // TOPLAM BORC icin: fiyati olan her kayit
+  let madenBugunHam = 0;                    // TOPLAM BORC icin: fiyati olan her kayit
   let esAlis = 0, esBugun = 0, hesaplanan = 0;   // FARK icin: yalniz eslesenler
+  let esAlisKalan = 0, odemeliKayit = 0;         // v152 · kalan kismin maliyeti
   let fiyatiYok = [], alisiYok = 0, tahminSayisi = 0;
   for (const m of maden.kayitlar){
-    const d = madenDeger(m, maden.fiyatlar);
+    /* v152 · kalan gram bilgisi ayni turda cekiliyor; TOPLAM BORC artik
+       odenen grami dusuyor ve sunucunun rakamiyla ayni oluyor. */
+    const d = madenDeger(m, maden.fiyatlar, maden.kalanlar ? maden.kalanlar.get(m.id) : null);
     if (d.bugunKurus === null){
       const ad = m.tur === 'altin' ? 'altın' : 'gümüş';
       if (!fiyatiYok.includes(ad)) fiyatiYok.push(ad);
       continue;
     }
-    madenBugun += d.bugunKurus;
+    madenBugunHam += d.bugunHam;
     if (d.alisKurus === null){ alisiYok++; continue; }
     /* OLGU ve TAHMIN farkin icine birlikte girer (brief: 1. ve 2. gruptan),
        ama kac tanesinin tahmin oldugu YAZILIR — rakam tahmin tasiyorsa
@@ -2297,10 +2332,21 @@ async function bantVerisi(){
     if (d.kaynak === 'tahmin') tahminSayisi++;
     esAlis  += d.alisKurus;
     esBugun += d.bugunKurus;
+    esAlisKalan += d.alisKalanKurus;
+    if (d.odenenGram > 0) odemeliKayit++;
     hesaplanan++;
   }
-  const madenAlis  = esAlis;
-  const farkKurus  = (hesaplanan > 0) ? (esBugun - esAlis) : null;
+  /* ⚠ v152 · TEK YUVARLAMA · sunucunun kurali: carpimlar toplanir, SONRA
+     iki haneye yuvarlanir. Satir satir yuvarlayip toplamak kurus ayrismasi
+     uretir ve bant kiyasi tam esitlik arar. */
+  const madenBugun = Math.round(madenBugunHam);
+  const madenAlis  = esAlis;             // DEGISMEDI: kayitlarin TAM maliyeti
+  /* ⚠ v152 · KUR FARKI AYNI TABANDAN: bugunku deger artik KALAN grami
+     anlatiyor; alis tarafi da kalan kismin maliyeti olmali. Tam maliyetle
+     karsilastirmak, tamamen odenmis bir kayitta "eksi maliyet kadar fark"
+     yazdirirdi — yesil renkte, kazanc gibi. Odeme girilmemis kayitlarda
+     esAlisKalan === esAlis, yani rakam birebir eskisi. */
+  const farkKurus  = (hesaplanan > 0) ? (esBugun - esAlisKalan) : null;
   const farkBugun  = esBugun;
 
   /* ŞAHIS BLOĞU · "bugün kapatsam ne öderim"
@@ -2327,7 +2373,7 @@ async function bantVerisi(){
 
   return { krediler, taksitler, ko, buAyKurus, buAyOdenen, sahisKalan,
            madenBugun, madenAlis, farkBugun, farkKurus, fiyatiYok, alisiYok,
-           hesaplanan, tahminSayisi, maden, sahis,
+           hesaplanan, tahminSayisi, odemeliKayit, maden, sahis,
            cek, cekToplam, cekSahis, cekLtd, kartOdemeleri,
            kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz, buAyKart,
            kartDonemleri: [...kartDonemleri].sort(),
@@ -2763,10 +2809,16 @@ function bantCiz(v){
        duruyor. Bu satirin OZGUN tasidigi sey KUR FARKI — o kaliyor.
        "hesaplanamaz" hali da korunuyor: fiyati olmayan tur varsa
        parantez notu yine yaziliyor, cunku farkin kapsamini o belirtir. */
+    /* ⚠ v152 · ODENMIS KISIM HARIC OLDUGU YAZIYOR. Rakam artik kalan
+       gramin rayici ile kalan kismin maliyetini karsilastiriyor; ustteki
+       "maliyet" parcasi ise kayitlarin TAM maliyeti. Ikisinin cikarmasi
+       bu rakama esit olmayabilir — sebebi gizlenmiyor, yaziliyor. */
+    const farkNotu = [v.fiyatiYok.length ? v.fiyatiYok.join(', ') + ' fiyatı yok, hariç' : null,
+                      v.odemeliKayit > 0 ? 'ödenen kısım hariç' : null].filter(Boolean);
     satir(k1, 'Maden kur farkı ',
       { v: v.farkKurus === null ? 'hesaplanamaz'
            : (v.farkKurus >= 0 ? '+' : '−') + tk(Math.abs(v.farkKurus)), s: 'fark' },
-      v.fiyatiYok.length ? ' (' + v.fiyatiYok.join(', ') + ' fiyatı yok, hariç)' : null);
+      farkNotu.length ? ' (' + farkNotu.join(' · ') + ')' : null);
     /* ⚠ KAVRAM UYARISI · tez: "maden deger artisi YATIRIM KAZANCI
        DEGILDIR; borc yukundeki rayic degisimidir." Rakam DEGISMIYOR,
        yanina ne oldugu yaziliyor. */
@@ -9442,12 +9494,17 @@ async function vMaden(){
        ⚠ Tablonun tasidigi UC RAKAM da kutuda duruyor (bugunku deger ·
        maliyet · fark); kime/alis gunu detaya tasindi. */
     for (const m of kayitlar){
-      const d = madenDeger(m, fiyatlar);
+      /* ⚠ v152 · kalan gram SATIRIN BASINDA okunuyor: bugunku deger artik
+         ona bagli. Asagidaki rozet de ayni `kl`den geliyor — iki kez
+         cekilmiyor, tek kaynak. */
+      const kl = v.maden.kalanlar ? v.maden.kalanlar.get(m.id) : null;
+      const d = madenDeger(m, fiyatlar, kl);
       const kutu = el('div','tk'); kutu.style.cursor = 'pointer';
       kutu.dataset.maden = m.id;
       kutu.onclick = () => madenDetayAc(m.id);
       kutuErisim(kutu, (m.tur === 'altin' ? 'Altın' : 'Gümüş') + ' ' + gramYaz(m.gram)
-        + ', bugünkü değer ' + (d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus))
+        + ', bugünkü değer ' + (d.bugunKurus === null ? 'hesaplanamaz'
+            : tlk(d.bugunKurus) + (d.odenenGram > 0 ? ' (kalan ' + gramYaz(d.kalanGram) + ')' : ''))
         + ', detayı aç');
       const ust = el('div','tk-ust');
       const ad = el('div','tk-ad');
@@ -9456,8 +9513,9 @@ async function vMaden(){
       /* ⚠ v116 · TAM ODENEN BORC KAYBOLMAZ, ISARETLENIR. Listeden dusurmek
          gecmise bakmayi imkansiz kilardi; rozet hem durumu soyler hem
          satiri yerinde birakir. Renk TEK BASINA bilgi tasimiyor —
-         "kapandı" kelimesi yaziyor. */
-      const kl = v.maden.kalanlar ? v.maden.kalanlar.get(m.id) : null;
+         "kapandı" kelimesi yaziyor.
+         ⚠ v152 · kapanan kayit yine LISTEDE DURUYOR; yalniz bugunku degeri
+           sifir yaziyor, cunku o borc artik yok. */
       if (kl && Number(kl.kalan_gram) <= 0)
         ad.appendChild(el('span','rozet rz-yesil','kapandı'));
       else if (kl && Number(kl.odenen_gram) > 0)
@@ -9469,11 +9527,16 @@ async function vMaden(){
       /* Odeme baslamissa KALAN GRAM en onde: odemeyi belirleyen o. */
       if (kl && Number(kl.odenen_gram) > 0)
         oz.push('kalan ' + gramYaz(kl.kalan_gram) + ' · ödenen ' + gramYaz(kl.odenen_gram));
+      /* ⚠ v152 · MALIYET DEGISMEDI: kaydin TAMAMININ alis maliyeti. */
       oz.push('maliyet ' + (d.alisKurus === null ? 'bilinmiyor'
               : tlk(d.alisKurus) + (d.kaynak === 'tahmin' ? ' (tahmini)' : '')));
       if (d.alisKurus !== null && d.bugunKurus !== null){
-        const fark = d.bugunKurus - d.alisKurus;
-        oz.push('rayiç farkı ' + (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark)));
+        /* ⚠ v152 · fark AYNI TABANDAN: kalan gramin rayici ile kalan kismin
+           maliyeti. Odeme varsa etiketi bunu SOYLUYOR, cunku yanindaki
+           "maliyet" tam maliyet — cikarma tutmayabilir. */
+        const fark = d.bugunKurus - d.alisKalanKurus;
+        oz.push('rayiç farkı' + (d.odenenGram > 0 ? ' (kalan)' : '') + ' '
+                + (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark)));
       }
       kutu.appendChild(el('div','tk-orta', oz.join(' · ')));
       k.appendChild(kutu);
@@ -9594,7 +9657,11 @@ async function madenDetayAc(madenId, sessiz){
     const m = kayitlar.find(x => x.id === madenId);
     if (!m){ c.textContent=''; c.appendChild(el('div','uyari-agir','Maden kaydı bulunamadı.')); return; }
     MADEN_DETAY = madenId;
-    const d = madenDeger(m, fiyatlar);
+    /* ⚠ v152 · kalan satiri BURADA okunuyor (asagidaki odeme bolumu de ayni
+       degiskeni kullanir, ikinci bir `const kl` TANIMLANMAZ: ayni kapsamda
+       ikinci tanim dosyayi hic acilmaz hale getirir). */
+    const kl = kalanlar ? kalanlar.get(m.id) : null;
+    const d = madenDeger(m, fiyatlar, kl);
     const adTur = m.tur === 'altin' ? 'Altın' : 'Gümüş';
 
     c.textContent = '';
@@ -9628,17 +9695,25 @@ async function madenDetayAc(madenId, sessiz){
       asd.appendChild(el('span', null, tlk(d.alisKurus) + ' '));
       asd.appendChild(el('span','rozet rz-sari','tahmini'));
     } else asd.appendChild(el('span', null, tlk(d.alisKurus)));
-    sat('Bugünkü değer', d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus));
+    /* ⚠ v152 · BUGUNKU DEGER = KALAN gramin degeri. Odeme girilmisse etikete
+       yaziliyor; yoksa kullanici bunu alis grami sanip "rakam dustu, hata
+       var" diye okurdu. Sunucudaki toplam borc da ayni tabandan. */
+    sat('Bugünkü değer' + (d.odenenGram > 0 ? ' (kalan ' + gramYaz(d.kalanGram) + ')' : ''),
+        d.bugunKurus === null ? 'hesaplanamaz' : tlk(d.bugunKurus));
     /* ⚠ v116 · ETIKET "Fark" DEGIL "Rayiç farkı". Ekranda artik IKI ayri
        fark var — bu rayic (bugunku deger − alis), asagidaki ise ODEME
        farki (odenen − o gramin alis maliyeti). Ikisine de "Fark" demek
        en pahali karistirma olurdu. Ustteki kavram uyarisi zaten "Rayiç
        farkı" diyor; etiket ona uyduruldu. */
-    const fs = sat('Rayiç farkı', '');
+    /* ⚠ v152 · ETIKET "(kalan kısım)" · fark artik kalan gramin rayici ile
+       KALAN kismin maliyetini karsilastiriyor. Tam maliyetle karsilastirmak,
+       kapanmis kayitta "−maliyet kadar fark" yazdirirdi: yesil renkte,
+       kazanc gibi gorunurdu. Ustteki "Alis degeri" satiri DEGISMEDI. */
+    const fs = sat('Rayiç farkı' + (d.odenenGram > 0 ? ' (kalan kısım)' : ''), '');
     const fsd = fs.querySelector('.dg');
     if (d.alisKurus === null || d.bugunKurus === null) fsd.textContent = '—';
     else {
-      const fark = d.bugunKurus - d.alisKurus;
+      const fark = d.bugunKurus - d.alisKalanKurus;
       fsd.textContent = (fark >= 0 ? '+' : '−') + tlk(Math.abs(fark));
       fsd.style.color = fark > 0 ? 'var(--hata)' : fark < 0 ? 'var(--ok)' : '';
       fsd.style.fontWeight = '900';
@@ -9671,7 +9746,6 @@ async function madenDetayAc(madenId, sessiz){
          v116 uygulanmamis) BOLUM HIC CIZILMEZ ve sebebi yazilir —
          yerine 0 gostermek "borc bitti" sanilmasina yol acardi.
        ================================================================= */
-    const kl = kalanlar ? kalanlar.get(m.id) : null;
     if (!kl){
       const uy = el('div','kart');
       uy.appendChild(el('div','kbaslik','Ödemeler'));
