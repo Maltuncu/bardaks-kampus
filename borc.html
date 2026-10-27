@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-35">
+<meta name="surum" content="borc-2026-08-27-36">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -440,6 +440,12 @@ body.klavye-acik #sekmeBar{display:none}
 .im-cek {height:7px;border:1px solid #0F6E72;border-radius:2px;
          background:repeating-linear-gradient(90deg,#0F6E72,#0F6E72 2px,transparent 2px,transparent 4px)}
 .tkv-g .im-kart{width:7px}
+/* Y109 · DORDUNCU ISARET · VERGI. Sekil ailesi: kredi UST CIZGI · kart
+   DOLU DAIRE · cek DIKEY cizgili kare · vergi YATAY cizgili kare.
+   ⚠ Cek ile ayrim RENKTEN BAGIMSIZ: cizgilerin YONU farkli, gri tonlu
+     ciktida da ayrisir (dosyanin "renk tek basina bilgi tasimaz" kurali). */
+.im-vergi{height:7px;border:1px solid #8A5A00;border-radius:2px;
+          background:repeating-linear-gradient(0deg,#8A5A00,#8A5A00 2px,transparent 2px,transparent 4px)}
 /* Gecikmis gun sayisi TEK vurgulu gun: 700 + alti cizili. Diger gunler
    400 oldugu icin bu fark gri tonlamada da gorunuyor. */
 .tkv-g.gecikmis .sy{font-weight:700;color:var(--hata);text-decoration:underline}
@@ -1706,6 +1712,54 @@ async function cekGetir(){
   }
 }
 
+/* =====================================================================
+   VERGI VADELERI · TAKVIM EKRANI ICIN DORDUNCU KAYNAK (Y109)
+   =====================================================================
+   ⚠ URETEC YAZILMADI, OLAN KULLANILDI: vadeler `rpc_vade_uret` ile vergi
+     takvimi kurallarindan ZATEN uretiliyor (olculdu 26.10.2026: seksen
+     dokuz otomatik satir, 2027 sonuna kadar, is gunune kaydirmali,
+     `vade_takvim_uniq` ile tekrar uretmeye kapali). Ikinci bir uretec
+     yazmak ayni kurali iki yerde tutmak olurdu.
+   ⚠ KAYNAK `v_vade_liste`: gecikme ve yaklasma hesabini SUNUCU yapiyor
+     (Istanbul saatiyle bugun). Ayni gorunumu index.html'deki vergi
+     vadeleri ekrani da okuyor — iki ekran ayni veriye ayni hukmu verir.
+   ⚠ SUZGEC `takvim_kod IS NOT NULL`: yalniz kural motorunun urettigi
+     satirlar. Elektrik gibi duzenli odemeler (duzenli_id) ve elle
+     girilmis hatirlatmalar (sozlesme yenileme) BU TAKVIME GIRMEZ —
+     onlarin yeri Giderler.
+   ⚠ TUTAR UYDURULMAZ: acik vadede tutar yok (takvim vadeyi onceden
+     uretiyor, tutar odeme aninda belli oluyor). Odenmis vadenin tutari
+     BAGLI ODEME kaydindan okunur; ongoru/tahmin URETILMEZ.
+   ⚠ HATA YUTULMUYOR ama EKRANI DA DUSURMUYOR: okunamazsa takvim eski
+     uc kaynakla cizilir ve sebebi YAZILIR. Sessizce bos gecmek "vergi
+     yok" sanilmasina yol acardi. */
+async function vergiVadeGetir(){
+  try{
+    const [vd, bagli] = await Promise.all([
+      sb.from('v_vade_liste')
+        .select('id,tur,takvim_kod,donem,aciklama,vade_tarihi,tutar,durum,gecti,kalan_gun')
+        .not('takvim_kod','is',null).order('vade_tarihi'),
+      sb.from('vade')
+        .select('id, vergi_odeme:odendi_vergi_id(tutar,odeme_tarihi), gider:odendi_gider_id(tutar)')
+        .eq('is_deleted', false).eq('durum', 'odendi')
+    ]);
+    if (vd.error) throw vd.error;
+    /* ⚠ bagli.error ekrani DUSURMEZ: vadeler gorunmeye devam eder,
+       yalnizca odenmis satirin tutari yazilmaz. */
+    if (bagli.error) console.error('vade bagli odeme', bagli.error);
+    const odenen = new Map();
+    for (const x of (bagli.data || [])){
+      const t = x.vergi_odeme?.tutar ?? x.gider?.tutar;
+      if (t != null) odenen.set(x.id, { kurus: kr(t), tarih: x.vergi_odeme?.odeme_tarihi || null });
+    }
+    return { satirlar: (vd.data || []).map(x => ({ ...x, odenen: odenen.get(x.id) || null })),
+             hata: null };
+  }catch(e){
+    console.error('vergiVadeGetir', e);
+    return { satirlar: [], hata: hataTr(e && e.message || String(e)) };
+  }
+}
+
 async function madenGetir(){
   /* ⚠ v116 · IKI SORGU EKLENDI.
      kalanlar : v_maden_kalan — kalan gram, odenen gram, odenen tutar ve
@@ -2015,9 +2069,11 @@ function donemVadesi(k, d){
   return d.son_odeme_tarihi || donemVadeTuret(k, d.donem);
 }
 async function bantVerisi(){
-  const [krediler, taksitler, sahis, maden, kart, cek, tb] = await Promise.all([
+  /* ⚠ Y109 · vergiVade EKLENDI · yalniz Takvim ekrani kullanir; hicbir
+     TOPLAMA girmez (vergi borcu v_toplam_borc'un kalemi degil). */
+  const [krediler, taksitler, sahis, maden, kart, cek, tb, vergiVade] = await Promise.all([
     krediGetir(), taksitGetir(null), sahisGetir(), madenGetir(), kartGetir(), cekGetir(),
-    toplamBorcGetir()]);
+    toplamBorcGetir(), vergiVadeGetir()]);
 
   /* ⚠ CEK · NOMINAL. Iskonto/ciro hesabi YOK — cekin uzerindeki tutar ne
      ise borc odur. Acik cekler (durum='bekliyor') toplama girer; odenmis
@@ -2378,7 +2434,7 @@ async function bantVerisi(){
            kart, sonDonem, kartKalan, kartSahis, kartLtd, kartDonemsiz, kartTutarsiz, buAyKart,
            kartDonemleri: [...kartDonemleri].sort(),
            S, L, sAnapara, lNominal, krediParcaToplam, parcaSapmasi, sSapma, lSapma,
-           tb };
+           tb, vergiVade };
 }
 
 /* ===== BORC DAGILIMI SERIDI (D1) =====
@@ -2944,6 +3000,20 @@ async function vTakvim(){
 
   if (v.ko.gecmis > 0)
     c.appendChild(el('div','uyari-agir','Vadesi geçmiş ve ödenmemiş ' + v.ko.gecmis + ' taksit var.'));
+  /* ⚠ Y109 · VERGI GECIKMESI · taksit uyarisiyla AYNI desen, yeni bir
+     uyari bicimi icat edilmedi. Olcut SUNUCUDAN: `gecti` = durum acik VE
+     vade gunu bugunden once (gorunum Istanbul saatiyle hesapliyor).
+     ⚠ Kalem adlari YAZILMIYOR: on kural var, listesi uzun; hangi gun
+       oldugu izgarada ve gun panelinde duruyor. */
+  const vergiSatirlari = v.vergiVade.satirlar;
+  const gecikenVergi = vergiSatirlari.filter(x => x.gecti).length;
+  if (gecikenVergi > 0)
+    c.appendChild(el('div','uyari-agir','Vadesi geçmiş ve ödeme kaydına bağlanmamış '
+      + gecikenVergi + ' vergi kalemi var.'));
+  /* ⚠ OKUNAMADI HALI SESSIZ GECILMEZ: bos takvim "vergi yok" sanilirdi. */
+  if (v.vergiVade.hata)
+    c.appendChild(el('div','uyari-orta','Vergi vadeleri okunamadı (' + v.vergiVade.hata
+      + '); takvimde yalnızca kredi, kart ve çek görünüyor.'));
   /* ⚠ AR · Kart odemesinin gecikmesi kredi kartindaki EN PAHALI hata.
      Taksit uyarisiyla AYNI desen — yeni bir uyari bicimi icat edilmedi.
      ⚠ ARTIK UC AYRI SATIR. Eski tek cumle ("son odeme gunu gecmis ve
@@ -3058,11 +3128,14 @@ async function vTakvim(){
       + '. Ekstreye yapılan ödemeyi girersen ayrılır.'));
 
   /* ⚠ BT · takvim artik UC kaynak cizer; "taksit yok" tek basina bos
-     ekran sebebi degil. Ucü de bossa bos durum. */
-  if (!v.taksitler.length && !v.kartOdemeleri.length && !v.cek.acik.length){
+     ekran sebebi degil. Ucü de bossa bos durum.
+     ⚠ Y109 · DORDUNCU KAYNAK (vergi vadesi) de bu sayima girdi; yoksa
+       yalniz vergisi olan bir ayda ekran "henuz odeme yok" diyordu. */
+  if (!v.taksitler.length && !v.kartOdemeleri.length && !v.cek.acik.length
+      && !vergiSatirlari.length){
     const k = el('div','kart');
     k.appendChild(el('div','kbaslik','Takvim'));
-    k.appendChild(el('div','bos','Henüz ödeme yok. Kredi taksiti, kart ekstresi veya çek girilince burada görünür.'));
+    k.appendChild(el('div','bos','Henüz ödeme yok. Kredi taksiti, kart ekstresi, çek veya vergi vadesi girilince burada görünür.'));
     c.appendChild(k); return;
   }
 
@@ -3088,6 +3161,20 @@ async function vTakvim(){
   for (const ko of v.kartOdemeleri) ekKoy(ko.tarih, { tur:'kart', ...ko });
   for (const cx of v.cek.acik) ekKoy(cx.vade_tarihi, { tur:'cek', tarih: cx.vade_tarihi,
     kalanKurus: kr(cx.tutar), cek: cx });
+  /* ⚠ Y109 · VERGI VADELERI AYNI HARITAYA: gun isareti, gun paneli ve ay
+     toplami zaten bu haritayi okuyor — yeni bir gorsel dil kurulmadi.
+     ⚠ ODENMIS VADE DE LISTEDE DURUR (silinmez): "ne zaman ne odeyecegim"
+       sorusunun cevabi kadar "bunu odedim mi" sorusu da burada okunuyor.
+       Ama kalanKurus'u SIFIR — odenmis para "kalan" sayilamaz.
+     ⚠ `kapali` bayragi: gun hucresinin gecikme vurgusu acik olmayan
+       satiri gecikmis saymasin. kart/cek kayitlarinda bu alan YOK
+       (undefined), yani onlarin davranisi DEGISMEDI. */
+  for (const vd of vergiSatirlari)
+    ekKoy(vd.vade_tarihi, { tur:'vergi', tarih: vd.vade_tarihi,
+      kalanKurus: (vd.durum === 'acik' && vd.tutar != null) ? kr(vd.tutar) : 0,
+      odenenKurus: vd.odenen ? vd.odenen.kurus : null,
+      tutarYok: vd.durum === 'acik' && vd.tutar == null,
+      kapali: vd.durum !== 'acik', vade: vd });
   const aylar = [...new Set([
     ...v.taksitler.map(t => t.vade_tarihi.slice(0,7)),
     ...[...gunEk.keys()].map(t => t.slice(0,7))])].sort();
@@ -3123,12 +3210,18 @@ function takvimYenile(ctx){
   /* BT · ay ozeti UC kaynagi kapsar: taksit + kart + cek. */
   const ayEk = [...gunEk.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
   const aySayi = ayT.length + ayEk.length;
+  /* ⚠ Y109 · TUTARI BILINMEYEN KALEM SAYILIR, TOPLAMA SIFIR KATAR.
+     Yazmasaydik "12 ödeme · 50.000 kalan" cumlesi, tutari belli olmayan
+     vergileri sessizce sifir sayardi — rakam ALT SINIR oldugu halde
+     kesinmis gibi okunurdu. */
+  const ayTutarsiz = ayEk.filter(e => e.tutarYok).length;
   ort.appendChild(el('div','oz', aySayi
     /* ⚠ D6 · NOMINAL degil KALAN. Kismi odenmis taksitte "bu ay ne kadar
        odeyecegim" sorusunun cevabi nominal degil kalandir. Kartta da
        kalan (donem kalani), cekte nominal = kalan (kismi odeme yok). */
     ? aySayi + ' ödeme · ' + tlk(ayT.reduce((s,t) => s + kr(t.kalan), 0)
                                  + ayEk.reduce((s,e) => s + e.kalanKurus, 0)) + ' kalan'
+      + (ayTutarsiz ? ' · ' + ayTutarsiz + ' kalemin tutarı girilmedi' : '')
     : 'ödeme yok'));
   bas.appendChild(ort);
   bas.appendChild(ok('Sonraki ay','›', aylar[i+1]));
@@ -3189,13 +3282,18 @@ function takvimYenile(ctx){
     /* BT · gecikmis SAYI vurgusu artik uc kaynagi da kapsar: gecmis
        tarihli ek kayit (kart/cek) da gunun sayisini vurgular. Isaret
        sekli kaynagi soyler, altcizgi aciliyeti — renkten bagimsiz. */
-    if (im === 'gecikmis' || ek.some(e => e.tarih < b)) h.classList.add('gecikmis');
+    /* ⚠ Y109 · `!e.kapali`: odenmis bir vergi vadesi gecmis tarihli olsa
+       da gunu GECIKMIS gostermez. kart/cek kayitlarinda bu alan yok
+       (undefined), onlarin hali DEGISMEDI. */
+    if (im === 'gecikmis' || ek.some(e => e.tarih < b && !e.kapali)) h.classList.add('gecikmis');
     h.appendChild(el('span','sy', String(g)));
     if (im) h.appendChild(el('span','im im-' + im));
     /* BT · kaynak basina TEK isaret, sekilleri farkli (kredi cizgi ·
        kart DOLU DAIRE · cek DIKEY CIZGILI kare) — gri tonluda da ayrisir. */
     if (ek.some(e => e.tur === 'kart')) h.appendChild(el('span','im im-kart'));
     if (ek.some(e => e.tur === 'cek'))  h.appendChild(el('span','im im-cek'));
+    /* Y109 · dorduncu isaret: vergi = YATAY cizgili kare (cek DIKEY). */
+    if (ek.some(e => e.tur === 'vergi')) h.appendChild(el('span','im im-vergi'));
     /* ⚠ FAZ 2b·C · aria-pressed YERINE aria-selected. aria-pressed
        "acik/kapali dugme" der; burada bir GUN SECIMI var. Ayrica bugun
        aria-current="date" ile bildiriliyor — bolum seridindeki
@@ -3213,6 +3311,9 @@ function takvimYenile(ctx){
       + ((liste.length + ek.length)
          ? ' · ' + (liste.length + ek.length) + ' ödeme · '
            + tlk(liste.reduce((s,t)=>s+kr(t.kalan),0) + ek.reduce((s,e)=>s+e.kalanKurus,0)) + ' kalan'
+           /* Y109 · ekran okuyucu da "tutari girilmedi" duysun */
+           + (ek.filter(e => e.tutarYok).length
+              ? ' · ' + ek.filter(e => e.tutarYok).length + ' kalemin tutarı girilmedi' : '')
          : ' · ödeme yok'));
     h.onclick = () => { takvimGunSec((TAKVIM_GUN === tar) ? null : tar, ctx); };
     izg.appendChild(h);
@@ -3266,18 +3367,29 @@ function takvimYenile(ctx){
   const ayT2 = [...gunMap.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
   const ayE2 = [...gunEk.entries()].filter(([g]) => g.slice(0,7) === ay).flatMap(([,l]) => l);
   const TP = { sahis:0, ltd:0, sahisAdet:0, ltdAdet:0, sahisTahmin:0, ltdTahmin:0,
-               odenmis:0, odenmisAdet:0 };
+               odenmis:0, odenmisAdet:0, vergi:0, vergiAdet:0, vergiTutarsiz:0 };
   for (const t of ayT2){
     if (t.durum === 'kapali'){ TP.odenmis += kr(t.toplam_tutar); TP.odenmisAdet++; continue; }
     if (t.kredi_tur === 'ltd'){ TP.ltd += kr(t.kalan); TP.ltdAdet++; }
     else { TP.sahis += kr(t.kalan); TP.sahisAdet++; }
   }
   for (const e of ayE2){
+    /* ⚠ Y109 · VERGI KALEMI SAHIS ya da LTD KOVASINA KONMADI. Iki sebep:
+       (1) tutari cogunlukla BILINMIYOR — bilinmeyeni TL toplamina katmak
+           onu sessizce sifir sayar ve rakami duser;
+       (2) vergi yukumlulugu kart/cek gibi `sahip` kolonu tasimiyor.
+       Kendi parcasinda, kac kaleminin tutari girilmemis oldugu YAZILI
+       olarak gosteriliyor. Odenmis vade mevcut "odenmis" kovasina girer. */
+    if (e.tur === 'vergi'){
+      if (e.kapali){ TP.odenmis += (e.odenenKurus || 0); TP.odenmisAdet++; }
+      else { TP.vergi += e.kalanKurus; TP.vergiAdet++; if (e.tutarYok) TP.vergiTutarsiz++; }
+      continue;
+    }
     const ltdMi = e.tur === 'kart' ? e.kart.sahip === 'ltd' : e.cek.sahip === 'ltd';
     if (ltdMi){ TP.ltd += e.kalanKurus; TP.ltdAdet++; if (e.yansitma) TP.ltdTahmin++; }
     else { TP.sahis += e.kalanKurus; TP.sahisAdet++; if (e.yansitma) TP.sahisTahmin++; }
   }
-  if (TP.sahisAdet || TP.ltdAdet || TP.odenmisAdet){
+  if (TP.sahisAdet || TP.ltdAdet || TP.odenmisAdet || TP.vergiAdet){
     const ozS = el('div','serit-ozet duz');
     const gr = (et, dg) => { const p = el('span','so-p');
       p.appendChild(el('span','so-et', et)); p.appendChild(el('span','so-dg', dg)); ozS.appendChild(p); };
@@ -3285,10 +3397,18 @@ function takvimYenile(ctx){
       (TP.sahisTahmin ? 'en az ' : '') + tlk(TP.sahis));
     if (TP.ltdAdet)   gr('ltd · ' + TP.ltdAdet + ' ödeme',
       (TP.ltdTahmin ? 'en az ' : '') + tlk(TP.ltd));
+    /* Y109 · vergi AYRI PARCA. Tutari girilmemis kalem varsa rakam yerine
+       kac kalem oldugu yazar — sifir TL yazmak "borc yok" demek olurdu. */
+    if (TP.vergiAdet) gr('vergi · ' + TP.vergiAdet + ' kalem',
+      TP.vergiTutarsiz === TP.vergiAdet ? 'tutar girilmedi'
+        : tlk(TP.vergi) + (TP.vergiTutarsiz ? ' + ' + TP.vergiTutarsiz + ' kalem tutarsız' : ''));
     if (TP.odenmisAdet) gr('ödenmiş · ' + TP.odenmisAdet, tlk(TP.odenmis));
     ozS.setAttribute('aria-label', ayAdi(ay) + ' toplamı. '
       + (TP.sahisAdet ? 'Şahıs ' + (TP.sahisTahmin ? 'en az ' : '') + tlk(TP.sahis) + '. ' : '')
       + (TP.ltdAdet ? 'Ltd ' + (TP.ltdTahmin ? 'en az ' : '') + tlk(TP.ltd) + '. ' : '')
+      + (TP.vergiAdet ? 'Vergi ' + TP.vergiAdet + ' kalem'
+         + (TP.vergiTutarsiz === TP.vergiAdet ? ', tutarı girilmedi. '
+            : ', ' + tlk(TP.vergi) + '. ') : '')
       + (TP.odenmisAdet ? 'Ödenmiş ' + tlk(TP.odenmis) + '.' : ''));
     kap.appendChild(ozS);
     const tahminN = TP.sahisTahmin + TP.ltdTahmin;
@@ -3329,9 +3449,51 @@ function takvimYenile(ctx){
    cekDetayAc). Kaynak turu SATIRDA YAZAR — kullanici neyin ne oldugunu
    isaret renginden degil metinden ayirt eder. */
 function takvimEkKarti(e, b){
-  const gecikti = e.tarih < b;
-  const kutu = el('div','tk' + (gecikti ? ' gecikti' : '')); kutu.style.cursor = 'pointer';
+  const gecikti = e.tarih < b && !e.kapali;
+  const kutu = el('div','tk' + (gecikti ? ' gecikti' : ''));
+  /* ⚠ Y109 · VERGI SATIRI TIKLANMAZ: borc.html'de vergi detay ekrani YOK,
+     vergiler index.html'de yonetiliyor. Tiklanabilir gostermek hicbir yere
+     gitmeyen bir satir olurdu — imlec ve onclick yalniz oteki ikisinde. */
+  if (e.tur !== 'vergi') kutu.style.cursor = 'pointer';
   const ust = el('div','tk-ust');
+  if (e.tur === 'vergi'){
+    const vd = e.vade;
+    const odendi = e.kapali;
+    /* TARIH · AD · DONEM: `aciklama` sunucuda "KDV (2026-10)" diye
+       uretiliyor — ad ve donem zaten iceride, ikinci kez yazilmiyor. */
+    const tutarYazi = odendi
+      ? (e.odenenKurus != null ? tlk(e.odenenKurus) : 'ödendi')
+      : (vd.tutar != null ? tlk(kr(vd.tutar)) : 'tutar girilmedi');
+    /* ⚠ kutuErisim CAGRILMIYOR: o yardimci role="button" ve tabindex
+       veriyor; tiklanmayan bir satiri dugme gibi duyurmak yanlis olurdu.
+       Satirin GORUNEN METNI zaten her seyi yaziyor, ekran okuyucu onu
+       sirayla okur — uydurma bir ARIA kabugu eklenmedi. */
+    ust.appendChild(el('div','tk-ad', 'Vergi · ' + vd.aciklama));
+    ust.appendChild(el('div','tk-tutar', tutarYazi));
+    kutu.appendChild(ust);
+    const alt = ['dönem ' + (vd.donem || '—')];
+    if (odendi) alt.push(vd.durum === 'odendi' ? 'ödeme kaydına bağlı'
+                       : vd.durum === 'tutar_yok' ? 'tutar çıkmadı' : 'iptal');
+    else if (!gecikti) alt.push('son ödeme günü');
+    kutu.appendChild(el('div','tk-orta', alt.join(' · ')));
+    /* ⚠ TUTARI UYDURMA YASAGI SATIRDA DA YAZAR: "tutar girilmedi" tek
+       basina sebebini soylemiyordu; vade onceden uretiliyor, tutar odeme
+       aninda belli oluyor. Ongoru/tahmin URETILMIYOR. */
+    if (!odendi && vd.tutar == null)
+      kutu.appendChild(el('div','tk-orta', 'tutar ödeme anında belli oluyor — '
+        + 'tahmin yazılmıyor. Ödemeyi girince buraya bağlanır'));
+    if (gecikti){
+      const r = el('div'); r.style.marginTop = '6px';
+      r.appendChild(el('span','rozet rz-eksik','VADESİ GEÇTİ'));
+      kutu.appendChild(r);
+    }
+    if (odendi){
+      const r = el('div'); r.style.marginTop = '6px';
+      r.appendChild(el('span','rozet rz-ok','ÖDENDİ'));
+      kutu.appendChild(r);
+    }
+    return kutu;
+  }
   if (e.tur === 'kart'){
     kutu.onclick = () => kartDetayAc(e.kart.id);
     kutuErisim(kutu, 'Kart ödemesi, ' + e.kart.ad + (e.kart.banka ? ' ' + e.kart.banka : '')
