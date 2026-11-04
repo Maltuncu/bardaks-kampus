@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-107">
+<meta name="surum" content="2026-08-27-116">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2094,12 +2094,31 @@ async function katalogYukle(){
        beri), yani Y3'teki sira riski YOK — yine de tek sorgu: kolon bir gun kalkarsa
        butun kategori listeleri bosalir, bu yuzden bayrak OKUNAMAZSA uyari YAZILMAZ. */
     sb.from('gider_kategori').select('id,ad,mal_alimi,kdv_indirilebilir').eq('aktif',true).eq('is_deleted',false).order('ad'),
-    sb.from('tedarikci').select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres').eq('aktif',true).eq('is_deleted',false).order('ad'),
+    /* ⚠ Y119 · v153'un IKI KOLONU EKLENDI (`varsayilan_tur`, `varsayilan_kategori`):
+         "bu firma her zaman su turdur" bilgisi. Migration 3 Kasim'da canliya
+         uygulandi, kolonlar YERINDE.
+       ⚠ AMA YUKARIDAKI Y3 TUZAGI BU SORGUDA DA GECERLI: kolon bir sebeple
+         yoksa (geri alma) PostgREST hata doner, `t.data` null olur ve
+         KATALOG.tedarikciler BOSALIR — yani butun tedarikci listeleri,
+         toplu giris eslestirmesi ve odeme formu coker. Uygulama acilmaz.
+         Bu yuzden asagida TEK SEFERLIK GERI DONUS var: sorgu kolon
+         yuzunden duserse eski alan listesiyle TEKRAR okunur ve ekran
+         varsayilansiz calismaya devam eder. Sessiz degil — konsola yazar. */
+    sb.from('tedarikci').select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres,varsayilan_tur,varsayilan_kategori').eq('aktif',true).eq('is_deleted',false).order('ad'),
     /* Y94 · `kategori` TEK ALAN olarak eklendi: stok ekrani kutucuklari buna gore grupluyor.
        Yeni sorgu YOK, gorunum degismedi (v_stok_durum kategoriyi zaten dondurmuyor). */
     sb.from('urun').select('id,ad,birim,kod,paket_ici_adet,kategori').eq('aktif',true).eq('is_deleted',false).order('kod')
   ]);
-  KATALOG.kategoriler = k.data||[]; KATALOG.tedarikciler = t.data||[]; KATALOG.urunler = u.data||[];
+  /* Y119 · varsayilan kolonlari okunamadiysa TEK SEFER eski alan listesiyle
+     dene; ekran varsayilansiz ama CALISIR halde kalsin. */
+  let ted = t;
+  if (t && t.error && /varsayilan_(tur|kategori)/.test(t.error.message || '')){
+    console.error('tedarikci varsayilan kolonlari okunamadi, eski alanlarla devam', t.error);
+    ted = await sb.from('tedarikci')
+      .select('id,ad,unvan,vergi_no,vergi_dairesi,yetkili_ad,telefon,telefon2,email,adres')
+      .eq('aktif',true).eq('is_deleted',false).order('ad');
+  }
+  KATALOG.kategoriler = k.data||[]; KATALOG.tedarikciler = ted.data||[]; KATALOG.urunler = u.data||[];
 }
 
 /* ================== SEKMELER ================== */
@@ -7473,7 +7492,10 @@ async function vGider(){
           "Gider" dugmesi YALNIZ o bolum aciksa cizilir (formun kendisi duruyor, dugmesi
           kalkti). Demirbas YALNIZ sahipte: tablonun RLS politikasi owner-only, personele
           dugme koymak gidecegi olmayan dugme olurdu. */''}
-    <div class="segment cok">${GIDER_BOLUM==='temel'?sekBtn('temel','Gider'):''}${sekBtn('fatura','Fatura')}${sekBtn('sabit','Sabit')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('demirbas','Demirbaş'):''}${sekBtn('odeme','Ödemeler')}${(PROFIL.rol==='owner' || subeVerisiAcik())?sekBtn('mutabakat','Ay Sonu'):''}</div>
+    <div class="segment cok">${GIDER_BOLUM==='temel'?sekBtn('temel','Gider'):''}${sekBtn('fatura','Fatura')}${sekBtn('sabit','Sabit')}${sekBtn('fis','Fiş')}${PROFIL.rol==='owner'?sekBtn('demirbas','Demirbaş'):''}${sekBtn('odeme','Ödemeler')}${(PROFIL.rol==='owner' || subeVerisiAcik())?sekBtn('mutabakat','Ay Sonu'):''}${/* ⚠ Y120 · SORGU · "bu yil elektrige ne kadar odedik" ve "su firmadan
+          ne aldik" sorulari. Gorunurluk Ay Sonu ile AYNI kural: sahip ve sube
+          verisi yetkili sube sorumlusu. Duz personelin RLS'i bu iki tabloda
+          satir dondurmuyor — gidecegi olmayan sekme olurdu. */''}${(PROFIL.rol==='owner' || subeVerisiAcik())?sekBtn('sorgu','Sorgu'):''}</div>
     ${/* ADIM 17 (B) · taslak seridi — gun sonundaki gsTaslakBar'in esi */''}
     <div id="ekTaslakBar"></div>
     <div id="gdIcerik"></div>
@@ -7484,9 +7506,281 @@ async function vGider(){
   else if (GIDER_BOLUM==='fatura') gdFatura();
   else if (GIDER_BOLUM==='mutabakat') gdMutabakat();
   else if (GIDER_BOLUM==='odeme') gdOdeme();
+  else if (GIDER_BOLUM==='sorgu') gdSorgu();                    // Y120
   else gdFis();
   taslakEskileriAt(); ekranTaslakSeridi();
 }
+/* ==================================================================
+   Y120 · SORGU · "NE KADAR ÖDEDİK / NE ALDIK"
+   ==================================================================
+   Kullanicinin sozu: "biz bu yil ne kadar elektrik faturasi odemisiz
+   dedigimde toplu soylemesi lazim ya da su firmadan ne almisiz demesi
+   lazim ilki subeyi birbirinden ayirmasi lazim".
+   ⚠ SERBEST METIN KUTUSU YOK: soru cumlesi SABIT, degisken yerler SECICI.
+     Dogal dil kutusu model yargisina bagli bir is kurali olurdu; secicili
+     cumle ayni isi KESIN yapar.
+   ⚠ EV KALIPLARI KULLANILDI, YENISI YAZILMADI:
+     · sube alt toplami  → `subeAltToplamBlogu` (giderListe'nin kullandigi)
+     · katlanan blok     → `bdAc` (aria-expanded'i KENDISI yaziyor)
+     · donem kirilimi    → urunDetay'daki yillik/aylik deseni
+     `giderListe` ve `urunDetay` DEGISTIRILMEDI; kaliplari okundu.
+   ⚠ `limit` KULLANILMAZ: toplam sorusunda limit sessizce EKSIK rakam
+     uretir. Satir sayisi buyurse sayfa yavaslar — yanlis rakamdan iyidir.
+   ⚠ YIL LISTESI VERIDEN: en eski ve en yeni tarih okunur, aradaki yillar
+     listelenir. Uydurma yil (ornegin "2030") LISTELENMEZ; okuma duserse
+     yil listesi kurulmaz ve sebebi yazar.
+   ⚠ SUBE: istemci EK SUZGEC KOYMAZ. Sube sorumlusu kendi subesini gorur
+     cunku RLS oyle; "tum subeler" gibi bir secenek SUNULMAZ.
+   ================================================================== */
+let SG_YILLAR = null;          // null = okunamadi · [] = veri yok
+let SG_KAT = '', SG_YIL = '', SG_TED = '', SG_DONEM = 'hepsi';
+let SG_K_SATIR = [], SG_K_MOD = 'yil';      // kategori sorusunun satirlari
+let SG_T_ALIS = [], SG_T_MOD = 'yil';       // firma sorusunun alis satirlari
+async function gdSorgu(){
+  const el = document.getElementById('gdIcerik');
+  el.innerHTML = '<div class="kart"><div class="bos">Yükleniyor...</div></div>';
+  /* yil listesi · gider VE alis tarafinin en eski/en yeni tarihi */
+  const sor = (t, yon) => sb.from(t).select('tarih').eq('is_deleted', false)
+    .order('tarih', { ascending: yon }).limit(1);
+  const [ge, gy, ae, ay2] = await Promise.all([sor('gider',true), sor('gider',false),
+                                               sor('alis',true), sor('alis',false)]);
+  const kotu = [ge, gy, ae, ay2].find(x => x && x.error);
+  if (kotu){ SG_YILLAR = null; console.error('yil araligi okunamadi', kotu.error); }
+  else {
+    const tarihler = [ge, gy, ae, ay2].flatMap(x => (x.data || []).map(r => r.tarih)).filter(Boolean);
+    if (!tarihler.length) SG_YILLAR = [];
+    else {
+      const enEski = +tarihler.slice().sort()[0].slice(0,4);
+      const enYeni = +tarihler.slice().sort().pop().slice(0,4);
+      SG_YILLAR = [];
+      for (let y = enYeni; y >= enEski; y--) SG_YILLAR.push(String(y));
+    }
+  }
+  if (!SG_YIL && SG_YILLAR && SG_YILLAR.length) SG_YIL = SG_YILLAR[0];
+  const yilSecici = (id, fn, hepsiVar) => SG_YILLAR === null
+    ? `<span class="k" style="color:var(--hata)">yıl listesi okunamadı</span>`
+    : (!SG_YILLAR.length ? `<span class="k" style="color:var(--soluk)">kayıt yok</span>`
+    : `<select id="${id}" style="min-height:44px" onchange="${fn}">`
+      + (hepsiVar ? `<option value="hepsi"${SG_DONEM==='hepsi'?' selected':''}>tüm zamanlar</option>` : '')
+      + SG_YILLAR.map(y => `<option value="${y}"${(hepsiVar ? SG_DONEM : SG_YIL)===y?' selected':''}>${y}</option>`).join('')
+      + `</select>`);
+  const katSecici = `<select id="sgKat" style="min-height:44px;max-width:60vw" onchange="SG_KAT=this.value">
+      <option value="">— kategori seç —</option>
+      ${KATALOG.kategoriler.map(k => `<option value="${k.id}"${SG_KAT===k.id?' selected':''}>${esc(k.ad)}</option>`).join('')}
+    </select>`;
+  const tedSecici = `<select id="sgTed" style="min-height:44px;max-width:60vw" onchange="SG_TED=this.value">
+      <option value="">— firma seç —</option>
+      ${KATALOG.tedarikciler.map(t => `<option value="${t.id}"${SG_TED===t.id?' selected':''}>${esc(t.ad)}</option>`).join('')}
+    </select>`;
+  el.innerHTML = `
+    <div class="kart">
+      <div class="kbaslik">Kategoriye ne kadar ödedik</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:15px">
+        ${katSecici}<span>kategorisine</span>${yilSecici('sgYil','SG_YIL=this.value')}
+        <span>yılında ne kadar ödedik?</span>
+        <button class="btn2" style="min-height:44px" onclick="sgKategoriSor()">Sor</button>
+      </div>
+      <div id="sgKatSonuc"></div>
+    </div>
+    <div class="kart">
+      <div class="kbaslik">Firmadan ne aldık</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:15px">
+        ${tedSecici}<span>firmasından</span>${yilSecici('sgDonem','SG_DONEM=this.value', true)}
+        <span>ne aldık?</span>
+        <button class="btn2" style="min-height:44px" onclick="sgFirmaSor()">Sor</button>
+      </div>
+      <div id="sgTedSonuc"></div>
+    </div>`;
+  document.getElementById('gdListe').innerHTML = '';
+}
+/* ⚠ KASADAN ODENEN AYRI SATIRDA YAZAR, TOPLAMDAN DUSULMEZ: giderListe'nin
+     cumlesiyle ayni anlam — o para da odendi, yalniz kasadan cikti. */
+async function sgKategoriSor(){
+  const h = document.getElementById('sgKatSonuc');
+  if (!SG_KAT){ h.innerHTML = '<div class="uyari-orta">Önce kategori seç.</div>'; return; }
+  if (!SG_YIL){ h.innerHTML = '<div class="uyari-orta">Yıl seçilemedi.</div>'; return; }
+  h.innerHTML = '<div class="bos">Toplanıyor...</div>';
+  const { data, error } = await sb.from('gider')
+    /* Y120-f (8.5) · `aciklama` CIKARILDI: cekiliyordu ama hic kullanilmiyordu. */
+    .select('tutar,tarih,sube_id,kasadan')
+    .eq('is_deleted', false).eq('kategori_id', SG_KAT)
+    .gte('tarih', SG_YIL + '-01-01').lte('tarih', SG_YIL + '-12-31');
+  if (error){ h.innerHTML = `<div class="uyari-agir">Okunamadı: ${esc(hataTr(error.message))}</div>`; return; }
+  const satirlar = data || [];
+  SG_K_SATIR = satirlar; SG_K_MOD = 'yil';
+  const toplamKurus = satirlar.reduce((a,x) => a + kurus(x.tutar), 0);
+  const kasaKurus = satirlar.filter(x => x.kasadan).reduce((a,x) => a + kurus(x.tutar), 0);
+  const kasaAdet = satirlar.filter(x => x.kasadan).length;
+  const katAd = (KATALOG.kategoriler.find(k => k.id === SG_KAT) || {}).ad || '';
+  h.innerHTML = `
+    ${/* ⚠ Y120-f · MANSET EVIN KENDI KALIBIYLA. Ilk yazimda borc.html'in
+          serit ozeti kaliblari kullanilmisti; o bes sinif YALNIZ borc.html'de
+          tanimli, bu dosyada TANIMI YOK — ekranin var olma sebebi olan
+          rakamlar stilsiz <span>lerde ciziliyordu. Kusur SESSIZDI: tasma 0
+          ve konsol 0 oldugu icin olcum gormedi (sinif adlari bu yoruma da
+          YAZILMIYOR: grep'in temiz cikmasi olcutun kendisi).
+          Kalip: `ozet-grid` + `ozet-kut` (.e etiket · .d rakam · .aciklama
+          alt not) — kurallari index.html:596-607'de, kullanimi 8127'de.
+          `index.html`'e YENI CSS KURALI EKLENMEDI; borc.html'in kurallari
+          BURAYA KOPYALANMADI. */''}
+    <div class="ozet-grid" style="margin-top:12px">
+      <div class="ozet-kut"><div class="e">${esc(katAd)} · ${esc(SG_YIL)}</div>
+        <div class="d">${kurusTl(toplamKurus)}</div>
+        <div class="aciklama">${satirlar.length} kayıt</div></div>
+      <div class="ozet-kut"><div class="e">KASADAN</div>
+        <div class="d" style="color:${kasaAdet ? 'var(--uyari)' : 'var(--ana)'}">${kurusTl(kasaKurus)}</div>
+        <div class="aciklama">${kasaAdet ? kasaAdet + ' kayıt · toplamdan düşülmedi' : 'kasadan ödeme yok'}</div></div>
+    </div>
+    ${kasaAdet ? `<div class="bilgi-not" style="margin:8px 0 0">Bunun ${kurusTl(kasaKurus)}'si
+      <b>kasadan</b> ödenmiş (${kasaAdet} kayıt) — toplamdan düşülmedi, o para da ödendi;
+      yalnız kasadan çıktı.</div>` : ''}
+    ${!satirlar.length ? '<div class="bos">Bu kategoride bu yıl kayıt yok.</div>' : ''}
+    ${subeAltToplamBlogu(satirlar, x => +x.tutar, x => x.sube_id)}
+    ${satirlar.length ? `<div class="ud-bas" style="margin-top:14px">
+      <span class="ud-blk">DÖNEM KIRILIMI</span>
+      <button class="btn2 kb-bt" id="sgKirBtn" aria-expanded="false" aria-controls="sgKirk"
+        data-t="aç" onclick="bdAc(this,'sgKir')">aç</button></div>
+      <div id="sgKirk" hidden>
+        <div class="segment">
+          <button class="sg-btn aktif" id="sgKirYil" onclick="sgKirilimMod('yil')">Yıllık</button>
+          <button class="sg-btn" id="sgKirAy" onclick="sgKirilimMod('ay')">Aylık</button>
+        </div>
+        <div id="sgKirIcerik"></div>
+      </div>` : ''}`;
+  sgKirilimCiz();
+}
+/* ⚠ DONEM KIRILIMI · YENI SORGU YOK: eldeki satirlar gruplanir (urunDetay
+     kalibi). Bos donem URETILMEZ — "0 odendi" ile "hic odenmedi" ayni sey
+     degil. Kategori sorusu tek yili okudugu icin yillik kirilim tek satir
+     verir; aylik kirilim asil cevabi tasir. */
+function sgKirilimMod(mod){
+  SG_K_MOD = mod;
+  const y = document.getElementById('sgKirYil'), a = document.getElementById('sgKirAy');
+  if (y) y.classList.toggle('aktif', mod === 'yil');
+  if (a) a.classList.toggle('aktif', mod === 'ay');
+  sgKirilimCiz();
+}
+function sgKirilimVerisi(satirlar, mod, tutarAl){
+  const m = new Map();
+  for (const x of satirlar){
+    if (!x.tarih) continue;
+    const k = mod === 'yil' ? x.tarih.slice(0,4) : x.tarih.slice(0,7);
+    const v = m.get(k) || { kurus: 0, adet: 0 };
+    v.kurus += kurus(tutarAl(x)); v.adet++;
+    m.set(k, v);
+  }
+  return [...m.entries()].sort((x,y) => y[0].localeCompare(x[0]));
+}
+function sgKirilimCiz(){
+  const el = document.getElementById('sgKirIcerik'); if (!el) return;
+  const satirlar = sgKirilimVerisi(SG_K_SATIR, SG_K_MOD, x => x.tutar);
+  if (!satirlar.length){ el.innerHTML = '<div class="ud-bos">Kayıt yok.</div>'; return; }
+  el.innerHTML = satirlar.map(([donem, v]) => `<div class="ud-satir">
+      <div class="ud-trh">${esc(SG_K_MOD === 'yil' ? donem : ayAdi(donem))}</div>
+      <div><div class="ud-alt">${v.adet} kayıt</div></div>
+      <div class="ud-tut">${kurusTl(v.kurus)}</div></div>`).join('');
+}
+/* ⚠ MAL ALIMI ile GIDER TEK RAKAMA TOPLANMAZ: ikisi ayri seydir (biri
+     satilan malin maliyetine, oteki isletme masrafina girer).
+   ⚠ ACILIS AYRI SATIR: `v_tedarikci_bakiye` acilis satirlarini da
+     topluyor (olculdu: tur IN ('fatura','acilis')). "Ne aldik" sorusunun
+     cevabi faturalardir; acilis devirdir. Ikisi ayri yazilir, yoksa
+     ekranin iki rakami birbirini tutmaz.
+   ⚠ FIRMASI YAZILMAMIS GIDER BU RAKAMA GIRMEZ ve ekran bunu SOYLER:
+     olculdu, gider kayitlarinin cogunda tedarikci bos. */
+async function sgFirmaSor(){
+  const h = document.getElementById('sgTedSonuc');
+  if (!SG_TED){ h.innerHTML = '<div class="uyari-orta">Önce firma seç.</div>'; return; }
+  h.innerHTML = '<div class="bos">Toplanıyor...</div>';
+  const yil = SG_DONEM !== 'hepsi' ? SG_DONEM : null;
+  let as = sb.from('alis').select('toplam,tarih,sube_id,tur')
+    .eq('is_deleted', false).eq('tedarikci_id', SG_TED);
+  let gs = sb.from('gider').select('tutar,tarih,sube_id')
+    .eq('is_deleted', false).eq('tedarikci_id', SG_TED);
+  if (yil){
+    as = as.gte('tarih', yil + '-01-01').lte('tarih', yil + '-12-31');
+    gs = gs.gte('tarih', yil + '-01-01').lte('tarih', yil + '-12-31');
+  }
+  const [av, gv, bv] = await Promise.all([as, gs,
+    /* ev hesabi: odenen ve kalan · yeni hesap YAZILMADI */
+    sb.from('v_tedarikci_bakiye').select('toplam_alis,toplam_odeme,bakiye,sube_id')
+      .eq('tedarikci_id', SG_TED)]);
+  if (av.error || gv.error){
+    h.innerHTML = `<div class="uyari-agir">Okunamadı: ${esc(hataTr((av.error||gv.error).message))}</div>`;
+    return;
+  }
+  const alisHepsi = av.data || [], giderler = gv.data || [];
+  const faturalar = alisHepsi.filter(x => x.tur !== 'acilis');
+  const acilislar = alisHepsi.filter(x => x.tur === 'acilis');
+  SG_T_ALIS = faturalar; SG_T_MOD = 'yil';
+  const fKurus = faturalar.reduce((a,x) => a + kurus(x.toplam), 0);
+  const aKurus = acilislar.reduce((a,x) => a + kurus(x.toplam), 0);
+  const gKurus = giderler.reduce((a,x) => a + kurus(x.tutar), 0);
+  const tedAd = (KATALOG.tedarikciler.find(t => t.id === SG_TED) || {}).ad || '';
+  const donemAd = yil ? yil + ' yılında' : 'tüm zamanlarda';
+  const bak = bv.error ? null : (bv.data || []);
+  const odenenKurus = bak ? bak.reduce((a,x) => a + kurus(x.toplam_odeme), 0) : null;
+  const kalanKurus  = bak ? bak.reduce((a,x) => a + kurus(x.bakiye), 0) : null;
+  h.innerHTML = `
+    ${/* ⚠ Y120-f · ayni duzeltme burada da. IKI RAKAM IKI KUTUDA: mal alimi
+          ile gider AYRI durur, tek rakama toplanmaz (Y120'nin sarti). Gider
+          satiri `.satir` olmaktan cikip mansete tasindi — ekranin sordugu
+          ikinci soru odur, kucuk bir alt satirda kalmasi dogru degildi. */''}
+    <div class="ozet-grid" style="margin-top:12px">
+      <div class="ozet-kut"><div class="e">MAL ALIMI · ${esc(donemAd)}</div>
+        <div class="d">${kurusTl(fKurus)}</div>
+        <div class="aciklama">${faturalar.length} fatura · ${esc(tedAd)}</div></div>
+      <div class="ozet-kut"><div class="e">GİDER OLARAK</div>
+        <div class="d">${kurusTl(gKurus)}</div>
+        <div class="aciklama">${giderler.length} kayıt</div></div>
+    </div>
+    ${aKurus ? `<div class="satir"><span class="et">devir (açılış kaydı)</span>
+      <span class="dg">${kurusTl(aKurus)} · ${acilislar.length} kayıt</span></div>` : ''}
+    <div class="bilgi-not" style="margin:6px 0 0">Mal alımı ile gider <b>ayrı</b> tutuldu;
+      tek rakama toplanmadı — biri satılan malın maliyetine, öteki işletme masrafına girer.
+      <b>Firması yazılmamış gider kayıtları bu rakama GİRMEZ</b>; eski kayıtların çoğunda
+      firma alanı boş.</div>
+    ${bak === null
+      ? `<div class="uyari-orta">Ödenen ve kalan okunamadı (${esc(hataTr(bv.error.message))}).</div>`
+      : `<div class="satir"><span class="et">ödenen${yil ? ' (tüm zamanlar)' : ''}</span>
+           <span class="dg">${kurusTl(odenenKurus)}</span></div>
+         <div class="satir"><span class="et">kalan borç${yil ? ' (tüm zamanlar)' : ''}</span>
+           <span class="dg" style="font-weight:800">${kurusTl(kalanKurus)}</span></div>
+         <div class="bilgi-not" style="margin:6px 0 0">Ödenen ve kalan <b>tüm zamanların</b>
+           hesabıdır (ev hesabı: tedarikçi bakiyesi) ve açılış devrini de içerir —
+           yukarıdaki yıl seçimi bu iki satırı daraltmaz.</div>`}
+    ${!faturalar.length && !giderler.length ? '<div class="bos">Bu firmadan bu dönemde kayıt yok.</div>' : ''}
+    ${subeAltToplamBlogu(faturalar, x => +x.toplam, x => x.sube_id)}
+    ${faturalar.length ? `<div class="ud-bas" style="margin-top:14px">
+      <span class="ud-blk">DÖNEM KIRILIMI · mal alımı</span>
+      <button class="btn2 kb-bt" id="sgTKirBtn" aria-expanded="false" aria-controls="sgTKirk"
+        data-t="aç" onclick="bdAc(this,'sgTKir')">aç</button></div>
+      <div id="sgTKirk" hidden>
+        <div class="segment">
+          <button class="sg-btn aktif" id="sgTKirYil" onclick="sgTKirilimMod('yil')">Yıllık</button>
+          <button class="sg-btn" id="sgTKirAy" onclick="sgTKirilimMod('ay')">Aylık</button>
+        </div>
+        <div id="sgTKirIcerik"></div>
+      </div>` : ''}`;
+  sgTKirilimCiz();
+}
+function sgTKirilimMod(mod){
+  SG_T_MOD = mod;
+  const y = document.getElementById('sgTKirYil'), a = document.getElementById('sgTKirAy');
+  if (y) y.classList.toggle('aktif', mod === 'yil');
+  if (a) a.classList.toggle('aktif', mod === 'ay');
+  sgTKirilimCiz();
+}
+function sgTKirilimCiz(){
+  const el = document.getElementById('sgTKirIcerik'); if (!el) return;
+  const satirlar = sgKirilimVerisi(SG_T_ALIS, SG_T_MOD, x => x.toplam);
+  if (!satirlar.length){ el.innerHTML = '<div class="ud-bos">Fatura yok.</div>'; return; }
+  el.innerHTML = satirlar.map(([donem, v]) => `<div class="ud-satir">
+      <div class="ud-trh">${esc(SG_T_MOD === 'yil' ? donem : ayAdi(donem))}</div>
+      <div><div class="ud-alt">${v.adet} fatura</div></div>
+      <div class="ud-tut">${kurusTl(v.kurus)}</div></div>`).join('');
+}
+
 /* ===== ÖDEMELER =====
    Ay içinde elden çıkan paranın tamamı tek listede: kime, ne zaman, neyle, ne kadar.
    İki kaynaktan gelir ve KARIŞTIRILMAZ:
@@ -8365,6 +8659,52 @@ function tpKur(eksikler){
          firmasinin faturasi Alis'a girilmis ve tedarikci borcu acmis (Y72 olcumu). */
     const dzT = tpDuzenliTanim(ted);
     if (dzT){ satir.tur = 'gider'; satir.kategori = dzT.kategori_id; satir.duzenli = dzT.ad; }
+    /* ===== Y119-d · FIRMA VARSAYILANI (v153) =====
+       ⚠ ONCELIK SIRASI: duzenli tanim → FIRMA VARSAYILANI → (asagida,
+         tpGecmisYukle icinde) tek sesli gecmis → bos. Duzenli tanim
+         varken varsayilan EZMEZ: tanim hatirlatma da uretiyor, daha
+         guclu bir beyandir.
+       ⚠ KATEGORI KULLANICININ KENDI KATALOGUNDA MI · ATLANAMAZ:
+         `sadece_owner` bir kategori sube sorumlusunun katalogunda YOK
+         (RLS suzuyor). Dogrulamadan yazsaydik satir DOLU gorunur ama
+         `tpKaydedilebilir` kategoriyi bulamadigi icin kaydedilemezdi —
+         kullanici neden kaydedemedigini anlamazdi. Bulunamiyorsa satir
+         BOS birakilir ve sebebi satirda yazar.
+       ⚠ ISARETLEME YOK: satir dolu gelir, `sec` yine kullanicida (Y72). */
+    if (!dzT && ted && ted.varsayilan_tur){
+      if (ted.varsayilan_tur === 'gider'){
+        /* ⚠ Y119-e · IKI SEBEP AYRILDI. Onceki hal ikisini TEK cumleye
+             dusuruyordu ("kategorisi senin listende gorunmuyor") ve TUR'u
+             da yazmiyordu — bilinen bilgi cope gidiyordu.
+           (b) KAYITLI KATEGORI YOK: tur BILINIYOR, yazilir; kategori bos
+               kalir ve cumle kategoriyi ISTER. Hal gercek: tedarikci formu
+               kategori istemeden 'gider' yazmaya izin veriyor.
+           (c) KAYITLI KATEGORI VAR ama kullanicinin katalogunda YOK
+               (`sadece_owner`, ya da sonradan silinmis): TUR YAZILIR,
+               kategori bos kalir, cumle sebebini soyler.
+               ⚠ TUR NEDEN YAZILIYOR (denetci karari · olculdu): tur bos
+                 kalirsa `tpGecmisYukle` o satiri GECMISTEN dolduruyor.
+                 Firmanin gecmisi alis-only ise satir tur='alis' olup
+                 "gecen sefer de mal alimi girilmisti" yaziyor, ama ayni
+                 satirda varsayilanin GIDER oldugunu soyleyen cumle de
+                 duruyor — tek satirda birbirini tutmayan iki beyan.
+                 Tur yazilinca doldurma kapisi (`!r.tur`) kapanir. */
+        const kat = ted.varsayilan_kategori
+          && KATALOG.kategoriler.find(k => k.id === ted.varsayilan_kategori);
+        if (kat){ satir.tur = 'gider'; satir.kategori = kat.id; satir.varsayilanNot = 'bu firma için kayıtlı varsayılan: Gider · ' + kat.ad; }
+        else if (!ted.varsayilan_kategori){
+          satir.tur = 'gider';
+          satir.varsayilanNot = 'bu firma için kayıtlı varsayılan: Gider — kategoriyi sen seç';
+        }
+        else {
+          satir.tur = 'gider';
+          satir.varsayilanNot = 'bu firma için kayıtlı varsayılan var ama kategorisi '
+            + 'senin listende görünmüyor — sen seç';
+        }
+      } else if (ted.varsayilan_tur === 'alis'){
+        satir.tur = 'alis'; satir.varsayilanNot = 'bu firma için kayıtlı varsayılan: Mal alımı';
+      }
+    }
     /* Y85 · SATIR BASINA SUBE · oneri firmanin gecmisinden (v148 firma_sube), yoksa aktif sube */
     const on = tpSubeOner(ted);
     satir.sube = on.sube; satir.subeKaynak = on.kaynak; satir.subeAdet = on.adet;
@@ -8372,6 +8712,21 @@ function tpKur(eksikler){
     const kl = tpSubeKilidi(ted);
     satir.subeKilit = !!kl; satir.subeKilitAd = kl ? kl.ad : null; satir.subeKilitAdet = kl ? kl.adet : 0;
     satir.subeOnay = false;
+    /* ⚠ Y114-2 · BELIRSIZ KIMLIK KILIDI · sube kilidinin AYNI kalibi.
+         Sistemde ayni numarali bir kayit var ama onun KIMIN oldugu ayirt
+         edilemiyor (sube sorumlusu · 'haric' kaydi · tedarikcisiz gider ·
+         kapatilmis tedarikci ad cakismasi). Ekran "girildi" DEMEZ: satir
+         gorunur, kilitli gelir, yalniz satir basina acik onayla acilir. */
+    satir.belirsizKilit = !!(x.belirsiz && x.belirsiz.adet);
+    satir.belirsizSebep = x.belirsiz ? x.belirsiz.sebepler.join(' · ') : null;
+    satir.belirsizAdet = x.belirsiz ? x.belirsiz.adet : 0;
+    satir.belirsizOnay = false;
+    /* ⚠ Y114-3 · KARAR VERECEK KADARINI SATIR GOSTERIR: eslesen kaydin
+         nerede oldugu, nasil girildigi ve (sahipte) hangi firmaya yazildigi.
+         Veri v148'in ZATEN dondurdugu alanlardan; yeni sunucu alani
+         ISTENMEDI. Metin tpYerMetni'nin belirsiz kipinden geliyor — ayri
+         bir cumle yazilmadi. */
+    satir.belirsizKayit = (x.belirsiz && x.yer && x.yer.length) ? tpYerMetni(x, true) : null;
     return satir;
   });
 }
@@ -8422,21 +8777,100 @@ function tpHepsiSube(id){
   tpCiz();
 }
 let TP_GECMIS = {};
+/* ==================================================================
+   Y119-a · AYNI FIRMADAN DAHA ONCE NE GIRILMIS — IKI KAYNAK
+   ==================================================================
+   ⚠ ONCEKI HAL YALNIZ `alis` OKUYORDU: `TP_GECMIS`e girebilen tek deger
+     'alis' idi, yani satirdaki ucgenin "gider" dali OLU KODDU — gecen ay
+     gider girilmis bir firma bu ay BOS geliyordu. Gider tarafi artik
+     okunuyor ve TUR ile KATEGORI birlikte ogreniliyor.
+   ⚠ "TAHMIN" ile "BILMEK" AYRIMI (Y72 karari korunuyor): satir YALNIZ
+     gecmis TEK SESLI ise dolar — hep alis, ya da hep gider ve hep AYNI
+     kategori. Karisik gecmiste satir BOS kalir ve sebebi yazar. Tahmin
+     yok; dolduran sey kaydin kendisi.
+   ⚠ ISARETLEME YOK: doldurmak isaretlemek DEGILDIR (`sec` kullanicida).
+   ⚠ EKSIK OKUMA DOLDURMAZ: iki sorgu da sinirli; satir sayisi sinira
+     DAYANIRSA veri eksik olabilir (bir firmanin gider satirlari kesilmis
+     olabilir) ve "tek sesli" hukmu yanlis cikar. O halde ogrenme
+     KAPATILIR — satirlar bugunku gibi bos kalir. Fail-closed.
+   ⚠ OLCULEN SINIR (kullanici, 3 Kasim, canli): gecmisi olan 45 firmanin
+     yalnizca 1'inde gider gecmisi var ve 48 gider kaydinin 42'sinde
+     tedarikci BOS. Yani bu kural BUGUN gider tarafinda neredeyse hicbir
+     firmayi dolduramaz; ogrenme BU AYIN girislerinden sonra baslar
+     (yazma yolu tedarikci kimligini zaten geciriyor). */
+const TP_GECMIS_SINIR = 500;
 async function tpGecmisYukle(){
-  /* Aynı firmadan daha önce ne girilmiş — ÖNERİ için, işaret için değil. */
   TP_GECMIS = {};
-  const vknler = [...new Set(TOPLU.map(r => r.kaynak.vkn).filter(Boolean))];
   const tedIds = [...new Set(TOPLU.map(r => r.ted && r.ted.id).filter(Boolean))];
-  if (tedIds.length){
-    const { data } = await sb.from('alis').select('tedarikci_id').eq('is_deleted', false)
-      .in('tedarikci_id', tedIds).limit(200);
-    (data || []).forEach(a => {
-      TOPLU.filter(r => r.ted && r.ted.id === a.tedarikci_id).forEach(r => {
-        TP_GECMIS[(r.kaynak.vkn||'') + '|' + (r.kaynak.firma||'')] = 'alis'; });
-    });
+  if (!tedIds.length) return;
+  const [av, gv] = await Promise.all([
+    sb.from('alis').select('tedarikci_id').eq('is_deleted', false)
+      .in('tedarikci_id', tedIds).limit(TP_GECMIS_SINIR),
+    sb.from('gider').select('tedarikci_id,kategori_id').eq('is_deleted', false)
+      .in('tedarikci_id', tedIds).limit(TP_GECMIS_SINIR)
+  ]);
+  if (av.error || gv.error){
+    console.error('gecmis okunamadi', av.error || gv.error);
+    return;                                   // oneri yok; ekran bugunku gibi
   }
-  TOPLU.forEach(r => { r.oneri = TP_GECMIS[(r.kaynak.vkn||'') + '|' + (r.kaynak.firma||'')] || r.oneri; });
-  void vknler;
+  const alis = av.data || [], gider = gv.data || [];
+  if (alis.length >= TP_GECMIS_SINIR || gider.length >= TP_GECMIS_SINIR){
+    console.error('gecmis okumasi sinira dayandi — ogrenme kapatildi');
+    return;                                   // eksik veriyle "tek sesli" denmez
+  }
+  /* tedarikci basina: kac alis, kac gider, hangi kategoriler */
+  const say = {};
+  const kutu = (id) => (say[id] = say[id] || { alis: 0, gider: 0, kategoriler: new Set() });
+  alis.forEach(a => { if (a.tedarikci_id) kutu(a.tedarikci_id).alis++; });
+  gider.forEach(g => { if (!g.tedarikci_id) return;
+    const k = kutu(g.tedarikci_id); k.gider++; k.kategoriler.add(g.kategori_id || ''); });
+
+  TOPLU.forEach(r => {
+    if (!r.ted) return;
+    const s = say[r.ted.id]; if (!s || (!s.alis && !s.gider)) return;
+    const anahtar = (r.kaynak.vkn || '') + '|' + (r.kaynak.firma || '');
+    let g;
+    if (s.gider && !s.alis && s.kategoriler.size === 1){
+      const kid = [...s.kategoriler][0];
+      g = { tur: 'gider', kategori: kid || '', adet: s.gider, tekSesli: true };
+    } else if (s.alis && !s.gider){
+      g = { tur: 'alis', kategori: '', adet: s.alis, tekSesli: true };
+    } else if (s.gider && !s.alis){
+      /* ⚠ Y119-e · UCUNCU HAL · "TURU BILIYORUM, KATEGORIYI BILMIYORUM".
+           Hep gider girilmis ama kategoriler farkli. Onceki hal bunu
+           KARISIK sayiyordu ve ekran "gecmiste iki turlu girilmis
+           (0 mal alimi · 5 gider)" diyordu: hem celiskili ("iki turlu"
+           deyip turlerden birine sifir yazmak) hem de bilinen tur cope
+           gidiyordu. Artik tur yazilir, kategori kullanicidan istenir. */
+      g = { tur: 'gider', kategori: '', adet: s.gider, tekSesli: false, cokKategori: true };
+    } else {
+      g = { tur: '', kategori: '', adet: s.alis + s.gider, tekSesli: false };
+    }
+    TP_GECMIS[anahtar] = g;
+    r.oneri = g;
+    /* ⚠ DOLDURMA · yalniz satir HALA BOSSA: duzenli tanim ve firma
+       varsayilani daha guclu beyanlardir, ezilmez. Gider kategorisi
+       kullanicinin KENDI katalogunda yoksa (sadece_owner) doldurulmaz. */
+    if (!r.tur && g.tekSesli){
+      if (g.tur === 'alis'){ r.tur = 'alis'; r.gecmisNot = 'geçen sefer de mal alımı girilmişti (' + g.adet + ' kayıt)'; }
+      else if (g.tur === 'gider'){
+        const kat = g.kategori && KATALOG.kategoriler.find(k => k.id === g.kategori);
+        if (kat){ r.tur = 'gider'; r.kategori = kat.id;
+          r.gecmisNot = 'geçen sefer de gider girilmişti · ' + kat.ad + ' (' + g.adet + ' kayıt)'; }
+        else r.gecmisNot = 'geçmişte gider girilmiş ama kategorisi senin listende yok — sen seç';
+      }
+    } else if (!r.tur && g.cokKategori){
+      /* Y119-e · (a) · tur yazilir, kategori kullanicidan istenir */
+      r.tur = 'gider';
+      r.gecmisNot = 'hep gider girilmiş ama kategori değişiyor (' + s.gider
+        + ' kayıt) — kategoriyi sen seç';
+    } else if (!r.tur && !g.tekSesli){
+      /* ⚠ Y119-e · "iki turlu girilmis" cumlesi YALNIZ GERCEKTEN iki tur
+         varsa cikar: ikisi de sifirdan buyuk. */
+      r.gecmisNot = 'geçmişte iki türlü girilmiş (' + s.alis + ' mal alımı · ' + s.gider
+        + ' gider) — sen seç';
+    }
+  });
 }
 function tpDegis(i, alan, deger){
   const r = tpBul(i); if (!r) return;
@@ -8451,20 +8885,42 @@ function tpDegis(i, alan, deger){
   else if (alan === 'tur'){ r.tur = deger; if (deger !== 'gider') r.kategori = ''; if (!deger) r.sec = false; }
   else if (alan === 'sube'){ r.sube = deger || AKTIF_SUBE; r.subeKaynak = 'elle'; }   // Y85
   else if (alan === 'subeOnay'){ r.subeOnay = !!deger; if (!r.subeOnay) r.sec = false; }   // Y86 · satir basina
+  else if (alan === 'belirsizOnay'){ r.belirsizOnay = !!deger; if (!r.belirsizOnay) r.sec = false; }  // Y114-2
   else r[alan] = deger;
   tpCiz();
 }
+/* ⚠ Y119-c · TOPLU DUGME ATLADIGINI SOYLER. Onceki hal sessizdi: "Hepsini
+     isaretle"ye basan kullanici HEPSININ isaretlendigini saniyordu; kilitli
+     ya da turu secilmemis satirlar sessizce disarida kaliyordu. Artik kac
+     satir islendi ve kac satir NEDEN atlandi, sayiyla yaziliyor. */
 function tpHepsi(alan, deger){
-  TOPLU.forEach(r => { if (r.haric || r.eksik.length) return;
+  let islenen = 0; const atlanan = {};
+  const atla = (sebep) => { atlanan[sebep] = (atlanan[sebep] || 0) + 1; };
+  TOPLU.forEach(r => {
+    if (r.haric){ atla('işletme dışı işaretli'); return; }
+    if (r.eksik.length){ atla('satırda eksik alan var'); return; }
     /* Y86 · "Hepsini işaretle" KILITLI satiri isaretlemez — kilit YALNIZ satir basina onayla acilir */
-    if (alan === 'sec' && r.subeKilit && !r.subeOnay) return;
-    if (alan === 'tur' && deger === 'alis' && !r.ted) return;     // tedarikçisiz alış olmaz
+    if (alan === 'sec' && r.subeKilit && !r.subeOnay){ atla('şube onayı bekliyor'); return; }
+    /* Y114-2 · belirsiz kimlikli satiri da toplu isaretleme ACMAZ */
+    if (alan === 'sec' && r.belirsizKilit && !r.belirsizOnay){ atla('kimlik onayı bekliyor'); return; }
+    if (alan === 'tur' && deger === 'alis' && !r.ted){ atla('tedarikçisi yok, mal alımı olamaz'); return; }
     /* ⚠ CU · toplu dokunuş da hata kilidini açar (tpDegis ile aynı gerekçe) */
     if (r.sonuc && !tpKilitli(r)) r.sonuc = null;
-    if (alan === 'sec') r.sec = deger && !!r.tur;
+    if (alan === 'sec'){
+      r.sec = deger && !!r.tur;
+      if (deger && !r.tur){ atla('türü seçilmemiş'); return; }
+    }
     else { r[alan] = deger; if (alan === 'tur' && deger !== 'gider') r.kategori = ''; }
+    islenen++;
   });
   tpCiz();
+  const atlananToplam = Object.values(atlanan).reduce((a, b) => a + b, 0);
+  mesaj('tpMsg', atlananToplam ? 'uyari' : 'ok',
+    islenen + ' satır ' + (alan === 'sec' ? (deger ? 'işaretlendi' : 'işareti kaldırıldı') : 'güncellendi')
+    + (atlananToplam
+        ? ' · ' + atlananToplam + ' satır atlandı: '
+          + Object.entries(atlanan).map(([s, n]) => n + "'i " + s).join(' · ')
+        : ''));
 }
 /* ⚠ CT · EKSİK TEDARİKÇİYİ FATURADAN OLUŞTUR
    Sahip 25 faturanın 17'sinde "önce tedarikçi ekle" duvarına çarpıyordu;
@@ -8559,7 +9015,8 @@ async function tpVknYaz(i){
 function tpKaydedilebilir(r){
   return !r.haric && !r.eksik.length && !!r.tur && !r.sonuc
       && (r.tur !== 'gider' || !!r.kategori) && (r.tur !== 'alis' || !!r.ted)
-      && (!r.subeKilit || !!r.subeOnay);                      // Y86 · kilitli satir onaysiz yazilmaz
+      && (!r.subeKilit || !!r.subeOnay)                       // Y86 · kilitli satir onaysiz yazilmaz
+      && (!r.belirsizKilit || !!r.belirsizOnay);              // Y114-2 · belirsiz kimlik de onay ister
 }
 function tpCiz(){
   const el = document.getElementById('mtToplu'); if (!el) return;
@@ -8633,6 +9090,27 @@ function tpCiz(){
             ${r.girilmis
               ? `<div class="k" style="color:var(--ana)">Kaydetmeden hemen önce kontrol edildi:
                    <b>${esc(r.girilmisMetin || 'başka bir yerde girilmiş')}</b> — tekrar yazılmadı.</div>` : ''}
+            ${/* Y114 · ayni numara BASKA firmada varsa satir kaydedilir; kullanici
+                  numarayi tanidik gorup faturayi aramayi birakmasin diye yaziliyor. */''}
+            ${r.baskaFirmaNot && !r.girilmis
+              ? `<div class="k" style="color:var(--ana)">${esc(r.baskaFirmaNot)}</div>` : ''}
+            ${/* ⚠ Y114-2 · BELIRSIZ KIMLIK · "girildi" demiyoruz, soruyoruz.
+                  Kalip Y86 sube kilidinin aynisi: uyari + satir basina onay. */''}
+            ${r.belirsizKilit && !kilit
+              ? `<div class="k" style="color:var(--uyari)">Bu numarayla sistemde
+                   <b>${r.belirsizAdet} kayıt</b> var ama <b>kimin olduğu ayırt edilemiyor</b>
+                   (${esc(r.belirsizSebep || '')}). Aynı numarayı iki firma kullanabilir;
+                   bu fatura girilmiş olabilir de olmayabilir de. Kaydedilmeden önce senin
+                   kararın gerekiyor.</div>
+                 ${/* Y114-3 · eslesen kaydin kunyesi: kullanici KARAR VERECEK
+                       kadarini gorsun. "Girilmiş" IDDIASI YOK. */''}
+                 ${r.belirsizKayit ? `<div class="k">Eşleşen kayıt:
+                     <b>${esc(r.belirsizKayit)}</b> — aynı belge mi, yoksa aynı numarayı
+                     kullanan başka bir firmanın belgesi mi, o kayda bakıp karar ver.</div>` : ''}
+                 <label style="display:flex;gap:8px;align-items:center;min-height:44px;font-size:13px;font-weight:700">
+                   <input type="checkbox" style="width:22px;height:22px;flex:none" ${r.belirsizOnay ? 'checked' : ''}
+                     onchange="tpDegis(${r.i},'belirsizOnay',this.checked)">
+                   Baktım, bu fatura henüz girilmemiş — kaydet</label>` : ''}
             ${/* Y86 · sube sorumlusunda sube kilidi: YALNIZ satir basina acik onay acar */''}
             ${r.subeKilit && !kilit
               ? `<div class="k" style="color:var(--uyari)">Bu firma son 12 ayda çoğunlukla
@@ -8660,9 +9138,14 @@ function tpCiz(){
               ? `<div class="k" style="color:var(--uyari)">KDV okunamadı — bu satır
                    <b>KDV’siz</b> kaydedilir, indirilecek KDV’ye girmez.
                    Faturada KDV varsa <b>Tek tek gir</b> ile forma al.</div>` : ''}
-            ${r.oneri && !r.tur
-              ? `<div class="k" style="color:var(--soluk)">geçen sefer <b>${r.oneri === 'alis' ? 'mal alımı' : 'gider'}</b>
-                   olarak girilmişti — yine de sen seç</div>` : ''}
+            ${/* ⚠ Y119 · SATIR NEDEN DOLU (ya da neden BOS) · ucgenin eski
+                  "gecen sefer X" dali TP_GECMIS artik nesne tuttugu icin
+                  buraya tasindi. Satir dolduysa da yazar: kullanici neye
+                  bakarak onayladigini bilsin. */''}
+            ${r.varsayilanNot
+              ? `<div class="k" style="color:var(--ana)">${esc(r.varsayilanNot)}</div>` : ''}
+            ${r.gecmisNot
+              ? `<div class="k" style="color:var(--soluk)">${esc(r.gecmisNot)} — işaretlemeyi sen yap</div>` : ''}
             ${/* Y87 · ad ekrandaki bolumle AYNI kelime: "sabit gider". Gonderilen
                   parametreler DEGISMEDI (tpKaydet'e dokunulmadi). */''}
             ${r.duzenli && r.tur === 'gider'
@@ -8730,6 +9213,20 @@ function tpCiz(){
           ${!r.ted && r.unvan && r.esles !== 'catisma' && !kilit
             ? `<button type="button" class="btn2" style="min-height:44px"
                  onclick="tpTedarikciAc(${r.i})">Tedarikçi olarak ekle</button>` : ''}
+          ${/* ⚠ Y119-d · "BU FIRMAYI BOYLE HATIRLA" · satirda secilen tur (ve
+                gider ise kategori) firmanin VARSAYILANI olarak yazilir; bir
+                dahaki toplu giriste satir kendiliginden dolu gelir.
+              ⚠ YALNIZ SAHIPTE: `tedarikci` UPDATE politikasi owner-only
+                (olculdu, taban 7805); sube sorumlusuna dugme CIZILMEZ —
+                basilinca sessizce dusen bir dugme olurdu.
+              ⚠ Secim YAPILMAMISSA dugme YOK: yazacak bir sey yok.
+              ⚠ Zaten ayni varsayilan yaziliysa dugme YOK: bos islem olurdu. */''}
+          ${PROFIL.rol === 'owner' && r.ted && !kilit && r.tur
+            && (r.tur !== 'gider' || r.kategori)
+            && !(r.ted.varsayilan_tur === r.tur
+                 && (r.tur !== 'gider' || r.ted.varsayilan_kategori === r.kategori))
+            ? `<button type="button" class="btn2" style="min-height:44px"
+                 onclick="tpVarsayilanYaz(${r.i})">Bu firmayı böyle hatırla</button>` : ''}
           <button type="button" class="btn2" style="min-height:44px" ${kilit ? 'disabled' : ''}
             onclick="mutabakatGir('${esc(r.belge_no || '')}')">Tek tek gir</button>
         </div>
@@ -8803,8 +9300,12 @@ async function tpGiderAra(kume){
   const temiz = kume.filter(n => /^[A-Z0-9-]{3,40}$/.test(n));
   const parcalar = [];
   for (let i = 0; i < temiz.length; i += 50) parcalar.push(temiz.slice(i, i + 50));
+  /* ⚠ Y114-2 · `tedarikci_id` eklendi (ayni sorgu, bir kolon). Olculdu: gider
+       tarafinda bu kolon NULL OLABILIR ve 38 satirin 33'unde bos — yani gider
+       eslesmesinde kimlik COGUNLUKLA bilinmiyor. O hal "belirsiz" sayilir,
+       "girildi" SAYILMAZ. */
   const cevaplar = await Promise.all(parcalar.map(p => sb.from('gider')
-    .select('id,aciklama,tarih,tutar,foto_path').eq('is_deleted', false)
+    .select('id,aciklama,tarih,tutar,foto_path,tedarikci_id').eq('is_deleted', false)
     .or(p.map(n => `aciklama.ilike.*${n}*`).join(','))));
   const kotu = cevaplar.find(r => r && r.error);
   if (kotu) return { error: kotu.error };
@@ -8815,7 +9316,7 @@ async function tpGiderAra(kume){
 /* "Samsun şubesinde alış olarak girilmiş · FİRMA" · baska subede ya da bu subede farkli
    yazilmis kayit. ⚠ Ek sube adina YAPISTIRILMAZ ("Samsun'de" yanlis olurdu — unlu uyumu):
    ek "şube" kelimesine gelir, her adla dogru okunur. */
-function tpYerMetni(x){
+function tpYerMetni(x, belirsizMi){
   const y = (x.yer || [])[0]; if (!y) return '';
   const tur = y.tur === 'haric' ? 'işletme dışı işaretlenmiş' : (y.tur === 'alis' ? 'mal alımı olarak girilmiş' : 'gider olarak girilmiş');
   const nerede = y.sube_id === AKTIF_SUBE ? 'bu şubede' : (y.sube_ad || 'başka bir') + ' şubesinde';
@@ -8823,9 +9324,67 @@ function tpYerMetni(x){
        yazilmis belge no; sube sorumlusunda ise yalniz-sahip kategorisindeki gider (onun RLS'i
        o satiri gostermiyor). Iki sebebe de uyan NOTR cumle — tahmin yazilmaz.
      ⚠ Sube sorumlusuna firma adi DONMEZ (v149): `firma_ad` yoksa ek de yazilmaz. */
-  return nerede + ' ' + tur + (y.firma_ad ? ' · ' + y.firma_ad : '')
+  /* ⚠ Y114-2 · DAYANAK YAZILIYOR. Bu kayit v148'den geliyor ve v148 KIMLIK
+       DONDURMUYOR — eslesme yalniz FIRMA ADIYLA kuruldu. Ad tekil tutuluyor
+       (ux_tedarikci_ad) ama kapatilmis bir tedarikci ayni adi tasiyorsa ayirt
+       edilemez; o yuzden cumle neye dayandigini soyluyor, kesinlik iddia
+       etmiyor. Ad hic yoksa (sube sorumlusu) belge zaten "belirsiz" yoluna
+       gider ve toplu tabloda karar bekler. */
+  /* ⚠ Y114-3 · `belirsizMi` · AYNI VERI, AMA IDDIA FARKLI. "baska sube"
+       kutusunda eslesme ada DAYANIYOR ve kabul edilmistir; belirsiz satirda
+       ise ad esit olsa bile KIMLIK dogrulanamamistir — orada "eşleşti"
+       demek kullaniciyi yanlis yola sokar. */
+  const adEki = !y.firma_ad ? ''
+    : ' · ' + y.firma_ad + (belirsizMi ? ' (firma adı aynı, kimlik doğrulanamadı)'
+                                       : ' (firma adına göre eşleşti)');
+  return nerede + ' ' + tur + adEki
     + (y.sube_id === AKTIF_SUBE ? ' (kaydın ayrıntısı bu listede görünmüyor)' : '')
     + (x.yer.length > 1 ? ' · +' + (x.yer.length - 1) + ' kayıt daha' : '');
+}
+/* ==================================================================
+   Y114-3 · RISKLI AD · "ADA GORE ESLESME" NEREDE GUVENILMEZ
+   ==================================================================
+   ⚠ BULGU (ikinci inceleyici · 29 Ekim): v148 `kayitli` kaydin KIMLIGINI
+     dondurmuyor, yalniz `firma_ad`. Ad tekilligi (`ux_tedarikci_ad`)
+     YALNIZ silinmemis satirlar arasinda: SILINMIS bir tedarikci, yasayan
+     bir tedarikcinin adini tasiyabilir. O halde "ad esitse ayni firma"
+     hukmu YANLIS olabilir.
+   ⚠ SUNUCU DEGISIKLIGI GEREKMEDI: katalog `aktif=true AND is_deleted=false`
+     ile yuklendigi icin (2097) katalogda OLMAYAN tedarikcilerin adlari
+     ayrica okunup katalog adlariyla kesistirilebiliyor. Kesisen ad =
+     RISKLI AD; o adda ada gore eslesme yapilmaz.
+   ⚠ FAIL-CLOSED, YONU ONEMLI: okuma HATA verirse `null` doner ve cagiran
+     TARAF butun v148 ad eslesmelerini BELIRSIZ sayar. "Sifir satir okundu"
+     ile "okuma basarisiz" AYRI: bos Set okumanin BASARILI oldugunu, `null`
+     ise okunamadigini soyler. Tersi (bos liste = risk yok) fail-open olur
+     ve kapatilan bulgu gorunmeden geri gelirdi.
+   ⚠ ROL: sahip silinmis satirlari okuyabiliyor (olculdu). Personelin RLS'i
+     silinmisleri gostermiyor — ama v149 o role `firma_ad` HIC dondurmuyor,
+     yani ada gore eslesme onun yolunda zaten kurulmuyor; liste de
+     kullanilmiyor. Bosluk yok (olculdu, T4).
+   ⚠ OLCUM NOTU (29 Ekim · yedek kabi): katalog kuralina gore riskli ad
+     BUGUN YOK. Ayni ad iki satirda geciyor ama ikisi de katalog disinda
+     (biri silinmis, oteki aktif=false), yani bugun bu kapi hicbir satiri
+     kilitlemiyor. Kapi gelecek icin duruyor: silinen bir tedarikcinin adi
+     yasayan bir tedarikcide de gecerse eslesme sessizce yanlislasirdi. */
+const tpAdAnahtar = (s) => String(s || '').trim().toUpperCase();
+let TP_RISKLI_AD = null;              // Set = okundu · null = OKUNAMADI
+async function tpRiskliAdYukle(){
+  try{
+    /* katalogda OLMAYAN tedarikciler: kapatilmis (aktif=false) ya da silinmis */
+    const { data, error } = await sb.from('tedarikci').select('ad,aktif,is_deleted')
+      .or('aktif.eq.false,is_deleted.eq.true');
+    if (error) throw new Error(error.message);
+    const katalog = new Set((KATALOG.tedarikciler || []).map(t => tpAdAnahtar(t.ad)));
+    const riskli = new Set();
+    (data || []).forEach(t => { const a = tpAdAnahtar(t.ad);
+      if (a && katalog.has(a)) riskli.add(a); });
+    return riskli;
+  }catch(e){
+    /* ⚠ YUTULMUYOR: konsola yazilir ve `null` ile fail-closed tetiklenir. */
+    console.error('riskli ad listesi okunamadi', e);
+    return null;
+  }
 }
 async function tpSiniflandir(nolar){
   const kume = [...new Set((nolar || []).filter(Boolean))];
@@ -8834,14 +9393,23 @@ async function tpSiniflandir(nolar){
   const hedef = MUTABAKAT.filter(x => !x.hata && x.belge_no && kume.includes(x.belge_no));
   if (!hedef.length) return;
   const firmalar = [...new Set(hedef.map(tpTedarikciId).filter(Boolean))];
-  const [av, gv, hv, sv] = await Promise.all([
-    sb.from('alis').select('id,belge_no,tarih,toplam,foto_path,tedarikci(ad)')
+  const [av, gv, hv, sv, ra] = await Promise.all([
+    /* ⚠ Y114-2 · `tedarikci_id` DE CEKILIYOR · YENI SORGU DEGIL, ayni sorguya
+         bir kolon. Olculdu (yedek kabi): alis.tedarikci_id NOT NULL, 48/48 dolu,
+         authenticated'a kolon yetkisi VAR. Yani aktif subedeki eslesme ADA gore
+         DEGIL, KIMLIGE gore yapilabiliyor — sunucuda hicbir degisiklik gerekmedi. */
+    sb.from('alis').select('id,belge_no,tarih,toplam,foto_path,tedarikci_id,tedarikci(ad)')
       .eq('is_deleted', false).in('belge_no', kume),
     tpGiderAra(kume),
     /* ⚠ isletme disi da DAR: yalniz bu belgeler (gider ile ayni tavan derdi). Kayitta
          farkli yazilmis bir no'yu v148 yakalar. */
     sb.from('belge_haric').select('belge_no,neden').eq('is_deleted', false).in('belge_no', kume),
-    tpSubeBilgi(kume, firmalar).then(data => ({ data }), e => ({ error: { message: e.message } }))
+    tpSubeBilgi(kume, firmalar).then(data => ({ data }), e => ({ error: { message: e.message } })),
+    /* ⚠ Y114-3 · BESINCI SORGU · ASAGIDAKI "YARIM SINIFLANDIRMA" KAPISINA
+         GIRMEZ: bu okuma duserse siniflandirma durdurulmaz, v148 ad
+         eslesmelerinin TAMAMI belirsiz sayilir (fail-closed). Kendi icinde
+         yakaliyor, hic reject etmiyor. */
+    tpRiskliAdYukle()
   ]);
   /* ⚠ YARIM SINIFLANDIRMA YAPILMAZ. Supabase hata dönerse data null
      gelir; sessizce devam edilse alisMap boş kalır ve HER satır
@@ -8852,40 +9420,155 @@ async function tpSiniflandir(nolar){
        cevaplanamadiysa HICBIR belge "eksik" sayilmaz. */
   const kotu = [av, gv, hv, sv].find(r => r && r.error);
   if (kotu) throw new Error(kotu.error.message || 'sınıflandırma sorgusu başarısız');
+  /* Y114-3 · riskli ad listesi: Set ise okundu, null ise OKUNAMADI (fail-closed) */
+  TP_RISKLI_AD = ra;
   tpFirmaSubeYaz(sv.data.firma_sube);
   const yerMap = {};
   sv.data.kayitli.forEach(k => { (yerMap[tpNo(k.belge_no)] = yerMap[tpNo(k.belge_no)] || []).push(k); });
   const haricMap = {}; ((hv && hv.data) || []).forEach(h =>
     { haricMap[(h.belge_no || '').toUpperCase()] = h.neden; });
-  const alisMap = {}; ((av && av.data) || []).forEach(a =>
-    { alisMap[(a.belge_no || '').toUpperCase()] = a; });
+  /* ⚠ Y114-2 · HARITA ARTIK LISTE. Eskiden `alisMap[no] = a` tek deger
+       tutuyordu: ayni numarali IKI kayittan biri sessizce KAYBOLUYORDU ve
+       hangisinin kaldigi sorgu sirasina kaliyordu. */
+  const alisMap = {}; ((av && av.data) || []).forEach(a => {
+    const n = (a.belge_no || '').toUpperCase();
+    (alisMap[n] = alisMap[n] || []).push(a);
+  });
   const giderler = (gv && gv.data) || [];
+  /* ===== Y114-2 · SINIFLANDIRMA ARTIK KIMLIGE BAKAR =====
+     ⚠ OLCULDU (28-29 Ekim, gercek index.html -108): bu fonksiyon ayni numarayi
+       tasiyan HER kaydi "bu belge girilmis" sayiyordu. A'nin X numarali faturasi
+       sistemde varken B'nin X numarali faturasi ZIP'ten okununca durum
+       'belge_eklenecek' (ya da baska subede 'baska_sube') oluyor, toplu tabloya
+       GIREN SATIR 0 oluyordu — yani birinci turda duzeltilen uc kapiya fatura
+       HIC ULASMIYORDU. Ustelik PDF A'nin kaydina baglanabiliyordu.
+     ⚠ UC YERIN AYIRT EDICI VERISI OLCULDU (yedek kabi · kopya152):
+       · aktif sube ALIS   : `alis.tedarikci_id` NOT NULL, 48/48 dolu → KESIN KIMLIK
+       · GIDER             : `gider.tedarikci_id` NULL OLABILIR, 38'de 33 bos → cogu
+                             halde BELIRSIZ
+       · v148 `kayitli`    : kimlik YOK, yalniz `firma_ad` ve o da YALNIZ sahipte
+                             (v149) → ADA GORE eslesme; sube sorumlusunda,
+                             'haric' kayitta ve kapatilmis tedarikci ad
+                             cakismasinda (kapta 1 cift olculdu) AYIRT EDILEMEZ.
+     ⚠ BU YUZDEN UC SONUC VAR, IKI DEGIL:
+       BIZIM     → kimlik ya da ad eslesti → eskisi gibi "girilmis" sayilir
+       BASKASI   → kimlik ayri → kayit SAYILMAZ, belge 'eksik' kalir ve tabloya girer
+       BELIRSIZ  → ayirt edilemiyor → "girildi" DENMEZ; belge tabloya girer ama
+                   satir KILITLI gelir ve kullanici acikca onaylamadan kaydedilmez
+                   (Y86'daki sube kilidinin AYNI kalibi; yeni desen icat edilmedi).
+     ⚠ "Sessiz eleme yerine gorunur karar" ilkesinin (9327-9330) geregi budur. */
+  const tpFirmaAdi = (s) => String(s || '').trim().toUpperCase();
   hedef.forEach(x => {
-    x.yer = null;
+    x.yer = null; x.belirsiz = null;
     if (haricMap[x.belge_no]){ x.durum = 'haric'; x.neden = haricMap[x.belge_no];
       x.kayit = null; x.tur = ''; return; }
-    const a = alisMap[x.belge_no];
-    /* sunucu `ilike` ile genis getirdi; eski kesin kural (buyuk harfle icinde geciyor mu)
-       istemcide AYNEN uygulanir */
-    const g = giderler.find(z => (z.aciklama || '').toUpperCase().includes(x.belge_no));
-    const k = a || g;
-    if (!k){
-      /* ⚠ Y85 · AKTIF SUBEDE YOK ama v148 baska bir yerde buldu: "eksik" SAYILMAZ, toplu
-           giris listesine GIRMEZ, "Girilmemiş" sayisina katilmaz. Satirda nerede ve
-           kimin adina girildigi yazar. (Aktif subede ama belge nosu kayitta farkli
-           yazilmis kayit da buraya duser — o da girilmistir.) */
-      const yer = yerMap[tpNo(x.belge_no)];
-      if (yer && yer.length){ x.durum = 'baska_sube'; x.yer = yer; x.kayit = null; x.tur = ''; return; }
-      /* ⚠ Kayıt YOKSA 'eksik'e DOKUNULMAZ: sunucu hata verdiyse belge
-         hâlâ girilmemiştir, panelde de öyle görünmeli. */
-      x.durum = 'eksik'; x.kayit = null; x.tur = ''; return;
+    /* ZIP'ten okunan belgenin tedarikcisi · tpKur ile AYNI eslestirme (tpTedarikciId) */
+    const benimTed = tpTedarikciId(x);
+    const benimAd = benimTed
+      ? tpFirmaAdi((KATALOG.tedarikciler.find(t => t.id === benimTed) || {}).ad) : '';
+    const bizim = [], belirsiz = [];
+    /* 1 · AKTIF SUBEDEKI ALIS KAYITLARI · kimlik karsilastirmasi */
+    for (const a of (alisMap[x.belge_no] || [])){
+      if (!benimTed || !a.tedarikci_id) belirsiz.push({ tur:'alis', kayit:a, sebep:'faturanın firması tedarikçi listesiyle eşleşmedi' });
+      else if (a.tedarikci_id === benimTed) bizim.push({ tur:'alis', kayit:a });
+      /* kimlik ayri → BASKASININ belgesi: hicbir kumeye girmez, yok sayilir */
     }
-    x.kayit = k; x.tur = a ? 'alis' : 'gider';
-    /* Toplu giriş p_foto:null ile kaydediyor -> beklenen normal sonuç
-       'belge_eklenecek'; belgeler "BELGESİ EKSİK" kutusuna düşer ve
-       "n Belgeyi Kayıtlara Ekle" düğmesi çıkar. */
-    x.durum = k.foto_path ? 'belgeli' : 'belge_eklenecek';
+    /* 2 · GIDER KAYITLARI · sunucu `ilike` ile genis getirdi, kesin kural istemcide */
+    for (const g of giderler){
+      if (!(g.aciklama || '').toUpperCase().includes(x.belge_no)) continue;
+      if (!benimTed || !g.tedarikci_id) belirsiz.push({ tur:'gider', kayit:g, sebep:'gider kaydında tedarikçi yazılı değil' });
+      else if (g.tedarikci_id === benimTed) bizim.push({ tur:'gider', kayit:g });
+    }
+    /* 3 · v148 · BASKA SUBEDE ya da BU SUBEDE GORUNMEYEN KAYIT · yalniz ad */
+    const yer = yerMap[tpNo(x.belge_no)] || [];
+    const yerBizim = [], yerBelirsiz = [], yerSebep = [];
+    const yerBelirsizKoy = (y, sebep) => { yerBelirsiz.push(y); yerSebep.push(sebep); };
+    for (const y of yer){
+      const yAd = tpFirmaAdi(y.firma_ad);
+      if (y.tur === 'haric')
+        yerBelirsizKoy(y, 'işletme dışı kaydında firma adı serbest metin');
+      else if (!yAd)
+        yerBelirsizKoy(y, 'bu rolde kaydın firması görünmüyor');
+      else if (!benimAd)
+        yerBelirsizKoy(y, 'faturanın firması tedarikçi listesiyle eşleşmedi');
+      else if (yAd === benimAd){
+        /* ⚠ Y114-3 · AD ESITLIGI TEK BASINA YETMEZ:
+             · liste OKUNAMADIYSA (null) hic risk hesabi yapilmadi → BELIRSIZ,
+             · ad RISKLI ise (katalog disinda kapatilmis/silinmis bir
+               tedarikci de ayni adi tasiyor) hangi firmanin kaydi oldugu
+               ayirt edilemez → BELIRSIZ.
+           Ikisi de kullanicinin karar verecegi kilide duser; "girilmiş"
+           DENMEZ. Temiz cozum v148'in tedarikci_id dondurmesi — bu turun
+           disinda (karar ikinci inceleyici ve kullanicida). */
+        if (!TP_RISKLI_AD)
+          yerBelirsizKoy(y, 'kapatılmış tedarikçi listesi okunamadı, firma adı doğrulanamıyor');
+        else if (TP_RISKLI_AD.has(yAd))
+          yerBelirsizKoy(y, 'bu firma adını kapatılmış bir tedarikçi de taşıyor');
+        else yerBizim.push(y);
+      }
+      /* ad ayri → baskasinin belgesi, sayilmaz */
+    }
+    if (bizim.length){
+      /* ⚠ KAYIT SECIMI ARTIK "ILK BULUNAN" DEGIL: bizim olan kayitlar arasindan
+           BELGESI OLMAYANI tercih et — PDF dogru kayda baglanacak (Y114-2 bulgu 2). */
+      const sec = bizim.find(b => !b.kayit.foto_path) || bizim[0];
+      x.kayit = sec.kayit; x.tur = sec.tur;
+      x.durum = sec.kayit.foto_path ? 'belgeli' : 'belge_eklenecek';
+      return;
+    }
+    if (!bizim.length && yerBizim.length && !belirsiz.length && !yerBelirsiz.length){
+      /* Ada gore eslesti: eskisi gibi "baska yerde girilmis" kutusunda kalir.
+         ⚠ Dayanak AD oldugu icin satir cumlesi bunu YAZAR (tpYerMetni). */
+      x.durum = 'baska_sube'; x.yer = yerBizim; x.kayit = null; x.tur = ''; return;
+    }
+    if (belirsiz.length || yerBelirsiz.length){
+      /* ⚠ BELIRSIZ: "girildi" DEMIYORUZ. Belge tabloya girer, satir kilitli. */
+      x.durum = 'eksik'; x.kayit = null; x.tur = '';
+      x.yer = yerBelirsiz.length ? yerBelirsiz : null;
+      /* Y114-3 · sebep artik SATIR BASINA toplaniyor (yerSebep); eskiden
+         firma_ad'in varligina gore tahmin ediliyordu. */
+      const sebepler = [...new Set([...belirsiz.map(b => b.sebep), ...yerSebep])];
+      x.belirsiz = { adet: belirsiz.length + yerBelirsiz.length, sebepler };
+      return;
+    }
+    /* ⚠ Kayıt YOKSA ya da bulunan kayitlarin HEPSI BASKASININ ise 'eksik':
+       belge gercekten girilmemistir, toplu tabloda gorunur. */
+    x.durum = 'eksik'; x.kayit = null; x.tur = '';
   });
+}
+/* ==================================================================
+   Y119-d · FIRMA VARSAYILANINI SATIRDAN YAZ (v153)
+   ==================================================================
+   ⚠ RPC GEREKMEDI, OLCULDU: `tedarikci` tablo izni authenticated'a acik
+     (taban 9125) ve YAZMA politikasi owner-only (`owner_all_tedarikci`,
+     taban 7805); sube sorumlusunun tek politikasi SELECT. Yani dugme
+     zaten yalniz sahipte ciziliyor, sunucu da ikinci kapi.
+   ⚠ KATEGORI YALNIZ GIDERDE: v153 kisiti (kategori ancak tur='gider'
+     iken dolu olabilir) istemcide de uygulanir — alis secildiyse
+     kategori NULL yazilir, yoksa sunucu kisidi reddeder.
+   ⚠ KATALOG TAZELENIR: ayni turda acik olan oteki satirlar da bu firmanin
+     yeni varsayilanini gorsun diye `KATALOG.tedarikciler` guncellenir;
+     tam `katalogYukle` cagrilmaz (gereksiz uc sorgu). */
+async function tpVarsayilanYaz(i){
+  const r = tpBul(i); if (!r || !r.ted || !r.tur) return;
+  if (PROFIL.rol !== 'owner'){ mesaj('tpMsg','hata','Bu işlemi yönetici yapar.'); return; }
+  if (r.tur === 'gider' && !r.kategori){ mesaj('tpMsg','hata','Önce kategoriyi seç.'); return; }
+  const kat = r.tur === 'gider' ? r.kategori : null;
+  const katAd = kat ? (KATALOG.kategoriler.find(k => k.id === kat) || {}).ad : null;
+  if (!confirm(r.ted.ad + ' firmasından gelen faturalar bundan sonra '
+      + (r.tur === 'alis' ? 'MAL ALIMI' : 'GİDER' + (katAd ? ' · ' + katAd : ''))
+      + ' olarak HAZIR gelsin mi?\n\nİşaretlemeyi yine sen yapacaksın; '
+      + 'tedarikçi kaydından değiştirebilirsin.')) return;
+  const { error } = await sb.from('tedarikci')
+    .update({ varsayilan_tur: r.tur, varsayilan_kategori: kat }).eq('id', r.ted.id);
+  if (error){ mesaj('tpMsg','hata', hataTr(error.message)); return; }
+  const t = KATALOG.tedarikciler.find(x => x.id === r.ted.id);
+  if (t){ t.varsayilan_tur = r.tur; t.varsayilan_kategori = kat; }
+  r.ted.varsayilan_tur = r.tur; r.ted.varsayilan_kategori = kat;
+  r.varsayilanNot = 'bu firma için kayıtlı varsayılan: '
+    + (r.tur === 'alis' ? 'Mal alımı' : 'Gider' + (katAd ? ' · ' + katAd : ''));
+  tpCiz();
+  mesaj('tpMsg','ok', r.ted.ad + ' için varsayılan kaydedildi — bir dahaki toplu girişte hazır gelir.');
 }
 /* Y85 · MUKERRER_SUPHESI alan tek satiri, kullanicinin onayiyla YALNIZ o satiri kaydeder */
 function tpYineDeKaydet(i){
@@ -8903,7 +9586,36 @@ async function tpKaydet(yalnizI){
   const tek = yalnizI != null;
   const secilenler = TOPLU.filter(r => r.sec && tpKaydedilebilir(r) && (!tek || r.i === yalnizI))
     .sort((a, c) => String(a.tarih).localeCompare(String(c.tarih)));
-  if (!secilenler.length) return;
+  /* ⚠ Y119-b · BOS DONUSTE SESSIZ KALINMAZ. Onceki hal `return` idi:
+       kullanici "bastim, olmadi" diyordu. `tpKaydedilebilir` alti sart
+       ariyor; hangisinin dustugu satirin altinda yaziyor ama Kaydet'e
+       basildiginda OZETLENMIYORDU. Simdi SAYIYLA yaziliyor. */
+  if (!secilenler.length){
+    if (tek) return;                         // "Yine de kaydet" tek satir yolu
+    const say = { secili: 0, turYok: 0, katYok: 0, tedYok: 0, kilitli: 0, eksik: 0, bitti: 0 };
+    TOPLU.forEach(r => {
+      if (r.sec) say.secili++;
+      if (r.haric) return;
+      if (r.sonuc === 'ok' || r.sonuc === 'işletme dışı' || r.girilmis){ say.bitti++; return; }
+      if (r.eksik.length){ say.eksik++; return; }
+      if (!r.tur){ say.turYok++; return; }
+      if (r.tur === 'gider' && !r.kategori){ say.katYok++; return; }
+      if (r.tur === 'alis' && !r.ted){ say.tedYok++; return; }
+      if ((r.subeKilit && !r.subeOnay) || (r.belirsizKilit && !r.belirsizOnay)) say.kilitli++;
+    });
+    const parca = [];
+    if (say.turYok)  parca.push(say.turYok + ' satırın türü seçilmemiş');
+    if (say.katYok)  parca.push(say.katYok + ' satırın kategorisi seçilmemiş');
+    if (say.tedYok)  parca.push(say.tedYok + ' satırın tedarikçisi yok');
+    if (say.kilitli) parca.push(say.kilitli + ' satır onay bekliyor');
+    if (say.eksik)   parca.push(say.eksik + ' satırda eksik alan var');
+    if (say.bitti)   parca.push(say.bitti + ' satır zaten işlenmiş');
+    mesaj('tpMsg', 'uyari', 'Hiçbir satır kaydedilmedi — '
+      + (say.secili ? 'işaretli ' + say.secili + ' satır var ama kaydedilebilir değil. '
+                    : 'önce satırları işaretle. ')
+      + (parca.length ? parca.join(' · ') + '.' : 'Satırların altında sebebi yazıyor.'));
+    return;
+  }
   /* ⚠ İŞLETME DIŞI KALICI OLMALI: yalnız ekranda işaretlemek yetmez,
      bir sonraki mutabakatta yine "gözden kaçmış" diye çıkardı.
      belge_haric'e yazılır — tek tek akışla AYNI fonksiyon üzerinden
@@ -8940,15 +9652,89 @@ async function tpKaydet(yalnizI){
       + ' — hiçbir satır kaydedilmedi. Bağlantıyı kontrol edip tekrar dene.');
     return;
   }
+  /* ===== Y114 · BIRINCI KAPI ARTIK TEDARIKCIYE DE BAKAR =====
+     ⚠ OLCULDU (28 Ekim · gercek ekran akisi): kapi yalniz NUMARAYA bakiyordu.
+       Baska bir firmanin ayni numarali faturasi sistemde varsa yeni fatura
+       "az once girilmis" sayilip ATLANIYOR, sunucuya HIC cagri gitmiyordu ve
+       ekranin yazdigi cumle OLGUSAL OLARAK YANLISTI: eslesen kayit baska
+       firmanin belgesi. Iki firmanin ayni fatura numarasini kullanmasi MESRU —
+       `ux_alis_belge` de (tedarikci_id, belge_no) ikilisinde tekil.
+     ⚠ ELDEKI TEK AYIRT EDICI AD: v148 `kayitli` kaydin KIMLIGINI dondurmuyor,
+       yalniz `firma_ad` (alis ve giderde `tedarikci.ad`'dan join). Ada gore
+       eslesme saglamdir cunku `ux_tedarikci_ad` — upper(trim(ad)) WHERE NOT
+       is_deleted — adlari TEKIL tutuyor (yedek kabinda olculdu: 15 tedarikci,
+       ayni adli grup 0). Karsilastirma sunucunun kendi kuraliyla ayni:
+       trim + upper (ı/İ katlamasi YOK, cunku sunucunun indeksi de katlamiyor).
+     ⚠ KACIRMA YONU GUVENLI: KATALOG bayatsa (firma yeniden adlandirilmissa)
+       adlar ayrisir, satir "farkli firma" sayilip kayda GIDER; gercekten
+       mukerrer ise `ux_alis_belge` GORUNUR hata verir — sessiz kayip olmaz.
+     ⚠ KARSILASTIRILAMAYAN HAL KAPIYI GEVSETMEZ (eski davranis aynen surer):
+       · sube sorumlusuna `firma_ad` DONMEZ (v149) — ad yoksa satir ATLANIR,
+       · eslesen kayit 'haric' ise `firma_ad` serbest metindir (belge_haric.firma),
+         tedarikci adi degil — ATLANIR,
+       · isletme disi isaretlenmis SATIR ve gider satiri (tedarikcisi
+         bilinmeyebilir) — ATLANIR.
+     ⚠ Satirin cumlesi artik HANGI FIRMANIN kaydiyla eslestigini yazar. */
+  const tpFirmaAd = (s) => String(s || '').trim().toUpperCase();
+  const tpSatirFirmaAd = (r) =>
+    (!r.haric && r.tur === 'alis' && r.ted && r.ted.ad) ? tpFirmaAd(r.ted.ad) : '';
   const simdiVar = {};
   onKontrol.kayitli.forEach(k => { (simdiVar[tpNo(k.belge_no)] = simdiVar[tpNo(k.belge_no)] || []).push(k); });
   let atlananGirilmis = 0; const girilmisOzet = [];
   yazilacak.forEach(r => {
     const yer = r.belge_no && simdiVar[tpNo(r.belge_no)];
     if (!yer || !yer.length) return;
+    const ad = tpSatirFirmaAd(r);
+    /* ⚠ Y114-4 · AD ESITLIGI BU KAPIDA DA TEK BASINA YETMEZ · SINIFLANDIRMA
+         KATMANIYLA AYNI KURAL (tpSiniflandir · 3. adim): ad esitligi ancak
+         kapatilmis/silinmis tedarikci listesi OKUNDUYSA (Set) ve bu ad o
+         listede GECMIYORSA "kesin ayni firma" sayilir.
+       ⚠ OLCULDU (3. tur): riskli adli ve liste-okunamadi hallerinde satir
+         ekranda KILITLI geliyor, kullanici "baktim, girilmemis" diye
+         ONAYLIYOR, sonra bu kapi ayni ad esitligini kesin eslesme sayip
+         satiri sessizce ATLIYORDU — onayli secilen 1, yazilan alis 0, ekran
+         "0 kaydedildi, 1 fatura tekrar yazilmadi" diyordu. Sorulan soru
+         BOSA cikiyordu; ayni belirsizligin adi HIC olmayan hali (T4) ise
+         geciyordu — yani kapi kendi icinde tutarsizdi.
+       ⚠ YON: bu iki hal artik `ayirtEdilemez`. Karar kullanicinin; satir
+         gercekten mukerrer ise `ux_alis_belge` GORUNUR hata verir, sessiz
+         kayip olmaz. Liste okunamadiginda (null) kapi yine fail-closed:
+         onay YOKSA satir eskisi gibi atlanir. */
+    const adSaglam = !!(ad && TP_RISKLI_AD && !TP_RISKLI_AD.has(ad));
+    /* adi okunamayan, tedarikci adi OLMAYAN ya da ADI AYIRT EDILEMEYEN kayit */
+    const ayirtEdilemez = yer.filter(y => y.tur === 'haric' || !tpFirmaAd(y.firma_ad)
+      || (!!ad && !adSaglam && tpFirmaAd(y.firma_ad) === ad));
+    /* ⚠ Y114-2 · 'haric' KAYIT "AYNI FIRMA" SAYILMAZ: oradaki ad serbest
+         metindir (belge_haric.firma), tedarikci adi degil — tesadufen ayni
+         yazilmis olabilir. Olculdu: isletme disi kaydi ayni adi tasiyinca
+         kullanicinin acik onayi BOSA cikiyordu, satir yine atlaniyordu.
+         Bu kayit `ayirtEdilemez` kumesine girer; karar kullanicinin. */
+    const ayniFirma = adSaglam ? yer.filter(y => y.tur !== 'haric' && tpFirmaAd(y.firma_ad) === ad) : [];
+    /* ⚠ Y114-2 · KULLANICININ ACIK KARARI BU KAPIYI DA GECER. Olculdu: belirsiz
+         kimlikli satiri kullanici "baktim, girilmemis" diye onayliyor, sonra bu
+         kapi onu sessizce atliyor ve ekran "az once girilmis" diyordu — yani
+         sorulan soru BOSA cikiyordu. Kesin ayni firma eslesmesi yine atlanir;
+         yalniz AYIRT EDILEMEYEN hal onayla gecer ve gercekten mukerrerse
+         `ux_alis_belge` gorunur hata verir. */
+    const belirsizGecti = !!r.belirsizOnay && !ayniFirma.length;
+    if (belirsizGecti){
+      r.baskaFirmaNot = 'Aynı numarayla sistemde kayıt var ama kimin olduğu ayırt '
+        + 'edilemedi; senin onayınla kaydedildi.';
+      return;
+    }
+    if (ad && !ayirtEdilemez.length && !ayniFirma.length){
+      /* FARKLI FIRMA · satir kayda GIDER. Kullanici neyle karsilastigini bilsin:
+         numara tanidik gelirse faturayi aramayi birakmasin diye yaziliyor. */
+      r.baskaFirmaNot = 'Aynı numara '
+        + [...new Set(yer.map(y => y.firma_ad).filter(Boolean))].join(', ')
+        + ' kaydında var; bu satır ' + r.ted.ad + ' belgesi, o yüzden kaydedilir.';
+      return;
+    }
     r.girilmis = true; r.sec = false; r.mukerrer = false;
+    const yerler = ayniFirma.length ? ayniFirma : yer;
     r.girilmisMetin = 'az önce girilmiş ('
-      + [...new Set(yer.map(y => y.sube_id === AKTIF_SUBE ? 'bu şube' : (y.sube_ad || 'başka şube')))].join(', ') + ')';
+      + [...new Set(yerler.map(y => (y.sube_id === AKTIF_SUBE ? 'bu şube' : (y.sube_ad || 'başka şube'))
+          + (y.firma_ad ? ' · ' + y.firma_ad : '')))].join(', ') + ')';
     r.sonuc = r.girilmisMetin;
     atlananGirilmis++; girilmisOzet.push(r.belge_no + ' ' + r.girilmisMetin);
   });
@@ -8963,7 +9749,20 @@ async function tpKaydet(yalnizI){
   /* ⚠ Y85 · AYNI TURDA AYNI BELGE IKI KEZ: zip'te ayni PDF iki kez varsa iki satir olur.
        Ilki yazilinca ikincisi ATLANIR (gider anahtarinda belge no var: sunucu ikinciyi ILK
        cevabin tekrari sayar ve "kaydedildi" derdi — iki kayit girmis sanilirdi). */
-  const buTurNo = new Set();
+  /* ===== Y114 · TUR ICI KONTROL DE TEDARIKCIYI ICERIR =====
+     ⚠ OLCULDU: ayni turda iki AYRI firmanin ayni numarali faturasi varsa
+       sunucuya TEK cagri gidiyor, ikinci fatura hic yazilmiyordu.
+     ⚠ ASIL ISI KORUNUYOR: ayni tedarikci + ayni numara ayni turda iki kez
+       gelirse (zip'te ayni PDF iki kez) ikincisi YINE atlanir.
+     ⚠ ESKI ATLAMALARIN HICBIRI KAYBOLMUYOR · uc kume birlikte:
+       `buTurNoBelirsiz` tedarikcisi BILINMEYEN satirlarin numaralarini tutar
+       (gider satiri, isletme disi). Boyle bir satir yazildiktan sonra ayni
+       numara — kimin olursa olsun — ATLANIR; tersi de dogru: tedarikcisi
+       bilinmeyen bir satir, numarasi daha once yazilmissa ATLANIR. Yani
+       yalnizca "iki BILINEN ve FARKLI tedarikci" hali acilmis oldu. */
+  const buTurNo = new Set();          // bu turda yazilan HER numara
+  const buTurTedNo = new Set();       // 'tedarikci|numara' · tedarikcisi bilinen satirlar
+  const buTurNoBelirsiz = new Set();  // tedarikcisi bilinmeyen satirlarin numaralari
   /* ⚠ Y85 · IKIZ GIDER ONAYI · bu turda AZ ONCE ayni sube + gun + kategori + tutarla BASKA
        belge nolu bir gider yazildiysa sunucunun 10 dakikalik kapisi bu satiri "supheli"
        diye REDDEDER — oysa iki fatura farkli (belge nolari farkli ve yukaridaki kontrol
@@ -8977,8 +9776,17 @@ async function tpKaydet(yalnizI){
     if (r.girilmis) continue;
     btn.textContent = `Kaydediliyor ${n+1}/${secilenler.length}...`;
     const no = tpNo(r.belge_no);
-    if (no && buTurNo.has(no)){
-      r.girilmis = true; r.sec = false; r.girilmisMetin = 'aynı belge bu turda zaten kaydedildi';
+    /* Y114 · satirin tedarikcisi · alis satirinda tpKaydedilebilir onu zorunlu
+       tutuyor, gider satirinda olmayabilir (o zaman numara tek basina anahtar) */
+    const tedId = (r.tur === 'alis' && r.ted && r.ted.id) ? r.ted.id : null;
+    if (no && (buTurNoBelirsiz.has(no)
+               || (tedId ? buTurTedNo.has(tedId + '|' + no) : buTurNo.has(no)))){
+      r.girilmis = true; r.sec = false;
+      /* Y114 · cumle artik hangi firmanin belgesiyle cakistigini soyluyor;
+         "ayni belge" demek, baska firmanin belgesiyle karistirilabiliyordu. */
+      r.girilmisMetin = tedId
+        ? 'aynı firmanın (' + r.ted.ad + ') aynı numaralı belgesi bu turda zaten kaydedildi'
+        : 'aynı belge bu turda zaten kaydedildi';
       r.sonuc = r.girilmisMetin; atlananGirilmis++; girilmisOzet.push(r.belge_no + ' ' + r.girilmisMetin); continue;
     }
     /* Y85 · satirin subesi: kayitta ve mukerrer anahtarinda AKTIF_SUBE DEGIL */
@@ -8990,7 +9798,19 @@ async function tpKaydet(yalnizI){
          yutulmuyor — satıra yazılıyor ve döngü devam ediyor. */
       const p = r.tur === 'alis'
         ? ['rpc_alis_kaydet', {
-            p_idem: await idemKararli('alis', [sube, r.belge_no || '', r.tutar]),
+            /* ⚠ Y114 · ANAHTARA TEDARIKCI ve TARIH EKLENDI · gider dalindaki
+                 (Y85) duzeltmenin simetrisi. Eskiden [sube, belge_no, tutar]
+                 idi: iki AYRI firmanin ayni numarali ve ayni tutarli faturasi
+                 AYNI anahtari aliyor, sunucunun idem kapisi ikinciyi
+                 birincinin tekrari sayip ONCEKI sonucu donduruyordu — ekran
+                 "kaydedildi" diyor, ikinci fatura YAZILMIYORDU.
+               ⚠ SURUM GECISI: formul degistigi icin yarida kalmis bir tur
+                 yeni surumde tekrar denenirse anahtar farkli olur. Toplu
+                 giriste belge numarasi ZORUNLU (tpKaydedilebilir) ve
+                 `ux_alis_belge` tedarikci bazinda tekil oldugu icin gercek
+                 mukerrer GORUNUR hata ile duser; sessiz ikinci kayit olmaz
+                 (olculdu: eski anahtar sonra yeni anahtar). */
+            p_idem: await idemKararli('alis', [sube, r.tarih, r.ted.id, r.belge_no || '', r.tutar]),
             p_sube: sube, p_tedarikci: r.ted.id, p_tarih: r.tarih, p_tur: 'fatura',
             p_belge_no: r.belge_no, p_fis_no: null, p_toplam: r.tutar,
             p_kdv_orani: null, p_kdv_tutar: r.kdv, p_kdv_kirilim: [], p_kdv_dahil: true,
@@ -9013,7 +9833,11 @@ async function tpKaydet(yalnizI){
       if (error) throw new Error(error.message);
       if (!data || !data.ok) throw new Error('sunucu onay vermedi');
       r.sonuc = 'ok'; r.sec = false; r.mukerrer = false; ok++;
-      if (no) buTurNo.add(no);
+      /* Y114 · yazilan satir uc kumeye birlikte islenir (yukaridaki gerekce) */
+      if (no){
+        buTurNo.add(no);
+        if (tedId) buTurTedNo.add(tedId + '|' + no); else buTurNoBelirsiz.add(no);
+      }
       if (r.tur === 'gider') buTurGider.add(gAnahtar);
       /* ⚠ Y85 · KIMLIK YALNIZ BASKA SUBEYE YAZILAN SATIR ICIN SAKLANIR: belgesi asagida
            baglanacak. Aktif subenin kaydinin kimligi YINE DB'den (tpSiniflandir) okunur;
@@ -9082,9 +9906,14 @@ async function tpKaydet(yalnizI){
          fatura "PDF'ler kaydedilmiyor" sikayetini geri getirirdi (CX). Kimlik kaydin kendi
          cevabindan (r.digerSubeKayit). Panel satiri "belgeli"ye CEVRILMEZ: o satir aktif
          subenin "TAM" kutusuna ait degil, "baska subede girilmis" kutusunda kalir. */
-    const digerBaglanacak = secilenler.filter(r => r.sonuc === 'ok' && r.digerSubeKayit)
-      .map(r => ({ r, x: MUTABAKAT.find(m => m.belge_no && m.belge_no === r.belge_no && m.dosya) }))
-      .filter(o => o.x);
+    /* ⚠ Y114-2 · BULGU 2 · BELGE ARTIK SATIRIN KENDI KAYNAGINDAN BULUNUYOR.
+         Eskiden `MUTABAKAT.find(m => m.belge_no === r.belge_no)` ile araniyordu:
+         ayni numarali IKI belge varsa `find` ILK eslesen dosyayi aliyordu, yani
+         B'nin PDF'i A'nin kaydina baglanabiliyordu. `r.kaynak` tpKur'da satira
+         yazilan MUTABAKAT NESNESININ KENDISI (8347) — numara degil, kimlik. */
+    const digerBaglanacak = secilenler
+      .filter(r => r.sonuc === 'ok' && r.digerSubeKayit && r.kaynak && r.kaynak.dosya)
+      .map(r => ({ r, x: r.kaynak }));
     const topB = baglanacak.length + digerBaglanacak.length;
     /* ⚠ 25 fatura ~5 MB; telefonda bu 30 saniyeyi gecebiliyor. Ilerleme
        yazilmazsa dugme "Kaydediliyor 25/25..." de donmus gorunur,
@@ -9107,25 +9936,39 @@ async function tpKaydet(yalnizI){
     }
     mutabakatCiz();
     /* ⚠ HATA ALAN SATIRIN SEÇİMLERİ KAYBOLMAZ: tpKur tabloyu sıfırdan
-       kuruyor; kullanıcının girdiği tür/kategori ve hata metni belge
-       no üzerinden geri yazılır — yoksa düzeltip tekrar denemek için
-       her şeyi baştan seçmesi gerekirdi. */
-    const onceki = {};
-    TOPLU.forEach(r => { if (r.belge_no) onceki[r.belge_no] =
+       kuruyor; kullanıcının girdiği tür/kategori ve hata metni geri yazılır —
+       yoksa düzeltip tekrar denemek için her şeyi baştan seçmesi gerekirdi.
+       ⚠ Y114-2 · BULGU 3 · ANAHTAR ARTIK BELGE NUMARASI DEGIL, SATIRIN KENDI
+         KAYNAK NESNESI. Eskiden `onceki[r.belge_no]` idi: ayni numarali iki
+         satirdan ikincisi birincisini EZIYOR, geri yazmada tur, kategori, KDV,
+         sube secimi ve sonuc metni YANLIS SATIRA tasinabiliyordu. `r.kaynak`
+         tpKur'un satira yazdigi MUTABAKAT nesnesidir (8347) ve tablo yeniden
+         kurulurken AYNI nesneler kullanilir, yani esleme birebir. */
+    const onceki = new Map();
+    TOPLU.forEach(r => { if (r.kaynak) onceki.set(r.kaynak,
       { tur:r.tur, kategori:r.kategori, sonuc:r.sonuc, haric:r.haric, sec:r.sec,
         /* ⚠ CY · ELLE YAZILAN KDV DE KORUNUR: tpKur satiri sifirdan
            kuruyor ve okunan (yanlis) rakama geri donerdi. */
         kdv:r.kdv, kdvDurum:r.kdvDurum, kdvNot:r.kdvNot, kdvKontrol:r.kdvKontrol,
         /* Y85 · kullanicinin sube secimi ve "yine de kaydet" durumu da korunur */
         sube:r.sube, subeKaynak:r.subeKaynak, subeAdet:r.subeAdet, mukerrer:r.mukerrer,
-        girilmis:r.girilmis, girilmisMetin:r.girilmisMetin }; });
+        girilmis:r.girilmis, girilmisMetin:r.girilmisMetin,
+        /* Y114 · "ayni numara baska firmada" notu da korunur: satir hatayla
+           geri dondugunde not kaybolursa kullanici neden yazildigini
+           anlamadan bakar. */
+        baskaFirmaNot:r.baskaFirmaNot,
+        /* Y114-2 · belirsiz kimlik onayi da korunur: kullanici onayladiysa ve
+           satir hatayla geri donduyse onayi bir daha vermesin. */
+        belirsizOnay:r.belirsizOnay }); });
     await duzenliYukle();   // Y72 · tpKur duzenli tanimlara bakiyor
     tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
-    TOPLU.forEach(r => { const o = r.belge_no && onceki[r.belge_no]; if (!o) return;
+    TOPLU.forEach(r => { const o = r.kaynak && onceki.get(r.kaynak); if (!o) return;   // Y114-2
       r.tur = o.tur; r.kategori = o.kategori; r.haric = o.haric;
       r.kdv = o.kdv; r.kdvDurum = o.kdvDurum; r.kdvNot = o.kdvNot; r.kdvKontrol = o.kdvKontrol;
       r.sube = o.sube || r.sube; r.subeKaynak = o.subeKaynak || r.subeKaynak; r.subeAdet = o.subeAdet || r.subeAdet;
       r.mukerrer = !!o.mukerrer; r.girilmis = !!o.girilmis; r.girilmisMetin = o.girilmisMetin;
+      r.baskaFirmaNot = o.baskaFirmaNot;                                      // Y114
+      r.belirsizOnay = !!o.belirsizOnay;                                      // Y114-2
       /* 'ok' geri yazılmaz: o satır zaten tablodan düştü. Kalan satırda
          duran şey HATA metnidir, kullanıcı onu görmeli. */
       if (o.sonuc && o.sonuc !== 'ok' && o.sonuc !== 'işletme dışı') r.sonuc = o.sonuc;
@@ -15238,6 +16081,24 @@ async function vTedarikci(){
       </div>
       <label>E-posta</label><input type="email" id="tdYeniEmail">
       <label>Adres</label><input type="text" id="tdYeniAdres">
+      ${/* ⚠ Y119-d · FIRMA VARSAYILANI BURADAN DA GORUNUR VE DEGISIR.
+            Toplu giriste "bu firmayi boyle hatirla" ile yazilan deger budur.
+          ⚠ YALNIZ SAHIPTE: `tedarikci` UPDATE politikasi owner-only.
+          ⚠ RPC'YE DOKUNULMADI: `rpc_tedarikci_kaydet` imzasi degismedi;
+            bu iki alan kaydettikten SONRA ayri bir UPDATE ile yazilir
+            (izin tablo duzeyinde, olculdu). */''}
+      ${owner ? `<label for="tdVarTur">Faturası hangi türde girilsin (varsayılan)</label>
+      <select id="tdVarTur" onchange="tdVarTurDegisti()">
+        <option value="">— varsayılan yok —</option>
+        <option value="alis">Mal alımı (SMM)</option>
+        <option value="gider">Gider</option>
+      </select>
+      <div id="tdVarKatKap" style="display:none">
+        <label for="tdVarKat">Varsayılan gider kategorisi</label>
+        <select id="tdVarKat"><option value="">— kategori —</option></select>
+      </div>
+      <div class="bilgi-not" style="margin:0 0 8px">Toplu girişte bu firmanın satırı
+        bu seçimle <b>hazır</b> gelir; işaretlemeyi yine sen yaparsın.</div>` : ''}
       <button class="btn" id="tdYeniBtn" onclick="tedarikciEkleHizli()">Kaydet</button>
       <div class="hata-msg" id="tdYeniMsg"></div>
     </div>
@@ -15546,6 +16407,10 @@ function firmaFormAc(){
    'tdYeniTel','tdYeniTel2','tdYeniEmail','tdYeniAdres'].forEach(i=>{
     const e = document.getElementById(i); if(e) e.value='';
   });
+  /* ⚠ Y119-d · VARSAYILAN SECICILERI DE SIFIRLA: yoksa "yeni firma"
+     formunda bir onceki firmanin varsayilani duruyor gibi gorunur.
+     Yeni firmada bu alan YAZILMIYOR (kimlik yok) — bos gorunmesi dogru. */
+  tdVarsayilanDoldur(null);
   k.scrollIntoView({behavior:'smooth', block:'start'});
   setTimeout(()=>document.getElementById('tdYeniAd')?.focus(), 250);
 }
@@ -15564,7 +16429,26 @@ function tedarikciDuzenle(id){
   document.getElementById('tdYeniTel2').value = t.telefon2||'';
   document.getElementById('tdYeniEmail').value = t.email||'';
   document.getElementById('tdYeniAdres').value = t.adres||'';
+  /* Y119-d · varsayilan alanlari (yalniz sahipte cizili) */
+  tdVarsayilanDoldur(t);
   document.getElementById('tdYeniAd').scrollIntoView({behavior:'smooth'});
+}
+/* Y119-d · varsayilan seciciler · kategori listesi KATALOG'dan (RLS suzulmus) */
+function tdVarsayilanDoldur(t){
+  const s = document.getElementById('tdVarTur'); if (!s) return;     // sube sorumlusu: alan yok
+  s.value = (t && t.varsayilan_tur) || '';
+  const kat = document.getElementById('tdVarKat');
+  kat.innerHTML = '<option value="">— kategori —</option>'
+    + KATALOG.kategoriler.map(k => `<option value="${k.id}">${esc(k.ad)}</option>`).join('');
+  kat.value = (t && t.varsayilan_kategori) || '';
+  tdVarTurDegisti();
+}
+function tdVarTurDegisti(){
+  const s = document.getElementById('tdVarTur'); if (!s) return;
+  const kap = document.getElementById('tdVarKatKap');
+  kap.style.display = s.value === 'gider' ? 'block' : 'none';
+  /* v153 kisidi: kategori ancak tur='gider' iken dolu olabilir */
+  if (s.value !== 'gider') document.getElementById('tdVarKat').value = '';
 }
 async function tedarikciEkleHizli(){
   const ad = document.getElementById('tdYeniAd').value.trim();
@@ -15599,6 +16483,24 @@ async function tedarikciEkleHizli(){
       p_tel2: kayit.telefon2, p_email: kayit.email, p_adres: kayit.adres
     });
     if (error){ mesaj('tdYeniMsg','hata',hataTr(error.message)); return; }
+    /* ⚠ Y119-d · VARSAYILAN AYRI YAZILIR: `rpc_tedarikci_kaydet` imzasina
+         DOKUNULMADI (kapsam disi). Iki kolon tablo UPDATE'i ile yazilir —
+         izin tablo duzeyinde, politika owner-only (olculdu).
+       ⚠ YENI FIRMADA ID YOK: bu yol yalniz DUZENLEMEDE (TD_DUZENLENEN dolu)
+         calisir; yeni firma kaydedildikten sonra kullanici karti acip
+         varsayilani yazar. Yoksa INSERT'ten donen kimligi tahmin etmek
+         gerekirdi — rpc kimlik dondurmuyor.
+       ⚠ HATA YUTULMAZ ama firma kaydini GERI ALMAZ: ad/unvan kaydedildi,
+         yalniz varsayilan yazilamadi; cumle bunu ayirt eder. */
+    const vs = document.getElementById('tdVarTur');
+    if (vs && TD_DUZENLENEN){
+      const tur = vs.value || null;
+      const kat = tur === 'gider' ? (document.getElementById('tdVarKat').value || null) : null;
+      const { error: ve } = await sb.from('tedarikci')
+        .update({ varsayilan_tur: tur, varsayilan_kategori: kat }).eq('id', TD_DUZENLENEN);
+      if (ve){ mesaj('tdYeniMsg','uyari', 'Firma kaydedildi ama varsayılan türü '
+        + 'yazılamadı: ' + hataTr(ve.message)); }
+    }
     TD_DUZENLENEN = null;
     await katalogYukle(); vTedarikci();
   } finally {
@@ -15704,6 +16606,23 @@ async function vPersonel(){
   const odemeVar = !!(odemeler && odemeler.length);
   const fark = +(T.sgk - odenen).toFixed(2);
   /* (C) TAHMİN vs GERÇEK — yalnız gösterir, düzeltme düğmesi YOK. */
+  /* ⚠ Y117 · SGK KUTUSU TOPLAM'DA BOLUNMEDI — OLCULDU, VARSAYILMADI
+       (4 Kasim 2026 · yedek kabi `kopya153`): `vergi_odeme` icinde
+       `tur='sgk'` ve silinmemis satirlarin TAMAMI tek subenin kimligiyle
+       duruyor — 2 satir, 1 farkli sube; ayni donemde iki subede odemesi
+       olan donem 0.
+     ⚠ SEBEP SEMADA: sistem SGK ISYERI SICILINI TUTMUYOR (il kodu sicilin
+       17-19. hanesidir, o alan yok). Satirin `sube_id`si odemeyi KIM
+       GIRDIYSE onun subesidir; gercek isyerini anlatmayabilir.
+     ⚠ O YUZDEN BOLUNMEZ: bolunmus kutu, odemenin gorunmedigi sube icin
+       "SGK odenmemis" diye YANLIS bir cumle kurardi. Kutu genel kalir ve
+       karsilastirmanin IKI TARAFI da ayni kapsamla okunur (TOPLAM'da
+       ikisi de suzgecsiz, tek subede ikisi de sarmalayiciyla suzuluyor).
+       Bir tarafi suzup otekini birakmak kutuyu sessizce yanlislastirirdi. */
+  const sgkSubeNotu = !toplamKipi() ? '' :
+    `<div style="margin-top:5px">Bütün şubeler birlikte toplandı — SGK ödemeleri şube bazlı ayrılamıyor
+      (ödeme kaydı hangi şubede girildiyse ona yazılıyor, işyeri sicili sistemde tutulmuyor).
+      Şube bazlı bakmak için üstten tek şube seç.</div>`;
   const sgkKutu = (!odemeler || kayitlar.length === 0) ? '' : (odemeVar
     ? `<div class="uyari-orta" style="margin:0 0 10px">
         <b>Ödenen SGK ${tl(odenen)}</b> · sistemdeki SGK toplamı ${tl(T.sgk)}${
@@ -15713,9 +16632,9 @@ async function vPersonel(){
           Math.abs(fark) < 0.01 ? 'Fark yok — sistemdeki rakam ödenenle aynı.'
           : fark > 0 ? `Tahmin <b>${tl(fark)}</b> FAZLA — bu ayın kârı <b>${tl(fark)}</b> kadar DÜŞÜK görünüyor.`
                      : `Tahmin <b>${tl(-fark)}</b> EKSİK — bu ayın kârı <b>${tl(-fark)}</b> kadar YÜKSEK görünüyor.`}</div>
-        <div style="margin-top:5px">Ödenen tutardır; gecikme zammı ya da idari para cezası içeriyor olabilir. Tahakkuk fişiyle karşılaştır.</div>
+        <div style="margin-top:5px">Ödenen tutardır; gecikme zammı ya da idari para cezası içeriyor olabilir. Tahakkuk fişiyle karşılaştır.</div>${sgkSubeNotu}
       </div>`
-    : `<div class="bilgi-not" style="margin:0 0 10px">Bu ayın SGK'si henüz ödenmedi — ekrandaki rakam tahmin. Ödeme dekontunu girince gerçeği burada göreceksin.</div>`);
+    : `<div class="bilgi-not" style="margin:0 0 10px">Bu ayın SGK'si henüz ödenmedi — ekrandaki rakam tahmin. Ödeme dekontunu girince gerçeği burada göreceksin.${sgkSubeNotu}</div>`);
   /* (D) SGK ödenmiş ama o ayın personel gideri hiç girilmemiş.
      ⚠ Y10 · KAPANAMAYAN ALARM AYRILDI. Iki hal ayni degil:
        · Donem sistemin ICINDE ve personel satiri yok -> GERCEK eksik,
@@ -15742,9 +16661,31 @@ async function vPersonel(){
        "Bu ay kapatılmış" der. */
   const pgSilinebilir = (p) => sahip || (p.giren_id === PROFIL.id
     && Date.now() - new Date(p.created_at).getTime() < 3 * 24 * 3600 * 1000);
-  const satir = (ad, maas, sgk, prim, yemek, maliyet, silId, kalin, tahmin) =>
+  /* ⚠ Y117 · SUBE ALT TOPLAMI · EV KALIBI, YENISI YAZILMADI
+       (`subeAltToplamBlogu`, `index.html:1580`): TOPLAM kipi disinda BOS
+       doner, yani tek sube gorunumu kendiliginden degismez.
+     ⚠ TUTAR IFADESI TABLONUN KENDISIYLE AYNI: maas+sgk+prim+yemek, satir
+       satir. `T.maliyet` de ayni ifadeyi satir satir topluyor, bu yuzden
+       alt toplamlarin toplami AY TOPLAMI'na KURUSU KURUSUNA esittir —
+       yeni bir toplama yontemi YAZILMADI. Esit degilse blok kendisi
+       "tutmuyor" diye uyariyor (kalibin kendi kapisi).
+     ⚠ AYNI SATIRLARDAN hesaplaniyor, AYRI SORGUDAN degil.
+     ⚠ SABLONUN ICINDE DEGIL, BURADA URETILIYOR ve asagida `</div>` ile
+       AYNI SATIRDA yaziliyor. Olculdu: sablona kendi satirinda konuldugunda
+       ifade BOS donse bile satirbasi ve girinti HTML'e giriyordu — tek sube
+       ekrani 14 karakter farkliydi. Gorunur bir degisiklik degildi ama
+       "tek sube gorunumu AYNEN kalir" iddiasini yanlislastiriyordu. */
+  const subeBlok = subeAltToplamBlogu(kayitlar,
+    p => (+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek), p => p.sube_id);
+  /* ⚠ Y117 · SUBE ISARETI AYRI PARAMETRE · `ad`a KARISTIRILMAZ: `ad` ayni
+       zamanda silme dugmesinin `data-ad` ozniteligine giriyor (Y61 notu:
+       oznitelige HTML sokmak tiklamada kod calistirma yoluydu). Isaret
+       yalniz AD HUCRESINDE cizilir, oznitelige GIRMEZ.
+     ⚠ Ev kalibi: `subeEtiketi(id)` TOPLAM kipi disinda BOS dondurur
+       (`index.html:1551`), yani tek sube gorunumune hicbir sey eklenmez. */
+  const satir = (ad, maas, sgk, prim, yemek, maliyet, silId, kalin, tahmin, subeIsaret) =>
     `<tr style="${kalin?'font-weight:800;background:var(--acik)':''}">
-      <td style="padding:8px 6px;text-align:left">${ad}</td>
+      <td style="padding:8px 6px;text-align:left">${ad}${subeIsaret || ''}</td>
       <td style="padding:8px 6px;text-align:right">${tl(maas)}</td>
       <td style="padding:8px 6px;text-align:right">${tl(sgk)}${tahmin?' <span class="rozet rz-uyari">tahmin</span>':''}</td>
       <td style="padding:8px 6px;text-align:right">${tl(prim)}</td>
@@ -15784,11 +16725,12 @@ async function vPersonel(){
           </tr></thead>
           <tbody>
             ${kayitlar.map(p=>satir(esc(p.personel_adi), p.maas, p.sgk, p.prim, p.yemek,
-              (+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek), pgSilinebilir(p) ? p.id : null, false, pgSgkTahminMi(p))).join('')}
+              (+p.maas)+(+p.sgk)+(+p.prim)+(+p.yemek), pgSilinebilir(p) ? p.id : null, false,
+              pgSgkTahminMi(p), subeEtiketi(p.sube_id))).join('')}
             ${satir('AY TOPLAMI', T.maas, T.sgk, T.prim, T.yemek, T.maliyet, null, true)}
           </tbody>
         </table>
-      </div>
+      </div>${subeBlok}
       ${tahminAdet ? `<div class="uyari-orta" style="margin:8px 0 0">SGK: ${kayitlar.length} satırdan ${tahminAdet} tanesi tahmin — bordrodan doğrulanmadı.</div>` : ''}`}
     </div>
     <div class="kart">

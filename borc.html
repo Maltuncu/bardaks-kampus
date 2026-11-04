@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="surum" content="borc-2026-08-27-36">
+<meta name="surum" content="borc-2026-08-27-38">
 <title>bardak's kampüs · Borç</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' blob: https://*.supabase.co https://cdn.jsdelivr.net; worker-src 'self' blob:; base-uri 'self'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -489,6 +489,12 @@ body.klavye-acik #sekmeBar{display:none}
   padding:10px 13px;border-radius:0 10px 10px 0;margin:0 0 10px;font-size:13px;line-height:1.55;white-space:pre-line}
 /* Ekstre odemesi onizlemesi: etiket solda, rakam sagda. Bosluklarla
    hizalanamiyor (.bilgi white-space:pre-line ardisik boslugu cokurtur). */
+/* ⚠ Y115 · "Tamamını öde" · tutar alaninin ALTINDA, kendi satirinda.
+   Mevcut .btn2 kalibi kullanildi (44px dokunma hedefi) — yeni gorsel dil
+   KURULMADI. Genislik tam: 375px'te rakamla birlikte sigsin.
+   ⚠ 2. TUR · justify-content KALDIRILDI: .btn2 flex DEGIL (bkz. 85),
+     kural hicbir sey yapmiyordu — olculdu. */
+.pm .oy-tam{margin-top:8px;width:100%}
 .oy-satir{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
 /* DJ · Kredi kutusunda uc rakam: etiket solda, tutar sagda. */
 .kr-uclu{margin-top:6px}
@@ -8747,12 +8753,20 @@ function odemeYapAc(kart, d){
   const bas = el('div','pm-bas sakin', 'Ekstre ödemesi'); bas.id = 'oyBas';
   dlg.setAttribute('aria-labelledby', bas.id); dlg.appendChild(bas);
   dlg.appendChild(el('div','pm-ad', kart.ad + (kart.banka ? ' · ' + kart.banka : '') + ' · ' + d.donem));
-  dlg.appendChild(el('div','pm-tutar', 'Kapanmamış ' + tlk(kapanmamis)));
+  /* ⚠ Y115 · 2. TUR · YUKSEKLIK GERI VERILDI. Dugme 52 px ekledi, yerini
+       aldigi blok ILK TURDA KALDIRILMAMISTI: 375x812'de pencere kendi
+       kaymaya basliyordu (icerik 750 px, 88vh siniri 715 px; eski surum
+       698 px). Kaldirilan iki sey:
+     1) "Kapanmamış <tutar>" satiri (.pm-tutar): AYNI rakam artik
+        "Tamamını öde" dugmesinin uzerinde yazili (8779) ve orada
+        DOKUNULABILIR durumda. Iki kez yazmanin bedeli ~26 px'ti.
+     2) Onceki odeme cumlesi 3 satirdan 1 satira indi: rakam ve "ayri satir
+        olarak eklenir" anlatimi ONIZLEMEDE zaten satir satir duruyor
+        (Önceki ödeme / Bu ödeme / Toplam (olacak)). ~40 px.
+     ⚠ Ozet eklenirken ozetlenen blok ayni turda kaldirilir; olcut piksel. */
   dlg.appendChild(el('div','kucuk','KALAN ' + tl(d.kalan)
     + ' — ekstrenin tutarı, ödeme bunu değiştirmez.'
-    + (onceki > 0 ? '\nBu ekstreye daha önce ' + tlk(onceki)
-                    + ' ödenmiş; yazdığın tutar AYRI BİR SATIR olarak eklenir, '
-                    + 'öncekini değiştirmez.' : '')));
+    + (onceki > 0 ? '\nÖnceki ödeme silinmez, üstüne eklenir.' : '')));
 
   const alan = (etiket, id, tip) => {
     const l = el('label', null, etiket); l.setAttribute('for', id); dlg.appendChild(l);
@@ -8761,6 +8775,31 @@ function odemeYapAc(kart, d){
     dlg.appendChild(i); return i;
   };
   const gTutar = alan('Şimdi ödediğin tutar', 'oyTutar');
+  /* ===== Y115 · "TAMAMINI ODE" GORUNUR SECENEK =====
+     ⚠ ISLEV ZATEN VARDI, GORUNMUYORDU: alana dokununca kapanmamisin tamami
+       oneri olarak geliyor (asagidaki onfocus) ama bunu SOYLEYEN hicbir sey
+       yoktu. Kullanicinin sozu: "direk donem sonu borcunu odedim cikssa
+       olmaz mi, neden elle giriyoruz". Eksik olan islev degil, gorunurluk.
+     ⚠ TUTAR DUGMENIN UZERINDE YAZILI: rakam pencerenin basinda da yaziliydi
+       ama DOKUNULAMIYORDU. 2. turda o satir kaldirildi (yukari bak);
+       rakamin tek yeri artik bu dugme.
+     ⚠ ODENECEK SEY YOKSA DUGME HIC CIZILMEZ (kapanmamis <= 0).
+     ⚠ onfocus kolayligi DURUYOR, kaldirilmadi — iki yol birbirini ezmiyor.
+     ⚠ 2. TUR · `autofocus` BU DUGMEDE, SEBEBI OLCULDU: showModal() pencerenin
+       ilk odaklanabilir ogesini odaklar, o da TUTAR ALANIYDI — telefonda
+       klavye aciliyor ve Kaydet klavyenin altinda kaliyordu (Kaydet alt
+       kenari 375x812'de 782 px; klavyeyle kalan alan ~532 px). Odak dugmede
+       olunca klavye ACILMAZ, Kaydet gorunur kalir. Alan yine DOLU gelir —
+       dolum artik odaga bagli degil (asagi bak).
+       Dugme yoksa (kapanmamis <= 0) odak eskisi gibi alana duser; orada
+       zaten elle yazmak gerekiyor, klavye dogru davranis. */
+  let gTam = null;
+  if (kapanmamis > 0){
+    gTam = el('button','btn2 oy-tam', 'Tamamını öde · ' + tlk(kapanmamis));
+    gTam.type = 'button'; gTam.id = 'oyTamam';
+    gTam.setAttribute('autofocus','');
+    dlg.appendChild(gTam);
+  }
   const gBanka = alan('ya da — bankada yazan: Son Ekstreden Kalan Borç', 'oyBanka');
   dlg.appendChild(el('div','kucuk',
     'İkisinden BİRİNİ yaz, öteki kendiliğinden dolar. Bankadaki rakamı '
@@ -8847,6 +8886,29 @@ function odemeYapAc(kart, d){
        "Tutarı yaz" yazili kalir ve Kaydet kapali durur; denetle() elle. */
   gTutar.onfocus = () => { if (!gTutar.value.trim() && !gBanka.value.trim() && kapanmamis > 0){
     yazVe(gTutar, kapanmamis); denetle('tutar'); } };
+  /* ⚠ Y115 · DUGME DOLU ALANI DA EZER — onfocus'tan BILEREK FARKLI: orada
+       "dokununca oneri gelsin" var ve dolu alan korunur; burada kullanici
+       ACIKCA "tamamini ode" diyor, niyeti belli.
+     ⚠ `denetle('tutar')` ELLE cagriliyor: programla yazilan deger 'input'
+       URETMEZ (kodun kendi olcumu, 8846). Cagrilmazsa onizleme "Tutarı yaz"
+       yazili kalir ve Kaydet KAPALI durur — dugme calisir gorunup is
+       yapmazdi. Banka alani denetle icinde kendiliginden sifira duser. */
+  /* ⚠ 2. TUR · gTutar.focus() KALDIRILDI: dugmeye basmak alani odaklayinca
+     telefonda klavye aciliyor ve Kaydet'i ortuyordu — isin butun amaci
+     Kaydet'i gorunur tutmak. Odak dugmede kalir, alan yine dolar. */
+  if (gTam) gTam.onclick = () => {
+    yazVe(gTutar, kapanmamis);
+    denetle('tutar');
+  };
+  /* ⚠ 2. TUR · ON DOLDURMA ARTIK BURADA, ODAKTAN BAGIMSIZ.
+     OLCULDU: -36'da da pencere acilir acilmaz alan kapanmamisin TAMAMI ile
+     dolu geliyordu ve Kaydet ZATEN ACIKTI — ama bunu yapan sey showModal()'in
+     tutar alanina verdigi odaktı (onfocus, yukarida). Odak artik dugmede
+     oldugu icin onfocus ACILISTA TETIKLENMEZ; dolum elle yapilmazsa alan bos
+     kalir, Kaydet kapanir ve "ac - bas - bitti" KAYBOLURDU.
+     ⚠ Programla yazilan deger 'input' URETMEZ (kodun kendi olcumu); onizlemeyi
+       ve Kaydet'i hemen altindaki denetle() kuruyor. */
+  if (kapanmamis > 0) yazVe(gTutar, kapanmamis);
   denetle();
 
   const kapat = () => { dlg.close(); dlg.remove(); };
