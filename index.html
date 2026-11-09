@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-116">
+<meta name="surum" content="2026-08-27-118">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -728,13 +728,23 @@ h2.bolum{font-size:17px;font-weight:900;margin:4px 0 12px;color:var(--ana-koyu)}
 .dn-grafik svg{width:100%;height:auto;display:block}
 .dn-lejant{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--soluk);margin:6px 0 2px}
 .dn-lejant i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:0}
-.dn-ay{display:grid;grid-template-columns:62px minmax(0,1fr) auto 16px;align-items:center;gap:8px;padding:6px 2px;
+/* ⚠ Y126 · BES KOLON (eskiden dort): ciro kolonu `auto` olarak EKLENDI.
+     Cubuk kolonu `minmax(0,1fr)` oldugu icin yer daralinca ONCE O verir —
+     iki rakam birden uzasa bile satir TASMAZ (375px'te olculdu).
+   ⚠ KOLON SAYISI DEGISTI: `dn-bos` satirina da BOS bir `.cr` konmak
+     zorunda, yoksa "kayit yok" ciro kolonuna kayar. */
+.dn-ay{display:grid;grid-template-columns:62px minmax(0,1fr) auto auto 16px;align-items:center;gap:8px;padding:6px 2px;
   border-bottom:1px solid var(--cizgi);font-size:12.5px}
 .dn-ay:last-child{border-bottom:0}
 .dn-ay .ad{font-weight:800;white-space:nowrap}
 .dn-ay .cb{height:7px;border-radius:4px;background:var(--gri);position:relative;overflow:hidden}
 .dn-ay .cb span{position:absolute;top:0;bottom:0;border-radius:4px}
 .dn-ay .dg{font-variant-numeric:tabular-nums;font-size:12px;font-weight:800;white-space:nowrap}
+/* ⚠ Y126 · `.cr` KURESEL kural DEGIL, `.dn-ay` icinde kapsamli — evde `.cr`
+     yok (grep'lendi; `.bos`/`dn-bos` dersinin aynisi). Rengi lejanttaki
+     "Ciro" rengiyle AYNI (SONUC_RENK.ciro = --ana): iki rakam yan yana
+     dururken hangisinin ciro oldugu etiket eklemeden okunsun. */
+.dn-ay .cr{font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:700;white-space:nowrap;color:var(--ana)}
 /* ⚠ "bos" DEGIL "dn-bos": evdeki bos-durum bileseni `.bos{text-align:center}`
    gelecek ay satirlarini ortaliyordu (olculdu, 1440px). */
 .dn-ay.dn-bos .dg{color:var(--soluk);font-weight:600}
@@ -5171,7 +5181,10 @@ function donemGorunumuHtml(aylar, oncekiR, ad, toplam, bas, son, bugunAy, notlar
   const maks = Math.max(1, ...veri.map(a => Math.abs(a.R.sonuc)));
   const satirlar = aylar.map((a, i) => {
     const adKisa = esc(ayKisa(a.donem).slice(0, 3)) + (a.donem.slice(5) === '01' || i === 0 ? ' <span style="color:var(--soluk);font-weight:600">' + a.donem.slice(0, 4) + '</span>' : '');
+    /* ⚠ Y126 · BOS AY SIFIR YAZMAZ (Y120'nin kurali): kaydi olmayan ay ciro
+         kolonunu da BOS birakir — "0 TL ciro" ile "hic kayit yok" ayni sey degil. */
     if (!a.R) return '<div class="dn-ay dn-bos" data-donem="' + a.donem + '"><span class="ad">' + adKisa + '</span><span class="cb"></span>'
+      + '<span class="cr"></span>'
       + '<span class="dg">' + (a.donem > bugunAy ? 'henüz yok' : 'kayıt yok') + '</span><span class="yon"></span></div>';
     const once = i > 0 ? aylar[i - 1].R : oncekiR;
     const kiyas = once && sonucEksikleri(once).join('|') === sonucEksikleri(a.R).join('|');
@@ -5179,6 +5192,11 @@ function donemGorunumuHtml(aylar, oncekiR, ad, toplam, bas, son, bugunAy, notlar
     const gen = Math.round(Math.abs(a.R.sonuc) / maks * 100);
     return '<div class="dn-ay" data-donem="' + a.donem + '"><span class="ad"' + (a.donem === bugunAy ? ' style="color:var(--ana)"' : '') + '>' + adKisa + '</span>'
       + '<span class="cb"><span style="left:0;width:' + gen + '%;background:' + (a.R.sonuc < 0 ? SONUC_RENK.gider : SONUC_RENK.kalan) + '"></span></span>'
+      /* ⚠ Y126 · AYIN CIROSU · IKINCI BIR HESAP YOK: `R.ciro.toplam`
+           sonucHesabi'nin zaten kurdugu kurus degeri (`gercek_ciro`) ve
+           asagidaki donem toplami (`topla(R => R.ciro.toplam)`) TAM OLARAK
+           bu satirlarin toplami — yeni sorgu, yeni turetme, yeni alan YOK. */
+      + '<span class="cr">' + t(a.R.ciro.toplam) + '</span>'
       + '<span class="dg">' + t(a.R.sonuc) + '</span>'
       + '<span class="yon ' + (yon === '▲' ? 'sn-yuk' : yon === '▼' ? 'sn-dus' : '') + '">' + yon + '</span></div>';
   }).join('');
@@ -5192,7 +5210,10 @@ function donemGorunumuHtml(aylar, oncekiR, ad, toplam, bas, son, bugunAy, notlar
     + '<div class="dn-grafik">' + donemGrafigi(aylar, bugunAy) + '</div>'
     + '<div class="dn-lejant"><span><i style="background:' + SONUC_RENK.ciro + '"></i>Ciro</span><span><i style="background:' + SONUC_RENK.gider + '"></i>Gider</span>'
     + '<span><i style="background:' + SONUC_RENK.vergi + '"></i>Vergi</span><span><i style="background:' + SONUC_RENK.kalan + '"></i>Bıraktığı</span></div>'
-    + '<div class="ipucu" style="margin:4px 0 8px">Yükselen ay ▲, düşen ay ▼. Gelecek aylar boş — sistem tahmin çizmez.'
+    /* ⚠ Y126 · IKI RAKAM ETIKETSIZ DURMAZ: satirda yan yana iki sayi var,
+         hangisinin ne oldugu BIR KEZ burada yaziliyor (her satira etiket
+         koymak 375px'te yeri yiyordu). Ciro kelimesi lejanttaki renkle. */
+    + '<div class="ipucu" style="margin:4px 0 8px">Her ayda solda <b style="color:var(--ana)">cirosu</b>, sağda ayın <b>bıraktığı</b>. Yükselen ay ▲, düşen ay ▼. Gelecek aylar boş — sistem tahmin çizmez.'
     /* ⚠ Y75 · gun sonu olmayan ay satiri (ciro 0, yalniz gider) ADIYLA soylenir; yoksa satir hic eklenmez. */
     + (gsyAylar.length ? ' Gün sonu yok: ' + gsyAylar.join(', ') + ' — ciro 0, yalnız gider.' : '') + '</div>'
     + '<div class="dn-aylar">' + satirlar + '</div>'
@@ -7872,6 +7893,18 @@ const OD_YONTEM = [['kart','Kart'], ['nakit','Nakit — kasadan'],
                    ['havale','Havale/EFT'], ['cek','Çek']];
 const OD_TAKSIT = [1,2,3,4,5,6,9,12];
 
+/* ⚠ Y138 · KATEGORI ALANI ARTIK `digerVar`A BAGLI DEGIL, IKI EKRANDA DA VAR.
+     Eskiden kategori secici `DigerAlan`in ICINDEYDI ve yalniz Giderler
+     ekraninda basiliyordu; Firma ekraninda ogeler DOM'DA YOKTU (olculdu),
+     yani bir firmaya yapilan harcama gider olarak HIC kaydedilemiyordu.
+     Canlida ekim ayinda bir sube butun giderlerini bu yuzden tedarikci
+     odemesi olarak girdi; on iki satir elle gidere cevrildi.
+   ⚠ KATEGORI SECICISININ ILK SECENEGI BOS ve BUGUNKU YOLU temsil eder:
+     bos = firmanin borcuna odeme (eski davranis), dolu = gider.
+     Yol baska bir yerde TEKRAR hesaplanmaz — `odFormYolu` dogrudan bu
+     alanin degerini okur, kayit yolu da ekrandaki cumle de onu kullanir.
+   ⚠ `digerVar` hala YALNIZ "Diğer (firma disi)" secenegini ve onun kendi
+     aciklama kutusunu yonetir; Giderler ekranina ozel kalmasi KASITLI. */
 function tedarikciOdemeFormu(onek, sec){
   sec = sec || {};
   const k = (ad) => onek + ad;
@@ -7885,9 +7918,15 @@ function tedarikciOdemeFormu(onek, sec){
       <div id="${k('DigerAlan')}" style="display:none">
         <label>Ne için ödendi? *</label>
         <input type="text" id="${k('AciklamaDiger')}" placeholder="örn: ilaçlama, tamirci, temizlik">
-        <label>Kategori</label>
-        <select id="${k('Kategori')}">${KATALOG.kategoriler.map(c=>`<option value="${c.id}">${esc(c.ad)}</option>`).join('')}</select>
       </div>` : ''}
+      <div id="${k('KategoriAlan')}">
+        <label>Bu ödeme bir gider mi?</label>
+        <select id="${k('Kategori')}" onchange="odFormKategoriDegisti('${onek}')">
+          <option value="">— hayır, firmanın faturasına/borcuna ödeme —</option>
+          ${KATALOG.kategoriler.map(c=>`<option value="${c.id}">${esc(c.ad)}</option>`).join('')}
+        </select>
+        <div class="ipucu" id="${k('YolNot')}"></div>
+      </div>
       ${tarihSecici(k('Tarih'))}
       <label>Tutar</label><input type="text" inputmode="decimal" id="${k('Tutar')}" placeholder="0,00">
       <label>Neyle ödendi?</label>
@@ -7927,14 +7966,107 @@ function tedarikciOdemeFormuBagla(onek){
   paraBaglaHepsi([onek+'Tutar']);
   paraBagla(document.getElementById(onek+'Tutar'), () => odFormTaksitDegisti(onek));
   odFormYontemDegisti(onek);
+  /* ⚠ Y138 · ILK GORUNUM: `onchange` yalniz kullanici degistirince calisir,
+     ama liste ACILIRKEN ZATEN BIR FIRMA SECILI gelir (listede yer tutucu
+     yok). Bu cagri olmazsa ilk firmanin beyani okunmaz ve ekran nereye
+     yazilacagini SOYLEMEZ — kusurun sessiz kalma sebebi tam buydu. */
+  odFormKimeDegisti(onek);
 }
 
+/* ===== Y138 · AYNI EKRANDAN HEM ODEME HEM GIDER =====
+   KULLANICI: "Sisteme gider olarak sadece fatura fis girilsin, ne nereye
+   gidecegini sistem anlasin." · "Ben hepsine para oduyorum sonucta, o para
+   da cirodan dusmeli."
+
+   ⚠ KOK KUSUR (olculdu, sunucu kodundan): ay kari = ciro - satis KDV - SMM
+     - gider_net - personel. `odenen_tedarikci` bu formulde YOK, yalniz
+     `nakit_cikisi`nda. Yani bir harcama tedarikci odemesi olarak girilirse
+     kasadan CIKAR ama kardan DUSMEZ -> o ayin kari oldugundan YUKSEK gorunur.
+     Ekran bu iki soruyu birbirini DISLAYAN iki yol yapmisti: firma secince
+     kategori alani gizleniyordu.
+
+   ⚠ KAR FORMULUNE DOKUNULMADI (bilerek): `nakit_cikisi` hem `gider_toplam`
+     hem `odenen_tedarikci` topluyor. Ayni odeme IKI tabloya yazilirsa nakit
+     IKI KERE cikmis gorunur. Bu yuzden yol TEK: ya gider ya odeme.
+
+   ⚠ OLCUT FIRMANIN KENDI BEYANI, CIKARIM DEGIL: `tedarikci.varsayilan_tur`
+     ve `varsayilan_kategori` (v153) katalogda ZATEN yuklu (2117. satir).
+     "Acik faturasi var mi" gibi bir cikarim KULLANILMADI: bir firmanin
+     faturalari odenmis olabilir ve o firmaya yapilan PESIN odeme gider
+     yazilirsa, fatura girildiginde ayni maliyet `alis` olarak IKINCI KEZ
+     sayilir. Beyan bu tuzaga girmez.
+   ⚠ VARSAYILAN GUVENLI TARAF: alan bos gelirse yol BUGUNKU yoldur. Yani
+     hicbir satir sessizce yer degistirmez; degisen tek sey, gider yolunun
+     artik ULASILABILIR olmasi ve ekranin NEREYE yazilacagini SOYLEMESI. */
+function odVarsayilanKategori(tedId){
+  const t = (KATALOG.tedarikciler || []).find(x => x.id === tedId);
+  if (!t || t.varsayilan_tur !== 'gider' || !t.varsayilan_kategori) return '';
+  /* ⚠ Y119-e dersi: `sadece_owner` kategori sube sorumlusunun katalogunda
+     YOK (RLS suzuyor). Dogrulamadan yazsak alan dolu gorunur ama kayit
+     dusardi. Bulunamiyorsa BOS birakilir, sebebi notta yazar. */
+  return (KATALOG.kategoriler || []).some(k => k.id === t.varsayilan_kategori)
+    ? t.varsayilan_kategori : '';
+}
+/* Yolun TEK kaynagi. Kayit yolu da, ekrandaki cumle de bunu okur. */
+function odFormYolu(onek){
+  const s = document.getElementById(onek+'Kime');
+  if (s && s.value === '__diger') return 'diger';
+  const kat = document.getElementById(onek+'Kategori');
+  return (kat && kat.value) ? 'gider' : 'odeme';
+}
+function odFormYolNotu(onek){
+  const el = document.getElementById(onek+'YolNot'); if (!el) return;
+  const s = document.getElementById(onek+'Kime');
+  const kat = document.getElementById(onek+'Kategori');
+  const t = (KATALOG.tedarikciler || []).find(x => x.id === (s ? s.value : ''));
+  const yol = odFormYolu(onek);
+  if (yol === 'diger'){
+    el.innerHTML = 'Firma dışı gider olarak kaydedilir — <b>kârdan düşer</b>.';
+    return;
+  }
+  if (yol === 'gider'){
+    const ad = ((KATALOG.kategoriler || []).find(k => k.id === kat.value) || {}).ad || 'gider';
+    el.innerHTML = '<b>' + esc(ad) + '</b> gideri olarak kaydedilecek — kârdan düşer, '
+      + 'firma bağlantısı korunur.'
+      + (t && t.varsayilan_tur === 'gider' ? ' (bu firma için kayıtlı varsayılan)' : '');
+    return;
+  }
+  /* Bugunku yol. ⚠ "Kara girmez" cumlesi kusurun ta kendisini anlatiyor. */
+  let ek = '';
+  if (t && t.varsayilan_tur === 'gider')
+    ek = t.varsayilan_kategori
+      ? ' <b>⚠ Bu firma gider firması olarak işaretli</b> ama kayıtlı kategorisi senin'
+        + ' listende görünmüyor — kategoriyi sen seç.'
+      : ' <b>⚠ Bu firma gider firması olarak işaretli</b> — kategoriyi sen seç.';
+  el.innerHTML = 'Firmanın borcuna ödeme olarak kaydedilir — bakiyesi düşer, '
+    + '<b>kâra girmez</b> (faturası girildiyse mal alımı olarak zaten sayıldı). '
+    + 'Bu para bir harcamaysa yukarıdan kategori seç.' + ek;
+}
+function odFormKategoriDegisti(onek){ odFormYolNotu(onek); }
 function odFormKimeDegisti(onek){
   const s = document.getElementById(onek+'Kime');
   const diger = !!s && s.value === '__diger';
   const da = document.getElementById(onek+'DigerAlan');
   if (da) da.style.display = diger ? 'block' : 'none';
   document.getElementById(onek+'AciklamaAlan').style.display = diger ? 'none' : 'block';
+  /* ⚠ Tek aciklama kutusu kuralı: `__diger`de AciklamaDiger, firmada
+     normal Aciklama. Ikisi ayni anda GORUNMEZ (yukaridaki iki satir). */
+  const kat = document.getElementById(onek+'Kategori');
+  if (kat){
+    if (diger){
+      /* `__diger`de bos secenek anlamsiz: bugunku davranis ilk gercek
+         kategorinin secili olmasiydi, o korunuyor. */
+      if (!kat.value){
+        const ilk = [...kat.options].find(o => o.value);
+        if (ilk) kat.value = ilk.value;
+      }
+    } else {
+      /* Firma degisti: kategori YENI firmanin beyanindan gelir, eskisinden
+         devralmaz. Beyan yoksa bos = bugunku yol. */
+      kat.value = odVarsayilanKategori(s ? s.value : '');
+    }
+  }
+  odFormYolNotu(onek);
 }
 function odFormYontemDegisti(onek){
   const y = document.getElementById(onek+'Yontem').value;
@@ -7997,31 +8129,82 @@ async function tedarikciOdemeYuku(onek){
     p_banka: kart ? (g('Banka').value.trim()||null) : null
   }};
 }
-/* Tek form, iki kayıt yolu:
-     firma seçilirse  -> tedarikci_odeme  (bakiyesi düşer)
-     "Diğer" seçilirse-> gider            (firma bakiyesi yok, açıklama zorunlu)
-   Nakit seçilirse her iki yolda da "kasadan ödendi" işaretlenir — o gün sayılan
+/* ⚠ Y138 · GIDER YOLUNUN TEK SOZLESMESI. `rpc_gider_kaydet`e giden
+   parametre listesi ARTIK TEK YERDE — hem "Diğer" yolu hem firma+kategori
+   yolu bunu kullanir, iki ekran da buradan gecer. Ikinci bir liste tutmak
+   bu dosyada daha once kapatilan hatanin ta kendisiydi (bkz 7986).
+
+   ⚠ MUKERRER ANAHTARI · BILINCLI SECIM (brifing · tuzak 2):
+     · "Diğer" yolu anahtarini DEGISTIRMEDIM: ns='gider',
+       [sube, tarih, KATEGORI, tutar, yontem] — bugunku davranis birebir.
+     · Firma+kategori yolu ODEME YOLUNUN ANAHTARINI KULLANIR: ns='odeme',
+       [sube, tarih, KIME, tutar, yontem]. Sebep olculdu: `_idem_kontrol`
+       anahtari GLOBAL tekil tutuyor ve ayni anahtar baska bir RPC icin
+       gelirse `IDEM_KEY_BASKA_ISLEMDE` firlatiyor. Yani ayni odeme bir kez
+       gider bir kez tedarikci odemesi olarak giremez — CIFTE NAKIT kapisi
+       kapali kalir. Anahtar BILESENLERI genisletilmedi (tuzak 2'nin yasagi):
+       bes bilesen aynen, degisen tek sey hangi ad alanini paylastigi.
+     ⚠ SINIRI: ayni firmaya ayni gun ayni tutar ayni yontemle IKI mesru
+       odeme bugun de reddediliyor (anahtar zaten bu bes bileseni kullaniyor,
+       7986'daki yorum bunu yaziyor) — yeni bir kisitlama GETIRMEDIM.
+
+   ⚠ KASADAN BAYRAGI: `yontem === 'nakit'`. "Diğer" yolu bunu zaten boyle
+     gonderiyordu ve formun kendi ipucusu kullaniciya "nakit secersen kasadan
+     odenmis sayilir" diyor — yani bu, olculmemis bir varsayim degil
+     KULLANICININ BEYANI. (Ekim duzeltme betiginde `kasadan=false` yazilmasi
+     baska bir durumdu: orada gecmis odemenin kasadan cikip cikmadigi
+     olculemiyordu.) */
+async function odemeGiderYuku(onek){
+  const g = (ad) => document.getElementById(onek + ad);
+  const yol = odFormYolu(onek);
+  const kime   = g('Kime').value;
+  const tutar  = paraDeger(onek + 'Tutar');
+  const yontem = g('Yontem').value;
+  const tarih  = g('Tarih').value;
+  if (tutar === 0) return { ok:false, hata:'Tutar boş olamaz.' };
+  const kategori = (g('Kategori') || {}).value || null;
+  if (!kategori) return { ok:false, hata:'Gider kategorisi seçilmedi.' };
+  /* ⚠ Oge YOKLUGU kontrol ediliyor: `AciklamaDiger` yalniz `digerVar`
+     gonderen ekranda var (Firma ekraninda DOM'da YOK). */
+  const neIcin = g('AciklamaDiger') ? g('AciklamaDiger').value.trim() : '';
+  if (yol === 'diger' && !neIcin)
+    return { ok:false, hata:'"Diğer" seçtiğinde ne için ödendiğini yazman gerekiyor.' };
+  return { ok:true, yuk: {
+    p_idem: yol === 'diger'
+      ? await idemKararli('gider',[AKTIF_SUBE, tarih, kategori, tutar, yontem])
+      : await idemKararli('odeme',[AKTIF_SUBE, tarih, kime, tutar, yontem]),
+    p_sube: AKTIF_SUBE, p_tarih: tarih,
+    p_kategori: kategori,
+    p_aciklama: yol === 'diger' ? neIcin : (g('Aciklama').value.trim() || null),
+    p_tutar: tutar,
+    p_kdv_orani: null, p_kdv_tutar: 0, p_foto: null,
+    p_kasadan: yontem === 'nakit',
+    p_tedarikci: yol === 'diger' ? null : kime
+  }};
+}
+/* Tek form, UC kayıt yolu:
+     firma + kategori yok -> tedarikci_odeme  (bakiyesi düşer, kâra girmez)
+     firma + kategori     -> gider + tedarikci_id   (Y138 · kârdan düşer)
+     "Diğer" seçilirse    -> gider            (firma bakiyesi yok, açıklama zorunlu)
+   Nakit seçilirse her üç yolda da "kasadan ödendi" işaretlenir — o gün sayılan
    kasa o kadar eksik çıkar ve sistem bunu toplam nakde geri ekler. */
 async function odemeGirisiKaydet(){
-  const kime = document.getElementById('odKime').value;
   const tutar = paraDeger('odTutar');
-  const yontem = document.getElementById('odYontem').value;
-  const tarih = document.getElementById('odTarih').value;
   if (tutar === 0){ mesaj('odMsg','hata','Tutar boş olamaz.'); return; }
 
-  if (kime === '__diger'){
-    const ne = document.getElementById('odAciklamaDiger').value.trim();
-    if (!ne){ mesaj('odMsg','hata','"Diğer" seçtiğinde ne için ödendiğini yazman gerekiyor.'); return; }
-    const data = await rpcCagir('rpc_gider_kaydet',{
-      p_idem: await idemKararli('gider',[AKTIF_SUBE, tarih, document.getElementById('odKategori').value, tutar, yontem]),
-      p_sube: AKTIF_SUBE, p_tarih: tarih,
-      p_kategori: document.getElementById('odKategori').value,
-      p_aciklama: ne, p_tutar: tutar,
-      p_kdv_orani: null, p_kdv_tutar: 0, p_foto: null,
-      p_kasadan: yontem === 'nakit', p_tedarikci: null
-    },'odKaydet','odMsg','Ödeme kaydedildi ✓');
+  /* ⚠ Y138 · YOL TEK OLCUTTEN: `odFormYolu`. Ekranda yazan cumle de ayni
+     islevi okuyor, yani "ne yazacagini soyledi" ile "nereye yazdi" tek
+     kaynaktan gelir — ayrisamaz. */
+  if (odFormYolu('od') !== 'odeme'){
+    const r = await odemeGiderYuku('od');
+    if (!r.ok){ mesaj('odMsg','hata', r.hata); return; }
+    const firmali = !!r.yuk.p_tedarikci;
+    const data = await rpcCagir('rpc_gider_kaydet', r.yuk,
+      'odKaydet','odMsg', firmali ? 'Gider olarak kaydedildi ✓' : 'Ödeme kaydedildi ✓');
     if (data && data.ok){
-      document.getElementById('odTutar').value=''; document.getElementById('odAciklamaDiger').value='';
+      document.getElementById('odTutar').value='';
+      const ad = document.getElementById('odAciklamaDiger'); if (ad) ad.value='';
+      const an = document.getElementById('odAciklama');      if (an) an.value='';
       gdOdeme();
       /* Y72 · "Diğer" + kategori (ör. havaleyle kira) de duzenli hatirlatmayi kapatir — SOYLER.
          gdOdeme formu ilk adiminda (await'ten once) yeniden kurar; mesaj yeni kutuya. */
@@ -8705,9 +8888,13 @@ function tpKur(eksikler){
         satir.tur = 'alis'; satir.varsayilanNot = 'bu firma için kayıtlı varsayılan: Mal alımı';
       }
     }
-    /* Y85 · SATIR BASINA SUBE · oneri firmanin gecmisinden (v148 firma_sube), yoksa aktif sube */
-    const on = tpSubeOner(ted);
+    /* Y85 · SATIR BASINA SUBE · oneri firmanin gecmisinden (v148 firma_sube), yoksa aktif sube
+       ⚠ Y129 · BELGENIN KENDISI EN USTTE: `x.metin` belge okuyucunun cikardigi
+         tam metin (kayit.metin) ve zaten bu kapsamdadir — yeni okuma, yeni
+         sorgu, yeni alan YOK. Belge karar veremezse Y85 eskisi gibi isler. */
+    const on = tpSubeOner(ted, x.metin);
     satir.sube = on.sube; satir.subeKaynak = on.kaynak; satir.subeAdet = on.adet;
+    satir.subeYer = on.yer || null;              // Y129 · satirda yazacak yer adi
     /* Y86 · SUBE SORUMLUSUNDA SUBE KILIDI (asagida) */
     const kl = tpSubeKilidi(ted);
     satir.subeKilit = !!kl; satir.subeKilitAd = kl ? kl.ad : null; satir.subeKilitAdet = kl ? kl.adet : 0;
@@ -8758,23 +8945,261 @@ function tpSubeKilidi(ted){
    ⚠ YALNIZ ACIK SUBELER onerilir (SUBELER · sahipte aktif olanlar). Tek sube varsa
      secim hic cizilmez, satir aktif subeye yazilir (bugunku davranis). */
 function tpCokSube(){ return (SUBELER || []).length > 1 && !toplamKipi(); }
-function tpSubeOner(ted){
+/* ===== Y129 · SUBEYI FATURANIN KENDISI SOYLER (v154) =====
+   KULLANICI (4 Kasim, 84 faturalik paketi ekranda gostererek): "ben bunu
+   istemiyorum iste, kendi akil etsin. bak Samsun'un faturasini da bize
+   yaziyor mesela, METRO'dan biz ne almisiz ki". Paketteki firmalar az once
+   eklenmisti, gecmisleri YOKTU; Y85'in geri donusu hepsini aktif subeye
+   (KTU) yazdi — Samsun'unkiler dahil.
+
+   ⚠⚠ ASIL TUZAK — IKI SUBENIN MAHALLE VE SOKAK ADI AYNI (denetci olctu,
+     84 gercek belge). ⚠ Adresler buraya YAZILMAZ: bu dosya ACIK depoya
+     cikiyor. Mahalleye VEYA sokaga bakan bir kural Samsun faturasini
+     KTU'ye YAZAR. AYIRT EDICI yalniz ILCE · IL · POSTA KODU ONEKI.
+     Isaretler v154'te `sube.belge_anahtarlari` kolonunda ve
+     MAHALLE/SOKAK ORAYA YAZILMAZ.
+
+   ⚠ KIMLIK NUMARASI BU DOSYADA YOK VE OLMAYACAK: `index.html` ACIK depodan
+     (Maltuncu/bardaks-kampus · GitHub Pages) yayinlaniyor. Alici blogunu bulan
+     capa `sube.belge_alici_capa`dan OKUNUR ve numaranin yalniz SON HANELERIDIR
+     (v154 kisiti 11 haneyi reddeder). Mutabakat okuyucusunun kendi notu bu
+     sabitin bilerek kaldirildigini yaziyor — geri KONMADI.
+
+   ⚠ BUTUN BELGE TARANMAZ, YALNIZ ALICI BLOGU: satici da Samsunlu olabilir.
+     Denetcinin olcumu: butun belgeyi tarayan kural 84 belgenin 31'inde "ikisi
+     de" dedi, ise yaramadi; alici bloguna inince belirsiz 7'ye dustu.
+
+   ⚠ CAPADAN BASKA YEDEK YOK — OLCULDU: capa 84 belgenin 84'unde bulundu,
+     "SAYIN" yalniz 51'inde; SAYIN iceren kaskad yan yana kosumda IKI BELGEDE
+     YANLIS SUBE yazdi. Yanlis sube, kullanicinin sikayet ettigi zararin ta
+     kendisi. Capa bulunamazsa karar VERILMEZ, satir bugunku davranisa duser.
+
+   ⚠ ONCELIK (Y135'te DEGISTI): gecmisin NET GORUSU > BELGE > gecmis > aktif
+     sube. "Net gorus" = acik subeler arasinda TAM OLARAK BIR sube en yuksek
+     sayida; beraberlikte gorus YOKTUR ve belge karar verir.
+   ⚠ BELGE EN USTTEYDI, OLCUMLE CURUDU: teslim adresi BU FATURANIN KENDI
+     kaniti DEGIL — tek kimlik numarasinda tek musteri karti var, satici iki
+     subeye de ayni adrese kesebiliyor. Canli kayitta uc firmanin 8, 5 ve 4
+     faturasinin HEPSI oteki subenin, ama belge bu subeyi yaziyor; ESKI HAL
+     BUNLARI DOGRU YAPIYORDU (ikinci inceleme buldu, kullanici canlidan
+     olctu). Bu yuzden celiskide GECMIS kazanir.
+   ⚠ Gecmisi olmayan firmada Y129 aynen calisir — asil degeri orada; gecmis
+     uyusuyorsa hicbir sey degismez; celiskide Y129 oncesi davranisa doner.
+     Celiskiden gelen satir `gecmis` damgasi alir, yani toplu seciciyle
+     DUZELTILEBILIR kalir (korunan yalniz `belge` ve `elle`, bkz tpHepsiAtlar).
+
+   ⚠⚠ "HICBIR SATIR KOTULESMEZ" DEMEK DE YANLIS — OLCULDU (111 gercek belge,
+     uretimin kendi okuyucusuyla): IKI SUBEYE DE SATAN tedarikcide belge
+     SAMSUN derken gecmisin cogunlugu KTU ise bu kural DOGRU olan belge
+     kararini EZIYOR. Pakette 2 belgede oldu; biri Y129'un kabul olcutunde
+     "bilinen Samsun belgesi" olarak gecen belge. Yani kural 8 belgeyi
+     duzeltirken 2 belgeyi bozuyor — net kazanc, bedava degil.
+     Kesin cozum bu kural DEGIL: belgedeki `Sube Adi` / `Sevk Musteri Kisa
+     Adi` / `Magaza Adi` alanini okumak (ayri is). Bu madde KAPATILMAZ.
+
+   ⚠ SUBE SORUMLUSUNDA BU OZELLIK HIC CALISMAZ: `SUBELER` yalniz sahipte
+     dolar (subeleriYukle rol kapisi), `tpCokSube()` personelde false. Y86
+     kilidi DEGISMEDI ve belge karari o kilidi ACMAZ. */
+
+/* ⚠ AYRI SORGU — `subeleriYukle`ye EKLENMEDI: v139 dersi (yukarida, donem
+     kolonunda) aynen gecerli. Oraya eklenseydi kolonlari olmayan bir sunucuda
+     SUBE LISTESI HIC OKUNAMAZ ve acilis kapisi bos kalirdi. Burada okunamazsa
+     yalniz BU ozellik kapanir: belge karari verilmez, Y85 eskisi gibi isler
+     ve ekran bunu YAZAR (tpIsaretNotu). */
+let TP_SUBE_ISARET = {};        // sube_id -> { anahtarlari:[], capa:[] }
+let TP_ISARET_HATA = null;
+async function tpIsaretYukle(){
+  if (!tpCokSube()){ TP_SUBE_ISARET = {}; TP_ISARET_HATA = null; return; }
+  try{
+    const r = await sb.from('sube').select('id,belge_anahtarlari,belge_alici_capa');
+    if (r.error) throw r.error;
+    const y = {};
+    (r.data || []).forEach(s => { y[s.id] = {
+      anahtarlari: Array.isArray(s.belge_anahtarlari) ? s.belge_anahtarlari : [],
+      capa:        Array.isArray(s.belge_alici_capa)  ? s.belge_alici_capa  : [] }; });
+    TP_SUBE_ISARET = y; TP_ISARET_HATA = null;
+  }catch(e){
+    TP_SUBE_ISARET = {}; TP_ISARET_HATA = (e && e.message) ? e.message : 'okunamadı';
+  }
+}
+/* ⚠⚠ PENCERE +-300 KARAKTER — OLCULEREK SECILDI, VERILEN DEGER DEGIL.
+     Brifing "+-9 satir", v154 basligi "+-600 karakter" diyordu; ikisi de
+     `pdftotext` ciktisinda olculmustu. URETIMDE metni pdftotext DEGIL
+     uygulamanin kendi `pdfMetinCikar`i (pdf.js) cikariyor ve KOLON DOLGUSU
+     YAPMIYOR: ayni y'deki parcalari tek boslukla birlestirip bosluklari
+     sikistiriyor. Yani ayni belge pdf.js'te cok daha KISA ve +-600 karakter
+     belgenin UCTE IKISINI kapsiyor (olculdu: 145 gercek e-fatura, orta
+     deger 1583 karakter).
+
+   ⚠ DEGER IKI AYRI PAKETTE, BAGIMSIZ BIR OLCUTE KARSI secildi.
+     Olcut: "ALICI YUVASI". Olculdu ki alicinin KENDI adres satirlari her
+     belgede alici jetonundan ONCE, -86..-198 araliginda duruyor; saticinin
+     magaza satiri ise jetondan SONRA, +48..+115'te. Yani bir isaretin
+     KIMIN adresi oldugu yonunden okunur. Yuvaya bakan bu olcut, uretimin
+     karariyla karsilastirilabilir bir ZEMIN verir (kodun kendisinden
+     bagimsiz: yalnizca isaretlerin jetona uzakligi).
+
+     KATI kural (brifingin kurali: TAM OLARAK BIR sube eslesmeli), iki
+     paket, zemine karsi DOGRU / YANLIS:
+         pencere   paket A (80 belge)     paket B (54 belge)
+         +-150     55 dogru · 1 YANLIS    33 dogru · 1 YANLIS
+         +-200     70 dogru · 1 YANLIS    45 dogru · 0
+         +-250     73 dogru · 0           46 dogru · 0
+         +-300     74 dogru · 0 <-- EN IYI, IKI PAKETTE DE
+         +-400     73 dogru · 0           44 dogru · 0
+         +-600     60 dogru · 0           34 dogru · 0  (brifingin degeri)
+     +-200 (onceki deger) paket A'da BIR BELGEYI YANLIS SUBEYE yaziyordu:
+     alici yuvasinda Trabzon isareti var, ama yuvanin disinda kalan
+     saticinin magaza satirindaki il adi tek basina karari tasiyordu.
+     +-250'den itibaren o belge BELIRSIZ oluyor, yani guvenli tarafa
+     dusuyor. Pencere 250-400 arasinda YANLIS SIFIR; 300 iki pakette de
+     en cok dogruyu veriyor. Optimum YASSI (73/74/73), kil payi degil.
+
+     Capa 145 belgenin 142'sinde TEK jeton buldu (3'unde iki jeton -> karar
+     yok). Blok bulma sorunu YOK, sorun pencerenin GENISLIGIYDI.
+
+   ⚠ BELIRSIZLIGIN KAYNAGI OLCULDU, PENCERE DEGIL: belirsiz kalan belgelerde
+     alicinin kendi adresi (ilce -111, posta kodu -148) ile birlikte
+     SATICININ kendi magaza satirindaki il adi alici jetonundan YALNIZ
+     ~50 KARAKTER SONRA duruyor. Hicbir pencere boyu onu disarida
+     birakmiyor. Bu, denetcinin §5'te "ikincil isaret, ayri kalem" diye
+     AYIRDIGI satirin ta kendisi; o satir karari DESTEKLEMIYOR, BOZUYOR.
+
+   ⚠ "EN COK ISARET TUTAN SUBE KAZANIR" KURALI OLCULDU VE ALINMADI:
+     paket A'da bir belgede saticinin TAM adresi (ilce + il + posta kodu,
+     3 isaret) alicinin 2 isaretini geciyor ve o belge YANLIS SUBEYE
+     gidiyor. KATI kural ayni belgede BELIRSIZ diyor, yani yanlis yone
+     kapali. Karar sayisi artiyor ama yanlis sube riski aciliyor. */
+const TP_ALICI_PENCERE = 300;
+/* Belgedeki 10-11 haneli rakam jetonlarindan SONU capa parcasina esit olani
+   ALICININ jetonudur; alici blogu onun cevresidir. TAM OLARAK BIR jeton
+   eslesmezse blok belirsizdir ve karar VERILMEZ (v154 olcumu: hicbir belgede
+   birden fazla eslesen jeton yok).
+   ⚠ LOOKBEHIND KULLANILMAZ: eski mobil Safari `(?<!\d)` desteklemiyor ve bu
+     okuyucu telefonda calisiyor. Rakam dizisi bulunup UZUNLUGU sinaniyor —
+     ayni sonuc, her tarayicida. 12+ haneli dizi alici jetonu DEGILDIR. */
+function tpAliciBlogu(metin, capalar){
+  const t = String(metin || '');
+  if (!t || !capalar.length) return null;
+  const yerler = []; const d = /\d+/g; let m;
+  while ((m = d.exec(t))){
+    if (m[0].length < 10 || m[0].length > 11) continue;
+    if (capalar.some(c => m[0].endsWith(c))) yerler.push(m.index);
+  }
+  if (yerler.length !== 1) return null;
+  const i = yerler[0];
+  return t.slice(Math.max(0, i - TP_ALICI_PENCERE), i + TP_ALICI_PENCERE);
+}
+/* Bir subenin isaretlerinden alici blogunda TUTANLAR. TEK fonksiyon: hem
+   karar hem satirda yazan cumle buradan okur — ikinci bir kopya zamanla
+   ayrisir (mutabakat okuyucusunun kendi dersi).
+   ⚠ ISARET TAMAMEN RAKAMSA POSTA KODU ONEGIDIR ve 5 HANELI JETON uzerinde
+     aranir. Katlanmis metinde ALT DIZI olarak aranirsa ayiricilar silindigi
+     icin tutar/tarih satirlari eslesir — olculdu: icinde 4-6-1-0 rakamlari
+     ardisik gecen bir tutar satiri katlaninca '61' ile, "Fatura Tarihi"
+     satirindaki gun-ay-yil dizisi de '61' ile eslesiyor. 5 haneli jeton
+     kuralinda yanlis eslesme 0. (Ornek rakam yazilmadi: bu dosya ACIK
+     depodan yayinlaniyor, yorumda bile fis/fatura rakami durmaz.)
+   ⚠ HARFLI ISARET katlanmis metinde aranir: `/i` bayragi 'ı' ile 'I'yi
+     eslestirmiyor, "CANİK" ile "CANIK" sessizce kaciyordu
+     (js-regex-turkce-i). `fuAnahtar` ikisini de 'CANIK' yapiyor. */
+function tpIsaretTutanlar(blok, isaretler){
+  const anahtar = fuAnahtar(blok);
+  const bes = (String(blok).match(/\d+/g) || []).filter(x => x.length === 5);
+  const ad = [], pk = [];
+  (isaretler || []).forEach(is => {
+    const im = fuAnahtar(is);
+    if (im.length < 2) return;
+    if (/^[0-9]+$/.test(im)){ if (bes.some(j => j.startsWith(im))) pk.push(im); }
+    else if (anahtar.includes(im)) ad.push(im);
+  });
+  return { ad, pk, tutuyor: !!(ad.length || pk.length) };
+}
+const tpYerAdi = (s) => s.charAt(0) + s.slice(1).toLowerCase();
+/* TAM OLARAK BIR sube eslesirse karar odur. Sifir ya da birden cok sube
+   eslesirse belge karari VERILMEZ — satir bugunku davranisa duser.
+   ⚠ Capa butun isaretli subelerin BIRLESIMINDEN alinir: alici blogunun yeri
+     belgenin ozelligidir, subenin degil. */
+function tpBelgeSube(metin){
+  if (!tpCokSube()) return null;
+  const adaylar = (SUBELER || [])
+    .map(s => ({ id: s.id, is: TP_SUBE_ISARET[s.id] || { anahtarlari: [], capa: [] } }))
+    .filter(a => a.is.anahtarlari.length);
+  if (!adaylar.length) return null;
+  const capalar = [...new Set(adaylar.flatMap(a => a.is.capa)
+    .map(c => String(c == null ? '' : c).trim())
+    .filter(c => /^[0-9]{4,10}$/.test(c)))];
+  const blok = tpAliciBlogu(metin, capalar);
+  if (!blok) return null;
+  const tutan = adaylar.map(a => ({ a, t: tpIsaretTutanlar(blok, a.is.anahtarlari) }))
+                       .filter(x => x.t.tutuyor);
+  if (tutan.length !== 1) return null;
+  const t = tutan[0].t;
+  return { sube: tutan[0].a.id,
+           yer: t.ad.length ? t.ad.map(tpYerAdi).join('/') : 'posta kodu ' + t.pk[0] };
+}
+/* Toplu tablonun basinda TEK satir: ozellik calisti mi, kac faturada calisti.
+   ⚠ Sessiz kapanma YOK — isaretler okunamazsa ekran bunu yazar. */
+function tpIsaretNotu(){
+  if (TP_ISARET_HATA)
+    return 'Şube işaretleri okunamadı — şube önerisi eskisi gibi firmanın geçmişinden geliyor.';
+  const isaretli = (SUBELER || []).some(s => ((TP_SUBE_ISARET[s.id] || {}).anahtarlari || []).length);
+  if (!isaretli)
+    return 'Şubelere belge işareti tanımlı değil — şube önerisi firmanın geçmişinden geliyor.';
+  const n = TOPLU.filter(r => r.subeKaynak === 'belge').length;
+  return n ? n + ' faturanın şubesi faturanın kendi teslim adresinden bulundu.'
+           : 'Hiçbir faturanın teslim adresi okunamadı — şube önerisi firmanın geçmişinden.';
+}
+function tpSubeOner(ted, metin){
   if (!tpCokSube()) return { sube: AKTIF_SUBE, kaynak: 'aktif', adet: 0 };
+  const b = tpBelgeSube(metin);
   const acik = new Set(SUBELER.map(s => s.id));
   const g = ((ted && TP_FIRMA_SUBE[ted.id]) || []).filter(x => acik.has(x.sube_id));
+  /* Y135 · GECMISIN NET GORUSU: tam olarak BIR sube en yuksek sayida mi.
+     ⚠ Siralama SUNUCUDAN gelir (v149 `order by c.tid, c.adet desc, s.ad`),
+       bu yuzden g[0] en yuksek olandir — Y85'ten beri AYNI varsayim, yeni
+       bir en-buyuk hesabi getirilmedi ki belgesiz yol bire bir ayni kalsin. */
+  const enCok = g.length ? g[0].adet : 0;
+  const tepe = g.filter(x => x.adet === enCok);
+  const gorus = tepe.length === 1 ? tepe[0] : null;   // beraberlikte gorus YOK
+  if (b){
+    /* ⚠ Y135 · CELISKI — gecmisin net gorusu belgeyle catisiyorsa GECMIS kazanir.
+         Yeni cumle EKLENMEZ: satir zaten "son 12 aydaki N belgesi X subesinde"
+         diyor ve bu dogru. `gecmis` damgasi toplu seciciyle duzeltilebilir. */
+    if (gorus && gorus.sube_id !== b.sube)
+      return { sube: gorus.sube_id, kaynak: 'gecmis', adet: gorus.adet };
+    /* gecmis yok VEYA belgeyle ayni sube: Y129 aynen — `yer` dahil */
+    return { sube: b.sube, kaynak: 'belge', adet: 0, yer: b.yer };
+  }
   if (!g.length) return { sube: AKTIF_SUBE, kaynak: 'aktif', adet: 0 };
-  const enCok = g[0].adet;
   const sec = g.find(x => x.adet === enCok && x.sube_id === AKTIF_SUBE) || g[0];
   return { sube: sec.sube_id, kaynak: 'gecmis', adet: sec.adet };
 }
 const tpSubeAd = (id) => ((SUBELER || []).find(s => s.id === id) || {}).ad || (id === AKTIF_SUBE ? (SUBE_AD || 'bu şube') : 'şube ?');
-/* "Kalanların hepsini X yap" · kaydedilmis / isletme disi / az once girilmis satira dokunmaz */
+/* "Kalanların hepsini X yap" · kaydedilmis / isletme disi / az once girilmis satira dokunmaz
+   ⚠ Y129 · "KALANLAR" = HENUZ KARAR VERILMEMIS SATIR. Belgeden bulunan sube
+     kanittir, satirindan secilen sube kullanicinin karari; toplu secim ikisini
+     de ezmez. Etiket bunu vaat ediyordu, kod her satiri eziyordu (Kasim
+     dagiliminda 5 Samsun faturasi tek secimle KTU'ye geciyordu). Satir basina
+     secici acik: yanlis bulunan belge oradan tek tek degisir.
+   ⚠ Toplu yazim 'elle' degil 'toplu' damgasi alir: 'elle' olsaydi yanlis
+     secilen sube bir daha toplu duzeltilemezdi. */
+const tpHepsiAtlar = (r) => r.subeKaynak === 'belge' || r.subeKaynak === 'elle';
 function tpHepsiSube(id){
   if (!id) return;
-  TOPLU.forEach(r => { if (tpKilitli(r)) return;
+  TOPLU.forEach(r => { if (tpKilitli(r) || tpHepsiAtlar(r)) return;
     if (r.sonuc) r.sonuc = null;                 // tpDegis ile ayni: dokunmak "duzelttim" demek
-    r.sube = id; r.subeKaynak = 'elle'; });
+    r.sube = id; r.subeKaynak = 'toplu'; });
   tpCiz();
+}
+/* Secicinin altindaki cumle · ayni `tpHepsiAtlar` ile sayar, kodla ayrisamaz */
+function tpHepsiNotu(){
+  const atlanan = TOPLU.filter(r => !tpKilitli(r) && tpHepsiAtlar(r));
+  const belge = atlanan.filter(r => r.subeKaynak === 'belge').length;
+  const elle = atlanan.length - belge;
+  const parca = [belge ? 'belgeden bulunan ' + belge : '',
+                 elle ? 'elle seçtiğin ' + elle : ''].filter(Boolean);
+  return parca.length ? 'Bu seçim ' + parca.join(' ve ') + ' faturaya dokunmaz.' : '';
 }
 let TP_GECMIS = {};
 /* ==================================================================
@@ -9055,7 +9480,10 @@ function tpCiz(){
     ${tpCokSube() ? `<label>Kalanların hepsini şu şubeye yaz</label>
     <select onchange="tpHepsiSube(this.value);this.value=''">
       <option value="">— şube seç —</option>${SUBELER.map(s =>
-        `<option value="${s.id}">${esc(s.ad)}${s.id === AKTIF_SUBE ? ' (açık olan şube)' : ''}</option>`).join('')}</select>` : ''}
+        `<option value="${s.id}">${esc(s.ad)}${s.id === AKTIF_SUBE ? ' (açık olan şube)' : ''}</option>`).join('')}</select>
+    ${/* ⚠ Y129 · SESSIZ KAPANMA YOK: isaretler okunamazsa ya da hicbir
+         belgede tutmazsa bunu YAZAR. Bir rakam veriyor, iddia etmiyor. */''}
+    <div class="k" style="color:var(--soluk);margin:2px 0 8px">${esc([tpIsaretNotu(), tpHepsiNotu()].filter(Boolean).join(' '))}</div>` : ''}
     ${TOPLU.map(r => {
       const kapali = r.haric || r.eksik.length || !r.tur
                   || (r.tur === 'gider' && !r.kategori) || (r.tur === 'alis' && !r.ted)
@@ -9123,7 +9551,13 @@ function tpCiz(){
             ${baskaSube && !kilit
               ? `<div class="k" style="color:var(--ana);font-weight:800">→ ${esc(tpSubeAd(r.sube))} şubesine yazılacak
                    (açık olan şube ${esc(tpSubeAd(AKTIF_SUBE))})</div>` : ''}
-            ${tpCokSube() && !kilit && r.subeKaynak === 'gecmis'
+            ${/* ⚠ Y129 · UCUNCU CUMLE EKLENDI, bugunku IKISI AYNEN DURUYOR.
+                 Satir neye dayandigini SOYLER; satir basina sube secici
+                 degismedi, karar her zaman degistirilebilir. */''}
+            ${tpCokSube() && !kilit && r.subeKaynak === 'belge'
+              ? `<div class="k" style="color:var(--soluk)">şube: <b>faturanın teslim adresinden</b>${
+                   r.subeYer ? ' (' + esc(r.subeYer) + ')' : ''} — değiştirebilirsin</div>`
+              : tpCokSube() && !kilit && r.subeKaynak === 'gecmis'
               ? `<div class="k" style="color:var(--soluk)">şube önerisi: bu firmanın son 12 aydaki
                    ${r.subeAdet} belgesi ${esc(tpSubeAd(r.sube))} şubesinde — değiştirebilirsin</div>`
               : tpCokSube() && !kilit && r.subeKaynak === 'aktif'
@@ -9951,7 +10385,11 @@ async function tpKaydet(yalnizI){
            kuruyor ve okunan (yanlis) rakama geri donerdi. */
         kdv:r.kdv, kdvDurum:r.kdvDurum, kdvNot:r.kdvNot, kdvKontrol:r.kdvKontrol,
         /* Y85 · kullanicinin sube secimi ve "yine de kaydet" durumu da korunur */
-        sube:r.sube, subeKaynak:r.subeKaynak, subeAdet:r.subeAdet, mukerrer:r.mukerrer,
+        /* ⚠ Y129 · `subeYer` DE KORUNUR: tpKur onu `x.metin`den yeniden
+             uretir, ama isaret sorgusu o anda duserse cumle yarim kalirdi
+             ("faturanın teslim adresinden" yazip yeri yazmamak). */
+        sube:r.sube, subeKaynak:r.subeKaynak, subeAdet:r.subeAdet, subeYer:r.subeYer,
+        mukerrer:r.mukerrer,
         girilmis:r.girilmis, girilmisMetin:r.girilmisMetin,
         /* Y114 · "ayni numara baska firmada" notu da korunur: satir hatayla
            geri dondugunde not kaybolursa kullanici neden yazildigini
@@ -9961,11 +10399,13 @@ async function tpKaydet(yalnizI){
            satir hatayla geri donduyse onayi bir daha vermesin. */
         belirsizOnay:r.belirsizOnay }); });
     await duzenliYukle();   // Y72 · tpKur duzenli tanimlara bakiyor
+    await tpIsaretYukle();  // Y129 · tpKur belge isaretlerine bakiyor
     tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
     TOPLU.forEach(r => { const o = r.kaynak && onceki.get(r.kaynak); if (!o) return;   // Y114-2
       r.tur = o.tur; r.kategori = o.kategori; r.haric = o.haric;
       r.kdv = o.kdv; r.kdvDurum = o.kdvDurum; r.kdvNot = o.kdvNot; r.kdvKontrol = o.kdvKontrol;
       r.sube = o.sube || r.sube; r.subeKaynak = o.subeKaynak || r.subeKaynak; r.subeAdet = o.subeAdet || r.subeAdet;
+      r.subeYer = o.subeYer || r.subeYer;                                     // Y129
       r.mukerrer = !!o.mukerrer; r.girilmis = !!o.girilmis; r.girilmisMetin = o.girilmisMetin;
       r.baskaFirmaNot = o.baskaFirmaNot;                                      // Y114
       r.belirsizOnay = !!o.belirsizOnay;                                      // Y114-2
@@ -10092,6 +10532,7 @@ async function mutabakatCalistir(){
        zaten kayıtlı olanlar yukarıdaki kutularda duruyor — aynı zip
        ikinci kez yüklenirse bu tablo boş gelir. */
     await duzenliYukle(true);   // Y72 · tpKur duzenli tanimlara bakiyor
+    await tpIsaretYukle();      // Y129 · tpKur belge isaretlerine bakiyor
     tpKur(MUTABAKAT.filter(x => x.durum === 'eksik'));
     await tpGecmisYukle();
     tpCiz();
@@ -16515,6 +16956,19 @@ async function tedarikciEkleHizli(){
    fonksiyondan; hedef kutusu (toKaydet/toMsg) ve vTedarikci()
    tazelemesi AYNEN duruyor. */
 async function odemeKaydet(){
+  /* ⚠ Y138 · AYNI UC YOL BU EKRANDA DA. Eskiden bu islev KOSULSUZ
+     `rpc_tedarikci_odeme_kaydet` cagiriyordu; firma ekranindan girilen bir
+     elektrik faturasinin gider olarak kaydedilmesinin HICBIR yolu yoktu.
+     Yol olcutu ve parametre listesi Giderler ekraniyla AYNI islevlerden
+     gelir — ikinci bir kopya YOK (bkz 7986 · tek sozlesme). */
+  if (odFormYolu('to') === 'gider'){
+    const r = await odemeGiderYuku('to');
+    if (!r.ok){ mesaj('toMsg','hata', r.hata); return; }
+    const data = await rpcCagir('rpc_gider_kaydet', r.yuk,
+      'toKaydet','toMsg','Gider olarak kaydedildi ✓');
+    if (data && data.ok) vTedarikci();
+    return;
+  }
   const r = await tedarikciOdemeYuku('to');
   if (!r.ok){ mesaj('toMsg','hata', r.hata); return; }
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet', r.yuk,
