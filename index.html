@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-118">
+<meta name="surum" content="2026-08-27-123">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -12382,6 +12382,21 @@ async function alisDuzenle(id){
 function gdFatura(duzenlemeMi){
   const duzenleme = !!(duzenlemeMi || AL_DUZENLE);
   AL_MOD = 'mal';
+  AL_MOD_ELLE = false;                         // Y140 · yeni formda "kullanici dokundu" sifirlanir
+  AL_TUR_BEKLIYOR = null; AL_SATIR_ATILACAK = 0;   // Y141 · bekleyen karar devretmez
+  /* ⚠⚠ Y142 · KALEM 1 · OKUNAN SATIRLAR DA DEVRETMEZ.
+       Olculdu: `AL_SATIRLAR`i temizleyen TEK yer basarili okumaydi
+       (`alSatirlariKur`); form sifirdan kuruldugunda dizi DOLU kaliyordu.
+       Ekranda satir yok (DOM 0, `.oku-dolu` 0) ama `alSatirKaydet` EKRANI DEGIL
+       DIZIYI okuyor ve ad icin `s.ham_ad`a dusuyor — onceki belgenin urunleri
+       hic gorunmeden yeni faturaya yaziliyordu: iki yeni stok karti, yanlis
+       firmaya alias, `alis_kalem` + `stok_hareket` satirlari.
+     ⚠ SIRA KORUNUYOR: `alisDuzenle` ONCE `gdFatura(true)` cagiriyor, kayitli
+       kalemleri SONRA yaziyor (12337 → 12356); duzenlemede kalem kaybolmaz.
+     ⚠ SATIR SILINMIYOR: temizlik yalniz FORM SIFIRDAN kurulurken kosar. Okunan
+       faturanin satirlari ekranda duruyorsa kayda gitmeye devam eder — bu kalem
+       sahipsiz satiri engelliyor, mesru satiri dusurmuyor. */
+  AL_SATIRLAR = [];
   document.getElementById('gdIcerik').innerHTML = `
     <div id="alDuzenleBar"></div>
     ${/* ⚠ Y88 · MAL / HIZMET · kullanici: "gelen hepsi fatura, faturalar stok demek".
@@ -12494,6 +12509,10 @@ function gdFatura(duzenlemeMi){
           <b>ödeme yöntemi ve çek alanı yok</b>. Kasadan nakit çıktıysa işaretle — gün sonu sayımında eksik çıkar.</div>
       </div>
       <button class="btn" id="alKaydet" onclick="alisKaydet()">Faturayı Kaydet</button>
+      ${/* ⚠ Y141 · KAPALI KAYDET'IN SEBEBI DUGMENIN YANINDA. Okuma ozeti
+            formun BASINDA (alOkuOzet); kullanici Kaydet'e basamadiginda sebebi
+            yukari kaydirmadan okuyabilmeli — o yuzden ikinci yer burasi. */''}
+      <div id="alKapiNot"></div>
       <div class="hata-msg" id="alMsg"></div>
     </div>`;
   paraBagla(document.getElementById('alToplam'), alHesapla);
@@ -12509,11 +12528,84 @@ function gdFatura(duzenlemeMi){
      sonra dal degistirirse yazdigi kaybolmasin (gdFisModSec formu yeniden ciziyor,
      orada henuz alan yok — burada var). */
 let AL_MOD = 'mal';                            // 'mal' | 'hizmet'
-function alModSec(m){
+/* ⚠ Y140 · KULLANICI DOKUNDU MU. Okuyucu modu kendiliginden cevirebiliyor; ama
+     kullanicinin ELIYLE yaptigi secim EZILMEZ (bu dosyanin Y77 kurali, bkz
+     `faturaOku` · "kullanicinin secimi EZILMEZ"). Bu yuzden dugme yolu ile kod
+     yolu AYIRT EDILIYOR: dugmeler `alModSec('mal')` diye cagiriyor, yani
+     `kaynak` bos geliyor ve ELLE sayiliyor; okuyucu 'okuyucu' diyor.
+   ⚠ Bayrak her cizimde sifirlanir (`gdFatura`), cunku secim formun basindadir
+     ve form yeniden cizildiginde varsayilana doner. */
+let AL_MOD_ELLE = false;
+/* ===== Y141 · KESINLIK YOKSA KAYIT DA YOK =====
+   KULLANICININ KURALI: "firma kartinda tercih yoksa sistem varsayilan olarak mal
+   secip sessizce kaydetmesin; belgeyi mal mi hizmet mi anlayamadim desin; BEN
+   SECIM YAPANA KADAR KAYIT OLMASIN."
+
+   ⚠ NEDEN · OLCULDU (denetim, yedi hal, gercek kayit yolu):
+     · Firma isaretsizken mod 'mal'da kaliyor, ekran tek kelime yazmiyor ve
+       `rpc_alis_kaydet` gidiyordu. Karma belgede bu SOMUT ZARAR uretti:
+       hizmet satiri icin YENI STOK URUN KARTI acilip alis kalemi yazildi.
+     · Firma 'gider' isaretliyken okunan urun satirlari SESSIZCE atiliyordu:
+       `rpc_gider_kaydet` yukunun 13 alaninin HICBIRI dizi degil, yani
+       satirlarin tasinacagi alan YOK. Onay da sorulmuyordu.
+     Zarar IKI YONLU; tek yonu duzeltmek yetmiyor.
+
+   ⚠ TUR KARARININ TEK KAYNAGI FIRMA KARTI. Belge icerigi tur kararina GIRMEZ:
+     satir basina urun/hizmet etiketi okuyucu semasinda YOK, `belge_turu` bicimi
+     soyler amaci degil, `okunamayan[]` modelin yargisi, aritmetik ise karma
+     belgeyi GECIRIYOR (olculdu). Belgeden gelen tek sey bir OLGU: okunmus satir
+     var mi. Bu olgu turu belirlemez, yalniz VERI KAYBI MUHAFIZI olarak kullanilir.
+
+   ⚠ "Kesin/dogrulandi" iddiasi hicbir dalda yazilmaz; her dal KAYNAGINI soyler. */
+let AL_TUR_BEKLIYOR = null;        // null | 'karar-yok' | 'satir-riski'
+let AL_SATIR_ATILACAK = 0;         // 1. satirda okunan satir sayisi (onay metnine girer)
+const AL_KAPI_METNI = {
+  'karar-yok': 'Kaydet kapalı: belgeyi mal mı hizmet mi olarak işleyeceğimi anlayamadım. '
+    + 'Yukarıdaki "Ne geldi?" seçimini sen yap.',
+  'satir-riski': 'Kaydet kapalı: belgede okunan satırların kaydedilip kaydedilmeyeceği '
+    + '"Ne geldi?" seçimine bağlı. Sen seç.'
+};
+/* Kaydet'in TEK kapi yeri. Hem dugmeyi kapatir hem sebebini dugmenin yanina yazar. */
+function alKaydetKapisi(){
+  const b = document.getElementById('alKaydet');
+  const n = document.getElementById('alKapiNot');
+  const kapali = !!AL_TUR_BEKLIYOR && !AL_DUZENLE;
+  if (b) b.disabled = kapali;
+  if (n) n.innerHTML = kapali
+    ? '<div class="bilgi-not" style="color:var(--uyari);margin:6px 0 0">⚠ '
+      + esc(AL_KAPI_METNI[AL_TUR_BEKLIYOR] || '') + '</div>'
+    : '';
+}
+function alModSec(m, kaynak){
   AL_MOD = m === 'hizmet' ? 'hizmet' : 'mal';
+  if (kaynak !== 'okuyucu'){
+    AL_MOD_ELLE = true;
+    /* ⚠ Y141 · KULLANICI KARAR VERDI: bekleyen karar kalkar, Kaydet acilir.
+         `AL_SATIR_ATILACAK` BILEREK silinmiyor — 1. satirda kullanici
+         Hizmet/masraf'i secerse kayit aninda cikacak onay o sayiyi yazar. */
+    AL_TUR_BEKLIYOR = null;
+    /* ⚠ 1. SATIRIN DEVAMI · KATEGORI ARTIK YAZILABILIR. Okuma aninda kategori
+         BILEREK yazilmiyordu (sistem karar vermis gorunmesin diye). Kullanici
+         dali KENDI sectigine gore firma kartindaki kategoriyi getirmek artik
+         sessiz bir sistem karari degil — kullanicinin kararinin devami.
+       ⚠ OLCULDU, BU SATIR OLMAZSA KUSUR: kullanici Hizmet'i seciyor, kategori
+         bos oldugu icin kayit mevcut kategori kapisina takiliyordu ve "okunan
+         N satir kaydedilmeyecek" onayi HIC cikmiyordu.
+       ⚠ Sadece BOSSA yazilir (kullanicinin kendi secimi ezilmez) ve yalniz
+         gider beyanli firmada deger doner (`odVarsayilanKategori` kapisi). */
+    if (AL_MOD === 'hizmet'){
+      const kt = document.getElementById('alGiderKat');
+      const tedSec = document.getElementById('alTedarikci');
+      if (kt && !kt.value && tedSec){
+        const kv = odVarsayilanKategori(tedSec.value);
+        if (kv){ kt.value = kv; kt.classList.add('oku-dolu'); }
+      }
+    }
+  }
   document.querySelectorAll('#gdIcerik .segment .sg-btn').forEach(b =>
     b.classList.toggle('aktif', /Hizmet/.test(b.textContent) === (AL_MOD === 'hizmet')));
   alModCiz();
+  alKaydetKapisi();
 }
 function alModCiz(){
   const hizmet = AL_MOD === 'hizmet';
@@ -13364,6 +13456,50 @@ async function alDepoIndir(yol){
   }
   return data;
 }
+/* ⚠⚠ Y142 · KALEM 2 · "EKRANDA ONCEKI BELGEDEN KALMIS VERI VAR MI"
+     Kullanicinin kurali: ekranda onceki belgeden kalmis veri varken kayit
+     SESSIZCE gitmez. Yine de kaydetmek isterse kaydeder — ama BIR KEZ sorulur.
+   ⚠ KOSUL EKRANDAN OKUNUR, BELLEKTEN DEGIL: `AL_SATIRLAR` yeni formda da dolu
+     kaliyordu, o diziye bakan bir kosul BOS formda da soru sorardi (olculdu).
+   ⚠ IKI SART BIRLIKTE: (a) ekranda okumadan kalmis sey var, (b) son okuma
+     denemesi DUSTU. Basarili okumadan sonra ekrandaki veri O BELGENIN kendisi;
+     orada soru sorulmaz.
+   ⚠ AYIRT EDICI ISARET KIP DEGIL: `AL_DUZENLE`ye bakmak yanlisti (ilk taslakta
+     oyleydi). Olculdu: duz duzenlemede `.oku-dolu` 0 — alanlari `alisDuzenle`
+     dogrudan dolduruyor, okuma isareti koymuyor; duzenleme kipinde BASARILI
+     okumadan sonra 3.
+
+   ⚠⚠ Y142b · NOT ILE SORU AYNI OLCUYU KULLANIR — olcu TEK yardimcidan gelir.
+     `-121`de AYRI olculerdi: not satirlari da sayiyordu, soru YALNIZ
+     `.oku-dolu` sayiyordu. Acik TAM ORADAN gecti: `.oku-dolu` isareti yalnizca
+     `alTarih`, `alBelgeNo`, `alToplam` ve hizmette gider kategorisine konuyor —
+     URUN SATIRLARI ve KDV dokumu satirlari o isareti HIC almiyor. Oysa eski
+     belgeden tasinan zarar SATIRLARDADIR. Olculdu (`-121`): basarili ama
+     YALNIZCA SATIR getiren bir okumadan sonra okuma duserse soru HIC cikmiyor,
+     onceki belgenin iki urunu yeni faturaya yaziliyordu — yeni faturada
+     (F1b/F1bR) ve duzenlemede (F4/F4R). Ekran "onceki belgeden kaldi" derken
+     kapi susuyordu; artik iki yerin ayrisma ihtimali yok.
+   ⚠ DUZENLEMEDE SATIR KOSULLU SAYILIR: kayit acilinca ekrandaki satirlar
+     kaydin KENDI kalemleridir — orada uyari YANLIS olurdu (olculdu: E7). AMA bu
+     formda BASARILI bir okuma olduysa satirlar artik OKUNAN belgenindir
+     (olculdu: F4) ve SAYILIR. Ayirt edici kip DEGIL, "bu formda okuma oldu mu"
+     (`okumaOldu` isareti · asagida, basari yolunda).
+   ⚠ YANLIS POZITIF URETMEZ: soru AYRICA "son okuma DUSTU" sartina bagli ve
+     DUSEN OKUMA SATIR CIZMEZ — dusen okumadan sonra ekranda gorunen satir
+     zorunlu olarak onceki belgenindir (duzenlemede `okumaOldu` yoksa kaydin
+     kendisidir ve sayilmaz). */
+function alEkranKalan(){
+  const drm   = document.getElementById('alOkuDurum');
+  const alan  = document.querySelectorAll('#gdIcerik .oku-dolu').length;
+  const satir = document.querySelectorAll('#alSatirlar .fs-satir').length;
+  const satirSayilir = !AL_DUZENLE || !!(drm && drm.dataset.okumaOldu === '1');
+  return alan + (satirSayilir ? satir : 0);
+}
+function alEskiBelgeKaldi(){
+  const drm = document.getElementById('alOkuDurum');
+  if (!drm || drm.dataset.okumaDustu !== '1') return false;
+  return alEkranKalan() > 0;
+}
 async function faturaOku(){
   const inp = document.getElementById('alFoto');
   const drm = document.getElementById('alOkuDurum');
@@ -13378,11 +13514,36 @@ async function faturaOku(){
   btn.disabled = true; const eski = btn.textContent; btn.textContent = 'Okunuyor...';
   yaz(dosyaVar ? 'Belge okunuyor, 10-20 saniye sürebilir...'
                : 'Kayıtlı belge okunuyor, 10-20 saniye sürebilir...','');
+  /* ⚠ Y142 · KALEM 2 · "SON OKUMA DUSTU MU" ISARETI EKRANDA DURUR.
+       Isaret `alOkuDurum`un KENDI uzerinde: `gdFatura` o ogeyi yeniden cizdigi
+       icin yeni formda kendiliginden dusuyor — bir JS degiskeni ekranla birlikte
+       sifirlanmazdi.
+     ⚠ `className` DEGIL `dataset`: `yaz()` her yazmada className'i komple
+       degistiriyor (yukarida), dataset'e dokunmuyor.
+     ⚠ BURADA TEMIZLENIR, `catch`te KONUR: basarili okuma isareti silmis olur. */
+  if (drm) delete drm.dataset.okumaDustu;
   if (ozet) ozet.innerHTML = '';
   AL_FIRMA_OKUNAN = null;                           // Y74 · onceki okumanin satici alanlari dusmez
   /* Y77 · bu okumanin firma durumu sifirlanir; okuma surerken kullanici firmayi SECERSE model onu EZMEZ.
      OCR_SON da sifirlanir: dusen okumada ONCEKI belgenin okumasi bu faturanin izi olarak kaydedilmesin. */
   AL_PDF_SATICI = null; AL_PDF_ES = null; AL_FIRMA_KAYNAK = null; OCR_SON = null;
+  /* ⚠ Y141 · DEVIR YOK: her okumada tur karari SIFIRDAN verilir. Onceki belgenin
+       modu ve gider kategorisi burada temizlenir, yoksa ikinci belge birincinin
+       dalinda kalirdi (olculdu: gider belgesinden sonra okunan alis belgesi).
+     ⚠ KULLANICININ KENDI SECIMI TEMIZLENMEZ (`AL_MOD_ELLE`) ve duzenleme kipine
+       dokunulmaz: devir yasagi OKUYUCUNUN kararini sifirlar, kullanicinin
+       kararini DEGIL. */
+  /* ⚠⚠ Y141-1b · KALEM 2 · BU TEMIZLIK BURADAN KALDIRILDI (olculdu, kusurdu).
+       Eskiden devir temizligi (bekleyen karar + mod + kategori + `alKaydetKapisi`)
+       OKUMA DENENMEDEN ONCE kosuyordu. Okuma sonra DUSERSE ekran, okumadan onceki
+       halinden DAHA GEVSEK kaliyordu: kapi aciliyor, bekleyen karar siliniyor,
+       ama onceki belgenin tutari, belge nosu, tarihi ve URUN SATIRLARI formda
+       duruyordu. Olculdu: kapi kapaliyken ikinci okuma dustugunde Kaydet acildi
+       ve birinci belgenin iki satiri BASKA firmanin faturasi olarak kaydedildi
+       (iki yeni stok urun karti arti iki alis kalemi, hic onay sorulmadan).
+       ⚠ KURAL: okuma duserse ekranin hali, okumadan ONCEKI kadar siki kalir.
+         Temizlik artik YENI BELGENIN VERISI GELDIKTEN SONRA, karar tablosunun
+         hemen onunde kosuyor. */
   const selF = document.getElementById('alTedarikci');
   const elleSecildi = () => { AL_FIRMA_KAYNAK = 'kullanici'; };
   if (selF) selF.addEventListener('change', elleSecildi);
@@ -13455,6 +13616,112 @@ async function faturaOku(){
     const firma = alFirmaSonuc(v);
     const es = firma.es, firmaNot = firma.firmaNot;
     if (es.t) doldu.push('Firma');
+    /* ===== Y140 · "NE GELDI?" SORUSUNU SISTEM CEVAPLAR =====
+       KULLANICI: "biz doldurmucaz, kendisi hersheyi yapacak."
+       Eksik olan tek halka buydu: okuyucu firmayi TANIYOR ama "Mal alimi /
+       Hizmet masraf" secimine hic dokunmuyordu, her belge 'mal'dan basliyordu.
+       Hizmet faturasi (tamir, nakliye, reklam, OSGB) mal alimi dalinda
+       kaydedilince stok ve mal maliyeti sisiyordu.
+
+       ⚠ OLCUT FIRMANIN BEYANI: `tedarikci.varsayilan_tur` (v153, canlida).
+         Belgenin TURUNDEN (`belge_turu`) turetilmez — `satis_fisi` bir markete
+         de bir tamirciye de ait olabilir; belge bicimini soyler, AMACINI degil.
+       ⚠ IKI SOZLUK AYRI: beyan 'alis'/'gider', mod 'mal'/'hizmet'. Esleme
+         ACIK yazilir; degerleri birbirine atamak `alModSec`in "hizmet disindaki
+         her sey mal" kuralina sessizce duserdi.
+       ⚠ ISARETSIZ FIRMADA (NULL) HICBIR SEY YAPILMAZ: bugunku yol kalir.
+         Y138'de ayni karar verildi, guvenli taraf buydu.
+       ⚠ DUZENLEME KIPINDE CEVIRME YOK: kayitli faturada dal secimi zaten
+         ekranda cikmiyor ve kullanicinin kaydettigi karar bozulmamali.
+       ⚠ KULLANICININ ELIYLE YAPTIGI SECIM EZILMEZ (`AL_MOD_ELLE`).
+       ⚠ TERS YON DE GEREKLI: okuyucu bir onceki belgede modu 'hizmet'e
+         cevirmisse ve ayni formda ikinci belge 'alis' beyanli bir firmadansa
+         mod 'mal'a GERI alinir — yoksa ikinci belge yanlis dalda kalirdi. */
+    /* ⚠⚠ Y141-1b · KALEM 1 · OKUNAN SATIR SAYISI BIR OLGU, KARAR DEGIL.
+         Bu satir BILEREK tur kapisinin (`!AL_MOD_ELLE`) DISINDA: dosyanin kendi
+         kurali "belgeden gelen tek sey bir OLGU: okunmus satir var mi; bu olgu
+         turu belirlemez, yalniz VERI KAYBI MUHAFIZI olarak kullanilir".
+       ⚠ OLCULDU, ICERDE OLMASI KUSURDU: kullanici dala OKUMADAN ONCE basarsa
+         (`AL_MOD_ELLE` true) karar tablosu hic kosmuyor, sayac 0 kaliyor ve
+         kayit aninda "N satir kaydedilmeyecek" onayi HIC cikmiyordu — iki satir
+         sessizce atiliyordu. Sayac artik formda DURAN belgeyi anlatiyor.
+       ⚠ Sayac yalniz hizmet dalinda okunur (`hizmetKaydet`), mal dalinda
+         satirlar kaydediliyor; mal dalina dokunulmadi. */
+    const satirAdet = Array.isArray(v.satirlar) ? v.satirlar.length : 0;
+    AL_SATIR_ATILACAK = satirAdet;
+    /* ⚠ Y141-1b · KALEM 2 · DEVIR TEMIZLIGI ARTIK BURADA: yeni belgenin verisi
+         ELDE. Okuma dusseydi bu satirlara hic gelinmezdi, yani kapi kapali ve
+         bekleyen karar yerinde kalirdi. */
+    if (!AL_DUZENLE && !AL_MOD_ELLE){
+      AL_TUR_BEKLIYOR = null;
+      if (AL_MOD !== 'mal') alModSec('mal', 'okuyucu');
+      const ksT = document.getElementById('alGiderKat');
+      if (ksT){ ksT.value = ''; ksT.classList.remove('oku-dolu'); }
+    }
+    let modNot = '';
+    if (!AL_DUZENLE && !AL_MOD_ELLE){
+      /* Y141 · KARAR TABLOSU · dort satir. Tur karari YALNIZ firma kartindan;
+         belgeden gelen `satirAdet` bir OLGU, tur olcutu DEGIL. */
+      const beyan = es.t ? es.t.varsayilan_tur : null;
+      const ks = document.getElementById('alGiderKat');
+      if (beyan === 'gider' && satirAdet > 0){
+        /* ── 1. SATIR · gider isaretli AMA belgede okunmus satir VAR ──────
+           ⚠ SISTEM KARAR VERMEZ: mod degistirilmez, kategori yazilmaz,
+             satirlar gizlenmez, hicbir sey "secilmis" gorunmez. Cunku bu
+             dalin kaydi (`rpc_gider_kaydet`) okunan satirlari TASIYAMAZ —
+             yukun 13 alaninin hicbiri dizi degil, yani satirlar ATILIR.
+             Karari kullanici verir; Kaydet o secimi yapana kadar KAPALI. */
+        AL_TUR_BEKLIYOR = 'satir-riski';
+        /* ⚠ Y141-1b · sayac BURADA YAZILMIYOR: tur kapisinin disina tasindi
+             (yukarida, tek yazici). Burada kalsaydi dala okumadan once basan
+             kullanicida yine 0 kalirdi. */
+        doldu.push('Ne geldi? → kararı sen ver');
+        modNot = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Belgede
+          <b>${satirAdet} satır okundu</b>, ama <b>${esc(es.t.ad)}</b> firma kartında
+          <b>Hizmet / masraf</b> tercihi var. <b>Hizmet / masraf</b> dalı bu satırları
+          <b>kaydetmez</b>. Kararı <b>sen</b> ver: <b>Hizmet / masraf</b>
+          (${satirAdet} satır kaydedilmeyecek) ya da <b>Mal alımı</b>.
+          Seçene kadar <b>Kaydet kapalı</b>.</div>`;
+      } else if (beyan === 'gider'){
+        /* ── 2. SATIR · gider isaretli, belgede satir YOK → dal secilir ── */
+        if (AL_MOD !== 'hizmet') alModSec('hizmet', 'okuyucu');
+        /* ⚠ Kategori GARANTI DEGIL: firma 'gider' isaretli olup kategorisi bos
+           olabilir, ya da kayitli kategori kullanicinin katalogunda olmayabilir
+           (`sadece_owner`). Ikisini de Y138'in `odVarsayilanKategori`
+           yardimcisi cozuyor — IKINCI BIR KOPYA YAZILMADI. */
+        const kat = odVarsayilanKategori(es.t.id);
+        if (ks && kat){ ks.value = kat; ks.classList.add('oku-dolu');
+                        alHizmetKatDegisti(); doldu.push('Gider kategorisi'); }
+        doldu.push('Ne geldi? → Hizmet/masraf');
+        modNot = `<div class="bilgi-not">ℹ <b>Firma kartındaki tercihe göre</b>
+          <b>Hizmet / masraf</b> seçildi — <b>belgeden doğrulanmadı</b>.
+          Belge mal alımıysa <b>Mal alımı</b>'na bas.${
+            ks && !kat ? ' Gider kategorisini sen seç.' : ''}</div>`;
+      } else if (beyan === 'alis'){
+        /* ── 3. SATIR · alis isaretli → mal dali. Satirlar kaydediliyor. ── */
+        if (AL_MOD !== 'mal') alModSec('mal', 'okuyucu');
+        doldu.push('Ne geldi? → Mal alımı');
+        modNot = `<div class="bilgi-not">ℹ <b>Firma kartındaki tercihe göre</b>
+          <b>Mal alımı</b> seçildi — <b>belgeden doğrulanmadı</b>.
+          Hizmet faturasıysa <b>Hizmet / masraf</b>'a bas.</div>`;
+      } else {
+        /* ── 4. SATIR · firma kartinda tercih YOK (ya da firma hic taninmadi)
+           ⚠ HICBIR DAL SECILMIS GIBI GOSTERILMEZ ve KAYIT YOK. Olculdu:
+             eski halde mod 'mal'da kalip tek kelime uyari yazmadan
+             `rpc_alis_kaydet` gidiyordu; karma belgede hizmet satiri icin
+             STOK URUN KARTI acilmisti. Kullanicinin kurali: "ben secim
+             yapana kadar kayit olmasin."
+           ⚠ Firma HIC TANINMADIYSA da buraya duser: tercih yok demektir. */
+        AL_TUR_BEKLIYOR = 'karar-yok';
+        doldu.push('Ne geldi? → anlaşılamadı, kararı sen ver');
+        modNot = `<div class="bilgi-not" style="color:var(--uyari)">⚠ <b>Belgeyi mal mı
+          hizmet mi olarak işleyeceğimi anlayamadım</b> — ${es.t
+            ? '<b>' + esc(es.t.ad) + '</b> firma kartında tercih yok'
+            : 'belgedeki firma tanınmadı'}, belge de tür bilgisi vermiyor.
+          <b>"Ne geldi?" seçimini sen yap.</b> Seçene kadar <b>Kaydet kapalı</b>.</div>`;
+      }
+      alKaydetKapisi();
+    }
     /* Alıcı kontrolü — LTD faturası şahıs defterine girmesin.
        Eskiden alıcının VKN'si sabit TCKN ile karşılaştırılıyordu; o sabit
        kaldırıldı. Artık karşılaştırma yapılmıyor, alıcı GÖSTERİLİYOR ve
@@ -13474,10 +13741,32 @@ async function faturaOku(){
     }
     // Denetim
     let denetimNot = '';
-    if (dn.satir_dahil_tutuyor === false && dn.satir_haric_tutuyor === false){
-      denetimNot = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Satır tutarları belge toplamıyla tutmadı
-        (${tl(dn.satir_tutar_toplami)} ≠ ${tl(dn.odenecek ?? dn.genel_toplam)}). Ürün satırları girilmedi —
-        toplam ve KDV'yi belgeyle karşılaştır.</div>`;
+    /* ⚠⚠ Y141 · KALEM 2 · OLU KOSUL ONARILDI. Burada eskiden
+         `dn.satir_dahil_tutuyor === false && dn.satir_haric_tutuyor === false`
+       okunuyordu. UC OLCUM: (a) canli okuyucu kaynaginda bu uc ad
+       (`satir_dahil_tutuyor`, `satir_haric_tutuyor`, `satir_tutar_toplami`)
+       URETILMIYOR, (b) repoda yalnizca OKUNUYOR, hicbir dosya uretmiyor,
+       (c) aritmetigin GERCEKTEN tutmadigi belgede bu uyari CIKMADI.
+       `undefined === false` yanlis oldugu icin kosul hic saglanmiyordu:
+       o uyari bugune kadar HIC CIKMADI (yayinlanmis surumde de ayni satir).
+       Artik okuyucunun GERCEKTEN urettigi alan okunuyor: `net_matrahi_tutuyor`
+       ve farki `matrah_farki`.
+       ⚠ BU UYARI TUR KARARINA BAGLANMAZ (ayri kalem): yalniz belgenin kendi
+         matrah tutarliligini soyler, mal/hizmet karari vermez.
+       ⚠ CIFT UYARI BIRAKILMADI · hangisi kaldi, gerekcesiyle: belgede okunmus
+         satir VARSA bu cumle YAZILMAZ, cunku istemcinin kendi kapisi
+         (`AL_SATIR_TUTUYOR`) o durumda zaten konusuyor ve onun cumlesi SONUCU
+         da soyluyor ("urun satirlari kaydedilmeyecek"). Iki matrah cumlesi ayni
+         ekranda birbiriyle celisir. Satir YOKKEN istemcinin kapisi sessiz
+         (olculdu: satir yoksa `AL_SATIR_TUTUYOR` true donup cikiyor), uyari
+         orada kaybolmasin diye bu dal YAZAR. */
+    if (dn.net_matrahi_tutuyor === false && !(Array.isArray(v.satirlar) && v.satirlar.length)){
+      const fark = (dn.matrah_farki === null || dn.matrah_farki === undefined)
+        ? null : Number(dn.matrah_farki);
+      denetimNot = `<div class="bilgi-not" style="color:var(--uyari)">⚠ Belgenin kendi
+        matrah toplamı tutmadı${fark !== null && isFinite(fark) ? ' (fark ' + tl(Math.abs(fark)) + ')' : ''} —
+        okuyucu belgedeki matrah ile KDV dökümünü birbirine denk getiremedi.
+        Toplamı ve KDV'yi belgeyle karşılaştır.</div>`;
     }
     if (s.yedege_dusuldu){
       denetimNot += `<div class="bilgi-not" style="color:var(--uyari)">Not: ana model okuyamadı, yedek modelle okundu — kontrolü daha dikkatli yap.</div>`;
@@ -13507,7 +13796,10 @@ async function faturaOku(){
       ✎ ${matrahTamamlanan.satirdan} KDV satırında matrah —
       ${esc(dilSatirdan('faturanın kendi satırları toplandı'))}; toplam, belgede yazan KDV ile doğrulandı.</div>`;
     if (ozet){
-      ozet.innerHTML = aliciNot + (firma.korunan ? '<div id="alFirmaYer"></div>' : firmaNot) + denetimNot;
+      /* ⚠ Y140 · `modNot` firmanin notundan SONRA: once "hangi firma", sonra
+         "o firma yuzunden hangi dal". Sirasi ters olsa cumle havada kalirdi. */
+      ozet.innerHTML = aliciNot + (firma.korunan ? '<div id="alFirmaYer"></div>' : firmaNot)
+        + modNot + denetimNot;
       /* Y77 · acik kart ya da "eklendi" notu YERINDE kalir: kullanicinin yazdigi silinmez */
       if (firma.korunan) document.getElementById('alFirmaYer').replaceWith(...firma.korunan);
     }
@@ -13522,6 +13814,15 @@ async function faturaOku(){
     axTabloCiz(document.getElementById('alOkuTablo'), alOkumaSatirlari(vTablo));
     // Faturadaki ürün satırları — tanınanlar otomatik, ilk kez görülenler sorulur
     await alSatirlariKur(v.satirlar, firma.firmaId);
+    /* ⚠ Y142b · "BU FORMDA BASARILI OKUMA OLDU" ISARETI · F4'un cevabi.
+         Duzenleme kipinde ekrandaki satirlar normalde kaydin KENDI kalemleridir
+         (E7 · orada uyari YANLIS olurdu). Basarili bir okuma onlarin yerine
+         OKUNAN belgenin satirlarini koyuyor — o andan sonra satirlar SAYILMALI,
+         yoksa duzenlemede acik kapanmamis olur (olculdu: F4/F4R).
+       ⚠ TEMIZLENMEZ: isaret `alOkuDurum`un uzerinde; `gdFatura` o ogeyi yeniden
+         cizdigi icin yeni formda kendiliginden dusuyor — `okumaDustu` ile AYNI
+         desen, ayni gerekce. Okuma BASINDA silinmez: silinirse F4 geri acilir. */
+    if (drm) drm.dataset.okumaOldu = '1';
 
     const eksik = Array.isArray(v.okunamayan) ? v.okunamayan.filter(Boolean) : [];
     let msj = (OKUMA_YONTEMI === 'PDF metni' ? '✓ e-Fatura PDF\'inden okundu (rakamlar birebir) → ' : 'Okundu → ')
@@ -13530,7 +13831,29 @@ async function faturaOku(){
     if (v.uyari) msj += ' (' + gizle(v.uyari) + ')';     // Y74 · okuyucunun serbest metni de
     yaz(msj, doldu.length ? 'ok' : 'uyari');
   }catch(e){
-    yaz('Okunamadı: ' + (e.okumaNedeni || hataTr(e.message)) + ' — alanları elle yaz.', 'uyari');
+    /* ⚠ Y141-1b · KALEM 3 · DUSEN OKUMADA EKRAN KONUSUR.
+         Kullanicinin karari (10 Kasim): dusen okumadan sonra onceki belgenin
+         tutari, belge nosu, tarihi ve satirlari formda KALIR (karar verilmemis
+         bir okuma silinmesin) — AMA ekran bunu SOYLER. Not mevcut hata
+         yazisinin yanina girer, yeni ekran ogesi acilmaz, yeni onay EKLENMEZ.
+       ⚠ TUTAR VE FIRMA ADI YAZILMAZ; tur kararina dair hicbir sey soylenmez.
+       ⚠ KOSUL EKRANDAN OLCULUR, BELLEKTEN DEGIL: `AL_SATIRLAR` yeni formda da
+         dolu kaliyor (olculdu — `gdFatura` onu temizlemiyor), yani o diziye
+         bakan bir kosul BOS formda da not yazardi. Olcut ekranda gorunen sey:
+         okunmus alan isareti (`.oku-dolu`) ve gorunur satir (`.fs-satir`). */
+    /* ⚠⚠ Y142b · OLCU TEK YERDEN: `alEkranKalan()`. Notun ve SORUNUN olcusu artik
+         AYNI yardimcidan geliyor. `-121`de ayriydi — not satirlari sayiyor, soru
+         saymiyordu — ve acik tam o araliktan gecti: ekran "onceki belgeden kaldi"
+         derken kayit kapisi susuyordu (olculdu: F1b, F4).
+       ⚠ Duzenlemede satirin KOSULLU sayilmasi (`okumaOldu`) ve kullanicinin
+         "normal duzenleme gereksiz uyari vermesin" karari yardimcinin icinde
+         tanimli; burada tekrar edilmiyor.
+       ⚠ NOTUN METNI DEGISMEDI. */
+    const eskiNot = alEkranKalan() > 0
+      ? ' ⚠ Ekrandaki alanlar ÖNCEKİ belgeden kaldı — bu belgenin bilgileri değil.'
+      : '';
+    if (drm) drm.dataset.okumaDustu = '1';     // Y142 · KALEM 2 · kayit yolu bunu okuyor
+    yaz('Okunamadı: ' + (e.okumaNedeni || hataTr(e.message)) + ' — alanları elle yaz.' + eskiNot, 'uyari');
     alOkumaDustuFirma();                              // Y77 · E + F (duzenleme kipinde YOK)
   }finally{
     btn.disabled = false; btn.textContent = eski;
@@ -14705,6 +15028,16 @@ async function hizmetKaydet(){
     if (mv && mv.length && !confirm('Bu belge no ile daha önce bir gider girilmiş görünüyor ('
         + BB_GG(String(mv[0].tarih)) + ' · ' + tl(mv[0].tutar) + ').\n\nYine de kaydedilsin mi?')) return;
   }
+  /* ⚠⚠ Y141 · OKUNAN SATIRLAR BU DALDA KAYDEDILMEZ — ONCE SOR.
+       Olculdu: `rpc_gider_kaydet` yukunun 13 alaninin hicbiri dizi degil, yani
+       okunmus urun satirlarinin tasinacagi alan YOK; eski halde o satirlar
+       ONAY SORULMADAN atiliyordu (iki senaryoda olculdu, biri karma belge).
+     ⚠ TEK ONAY: bicim istemcinin kendi `AL_SATIR_TUTUYOR` onayinin aynisi
+       (yeni kalip icat edilmedi) ve IKINCI bir onay eklenmedi. */
+  if (AL_SATIR_ATILACAK > 0 &&
+      !confirm('Belgede okunan ' + AL_SATIR_ATILACAK + ' ürün satırı KAYDEDİLMEYECEK.'
+        + '\n\nHizmet/masraf kaydında ürün satırı tutulmaz — fatura tutarı ve KDV\'si'
+        + ' gider olarak kaydedilir.\n\nYine de kaydedilsin mi?')) return;
   if (kdvT === 0 && !confirm('KDV dökümü BOŞ — bu fatura indirilecek KDV hesabına girmeyecek. Yine de kaydedilsin mi?')) return;
   const fotoVar = !!(g('alFoto') && g('alFoto').files && g('alFoto').files[0]);
   if (!fotoVar && !confirm('Belge fotoğrafı yok. Ay sonunda muhasebeye giden arşivde bu belge eksik kalır.\n\nYine de kaydedilsin mi?')) return;
@@ -14744,6 +15077,43 @@ async function hizmetKaydet(){
   } else btn.textContent = 'Hizmet faturasını kaydet';
 }
 async function alisKaydet(){
+  /* ⚠⚠ Y141 · KESINLIK YOKSA KAYIT DA YOK — IKINCI KAPI.
+       Dugme zaten `alKaydetKapisi` ile kapatiliyor, ama kapali dugme bir
+       GORUNUM kapisidir: kod yolundan (eski bir cagri, klavye, otomasyon)
+       bu islev yine cagrilabilir. Kullanicinin kurali "ben secim yapana kadar
+       KAYIT OLMASIN" oldugu icin kapi kaydin kendi yolunda da duruyor:
+       buradan sonra HICBIR RPC gitmez. */
+  if (AL_TUR_BEKLIYOR && !AL_DUZENLE){
+    mesaj('alMsg','hata', AL_KAPI_METNI[AL_TUR_BEKLIYOR] || 'Önce "Ne geldi?" seçimini yap.');
+    alKaydetKapisi();
+    return;
+  }
+  /* ⚠⚠ Y142 · KALEM 2 · SORU HER YAZMANIN ONUNDE, TEK NOKTADA.
+       Kayit tek adimda gitmiyor, yazmalar SIRAYLA cikiyor: once storage'a dosya
+       (`fotoYukle`), sonra `rpc_urun_tanimla` yeni stok karti acip firmaya alias
+       ogretiyor, EN SON ana kayit RPC'si. Soruyu `rpc_alis_kaydet`in onune
+       koymak YETMEZDI: reddedildiginde dosya ve urun kartlari coktan yazilmis
+       olurdu (olculdu — mal dalinda bugun hic kapi yok, dosya yuklenip iki urun
+       karti aciliyordu). Bu nokta MAL ve HIZMET dalinin ONUNDE ve her yazmadan
+       once; reddedilince SIFIR yazma.
+     ⚠ HIZMET DALINDAKI "N URUN SATIRI KAYDEDILMEYECEK" UYARISI AYRI BIR RISKTIR
+       (dogru belgenin icinde veri kaybi); bu soru YANLIS BELGENIN kaydini
+       anlatiyor. Biri digerinin yerine gecmez, otekinin metni ve yeri degismedi.
+       Sira: bu soru ONCE — reddedilirse oteki hic sorulmaz, kabul edilirse ikisi
+       de hak edilmistir.
+     ⚠ TUTAR VE FIRMA ADI YAZILMAZ.
+     ⚠⚠ Y142b · SOZ DEGISTI, CUNKU OLCU GENISLEDI. Eski soz "Ekrandaki ALANLAR …
+        kalmis gorunuyor" idi; olcu yalniz `.oku-dolu` sayarken dogruydu. Artik
+        urun satirlari da sayiliyor ve olculen iki hal (F1b · F4) tam da
+        ALANLARIN eski OLMADIGI hallerdir: kullanici tutari kendi yazdi,
+        duzenlemede belge no kaydin kendisi — eski olan SATIRLAR. Eski sozle
+        kullanici "hayir, bunlari ben yazdim" diye okur ve dogru uyariyi kendi
+        elimizle etkisiz hale getirmis olurduk. Ayirt edici soz ("ÖNCEKİ
+        belgeden") 23. karakterde bitiyor: duzenegin 80 karakterlik kirpmasinin
+        icinde kaliyor ve satir uyarisindan ayirt edilebiliyor. */
+  if (alEskiBelgeKaldi() &&
+      !confirm('Ekranda ÖNCEKİ belgeden kalmış bilgi var — okunamayan bir okumadan sonra'
+        + ' alanlar ya da ürün satırları silinmedi.\n\nYine de kaydedilsin mi?')) return;
   if (!AL_DUZENLE && AL_MOD === 'hizmet') return hizmetKaydet();     // Y88
   const pT = paraOku(document.getElementById('alToplam'));
   if (!pT.ok){ mesaj('alMsg','hata','Ödenecek tutar geçersiz — örnek: 3750 veya 3750,00'); return; }
@@ -18516,6 +18886,7 @@ async function vYonetim(){
       <button class="btn" id="arsivBtn" onclick="arsivPdf()">PDF Oluştur ve İndir</button>
       <div class="hata-msg" id="arsivMsg"></div>
     </div>
+    ${azKart()}
     <div id="bankaMutabakatKart"></div>`;
   akDurumGoster(); bankaMutabakatKart();   // vergi bolumu artik Vergiler sekmesinde
   duzenliKartCiz();                        // Y72
@@ -20583,6 +20954,429 @@ async function arsivPdf(){
     mesaj('arsivMsg','hata','PDF oluşturulamadı: ' + hataTr(e.message));
   }finally{
     btn.disabled = false; btn.textContent = 'PDF Oluştur ve İndir';
+  }
+}
+
+/* ================== BELGE ARŞİVİ (ZIP) · 24.11.2026 ==================
+   Tasarim: BARDAKS_OFIS\SAHIS\SISTEM\TASARIM_BELGE_ARSIVI_v1.md
+   (Muhammed onayi 24.11.2026: "Onay, onerildigi gibi").
+   Butun belgeler TURE GORE klasorlere (v1.1, Muhammed 24.11.2026: "Evet,
+   türe göre"; bkz. azKlasorAta), `YYYY-AA-GG_tur_ad_tutar.uzanti`
+   adiyla tek zip'e iner; yaninda LISTE.csv (belgesi OLMAYAN kayit da
+   satir olarak girer: "YOK") ve OKU.txt.
+   ⚠ YENI YETKI YOK: yalniz sahibin zaten acabildigi tablolar ve belgeler,
+     kullanicinin kendi girisiyle (`storage.download`) okunur.
+   ⚠ YARIM ARSIV TAM GIBI GORUNMEZ: bir kaynak okunamazsa zip KURULMAZ;
+     indirilemeyen belge sessiz atlanmaz, LISTE.csv'de "İNDİRİLEMEDİ".
+     (Aylik PDF ureticisi `arsivPdf` hatada `continue` ediyor — bu islev
+     o kalibi BILEREK tekrarlamiyor.)
+   ⚠ LTD KAPISI: `kart.sahip` 'sahis' olmayan kart ve `kredi.tur`
+     'ticari'/'sahis' olmayan kredi kayitlari (K-24.4) alinmaz; yollari
+     yasak kumesine girer. Zip'e girecek tek bir oge o kumedeyse is DURUR.
+     Bu kapi duzyazi degil: `azLtdKapisi` firlatir.
+   ⚠ Tum tablolar TAMAMEN okunur (tarih suzgeci istemcide), cunku "kayda
+     bagli olmayan dosya" tespiti TUM kayitli yollari bilmek zorunda —
+     aksi halde aralik disindaki kayitli belge "kayitsiz" sanilirdi. */
+const AZ_ESZAMANLI = 4;
+let AZ_CALISIYOR = false;
+/* Kayda bagli olmayan dosya YALNIZ index.html'in Sahis klasorlerinden
+   alinir. borc.html klasorleri (kart_ekstre vb.) Ltd kaydina ait olabilir:
+   sahibi bilinmeyen dosya alinmaz, OKU.txt'de adiyla sayilir. */
+const AZ_KAYITSIZ_KLASOR = new Set(['z','pos','fatura','gider','vergi','mutabakat','dekont']);
+const AZ_TUR = { z_raporu:'z-raporu', pos_slip:'pos-slip', fatura:'fatura', gider:'gider', vergi:'vergi' };
+
+function azKart(){
+  if (!PROFIL || PROFIL.rol !== 'owner') return '';
+  return `<div class="kart">
+      <div class="kbaslik">Belge Arşivi (zip)</div>
+      <div class="bilgi-not" style="margin:0 0 8px">Seçilen aralıktaki <b>bütün belgeler</b> (Z, fatura, gider, vergi,
+        POS mutabakatı, kart, kredi, şahsi borç) tarih ve adla adlandırılıp <b>türe göre klasörlerde</b>
+        (Faturalar ödenmiş/ödenmemiş, Giderler kategoriye göre — kira ayrı, Z raporları şubeye göre…) tek zip olarak iner.
+        Zip'i <b>BARDAKS_OFIS\SAHIS\FINANS\ARSIV</b> klasörüne açın.
+        Yanında Excel'de açılan <b>LISTE.csv</b> vardır: belgesi olmayan kayıtlar "YOK" yazar.
+        Ltd'ye ait kart ve kredi belgeleri alınmaz. Çok belgede bilgisayar önerilir.</div>
+      <div class="satir">
+        <div><label>Başlangıç ayı (boş = en baştan)</label><input type="month" id="azBas"></div>
+        <div><label>Bitiş ayı (boş = bugüne kadar)</label><input type="month" id="azSon"></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-weight:normal">
+        <input type="checkbox" id="azKayitsiz" style="width:auto;margin:0"> Kayda bağlı olmayan dosyaları da al</label>
+      <button class="btn" id="arsivZipBtn" onclick="arsivZip()">Say ve İndir</button>
+      <div class="hata-msg" id="arsivZipMsg"></div>
+    </div>`;
+}
+/* Kendi Turkce cumlemiz: CEVRILMIS sayilir (Y2 kapisi). */
+const azHata = (m) => { HATA_CEVRILMIS.add(m); return new Error(m); };
+/* ok-msg 5 sn sonra kayboluyor; arsivin SAYILI sonucu kalici olmali. */
+function azMesaj(tip, txt){
+  const el = document.getElementById('arsivZipMsg'); if (!el) return;
+  el.className = tip === 'ok' ? 'ok-msg' : tip === 'uyari' ? 'uyari-msg' : 'hata-msg';
+  el.textContent = txt; el.style.display = 'block';
+}
+/* Dosya adi parcasi: Windows'un kabul etmedigi isaretler gider, Turkce harf kalir. */
+function azDosyaParcasi(s, max){
+  const t = String(s ?? '').replace(/[\\/:*?"<>|\u0000-\u001f·]/g, ' ')
+    .replace(/\s+/g, ' ').trim().replace(/ /g, '-').replace(/-+/g, '-')
+    .slice(0, max || 40).replace(/[-. ]+$/, '');
+  return t || 'adsiz';
+}
+const azTutar = n => (Number(n) || 0).toLocaleString('tr-TR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+function azUzanti(yol){
+  const m = /\.([A-Za-z0-9]{1,5})$/.exec(String(yol || ''));
+  return m ? m[1].toLowerCase() : 'dosya';
+}
+/* Windows ad karsilastirmasi harf buyuklugune duyarsiz: kume kucuk harfle tutulur. */
+function azAd(o, kullanilan){
+  const t = /^\d{4}-\d{2}-\d{2}$/.test(o.tarih || '') ? o.tarih : null;
+  /* v1.1 · klasor TURDEN gelir (azKlasorAta); tarih yalniz dosya adinin basinda. */
+  const dizin = o.klasor || 'Diger';
+  const parca = [t || 'tarihsiz', o.tur, azDosyaParcasi(o.ad, 40)];
+  if (o.tutar != null && Number(o.tutar) > 0) parca.push(azTutar(o.tutar));
+  const kok = parca.join('_').slice(0, 76);
+  const uz = azUzanti(o.yol);
+  let ad = `${dizin}/${kok}.${uz}`, i = 2;
+  while (kullanilan.has(ad.toLowerCase())) ad = `${dizin}/${kok}_${i++}.${uz}`;
+  kullanilan.add(ad.toLowerCase());
+  return ad;
+}
+/* CSV hucresi: ; " satir sonu kacirilir. = + - @ ile baslayan metin Excel'de
+   formul olarak calismasin diye basina ' eklenir. */
+function azCsvHucre(v){
+  let s = String(v ?? '');
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+/* ⚠ SAYFALI OKUMA (bgTumYukle duzeni): ilk sayfa count:'exact' ile TOPLAMI
+   soyler; toplam tutmazsa FIRLATIR — 1000 satirda sessiz kesilme yok. */
+async function azTumunuOku(etiket, kur){
+  const SAYFA = 1000; let hepsi = [], toplam = null;
+  for (let i = 0; i < 200; i++){
+    const { data, error, count } = await kur(i === 0).range(hepsi.length, hepsi.length + SAYFA - 1);
+    if (error) throw azHata(etiket + ' okunamadı: ' + hataTr(error.message));
+    if (i === 0) toplam = Number.isFinite(count) ? count : null;
+    const parca = data || [];
+    hepsi = hepsi.concat(parca);
+    if (!parca.length || (toplam != null && hepsi.length >= toplam)){
+      if (toplam != null && hepsi.length !== toplam)
+        throw azHata(`${etiket}: ${hepsi.length}/${toplam} satır alınabildi`);
+      return hepsi;
+    }
+  }
+  throw azHata(etiket + ': okuma bitmedi');
+}
+/* Belge degistirilince eski yol not alanina "eski dosya: <yol>" diye yaziliyor (belgeEkle). */
+function azEskiYollar(metin){
+  const r = [], re = /eski dosya: ([^\s\]]+)/g; let m;
+  while ((m = re.exec(String(metin || '')))) r.push(m[1]);
+  return r;
+}
+/* Saf kurucu — ag cagrisi YOK; testte sahte satirlarla calistirilir.
+   Girdi: her kaynagin ham satirlari. Cikti: { ogeler, tum, ltdYol, ltdSayi }.
+     tum    = Sahis tarafinda kayda bagli BUTUN yollar (silinmis kayit dahil)
+     ltdYol = Ltd (ya da sahibi belirsiz) kayda bagli yollar — ASLA zip'e girmez */
+function azOgeKur(h, subeAdFn){
+  const subeAd = subeAdFn || (() => '');
+  const tum = new Set(), ltdYol = new Set(), ogeler = [];
+  let ltdSayi = 0;
+  const yolEkle = y => { if (y) tum.add(y); };
+  const ltdEkle = (y, aciklama) => { ltdSayi++; if (y) ltdYol.add(y); azEskiYollar(aciklama).forEach(x => ltdYol.add(x)); };
+  const vbYol = new Set();
+  for (const r of (h.vb || [])){
+    yolEkle(r.yol); if (r.yol) vbYol.add(r.yol);
+    const kasali = r.tur === 'z_raporu' || r.tur === 'pos_slip';
+    ogeler.push({ tarih:r.tarih, sube:subeAd(r.sube_id), tur:AZ_TUR[r.tur] || azDosyaParcasi(r.tur, 20),
+      turAd:r.tur_ad || r.tur, ad: kasali ? (subeAd(r.sube_id) + ' ' + (r.baslik || '')).trim() : (r.baslik || ''),
+      tutar:r.tutar, yol:r.yol || null, kayit_id:r.kayit_id });
+  }
+  /* Eski tek kasali gun sonu: yolu v_belgeler'de zaten varsa ikinci kez eklenmez. */
+  for (const g of (h.gs || [])){
+    yolEkle(g.z_foto_path); yolEkle(g.pos_slip_foto_path);
+    if (g.is_deleted) continue;
+    if (g.z_foto_path && !vbYol.has(g.z_foto_path))
+      ogeler.push({ tarih:g.tarih, sube:subeAd(g.sube_id), tur:'z-raporu', turAd:'Z Raporu (tek kasa)',
+        ad:(subeAd(g.sube_id) + (g.z_no ? ' Z ' + g.z_no : '')).trim(), tutar:null, yol:g.z_foto_path, kayit_id:g.id });
+    if (g.pos_slip_foto_path && !vbYol.has(g.pos_slip_foto_path))
+      ogeler.push({ tarih:g.tarih, sube:subeAd(g.sube_id), tur:'pos-slip', turAd:'POS Slip (tek kasa)',
+        ad:subeAd(g.sube_id), tutar:null, yol:g.pos_slip_foto_path, kayit_id:g.id });
+  }
+  /* PDF'siz eski mutabakat kayitlari Belgeler ekraninda da gosterilmiyor (M3) — burada da yok. */
+  for (const m of (h.bm || [])){
+    yolEkle(m.pdf_path);
+    if (m.is_deleted || !m.pdf_path) continue;
+    ogeler.push({ tarih:aySon(m.donem), sube:subeAd(m.sube_id), tur:'pos-mutabakati', turAd:'POS Mutabakatı',
+      ad:'POS ekstresi ' + subeAd(m.sube_id), tutar:null, yol:m.pdf_path, kayit_id:m.id });
+  }
+  const kartMap = new Map((h.kart || []).map(x => [x.id, x]));
+  const sahisKart = id => (kartMap.get(id) || {}).sahip === 'sahis';
+  const kartAd = id => { const k = kartMap.get(id) || {}; return k.ad || k.banka || 'kart'; };
+  const kdMap = new Map((h.kd || []).map(x => [x.id, x]));
+  for (const d of (h.kd || [])){
+    if (!sahisKart(d.kart_id)){ ltdEkle(d.foto_path, d.aciklama); continue; }
+    yolEkle(d.foto_path);
+    if (d.is_deleted) continue;
+    ogeler.push({ tarih:aySon(d.donem), sube:'', tur:'kart-ekstresi', turAd:'Kart ekstresi',
+      ad:kartAd(d.kart_id), tutar:null, yol:d.foto_path || null, kayit_id:d.id });
+  }
+  for (const o of (h.ko || [])){
+    const d = kdMap.get(o.donem_id);
+    if (!d || !sahisKart(d.kart_id)){ ltdEkle(o.foto_path, o.aciklama); continue; }
+    yolEkle(o.foto_path);
+    if (o.is_deleted) continue;
+    ogeler.push({ tarih:o.tarih || aySon(d.donem), sube:'', tur:'kart-odemesi', turAd:'Kart ödemesi',
+      ad:kartAd(d.kart_id), tutar:o.tutar, yol:o.foto_path || null, kayit_id:o.id });
+  }
+  const krediMap = new Map((h.kr || []).map(x => [x.id, x]));
+  const sahisKredi = id => { const t = (krediMap.get(id) || {}).tur; return t === 'ticari' || t === 'sahis'; };
+  const krediAd = id => { const k = krediMap.get(id) || {}; return k.ad || k.banka || 'kredi'; };
+  const ktMap = new Map((h.kt || []).map(x => [x.id, x]));
+  /* Taksit satirinin kendisi takvimdir: yalniz belgesi varsa listeye girer
+     (gelecek taksit "YOK" diye gorunmesin). */
+  for (const t of (h.kt || [])){
+    if (!sahisKredi(t.kredi_id)){ ltdEkle(t.foto_path, t.aciklama); continue; }
+    yolEkle(t.foto_path);
+    if (t.is_deleted || !t.foto_path) continue;
+    ogeler.push({ tarih:t.odeme_tarihi || t.vade_tarihi, sube:'', tur:'kredi-taksit', turAd:'Kredi taksiti',
+      ad:krediAd(t.kredi_id) + ' ' + t.sira + '. taksit', tutar:t.toplam_tutar, yol:t.foto_path, kayit_id:t.id });
+  }
+  for (const o of (h.kto || [])){
+    const t = ktMap.get(o.taksit_id);
+    if (!t || !sahisKredi(t.kredi_id)){ ltdEkle(o.foto_path, o.aciklama); continue; }
+    yolEkle(o.foto_path);
+    if (o.is_deleted || (o.tur !== 'odeme' && !o.foto_path)) continue;
+    ogeler.push({ tarih:o.tarih, sube:'', tur:'kredi-odemesi', turAd:'Kredi ödemesi',
+      ad:krediAd(t.kredi_id) + ' ' + t.sira + '. taksit', tutar:o.tutar, yol:o.foto_path || null, kayit_id:o.id });
+  }
+  /* K-24.5 · sahsi borc: ayri klasor, dosya adinda KISI ADI YOK (onay 24.11.2026). */
+  for (const o of (h.so || [])){
+    yolEkle(o.foto_path);
+    if (o.is_deleted || (o.tur !== 'odeme' && !o.foto_path)) continue;
+    ogeler.push({ tarih:o.tarih, sube:'', tur:'sahsi-odeme', turAd:'Şahsi borç ödemesi',
+      ad:'kayit-' + String(o.id).slice(0, 8), tutar:o.tutar, yol:o.foto_path || null, kayit_id:o.id });
+  }
+  for (const d of (h.db || [])){
+    yolEkle(d.foto_path);
+    if (d.is_deleted || !d.foto_path) continue;
+    ogeler.push({ tarih:d.alis_tarihi, sube:subeAd(d.sube_id), tur:'demirbas', turAd:'Demirbaş',
+      ad:d.ad || '', tutar:d.tutar, yol:d.foto_path, kayit_id:d.id });
+  }
+  for (const a of (h.ak || [])){
+    yolEkle(a.ozet_pdf_path);
+    if (a.is_deleted || !a.ozet_pdf_path) continue;
+    ogeler.push({ tarih:aySon(a.donem), sube:subeAd(a.sube_id), tur:'ay-ozeti', turAd:'Ay kapanış özeti',
+      ad:subeAd(a.sube_id), tutar:null, yol:a.ozet_pdf_path, kayit_id:a.id });
+  }
+  azKlasorAta(ogeler, new Set((h.af || []).map(x => x.id)));
+  return { ogeler, tum, ltdYol, ltdSayi };
+}
+/* v1.1 · KLASOR TEK YERDEN: her ogenin klasoru yalniz burada, turunden uretilir.
+   Fatura: acik fatura listesinde (v_acik_fatura, kalan > 0) ise Odenmemis.
+   Gider: kategori = v_belgeler basliginin " · " oncesi (gorunum oyle kuruyor).
+   Bilinmeyen tur "Diger"e duser — sessizce kaybolmaz. */
+function azKlasorAta(ogeler, acikFatura){
+  const sb_ = s => azDosyaParcasi(s || 'Sube-yok', 30);
+  for (const o of ogeler){
+    switch (o.tur){
+      case 'fatura':         o.klasor = 'Faturalar/' + (acikFatura.has(o.kayit_id) ? 'Odenmemis' : 'Odenmis'); break;
+      case 'gider':          o.klasor = 'Giderler/' + azDosyaParcasi(String(o.ad || '').split(' · ')[0] || 'Gider', 30); break;
+      case 'z-raporu': case 'pos-slip': case 'pos-mutabakati':
+                             o.klasor = 'Z_Raporlari/' + sb_(o.sube); break;
+      case 'vergi':          o.klasor = 'Vergi_SGK'; break;
+      case 'kart-ekstresi': case 'kart-odemesi': case 'kredi-taksit': case 'kredi-odemesi':
+                             o.klasor = 'Kart_Kredi'; break;
+      case 'sahsi-odeme':    o.klasor = 'Sahsi'; break;
+      case 'demirbas':       o.klasor = 'Demirbas'; break;
+      case 'ay-ozeti':       o.klasor = 'Ay_Ozetleri'; break;
+      case 'dekont':         o.klasor = 'Dekontlar'; break;
+      default:               o.klasor = 'Diger';
+    }
+  }
+}
+async function azKaynaklariTopla(){
+  const oku = (etiket, tablo, kolon) =>
+    azTumunuOku(etiket, ilk => sb.from(tablo).select(kolon, ilk ? { count:'exact' } : undefined).order('id'));
+  const [vb, gs, bm, kart, kd, ko, kr, kt, kto, so, db, ak, af] = await Promise.all([
+    azTumunuOku('Belgeler listesi', ilk => sb.from('v_belgeler').select('*', ilk ? { count:'exact' } : undefined)
+      .order('tur').order('kayit_id')),
+    oku('Gün sonu (tek kasa)', 'gun_sonu', 'id,sube_id,tarih,z_no,z_foto_path,pos_slip_foto_path,is_deleted'),
+    oku('POS mutabakatı', 'banka_mutabakat', 'id,sube_id,donem,pdf_path,is_deleted'),
+    oku('Kartlar', 'kart', 'id,ad,banka,sahip'),
+    oku('Kart ekstreleri', 'kart_donem', 'id,kart_id,donem,foto_path,aciklama,is_deleted'),
+    oku('Kart ödemeleri', 'kart_odeme', 'id,donem_id,tarih,tutar,foto_path,aciklama,is_deleted'),
+    oku('Krediler', 'kredi', 'id,ad,banka,tur'),
+    oku('Kredi taksitleri', 'kredi_taksit', 'id,kredi_id,sira,vade_tarihi,odeme_tarihi,toplam_tutar,foto_path,aciklama,is_deleted'),
+    oku('Kredi ödemeleri', 'kredi_taksit_odeme', 'id,taksit_id,tarih,tutar,tur,foto_path,aciklama,is_deleted'),
+    oku('Şahsi borç ödemeleri', 'sahis_odeme', 'id,tarih,tutar,tur,foto_path,is_deleted'),
+    oku('Demirbaş', 'demirbas', 'id,sube_id,ad,alis_tarihi,tutar,foto_path,is_deleted'),
+    oku('Ay kapanış', 'ay_kapanis', 'id,sube_id,donem,ozet_pdf_path,is_deleted'),
+    oku('Açık faturalar', 'v_acik_fatura', 'id,kalan')
+  ]);
+  const subeAd = id => (SUBELER.find(s => s.id === id) || {}).ad || '';
+  return azOgeKur({ vb, gs, bm, kart, kd, ko, kr, kt, kto, so, db, ak, af }, subeAd);
+}
+/* Kovayi ozyinelemeli listeler. Klasor ogesinin `id`'si null gelir (Storage API). */
+async function azKovaListele(){
+  const sonuc = [];
+  async function gez(dizin, derinlik){
+    if (derinlik > 4) return;
+    for (let off = 0; ; off += 1000){
+      const { data, error } = await sb.storage.from('belgeler')
+        .list(dizin, { limit:1000, offset:off, sortBy:{ column:'name', order:'asc' } });
+      if (error) throw azHata('Belge kovası listelenemedi: ' + hataTr(error.message));
+      const l = data || [];
+      for (const x of l){
+        const yol = dizin ? dizin + '/' + x.name : x.name;
+        if (x.id == null) await gez(yol, derinlik + 1); else sonuc.push(yol);
+      }
+      if (l.length < 1000) break;
+    }
+  }
+  await gez('', 0);
+  return sonuc;
+}
+/* Saf: liste + kayitli yollar -> kayda bagli olmayan dosyalar.
+   ⚠ SIFIR DONEN LISTE "YOK" DEMEK DEGIL: kayitli yollarin hicbiri listede
+     yoksa listeleme yetkisi yok sayilir ve HICBIR SEY alinmaz (sebebiyle). */
+function azKayitsizSec(liste, k, aralikta){
+  const bilinen = liste.filter(y => k.tum.has(y)).length;
+  if (k.tum.size && !bilinen)
+    return { dosyalar:[], not:`Kova listesi ${liste.length} dosya döndü ama kayıtlı belgelerin hiçbiri listede yok — listeleme yetkisi yok sayıldı, kayda bağlı olmayan dosya ALINMADI.` };
+  const atlanan = new Map(), dosyalar = [];
+  let ltdAtlanan = 0;
+  for (const y of liste){
+    if (k.tum.has(y)) continue;
+    if (k.ltdYol.has(y)){ ltdAtlanan++; continue; }
+    const kl = y.includes('/') ? y.slice(0, y.indexOf('/')) : '(kök)';
+    if (!AZ_KAYITSIZ_KLASOR.has(kl)){ atlanan.set(kl, (atlanan.get(kl) || 0) + 1); continue; }
+    const m = /\/(\d{4}-\d{2}-\d{2})_/.exec(y), t = m ? m[1] : null;
+    if (!aralikta(t)) continue;
+    dosyalar.push({ tarih:t, sube:'', tur:'kayitsiz', turAd:'Kayda bağlı değil', ad:'', tutar:null,
+      yol:y, kayit_id:null, kayitsiz:true });
+  }
+  const not = `Kovada ${liste.length} dosya listelendi; aralıkta kayda bağlı olmayan ${dosyalar.length} dosya alındı.`
+    + (ltdAtlanan ? ` Ltd kaydına bağlı ${ltdAtlanan} dosya alınmadı.` : '')
+    + (atlanan.size ? ' Bilerek ALINMAYAN klasörler (Ltd belgesi olabilir ya da sahibi bilinmiyor): '
+        + [...atlanan].map(([a, n]) => a + ' (' + n + ')').join(', ') + '.' : '');
+  return { dosyalar, not };
+}
+/* ⚠ LTD KAPISI — firlatir. Zip'e girecek her yol yasak kumeye karsi sinanir. */
+function azLtdKapisi(ogeler, ltdYol){
+  const karisan = ogeler.filter(o => o.yol && ltdYol.has(o.yol)).length;
+  if (karisan) throw azHata(`Ltd'ye ait ${karisan} belge listeye karıştı — arşiv DURDURULDU, hiçbir şey indirilmedi. Sistem departmanına bildir.`);
+}
+/* Saf: dosya planı + LISTE satirlari. Ayni yol tek dosya olur; onu gosteren
+   her kayit LISTE'de ayni dosya adini tasir. */
+function azPlanKur(kayitlar, kayitsiz){
+  const kullanilan = new Set(), yolAd = new Map(), dosyalar = [], satirlar = [];
+  const sirali = kayitlar.slice().sort((a, b) =>
+    String(a.tarih || '').localeCompare(String(b.tarih || '')) || String(a.tur).localeCompare(String(b.tur)));
+  for (const o of sirali){
+    let ad = null;
+    if (o.yol){
+      ad = yolAd.get(o.yol);
+      if (!ad){ ad = azAd(o, kullanilan); yolAd.set(o.yol, ad); dosyalar.push({ yol:o.yol, ad }); }
+    }
+    satirlar.push({ o, ad });
+  }
+  for (const o of kayitsiz){
+    if (yolAd.has(o.yol)) continue;
+    const ad = 'Kayitsiz/' + o.yol.replace(/[\\:*?"<>|]/g, '_');
+    kullanilan.add(ad.toLowerCase()); yolAd.set(o.yol, ad);
+    dosyalar.push({ yol:o.yol, ad }); satirlar.push({ o, ad });
+  }
+  return { dosyalar, satirlar };
+}
+function azListeCsv(satirlar, hatali){
+  const satir = a => a.map(azCsvHucre).join(';');
+  const out = [satir(['Tarih', 'Şube', 'Tür', 'Firma / başlık', 'Tutar', 'Belge dosyası', 'Kayıt no'])];
+  for (const { o, ad } of satirlar){
+    const belge = !o.yol ? 'YOK' : (hatali.has(o.yol) ? 'İNDİRİLEMEDİ' : ad);
+    out.push(satir([o.tarih || '', o.sube || '', o.turAd || o.tur, o.kayitsiz ? 'kayda bağlı değil' : (o.ad || ''),
+      (o.tutar != null && o.tutar !== '') ? azTutar(o.tutar) : '', belge,
+      o.kayit_id ? String(o.kayit_id).slice(0, 8) : '']));
+  }
+  return '﻿' + out.join('\r\n') + '\r\n';
+}
+async function azHavuz(isler, n, fn){
+  let i = 0;
+  const calis = async () => { while (i < isler.length){ const x = isler[i++]; await fn(x); } };
+  await Promise.all(Array.from({ length: Math.min(n, isler.length) }, calis));
+}
+function azIndir(blob, ad){
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = u; a.download = ad;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
+}
+async function arsivZip(){
+  if (AZ_CALISIYOR) return;
+  if (!PROFIL || PROFIL.rol !== 'owner'){ azMesaj('hata', 'Bu işlem yalnız yönetici içindir.'); return; }
+  if (!window.JSZip){ azMesaj('hata', 'Zip kütüphanesi yüklenemedi — internet bağlantısını kontrol et.'); return; }
+  const bas = document.getElementById('azBas').value || '';
+  const son = document.getElementById('azSon').value || '';
+  if (bas && son && bas > son){ azMesaj('hata', 'Başlangıç ayı bitiş ayından sonra olamaz.'); return; }
+  const kayitsizIste = !!(document.getElementById('azKayitsiz') || {}).checked;
+  const btn = document.getElementById('arsivZipBtn'), eskiEtiket = btn.textContent;
+  AZ_CALISIYOR = true; btn.disabled = true; btn.textContent = 'Kayıtlar sayılıyor...';
+  const msg = document.getElementById('arsivZipMsg'); if (msg) msg.style.display = 'none';
+  try{
+    const k = await azKaynaklariTopla();
+    const altS = bas ? bas + '-01' : null, ustS = son ? aySon(son) : null;
+    const aralikta = t => !t || ((!altS || t >= altS) && (!ustS || t <= ustS));
+    const kayitlar = k.ogeler.filter(o => aralikta(o.tarih));
+    let kayitsiz = [], kayitsizNot = 'İstenmedi.';
+    if (kayitsizIste){
+      btn.textContent = 'Kova listeleniyor...';
+      const r = azKayitsizSec(await azKovaListele(), k, aralikta);
+      kayitsiz = r.dosyalar; kayitsizNot = r.not;
+    }
+    azLtdKapisi(kayitlar.concat(kayitsiz), k.ltdYol);
+    const plan = azPlanKur(kayitlar, kayitsiz);
+    const belgesiz = kayitlar.filter(o => !o.yol).length;
+    const aralikMetni = (bas || 'en baştan') + ' – ' + (son || 'bugüne kadar');
+    if (!plan.dosyalar.length){ azMesaj('uyari', `${aralikMetni}: indirilecek belge yok (${kayitlar.length} kayıt, hepsi belgesiz).`); return; }
+    if (!confirm(`${aralikMetni}\n\nKayıt: ${kayitlar.length}\nİndirilecek belge dosyası: ${plan.dosyalar.length}\n`
+        + `Belgesi olmayan kayıt: ${belgesiz}\n`
+        + (kayitsizIste ? `Kayda bağlı olmayan dosya: ${kayitsiz.length}\n` : '')
+        + `\nİndirme başlasın mı? Çok belgede telefon yerine bilgisayar önerilir.`)){
+      azMesaj('uyari', 'İptal edildi, hiçbir şey indirilmedi.'); return;
+    }
+    const zip = new window.JSZip();
+    const hatali = new Set(); let bitti = 0;
+    await azHavuz(plan.dosyalar, AZ_ESZAMANLI, async d => {
+      try{
+        const { data, error } = await sb.storage.from('belgeler').download(d.yol);
+        if (error || !data) hatali.add(d.yol); else zip.file(d.ad, data);
+      }catch(e){ hatali.add(d.yol); }
+      bitti++; btn.textContent = `İndiriliyor ${bitti}/${plan.dosyalar.length}...`;
+    });
+    const inen = plan.dosyalar.length - hatali.size;
+    zip.file('LISTE.csv', azListeCsv(plan.satirlar, hatali));
+    zip.file('OKU.txt', [
+      'Bardaks Şahıs · Belge Arşivi',
+      'Oluşturma: ' + new Date().toLocaleString('tr-TR'),
+      'Aralık: ' + aralikMetni,
+      `Kayıt: ${kayitlar.length} · Belge dosyası: ${plan.dosyalar.length} · İndirilen: ${inen} · İndirilemeyen: ${hatali.size} · Belgesi olmayan kayıt: ${belgesiz}`,
+      'Kayda bağlı olmayan dosyalar: ' + kayitsizNot,
+      `Ltd'ye ait (ya da sahibi belirsiz) kart/kredi kaydı bilerek alınmadı: ${k.ltdSayi}`,
+      '',
+      'Bu zip belgelerin okunabilir bir kopyasıdır; şifreli günlük belge yedeğinin yerine geçmez.',
+      'Dekont ve faturalarda banka hesap numarası ve kişi adı olabilir: paylaşmadan önce düşün.',
+      'Önerilen yer: Masaüstü\\BARDAKS_OFIS\\SAHIS\\FINANS\\ARSIV\\ — İndirilenler klasöründeki kopyayı sonra sil.',
+      'Faturalar\\Odenmis / Odenmemis: arşivin indirildiği andaki açık fatura listesine göre.',
+      ''
+    ].join('\r\n'));
+    btn.textContent = 'Zip hazırlanıyor...';
+    const blob = await zip.generateAsync({ type:'blob', streamFiles:true });
+    azIndir(blob, `bardaks-sahis-arsiv_${bas || 'bas'}_${son || bugun().slice(0,7)}.zip`);
+    azMesaj(hatali.size ? 'uyari' : 'ok',
+      `İndirilen: ${inen} / ${plan.dosyalar.length} belge.`
+      + (hatali.size ? ` İndirilemeyen: ${hatali.size} (LISTE.csv'de "İNDİRİLEMEDİ").` : '')
+      + ` Belgesi olmayan kayıt: ${belgesiz} (LISTE.csv'de "YOK").`
+      + (kayitsizIste ? ' ' + kayitsizNot : ''));
+  }catch(e){
+    azMesaj('hata', 'Arşiv oluşturulamadı: ' + hataTr(e.message));
+  }finally{
+    AZ_CALISIYOR = false; btn.disabled = false; btn.textContent = eskiEtiket;
   }
 }
 async function urunEkle(){
