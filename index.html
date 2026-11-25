@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- SÜRÜM: her yüklemede DEĞİŞTİR. Uygulama bunu sunucudakiyle karşılaştırıp
      eski sürümde kalan telefonu uyarır. İlk 3000 bayt içinde kalmalı. -->
-<meta name="surum" content="2026-08-27-123">
+<meta name="surum" content="2026-08-27-124">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>bardak's kampüs</title>
@@ -2697,6 +2697,16 @@ async function belgeEkle(tablo, id, klasor, mevcutVar){
     document.body.style.cursor = 'progress';
     try{
       const yol = await dosyaYukle(f, klasor);
+      /* v155 · K-24.3 · tedarikci odemesine belge YALNIZ sunucu fonksiyonuyla
+         baglanir: personelin bu tabloda guncelleme hakki yok (olmamali), donem
+         kilidi ve sube kontrolu sunucuda. Ekran yalniz cagirir. */
+      if (tablo === 'tedarikci_odeme'){
+        const { error: re } = await sb.rpc('rpc_tedarikci_odeme_belge_ekle', { p_id: id, p_foto: yol });
+        if (re) throw new Error(re.message);
+        alert('Dekont eklendi ✓ — ödeme borçtan düştü.');
+        if (typeof AKTIF_SEKME !== 'undefined' && AKTIF_SEKME) sekmeAc(AKTIF_SEKME);
+        return;
+      }
       /* Degistirme ise eski yolu NOT alanina yaz: yeni dosya kayda baglanirken
          eskisi storage'da yetim kaliyor. Iz olmazsa hangisi oldugu bulunamaz. */
       let ek = {};
@@ -2880,6 +2890,10 @@ function hataTrIc(m){
      ODEME_VAR dalina dusuyordu). */
   if (m.includes('GEREKCE_KISA')) return 'Gerekçe en az 10 karakter olmalı.';
   if (m.includes('YETKI_YOK')) return 'Bu işlem için yetkiniz yok.';
+  /* v155 · K-24.3 dekont hatalari */
+  if (m.includes('BELGE_ZATEN_VAR')) return 'Bu ödemenin dekontu zaten var. Değiştirmek için yöneticiye söyle.';
+  if (m.includes('BELGE_YOLU_GECERSIZ')) return 'Dekont dosyası geçersiz bir yere yüklendi. Sayfayı yenileyip tekrar dene.';
+  if (m.includes('KANAL_GECERSIZ')) return 'Bildirim kanalı geçersiz.';
   if (m.includes('SUBE_UYUSMUYOR')) return 'Şube uyuşmazlığı.';
   /* v65 · KAYIT_YOK'un karşılığı YOKTU — tarayıcıda ölçüldü, ham kod
      çıkıyordu. Çift tıklamada ikinci çağrı tam olarak bunu döndürür. */
@@ -7929,6 +7943,22 @@ function tedarikciOdemeFormu(onek, sec){
       </div>
       ${tarihSecici(k('Tarih'))}
       <label>Tutar</label><input type="text" inputmode="decimal" id="${k('Tutar')}" placeholder="0,00">
+      <div id="${k('FotoAlan')}">
+        <label>Dekont / ödeme fotoğrafı</label>
+        <input type="file" id="${k('Foto')}" accept="image/*,application/pdf,.pdf">
+        <div class="ipucu">K-24.3 · Firmanın borcuna yapılan ödeme <b>dekontu eklenince</b> borçtan düşer.
+          Dekontsuz kaydedebilirsin; ödeme "belge bekliyor" görünür, dekontu sonra listeden eklersin.</div>
+      </div>${PROFIL && PROFIL.rol === 'owner' ? `
+      <div class="satir" id="${k('KanalAlan')}">
+        <div><label>Nereden bildirildi?</label>
+          <select id="${k('Kanal')}">
+            <option value="ekran">Ekrandan girildi</option>
+            <option value="telegram_grup">Telegram grubu</option>
+            <option value="telegram_birebir">Telegram (bana birebir)</option>
+          </select></div>
+        <div><label>Bildiren (rol, isim yazma)</label>
+          <input type="text" id="${k('BildirenNot')}" maxlength="60" placeholder="örn: KTÜ sorumlusu"></div>
+      </div>` : ''}
       <label>Neyle ödendi?</label>
       <select id="${k('Yontem')}" onchange="odFormYontemDegisti('${onek}')">
         ${OD_YONTEM.map(([v,a])=>`<option value="${v}">${a}</option>`).join('')}
@@ -8126,8 +8156,44 @@ async function tedarikciOdemeYuku(onek){
     p_cek_vade: cek ? (g('CekVade').value||null) : null,
     p_taksit: taksit,
     p_taksit_ilk: taksit > 1 ? taksitIlk : null,
-    p_banka: kart ? (g('Banka').value.trim()||null) : null
+    p_banka: kart ? (g('Banka').value.trim()||null) : null,
+    /* v155 · K-24.3 · kanal/bildiren yalniz SAHIPTE ekranda var; personelde
+       sunucu zaten 'ekran' + kendisi yazar (gonderilse de yok sayar).
+       ⚠ p_foto BURADA YOK: dosya ancak kayit aninda yuklenir (odDekontYukle). */
+    p_kanal: g('Kanal') ? g('Kanal').value : 'ekran',
+    p_bildiren_not: g('BildirenNot') ? (g('BildirenNot').value.trim() || null) : null
   }};
+}
+/* v155 · K-24.3 · DEKONT. Forma secilen dosyayi `dekont/` klasorune yukler,
+   yolu yuke ekler. Dosya yoksa yuk aynen gider (odeme "belge bekliyor" olur).
+   Yukleme duserse KAYIT YAPILMAZ — dekontu secip yuklenemeyen bir odemenin
+   sessizce belgesiz kaydedilmesi, kullanicinin niyetinin tersi olurdu. */
+async function odDekontYukle(onek, yuk, msgId){
+  try{
+    const yol = await fotoYukle(onek + 'Foto', 'dekont');
+    if (yol) yuk.p_foto = yol;
+    return true;
+  }catch(e){
+    mesaj(msgId, 'hata', 'Dekont yüklenemedi, ödeme KAYDEDİLMEDİ: ' + hataTr(e.message || String(e)));
+    return false;
+  }
+}
+/* Kayit sonrasi: belge yoksa kullaniciya acikca soyler (ok mesaji 5 sn'de kaybolur, bu kalir). */
+function odSonucMesaji(data, msgId){
+  if (data && data.belge_durum === 'bekliyor')
+    mesaj(msgId, 'uyari', 'Ödeme kaydedildi · DEKONT YOK: borçtan düşmedi. Dekontu ödeme listesinden "Belge ekle" ile ekle.');
+}
+/* v155 · ortak rozet: listelerde odemenin belge durumu + sonradan ekleme dugmesi.
+   Yol ve kimlik yalniz [A-Za-z0-9/._-] tasir (sunucu dekont/ desenini zorluyor). */
+function odBelgeRozet(o){
+  if (!o || !o.belge_durum) return '';
+  const ekle = `<button class="btn2" style="padding:2px 8px;font-size:12px;margin-left:4px;width:auto"
+      onclick="event.stopPropagation();belgeEkle('tedarikci_odeme','${o.id}','dekont',false)">Belge ekle</button>`;
+  if (o.belge_durum === 'var')
+    return `<span class="rozet rz-ok" style="cursor:pointer" onclick="event.stopPropagation();belgeAc('${o.foto_path}','Dekont')">📎 dekont</span>`;
+  if (o.belge_durum === 'bekliyor')
+    return `<span class="rozet rz-uyari">⏳ belge bekliyor</span>${ekle}`;
+  return `<span class="rozet" title="K-24.3 öncesi kayıt: belgesiz de borçtan düşer">eski kayıt</span>${ekle}`;
 }
 /* ⚠ Y138 · GIDER YOLUNUN TEK SOZLESMESI. `rpc_gider_kaydet`e giden
    parametre listesi ARTIK TEK YERDE — hem "Diğer" yolu hem firma+kategori
@@ -8198,6 +8264,10 @@ async function odemeGirisiKaydet(){
   if (odFormYolu('od') !== 'odeme'){
     const r = await odemeGiderYuku('od');
     if (!r.ok){ mesaj('odMsg','hata', r.hata); return; }
+    /* v155 · ayni dosya kutusu gider yolunda da var: secilen belge SESSIZCE
+       dusmesin, giderin kendi belgesi olarak (gider klasoru) gider. */
+    try{ const gy = await fotoYukle('odFoto','gider'); if (gy) r.yuk.p_foto = gy; }
+    catch(e){ mesaj('odMsg','hata','Belge yüklenemedi, kayıt YAPILMADI: ' + hataTr(e.message||String(e))); return; }
     const firmali = !!r.yuk.p_tedarikci;
     const data = await rpcCagir('rpc_gider_kaydet', r.yuk,
       'odKaydet','odMsg', firmali ? 'Gider olarak kaydedildi ✓' : 'Ödeme kaydedildi ✓');
@@ -8217,12 +8287,15 @@ async function odemeGirisiKaydet(){
      ayni listenin ikinci bir kopyasinin artik OLMAMASI. */
   const r = await tedarikciOdemeYuku('od');
   if (!r.ok){ mesaj('odMsg','hata', r.hata); return; }
+  if (!(await odDekontYukle('od', r.yuk, 'odMsg'))) return;
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet', r.yuk,
     'odKaydet','odMsg','Ödeme kaydedildi ✓');
   if (data && data.ok){
     document.getElementById('odTutar').value=''; document.getElementById('odAciklama').value='';
     document.getElementById('odTaksit').value='1'; odTaksitDegisti();
+    const of = document.getElementById('odFoto'); if (of) of.value = '';
     gdOdeme();
+    odSonucMesaji(data, 'odMsg');
   }
 }
 /* KART TAKSİT TAKVİMİ — hangi ay ne kadar kart borcu çıkacak.
@@ -8296,7 +8369,7 @@ async function gdOdeme(){
   const [gd, td] = await Promise.all([
     sb.from('gider').select('tarih,tutar,aciklama,kasadan,sube_id,gider_kategori(ad)')
       .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son),
-    sb.from('tedarikci_odeme').select('tarih,tutar,yontem,cek_no,cek_vade,aciklama,sube_id,tedarikci(ad)')
+    sb.from('tedarikci_odeme').select('id,tarih,tutar,yontem,cek_no,cek_vade,aciklama,sube_id,foto_path,belge_durum,tedarikci(ad)')
       .eq('is_deleted',false).gte('tarih',bas).lte('tarih',son)
   ]);
   const el = document.getElementById('gdOdemeListe'); if(!el) return;
@@ -8311,7 +8384,7 @@ async function gdOdeme(){
       nasil: x.kasadan ? 'Kasadan nakit' : 'Gider',
       not: esc(x.aciklama||''), kasadan: !!x.kasadan, tur:'gider' })),
     ...(td.data||[]).map(x=>({ tarih:x.tarih, tutar:+x.tutar,
-      kime: esc(x.tedarikci?.ad || 'Tedarikçi'),
+      kime: esc(x.tedarikci?.ad || 'Tedarikçi') + ' ' + odBelgeRozet(x),
       nasil: YONTEM[x.yontem] || esc(x.yontem||'—'),
       not: x.cek_no ? 'Çek '+esc(x.cek_no)+(x.cek_vade?' · vade '+new Date(x.cek_vade+'T00:00').toLocaleDateString('tr-TR'):'')
                     : esc(x.aciklama||''),
@@ -16954,7 +17027,7 @@ async function odemeListe(){
   const el = document.getElementById('odemeListe'); if(!el) return;
   const ay = bugun().slice(0,7);
   const { data, error } = await sb.from('tedarikci_odeme')
-    .select('tarih,tutar,yontem,cek_no,cek_vade,aciklama,sube_id,tedarikci(ad)')
+    .select('id,tarih,tutar,yontem,cek_no,cek_vade,aciklama,sube_id,foto_path,belge_durum,tedarikci(ad)')
     .eq('is_deleted',false).order('tarih',{ascending:false}).limit(60);
   if (error){ el.innerHTML = `<div class="uyari-agir">Ödemeler yüklenemedi: ${esc(hataTr(error.message))}</div>`; return; }
   const list = data||[];
@@ -16965,7 +17038,7 @@ async function odemeListe(){
     ? bosDurum('belge','Ödeme kaydı yok','Bir firmaya ödeme yaptığında yukarıdaki "Ödeme Kaydet" formundan gir — bakiyesi düşer ve Özet\'teki nakit çıkışına yansır.')
     : `<div class="ipucu"><b>${ayAdi(ay)}</b> içinde ${buAy.length} ödeme · toplam <b>${tl(ayToplam)}</b></div>`
       + list.map(o=>srSatir({
-          ad: esc(o.tedarikci?.ad || '—'),
+          ad: esc(o.tedarikci?.ad || '—') + ' ' + odBelgeRozet(o),
           alt: new Date(o.tarih+'T00:00').toLocaleDateString('tr-TR')
                + ' · ' + (YONTEM[o.yontem]||esc(o.yontem||'—'))
                + (o.cek_no?' '+esc(o.cek_no)+(o.cek_vade?' (vade '+new Date(o.cek_vade+'T00:00').toLocaleDateString('tr-TR')+')':''):'')
@@ -17069,7 +17142,7 @@ async function firmaDetay(id){
     // Mutabakat icin TUM faturalar — firma butun hesabi soyluyor, sadece acik olanlari degil
     sb.from('alis').select('id,tarih,belge_no,toplam,vade_tarihi,odendi')
       .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}),
-    sb.from('tedarikci_odeme').select('tarih,tutar,yontem,cek_no,cek_vade,aciklama')
+    sb.from('tedarikci_odeme').select('id,tarih,tutar,yontem,cek_no,cek_vade,aciklama,foto_path,belge_durum')
       .eq('tedarikci_id',id).eq('is_deleted',false).order('tarih',{ascending:false}),
     /* ⚠ Y80-d · SUBE SUZGECI (olculdu · Y78 sinifi kusur): bu sorgu `alis_kalem`den
        okuyordu — sube kolonu olmayan, suzgec haritasinda bulunmayan tablo. Firmaya
@@ -17128,7 +17201,8 @@ async function firmaDetay(id){
       <!-- Firma "şu kadar borcunuz var" dediğinde karşılaştıracağın döküm -->
       <div class="ud-bas"><span class="ud-blk">MUTABAKAT</span></div>
       ${ozSatir('Kesilen fatura', tl(bk.data.toplam_alis))}
-      ${ozSatir('Ödenen', '−'+tl(bk.data.toplam_odeme))}
+      ${ozSatir('Ödenen (belgeli)', '−'+tl(bk.data.toplam_odeme))}
+      ${+bk.data.bekleyen_odeme > 0 ? ozSatir('Belgesi beklenen ödeme (düşülmedi)', tl(bk.data.bekleyen_odeme)) : ''}
       ${ozSatir('KALAN BORÇ', tl(b), true)}
       <div class="ipucu" style="margin-top:8px">Firma farklı bir rakam söylüyorsa aşağıdaki fatura ve
         ödeme listesini onunkiyle karşılaştır — eksik girilen belge çıkar.</div>` : ''}
@@ -17156,7 +17230,7 @@ async function firmaDetay(id){
       ${odemeler.length===0 ? '<div class="ud-bos">Bu firmaya ödeme kaydı yok.</div>' : odemeler.map(o=>`
         <div class="ud-satir">
           <div class="ud-trh">${new Date(o.tarih+'T00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})}</div>
-          <div><div style="font-weight:800;font-size:13px">${YONTEM[o.yontem]||esc(o.yontem||'—')}</div>
+          <div><div style="font-weight:800;font-size:13px">${YONTEM[o.yontem]||esc(o.yontem||'—')} ${odBelgeRozet(o)}</div>
             <div class="ud-alt">${o.cek_no?'Çek '+esc(o.cek_no)+(o.cek_vade?' · vade '+new Date(o.cek_vade+'T00:00').toLocaleDateString('tr-TR'):''):esc(o.aciklama||'')}</div></div>
           <div class="ud-tut">${tl(o.tutar)}</div>
         </div>`).join('')}
@@ -17334,6 +17408,8 @@ async function odemeKaydet(){
   if (odFormYolu('to') === 'gider'){
     const r = await odemeGiderYuku('to');
     if (!r.ok){ mesaj('toMsg','hata', r.hata); return; }
+    try{ const gy = await fotoYukle('toFoto','gider'); if (gy) r.yuk.p_foto = gy; }
+    catch(e){ mesaj('toMsg','hata','Belge yüklenemedi, kayıt YAPILMADI: ' + hataTr(e.message||String(e))); return; }
     const data = await rpcCagir('rpc_gider_kaydet', r.yuk,
       'toKaydet','toMsg','Gider olarak kaydedildi ✓');
     if (data && data.ok) vTedarikci();
@@ -17341,9 +17417,10 @@ async function odemeKaydet(){
   }
   const r = await tedarikciOdemeYuku('to');
   if (!r.ok){ mesaj('toMsg','hata', r.hata); return; }
+  if (!(await odDekontYukle('to', r.yuk, 'toMsg'))) return;
   const data = await rpcCagir('rpc_tedarikci_odeme_kaydet', r.yuk,
     'toKaydet','toMsg','Ödeme kaydedildi ✓');
-  if (data && data.ok) vTedarikci();
+  if (data && data.ok){ await vTedarikci(); odSonucMesaji(data, 'toMsg'); }
 }
 async function dokumGoster(){
   const tid = document.getElementById('dkTedarikci').value;
@@ -21165,6 +21242,14 @@ function azOgeKur(h, subeAdFn){
     ogeler.push({ tarih:aySon(a.donem), sube:subeAd(a.sube_id), tur:'ay-ozeti', turAd:'Ay kapanış özeti',
       ad:subeAd(a.sube_id), tutar:null, yol:a.ozet_pdf_path, kayit_id:a.id });
   }
+  /* v155 · K-24.3 · tedarikci odemesi dekontlari -> Dekontlar. Dekontu olmayan
+     odeme de LISTE'ye "YOK" olarak girer: eski odemelerin dekontu buradan aranir. */
+  for (const o of (h.to || [])){
+    yolEkle(o.foto_path);
+    if (o.is_deleted) continue;
+    ogeler.push({ tarih:o.tarih, sube:subeAd(o.sube_id), tur:'dekont', turAd:'Tedarikçi ödemesi',
+      ad:(o.tedarikci && o.tedarikci.ad) || 'firma', tutar:o.tutar, yol:o.foto_path || null, kayit_id:o.id });
+  }
   azKlasorAta(ogeler, new Set((h.af || []).map(x => x.id)));
   return { ogeler, tum, ltdYol, ltdSayi };
 }
@@ -21194,7 +21279,7 @@ function azKlasorAta(ogeler, acikFatura){
 async function azKaynaklariTopla(){
   const oku = (etiket, tablo, kolon) =>
     azTumunuOku(etiket, ilk => sb.from(tablo).select(kolon, ilk ? { count:'exact' } : undefined).order('id'));
-  const [vb, gs, bm, kart, kd, ko, kr, kt, kto, so, db, ak, af] = await Promise.all([
+  const [vb, gs, bm, kart, kd, ko, kr, kt, kto, so, db, ak, af, to] = await Promise.all([
     azTumunuOku('Belgeler listesi', ilk => sb.from('v_belgeler').select('*', ilk ? { count:'exact' } : undefined)
       .order('tur').order('kayit_id')),
     oku('Gün sonu (tek kasa)', 'gun_sonu', 'id,sube_id,tarih,z_no,z_foto_path,pos_slip_foto_path,is_deleted'),
@@ -21208,10 +21293,11 @@ async function azKaynaklariTopla(){
     oku('Şahsi borç ödemeleri', 'sahis_odeme', 'id,tarih,tutar,tur,foto_path,is_deleted'),
     oku('Demirbaş', 'demirbas', 'id,sube_id,ad,alis_tarihi,tutar,foto_path,is_deleted'),
     oku('Ay kapanış', 'ay_kapanis', 'id,sube_id,donem,ozet_pdf_path,is_deleted'),
-    oku('Açık faturalar', 'v_acik_fatura', 'id,kalan')
+    oku('Açık faturalar', 'v_acik_fatura', 'id,kalan'),
+    oku('Tedarikçi ödemeleri', 'tedarikci_odeme', 'id,sube_id,tarih,tutar,foto_path,is_deleted,tedarikci(ad)')
   ]);
   const subeAd = id => (SUBELER.find(s => s.id === id) || {}).ad || '';
-  return azOgeKur({ vb, gs, bm, kart, kd, ko, kr, kt, kto, so, db, ak, af }, subeAd);
+  return azOgeKur({ vb, gs, bm, kart, kd, ko, kr, kt, kto, so, db, ak, af, to }, subeAd);
 }
 /* Kovayi ozyinelemeli listeler. Klasor ogesinin `id`'si null gelir (Storage API). */
 async function azKovaListele(){
